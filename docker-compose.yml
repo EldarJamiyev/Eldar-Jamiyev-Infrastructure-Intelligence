@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  ejii-platform:
+    build: .
+    container_name: ejii-platform
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ejii_data:/app/data
+    environment:
+      - NODE_ENV=production
+      - EJII_PORT=8443
+      - EJII_HOST=0.0.0.0
+      - EJII_DATA_DIR=/app/data
+      - EJII_HMAC_SECRET=EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026
+      - EJII_JWT_SECRET=EJII-ENTERPRISE-TOKEN-KEY-98471298471928471
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+volumes:
+  ejii_data:
+    driver: local

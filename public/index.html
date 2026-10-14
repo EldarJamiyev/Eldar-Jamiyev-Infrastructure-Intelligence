@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EJII — Eldar Jamiyev's Infrastructure Intelligence</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="manifest" href="/manifest.json">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">EJI</div>
+        <div class="brand-text">
+          <h1>EJII Platform</h1>
+          <p>Infrastructure Intel</p>
+        </div>
+      </div>
+
+      <div class="user-badge" id="userBadgeArea" style="display: none;">
+        <div class="user-info">
+          <span class="user-name" id="userDisplayName">Not Logged In</span>
+          <span class="user-role-tag" id="userRoleTag">Role</span>
+        </div>
+        <button class="btn-logout" id="btnLogout" title="Sign Out">Sign Out</button>
+      </div>
+
+      <div class="nav-section">Operations Hub</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link active" data-view="helpdesk">
+            <span>🔍</span> Helpdesk Diagnostics
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="network">
+            <span>🌐</span> Network Administrator
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="sysadmin">
+            <span>🖥️</span> System Administrator
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="rca">
+            <span>⚡</span> Root Cause Analysis (RCA)
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="automation">
+            <span>🛡️</span> Safe Automation
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="tools">
+            <span>🛠️</span> 14-Tool Intel Hub
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="appowner">
+            <span>👑</span> App Owner Governance
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span id="wsStatusText">Zero-Simulation Engine Active</span>
+        </div>
+        <div>EJII Enterprise v1.0 Production</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-wrapper">
+      <header class="topbar">
+        <div class="page-title" id="pageTitle">
+          <span>🔍</span> Helpdesk Diagnostics Workbench
+        </div>
+        <div class="topbar-stats">
+          <div class="stat-item">
+            <span>Engine:</span>
+            <span class="stat-val" style="color: var(--accent);">100% Real I/O</span>
+          </div>
+          <div class="stat-item">
+            <span>Active Incidents:</span>
+            <span class="stat-val" id="topbarIncidentsCount" style="color: var(--danger);">0</span>
+          </div>
+          <div class="stat-item">
+            <span>Monitored Nodes:</span>
+            <span class="stat-val" id="topbarNodesCount">4</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="content-body" id="mainContent">
+        <!-- Views are rendered dynamically by app.js -->
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal Container for Investigation & Approvals -->
+  <div id="modalContainer" style="display: none;"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

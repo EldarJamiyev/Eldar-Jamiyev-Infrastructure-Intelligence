@@ -1,0 +1,29 @@
+{
+  "name": "eldar-jamiyev-infrastructure-intelligence",
+  "version": "1.0.0",
+  "description": "EJII — Enterprise IT Management, Observability & Safe Remediation Platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "desktop": "node bin/ejii-desktop.js",
+    "test": "node tests/run-all-tests.js",
+    "seed": "node src/db/seed.js",
+    "cli": "node bin/run-diagnostics-cli.js"
+  },
+  "keywords": [
+    "infrastructure",
+    "network",
+    "observability",
+    "monitoring",
+    "root-cause-analysis",
+    "sysadmin",
+    "enterprise"
+  ],
+  "author": "Eldar Jamiyev",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.21.2",
+    "net-snmp": "^3.9.4",
+    "ws": "^8.18.0"
+  }
+}
