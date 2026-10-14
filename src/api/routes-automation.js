@@ -32,7 +32,7 @@ router.get('/actions', (req, res) => {
  * POST /api/automation/request
  */
 router.post('/request', requireRole(ROLES.SYSADMIN, ROLES.NETWORK_ADMIN, ROLES.APP_OWNER), (req, res) => {
-  const { actionType, targetHost = 'localhost', targetResource, parameters = {}, dryRun = false } = req.body;
+  const { actionType, targetHost = 'localhost', targetResource, parameters = {}, dryRun = false, incidentId = null } = req.body;
 
   if (!actionType) {
     return res.status(400).json({ error: 'actionType is required.' });
@@ -44,7 +44,8 @@ router.post('/request', requireRole(ROLES.SYSADMIN, ROLES.NETWORK_ADMIN, ROLES.A
     targetResource,
     parameters,
     user: req.user,
-    dryRun: Boolean(dryRun)
+    dryRun: Boolean(dryRun),
+    incidentId
   });
 
   if (!result.success) {

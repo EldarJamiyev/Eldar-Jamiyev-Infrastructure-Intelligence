@@ -6,14 +6,41 @@
 const dns = require('dns');
 const dnsPromises = dns.promises;
 
-// Resolve system nameservers dynamically
-function getBenchmarkNameservers() {
-  const systemServers = dns.getServers();
-  const list = [];
+let cachedSystemDns = null;
 
-  if (systemServers && systemServers.length > 0) {
-    list.push({ name: 'System Default DNS', ip: systemServers[0] });
+// Resolve system nameservers dynamically, accounting for Windows adapter naming and loopback fallbacks
+function getRealSystemDns() {
+  if (cachedSystemDns) return cachedSystemDns;
+  const servers = dns.getServers();
+  const nonLoopback = servers.filter(s => s !== '127.0.0.1' && s !== '::1');
+  if (nonLoopback.length > 0) {
+    cachedSystemDns = nonLoopback[0];
+    return cachedSystemDns;
   }
+  if (process.platform === 'win32') {
+    try {
+      const { execSync } = require('child_process');
+      const out = execSync('ipconfig /all', { timeout: 3000, encoding: 'utf8' });
+      const matches = out.match(/DNS Servers[ .:]+([0-9.]+)/g);
+      if (matches) {
+        for (const m of matches) {
+          const ipMatch = m.match(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/);
+          if (ipMatch && ipMatch[1] !== '127.0.0.1') {
+            cachedSystemDns = ipMatch[1];
+            return cachedSystemDns;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  cachedSystemDns = '8.8.8.8';
+  return cachedSystemDns;
+}
+
+function getBenchmarkNameservers() {
+  const sysDns = getRealSystemDns();
+  const list = [];
+  list.push({ name: 'System Default DNS', ip: sysDns });
   list.push({ name: 'Cloudflare Primary', ip: '1.1.1.1' });
   list.push({ name: 'Google Public DNS', ip: '8.8.8.8' });
   list.push({ name: 'Quad9 Secure', ip: '9.9.9.9' });
@@ -44,27 +71,27 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
   }
 
   const resolver = new dnsPromises.Resolver();
+  const activeNs = nameserver ? String(nameserver).trim() : getRealSystemDns();
+  const typeUpper = (recordType || 'A').toUpperCase();
 
   try {
-    if (nameserver) {
-      const cleanNs = String(nameserver).trim();
+    if (activeNs) {
       // Validate IP format
-      if (!/^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$/.test(cleanNs)) {
+      if (!/^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$/.test(activeNs)) {
         return {
           success: false,
           domain: cleanDomain,
           recordType,
-          nameserver: cleanNs,
+          nameserver: activeNs,
           durationMs: 0,
           records: [],
-          error: `Invalid nameserver IP address: ${cleanNs}`
+          error: `Invalid nameserver IP address: ${activeNs}`
         };
       }
-      resolver.setServers([cleanNs]);
+      resolver.setServers([activeNs]);
     }
 
     let records = [];
-    const typeUpper = recordType.toUpperCase();
 
     switch (typeUpper) {
       case 'A':
@@ -101,18 +128,40 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       success: true,
       domain: cleanDomain,
       recordType: typeUpper,
-      nameserver: nameserver || (dns.getServers()[0] || 'System Default'),
+      nameserver: activeNs || 'System Default',
       durationMs,
       records,
       error: null
     };
   } catch (err) {
+    // If system resolver socket failed with ECONNREFUSED/ETIMEOUT and domain exists in OS DNS, use OS native lookup
+    if (!nameserver && (err.code === 'ECONNREFUSED' || err.code === 'ETIMEOUT') && (typeUpper === 'A' || typeUpper === 'AAAA')) {
+      try {
+        const lookupRes = await dnsPromises.lookup(cleanDomain, { all: true });
+        const filtered = lookupRes
+          .filter(r => (typeUpper === 'A' ? r.family === 4 : r.family === 6))
+          .map(r => r.address);
+        if (filtered.length > 0) {
+          const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
+          return {
+            success: true,
+            domain: cleanDomain,
+            recordType: typeUpper,
+            nameserver: activeNs || 'System Native (getaddrinfo)',
+            durationMs,
+            records: filtered,
+            error: null
+          };
+        }
+      } catch (fallbackErr) {}
+    }
+
     const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
     return {
       success: false,
       domain: cleanDomain,
-      recordType: recordType.toUpperCase(),
-      nameserver: nameserver || (dns.getServers()[0] || 'System Default'),
+      recordType: typeUpper,
+      nameserver: activeNs || 'System Default',
       durationMs,
       records: [],
       error: err.code || err.message

@@ -13,6 +13,7 @@ const { seedDatabase } = require('./db/seed');
 const { realPing } = require('./protocols/icmp-ping');
 const { correlateAndReportIncident } = require('./core/rca-engine');
 
+const crypto = require('crypto');
 // Route modules
 const authRoutes = require('./api/routes-auth');
 const diagRoutes = require('./api/routes-diagnostics');
@@ -22,6 +23,7 @@ const rcaRoutes = require('./api/routes-rca');
 const automationRoutes = require('./api/routes-automation');
 const adminRoutes = require('./api/routes-admin');
 const toolsRoutes = require('./api/routes-tools');
+const integrationRoutes = require('./api/routes-integrations');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -30,6 +32,21 @@ seedDatabase();
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
+// Enterprise Security Headers Middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  
+  // Correlation ID tracing
+  const correlationId = req.headers['x-correlation-id'] || ('CID-' + crypto.randomBytes(4).toString('hex'));
+  req.correlationId = correlationId;
+  res.setHeader('X-Correlation-ID', correlationId);
+  next();
+});
 
 // Middleware
 app.use(express.json());
@@ -47,6 +64,7 @@ app.use('/api/rca', rcaRoutes);
 app.use('/api/automation', automationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/tools', toolsRoutes);
+app.use('/api/integrations', integrationRoutes);
 
 // Catch-all fallback middleware for SPA client navigation
 app.use((req, res) => {
@@ -102,14 +120,30 @@ async function pollRegisteredNodes() {
 
   try {
     const nodes = db.prepare('SELECT * FROM nodes').all();
+    const insertTelemetry = db.prepare(`
+      INSERT INTO telemetry_history (node_id, metric_type, metric_name, value, unit, status, raw_payload, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
 
     for (const node of nodes) {
       // Execute genuine ping
       const pingRes = await realPing(node.hostname_or_ip, 2, 1000);
       const now = new Date().toISOString();
+      const prevStatus = node.status;
 
       if (!pingRes.success || pingRes.packetLossPct === 100) {
-        db.prepare("UPDATE nodes SET last_checked = ?, last_latency_ms = null WHERE id = ?").run(now, node.id);
+        db.prepare("UPDATE nodes SET status = 'critical', last_checked = ?, last_latency_ms = null WHERE id = ?").run(now, node.id);
+
+        insertTelemetry.run(
+          node.id,
+          'icmp_ping',
+          'latency_ms',
+          null,
+          'ms',
+          'critical',
+          JSON.stringify(pingRes),
+          now
+        );
 
         // Node is failing -> correlate through RCA engine
         const correlation = correlateAndReportIncident({
@@ -127,14 +161,38 @@ async function pollRegisteredNodes() {
           correlation
         });
       } else {
-        // Node is healthy
-        db.prepare("UPDATE nodes SET status = 'healthy', last_checked = ?, last_latency_ms = ? WHERE id = ?")
-          .run(now, pingRes.avgRttMs || 0, node.id);
+        const isDegraded = pingRes.packetLossPct > 0;
+        const currentStatus = isDegraded ? 'degraded' : 'healthy';
+
+        db.prepare("UPDATE nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?")
+          .run(currentStatus, now, pingRes.avgRttMs || 0, node.id);
+
+        insertTelemetry.run(
+          node.id,
+          'icmp_ping',
+          'latency_ms',
+          pingRes.avgRttMs || 0,
+          'ms',
+          currentStatus,
+          JSON.stringify(pingRes),
+          now
+        );
+
+        // Detect recovery transition
+        if (prevStatus === 'critical' || prevStatus === 'degraded' || prevStatus === 'warning') {
+          broadcast('NODE_RECOVERED', {
+            nodeId: node.id,
+            nodeName: node.name,
+            status: 'healthy',
+            latencyMs: pingRes.avgRttMs || 0,
+            recoveredAt: now
+          });
+        }
 
         broadcast('NODE_UPDATE', {
           nodeId: node.id,
           nodeName: node.name,
-          status: 'healthy',
+          status: currentStatus,
           latencyMs: pingRes.avgRttMs || 0,
           lastChecked: now
         });
@@ -156,7 +214,7 @@ setTimeout(pollRegisteredNodes, 3000);
 // Start server
 server.listen(PORT, HOST, () => {
   console.log(`================================================================`);
-  console.log(`  EJII — Eldar Jamiyev's Infrastructure Intelligence Server     `);
+  console.log(`  EJI — Eldar Jamiyev's Infrastructure Intelligence Server      `);
   console.log(`  Real Enterprise IT Management & Observability Platform        `);
   console.log(`================================================================`);
   console.log(`  Server Listening on: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);

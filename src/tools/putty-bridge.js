@@ -39,6 +39,11 @@ function launchNativeTool(tool, targetHost = 'localhost') {
       args = ['/c', 'start', 'powershell.exe', '-NoExit'];
       break;
 
+    case 'putty':
+      processName = 'putty.exe';
+      args = [cleanTarget];
+      break;
+
     default:
       return { success: false, error: `Unauthorized or unknown tool: [${tool}]` };
   }

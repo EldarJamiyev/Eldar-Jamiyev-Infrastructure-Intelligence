@@ -9,10 +9,11 @@ const { runToolsTestSuite } = require('./tools-engines.test');
 const { runRcaTests } = require('./rca-engine.test');
 const { runAutomationTests } = require('./automation-safety.test');
 const { runAuthTests } = require('./auth-rbac.test');
+const { runEnterpriseE2ETests } = require('./enterprise-e2e.test');
 
 async function runAllTests() {
   console.log('========================================================================');
-  console.log('  EJII — Eldar Jamiyev\'s Infrastructure Intelligence Platform          ');
+  console.log("  EJI — Eldar Jamiyev's Infrastructure Intelligence Platform           ");
   console.log('  COMPREHENSIVE AUTOMATED VERIFICATION & TEST SUITE                    ');
   console.log('  Testing under Zero-Simulation & Production Reality Mandate           ');
   console.log('========================================================================');
@@ -25,7 +26,8 @@ async function runAllTests() {
     { name: '14 Native Tool Engines (Wireshark, Nmap, Sysinternals, IP Scanner, iPerf, Netcat, Packet Tracer, BleachBit, HWiNFO, FileZilla, MTR, PuTTY)', fn: runToolsTestSuite },
     { name: 'Root Cause Analysis (RCA) DAG Engine & Alarm Suppression', fn: runRcaTests },
     { name: 'Automation Safety, Protected Processes & Dual-Custody Gates', fn: runAutomationTests },
-    { name: 'Authentication, 4 Operational Roles & Cryptographic Audit Chain', fn: runAuthTests }
+    { name: 'Authentication, 4 Operational Roles & Cryptographic Audit Chain', fn: runAuthTests },
+    { name: 'Enterprise Hardening (Token Revocation, Rate Limiting, Asset CMDB, Integrations)', fn: runEnterpriseE2ETests }
   ];
 
   for (const s of suites) {

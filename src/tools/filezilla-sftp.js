@@ -6,7 +6,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
+
+const ALLOWED_ROOTS = [
+  path.resolve(process.cwd()),
+  path.resolve(os.tmpdir())
+];
+
+function isPathAllowed(targetPath) {
+  if (!targetPath) return false;
+  const resolved = path.resolve(String(targetPath));
+  return ALLOWED_ROOTS.some(root => resolved === root || resolved.startsWith(root + path.sep));
+}
 
 /**
  * Calculate SHA-256 hash of a local file
@@ -14,6 +26,9 @@ const crypto = require('crypto');
  */
 function computeFileHash(filePath) {
   return new Promise((resolve, reject) => {
+    if (!filePath || !isPathAllowed(filePath)) {
+      return reject(new Error('Access denied: File path outside authorized boundaries.'));
+    }
     if (!fs.existsSync(filePath)) {
       return reject(new Error('File not found: ' + filePath));
     }
@@ -29,8 +44,11 @@ function computeFileHash(filePath) {
  * List files in an authorized directory with metadata and hashes
  * @param {string} dirPath 
  */
-async function listDirectory(dirPath) {
+async function listDirectory(dirPath = process.cwd()) {
   const cleanPath = path.resolve(dirPath);
+  if (!isPathAllowed(cleanPath)) {
+    return { error: 'Access denied: Path is outside authorized workspace boundaries.' };
+  }
   if (!fs.existsSync(cleanPath)) {
     return { error: 'Directory does not exist.' };
   }
@@ -65,6 +83,12 @@ async function listDirectory(dirPath) {
  * @param {string} destFile 
  */
 async function compareFiles(sourceFile, destFile) {
+  if (!isPathAllowed(sourceFile) || !isPathAllowed(destFile)) {
+    return {
+      synced: false,
+      reason: 'Access denied: Path is outside authorized workspace boundaries.'
+    };
+  }
   if (!fs.existsSync(sourceFile) || !fs.existsSync(destFile)) {
     return {
       synced: false,

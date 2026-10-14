@@ -40,7 +40,7 @@ function realPing(host, count = 4, timeoutMs = 2000) {
       cmd = `ping -c ${safeCount} -W ${timeoutSec} ${sanitizedHost}`;
     }
 
-    exec(cmd, { timeout: (count * timeoutMs) + 4000 }, (error, stdout, stderr) => {
+    exec(cmd, { timeout: (safeCount * safeTimeoutMs) + 4000 }, (error, stdout, stderr) => {
       const durationMs = Date.now() - startTime;
       const raw = (stdout || '') + (stderr || '');
 
@@ -49,7 +49,7 @@ function realPing(host, count = 4, timeoutMs = 2000) {
           success: false,
           host: sanitizedHost,
           durationMs,
-          packetsSent: count,
+          packetsSent: safeCount,
           packetsReceived: 0,
           packetLossPct: 100,
           minRttMs: null,

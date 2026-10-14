@@ -8,7 +8,7 @@ const router = express.Router();
 const fs = require('fs');
 const crypto = require('crypto');
 const { authenticate, requireRole } = require('./middleware');
-const { ROLES, hashPassword } = require('../core/security');
+const { ROLES, hashPassword, revokeAllUserTokens } = require('../core/security');
 const { db } = require('../db/database');
 const { getAuditLogs, verifyChainIntegrity, logAction } = require('../core/audit-logger');
 const { DB_PATH } = require('../config');
@@ -92,6 +92,9 @@ router.put('/users/:id/status', (req, res) => {
       return res.status(400).json({ error: 'isActive must be 0 (inactive) or 1 (active).' });
     }
     db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(activeVal, userId);
+    if (activeVal === 0) {
+      revokeAllUserTokens(userId);
+    }
   }
 
   if (newPassword) {
@@ -100,6 +103,7 @@ router.put('/users/:id/status', (req, res) => {
     }
     const { hash, salt } = hashPassword(newPassword);
     db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?').run(hash, salt, userId);
+    revokeAllUserTokens(userId);
   }
 
   logAction({
@@ -165,7 +169,7 @@ router.get('/system-health', (req, res) => {
   const auditCount = db.prepare('SELECT COUNT(*) as c FROM audit_logs').get().c;
 
   res.json({
-    engine: 'EJII Enterprise Core Engine v1.0',
+    engine: 'EJI Enterprise Core Engine v1.0',
     uptimeSeconds: Math.floor(process.uptime()),
     nodeVersion: process.version,
     processId: process.pid,
@@ -184,4 +188,85 @@ router.get('/system-health', (req, res) => {
   });
 });
 
+/**
+ * GET /api/admin/audit/export
+ * Export audit log with cryptographic hashes in JSON or CSV format
+ */
+router.get('/audit/export', (req, res) => {
+  const format = String(req.query.format || 'json').toLowerCase();
+  const records = db.prepare('SELECT * FROM audit_logs ORDER BY id ASC').all();
+  const integrity = verifyChainIntegrity();
+
+  logAction({
+    userId: req.user.id,
+    username: req.user.username,
+    role: req.user.role,
+    action: 'AUDIT_EXPORTED',
+    resource: 'AUDIT_TRAIL',
+    details: `Exported ${records.length} audit records in ${format.toUpperCase()} format.`
+  });
+
+  if (format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="eji-audit-export.csv"');
+    const header = 'id,timestamp,user_id,username,role,action,resource,details,ip_address,prev_hash,hash\n';
+    const rows = records.map(r => {
+      const escape = s => `"${String(s || '').replace(/"/g, '""')}"`;
+      return [r.id, escape(r.timestamp), escape(r.user_id), escape(r.username), escape(r.role), escape(r.action), escape(r.resource), escape(r.details), escape(r.ip_address), escape(r.prev_hash), escape(r.hash)].join(',');
+    }).join('\n');
+    return res.send(header + rows);
+  }
+
+  res.json({
+    exportTimestamp: new Date().toISOString(),
+    totalRecords: records.length,
+    integrity,
+    records
+  });
+});
+
+/**
+ * GET /api/admin/settings
+ */
+router.get('/settings', (req, res) => {
+  const settings = db.prepare('SELECT * FROM system_settings').all();
+  const mapped = {};
+  for (const s of settings) {
+    mapped[s.key] = s.value;
+  }
+  res.json({ settings: mapped });
+});
+
+/**
+ * PUT/POST /api/admin/settings
+ */
+const handleSettingsUpdate = (req, res) => {
+  const settings = req.body.settings || req.body || {};
+  const now = new Date().toISOString();
+  const upsert = db.prepare('INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)');
+
+  let count = 0;
+  for (const [key, value] of Object.entries(settings)) {
+    if (key !== 'settings') {
+      upsert.run(String(key).trim(), String(value).trim(), now);
+      count++;
+    }
+  }
+
+  logAction({
+    userId: req.user.id,
+    username: req.user.username,
+    role: req.user.role,
+    action: 'SYSTEM_SETTINGS_UPDATED',
+    resource: 'SYSTEM_SETTINGS',
+    details: `Updated ${count} platform settings.`
+  });
+
+  res.json({ success: true, message: 'Settings saved successfully.' });
+};
+
+router.put('/settings', handleSettingsUpdate);
+router.post('/settings', handleSettingsUpdate);
+
 module.exports = router;
+

@@ -1,16 +1,44 @@
 {
-  "name": "EJII — Infrastructure Intelligence",
-  "short_name": "EJII",
-  "description": "Enterprise IT Operations & Observability Platform",
+  "name": "EJI — Eldar Jamiyev's Infrastructure Intelligence",
+  "short_name": "EJI Platform",
+  "description": "Enterprise IT Operations, Observability, CMDB & Safe Remediation Platform",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#0b0f19",
-  "theme_color": "#1e293b",
+  "theme_color": "#0b0f19",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><text x='50' y='65' font-size='45' font-weight='bold' fill='white' text-anchor='middle'>EJI</text></svg>",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><text x='50' y='65' font-size='42' font-weight='bold' fill='white' text-anchor='middle'>EJI</text></svg>",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Diagnostics",
+      "short_name": "Diagnostics",
+      "description": "Rapid Layer 3-7 Diagnostics",
+      "url": "/#helpdesk"
+    },
+    {
+      "name": "Incidents (RCA)",
+      "short_name": "Incidents",
+      "description": "Root Cause Analysis & Dependency DAG",
+      "url": "/#rca"
+    },
+    {
+      "name": "Asset CMDB",
+      "short_name": "Assets",
+      "description": "Authoritative Asset Inventory",
+      "url": "/#assets"
+    },
+    {
+      "name": "Dual-Custody Approvals",
+      "short_name": "Approvals",
+      "description": "Tier 3 Safe Remediation Authorizations",
+      "url": "/#appowner"
     }
   ]
 }

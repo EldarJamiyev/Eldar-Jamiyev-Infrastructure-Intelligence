@@ -17,6 +17,9 @@ async function runRcaTests() {
   assert.ok(nodeMap.has('NODE-LOCAL-HOST'), 'Must include Local Host node');
   console.log(`✓ Dependency DAG verified: ${nodes.length} nodes loaded.`);
 
+  // Ensure clean test baseline by resolving any prior active incidents on test nodes
+  db.prepare("UPDATE incidents SET status = 'resolved' WHERE primary_node_id IN ('NODE-GW-01', 'NODE-LOCAL-HOST') AND status != 'resolved'").run();
+
   // Test 2: Primary Incident Creation on Gateway Failure
   console.log('Testing Primary Incident Generation on Root Node Failure...');
   const gwIncident = correlateAndReportIncident({

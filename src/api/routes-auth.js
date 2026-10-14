@@ -5,14 +5,15 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db/database');
-const { verifyPassword, createToken, ROLES } = require('../core/security');
+const { verifyPassword, createToken, revokeToken, ROLES } = require('../core/security');
 const { logAction } = require('../core/audit-logger');
 const { authenticate } = require('./middleware');
+const { loginRateLimiter, recordLoginAttempt } = require('./rate-limiter');
 
 /**
  * POST /api/auth/login
  */
-router.post('/login', (req, res) => {
+router.post('/login', loginRateLimiter, (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -22,6 +23,7 @@ router.post('/login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim());
 
   if (!user || !verifyPassword(password, user.password_hash, user.salt)) {
+    recordLoginAttempt(req, false);
     logAction({
       userId: null,
       username: username.trim(),
@@ -35,8 +37,11 @@ router.post('/login', (req, res) => {
   }
 
   if (user.is_active !== 1) {
+    recordLoginAttempt(req, false);
     return res.status(403).json({ error: 'This user account is currently deactivated.' });
   }
+
+  recordLoginAttempt(req, true);
 
   // Update last login
   const now = new Date().toISOString();
@@ -88,17 +93,23 @@ router.get('/me', authenticate, (req, res) => {
  * POST /api/auth/logout
  */
 router.post('/logout', authenticate, (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    revokeToken(token, req.user.id);
+  }
+
   logAction({
     userId: req.user.id,
     username: req.user.username,
     role: req.user.role,
     action: 'LOGOUT',
     resource: 'AUTH',
-    details: 'User logged out.',
+    details: 'User logged out and session token was revoked.',
     ipAddress: req.ip || '127.0.0.1'
   });
 
-  res.json({ success: true, message: 'Logged out successfully.' });
+  res.json({ success: true, message: 'Logged out successfully. Session token revoked.' });
 });
 
 module.exports = router;

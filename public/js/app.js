@@ -128,7 +128,14 @@ async function login(username, password) {
 /**
  * Handle Logout
  */
-function logout() {
+async function logout() {
+  if (state.token) {
+    try {
+      await api('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.warn('Logout notification error:', e);
+    }
+  }
   state.token = null;
   state.user = null;
   localStorage.removeItem('ejii_token');
@@ -166,6 +173,7 @@ function renderView(viewName) {
 
   const titles = {
     helpdesk: '🔍 Helpdesk Diagnostics Workbench',
+    assets: '📦 Enterprise Asset Inventory & Hardware CMDB',
     network: '🌐 Network Administrator Operations',
     sysadmin: '🖥️ System Administrator Health & Controls',
     rca: '⚡ Root Cause Analysis & Problem Investigation',
@@ -174,7 +182,7 @@ function renderView(viewName) {
     appowner: '👑 Application Owner Governance & Audit'
   };
 
-  document.getElementById('pageTitle').innerHTML = titles[viewName] || 'EJII Platform';
+  document.getElementById('pageTitle').innerHTML = titles[viewName] || 'EJI Platform';
 
   if (!state.token) {
     renderLoginView();
@@ -183,6 +191,7 @@ function renderView(viewName) {
 
   switch (viewName) {
     case 'helpdesk': renderHelpdeskView(); break;
+    case 'assets': renderAssetsView(); break;
     case 'network': renderNetworkView(); break;
     case 'sysadmin': renderSysadminView(); break;
     case 'rca': renderRcaView(); break;
@@ -342,6 +351,16 @@ function renderHelpdeskView() {
         <label class="form-label">Raw Telemetry Socket Payload</label>
         <div class="console-box" id="diagRawConsole"></div>
       </div>
+
+      <!-- Operational Escalation Section -->
+      <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center; padding-top: 14px; border-top: 1px solid var(--border);">
+        <div id="escalateStatusMsg" style="font-size: 12px; color: var(--text-muted);">
+          Probed via genuine OS sockets. Ready to link with incident management.
+        </div>
+        <button class="btn btn-warning" id="btnEscalateIncident" onclick="escalateDiagnosticToIncident()" style="display: inline-flex; align-items: center; gap: 6px;">
+          <span>⚡</span> Escalate to Formal Incident
+        </button>
+      </div>
     </div>
   `;
 }
@@ -389,11 +408,353 @@ window.executeDiagnostic = async function() {
     }
 
     document.getElementById('diagRawConsole').textContent = JSON.stringify(res.result || res, null, 2);
+
+    state.lastDiagnostic = {
+      type,
+      target,
+      port,
+      result: res.result || res,
+      explanation: res.explanation || {}
+    };
+
+    const statusMsg = document.getElementById('escalateStatusMsg');
+    if (statusMsg) {
+      statusMsg.textContent = 'Probed via genuine OS sockets. Ready to link with incident management.';
+      statusMsg.style.color = 'var(--text-muted)';
+    }
   } catch (err) {
     alert(`Diagnostic error: ${err.message}`);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Run Live Diagnostic Probe';
+  }
+};
+
+window.escalateDiagnosticToIncident = async function() {
+  if (!state.lastDiagnostic) {
+    return alert('Please execute a diagnostic probe first.');
+  }
+
+  const { type, target, port, result, explanation } = state.lastDiagnostic;
+  const isFailed = (result?.status === 'DOWN' || result?.status === 'CLOSED' || result?.status === 'FILTERED' || result?.packetLossPct > 0 || (result?.statusCode && result?.statusCode >= 400) || result?.error);
+
+  const title = `[Diagnostics Escalation] ${type.toUpperCase()} check on ${target}${port ? ':' + port : ''}`;
+  const whatHappened = explanation.whatHappened || `Diagnostic probe (${type}) against ${target} reported: ${result?.status || result?.error || 'anomalous condition'}.`;
+  const whyFailed = explanation.whyItFailed || result?.error || 'Service unreachable or socket refused';
+  const recommendation = explanation.recommendation || 'Verify service status and network path';
+
+  try {
+    const res = await api('/api/rca/incidents', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        severity: isFailed ? 'high' : 'medium',
+        description: `Escalated from Helpdesk Diagnostics: ${whatHappened}`,
+        what_happened: whatHappened,
+        root_cause: whyFailed,
+        supporting_evidence: JSON.stringify({ type, target, port, result }, null, 2),
+        remediation_plan: recommendation
+      })
+    });
+
+    const statusMsg = document.getElementById('escalateStatusMsg');
+    if (statusMsg) {
+      statusMsg.innerHTML = `<span style="color: #34d399; font-weight: bold;">✓ Incident Created: <code>${res.incident.id}</code></span>`;
+    }
+    loadTopbarStats();
+    alert(`Incident ${res.incident.id} created successfully!\n\nThis incident is now linked in the RCA Investigation DAG.`);
+  } catch (err) {
+    alert(`Failed to escalate incident: ${err.message}`);
+  }
+};
+
+/**
+ * VIEW: Enterprise Asset Inventory & CMDB
+ */
+async function renderAssetsView() {
+  const container = document.getElementById('mainContent');
+  container.innerHTML = `<div style="color: var(--text-muted); padding: 20px;">Querying authoritative asset CMDB & hardware inventory...</div>`;
+
+  try {
+    const res = await api('/api/network/assets');
+    const assets = res.assets || [];
+
+    const totalCount = assets.length;
+    const managedCount = assets.filter(a => a.is_managed).length;
+    const unmanagedCount = assets.filter(a => !a.is_managed).length;
+    const alertCount = assets.filter(a => a.status === 'down' || a.status === 'degraded').length;
+
+    container.innerHTML = `
+      <!-- Stats Ribbon -->
+      <div class="grid-4" style="margin-bottom: 20px;">
+        <div class="card" style="padding: 16px;">
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Total Cataloged Assets</div>
+          <div class="metric-large" style="margin: 8px 0 4px 0;">${totalCount}</div>
+          <div style="font-size: 11px; color: var(--text-dim);">Authoritative Nodes in DB</div>
+        </div>
+        <div class="card" style="padding: 16px;">
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Managed & Monitored</div>
+          <div class="metric-large" style="margin: 8px 0 4px 0; color: #34d399;">${managedCount}</div>
+          <div style="font-size: 11px; color: var(--text-dim);">Active SLA & Telemetry</div>
+        </div>
+        <div class="card" style="padding: 16px;">
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Discovered / Unmanaged</div>
+          <div class="metric-large" style="margin: 8px 0 4px 0; color: #fbbf24;">${unmanagedCount}</div>
+          <div style="font-size: 11px; color: var(--text-dim);">Discovered via ARP / Probes</div>
+        </div>
+        <div class="card" style="padding: 16px;">
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Degraded / Offline</div>
+          <div class="metric-large" style="margin: 8px 0 4px 0; color: ${alertCount > 0 ? 'var(--danger)' : '#38bdf8'};">${alertCount}</div>
+          <div style="font-size: 11px; color: var(--text-dim);">Requiring Attention</div>
+        </div>
+      </div>
+
+      <!-- Asset Inventory Controls & Table -->
+      <div class="card">
+        <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
+          <div class="card-title">📦 Authoritative Infrastructure CMDB (${totalCount} Records)</div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="assetSearchInput" class="form-input" placeholder="🔍 Search by name, IP, MAC, vendor..." style="width: 250px; font-size: 12px; padding: 6px 10px;" oninput="filterAssetsTable()">
+            <button class="btn btn-secondary" onclick="filterAssetsByMode('all')" style="padding: 6px 12px; font-size: 12px;">All</button>
+            <button class="btn btn-secondary" onclick="filterAssetsByMode('managed')" style="padding: 6px 12px; font-size: 12px;">Managed Only</button>
+            <button class="btn btn-secondary" onclick="filterAssetsByMode('unmanaged')" style="padding: 6px 12px; font-size: 12px;">Unmanaged</button>
+            <button class="btn btn-primary" id="btnImportArp" onclick="importArpDiscovery()" style="padding: 6px 12px; font-size: 12px;">
+              ⚡ Import from ARP Discovery
+            </button>
+            <button class="btn btn-secondary" onclick="renderAddNodeModal()" style="padding: 6px 12px; font-size: 12px;">
+              + Add Asset
+            </button>
+          </div>
+        </div>
+
+        <div id="arpImportAlertBox" style="display: none; padding: 10px 14px; margin-bottom: 12px; border-radius: 6px; font-size: 12px;"></div>
+
+        <div class="table-responsive">
+          <table class="table" id="assetInventoryTable">
+            <thead>
+              <tr>
+                <th>Asset Name & ID</th>
+                <th>IP Address</th>
+                <th>MAC & Vendor (OUI)</th>
+                <th>Role / Type</th>
+                <th>Management</th>
+                <th>Status / Latency</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="assetTableBody">
+              ${assets.map(a => renderAssetRow(a)).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    window._cachedAssets = assets;
+  } catch (err) {
+    container.innerHTML = `<div class="card" style="color: var(--danger); padding: 20px;">Failed to load assets: ${err.message}</div>`;
+  }
+}
+
+function renderAssetRow(a) {
+  const isManaged = !!a.is_managed;
+  return `
+    <tr class="asset-row" data-managed="${isManaged}" data-search="${(a.name + ' ' + a.hostname_or_ip + ' ' + (a.mac_address || '') + ' ' + (a.vendor || '') + ' ' + (a.type || '')).toLowerCase()}">
+      <td>
+        <div style="font-weight: 600; color: var(--text-main);">${a.name}</div>
+        <div style="font-size: 10px; color: var(--text-dim); font-family: monospace;">${a.id}</div>
+      </td>
+      <td>
+        <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #7dd3fc;">${a.hostname_or_ip}</code>
+      </td>
+      <td>
+        <div style="font-family: monospace; font-size: 11px;">${a.mac_address || '<span style="color: var(--text-dim);">Dynamic/Local</span>'}</div>
+        <div style="font-size: 10px; color: var(--text-muted);">${a.vendor || 'Standard Host'}</div>
+      </td>
+      <td>
+        <span class="badge badge-open" style="text-transform: capitalize;">${a.type || 'server'}</span>
+      </td>
+      <td>
+        <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; ${isManaged ? 'border-color: #10b981; color: #a7f3d0;' : 'color: var(--text-muted);'}" onclick="toggleAssetManaged('${a.id}', ${isManaged})">
+          ${isManaged ? '✓ Managed' : '○ Unmanaged'}
+        </button>
+      </td>
+      <td>
+        <span class="badge badge-${a.status}">${a.status}</span>
+        ${a.last_latency_ms !== null ? `<span style="font-size: 11px; color: var(--text-dim); margin-left: 4px;">${a.last_latency_ms} ms</span>` : ''}
+      </td>
+      <td>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" id="btnPing-${a.id}" onclick="quickProbeAsset('${a.id}', '${a.hostname_or_ip}')" title="Quick ICMP Ping">
+            Ping
+          </button>
+          <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="openEditAssetModal('${a.id}')" title="Edit Metadata">
+            Edit
+          </button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+window.filterAssetsTable = function() {
+  const query = (document.getElementById('assetSearchInput')?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('.asset-row');
+  rows.forEach(r => {
+    const searchData = r.dataset.search || '';
+    r.style.display = searchData.includes(query) ? '' : 'none';
+  });
+};
+
+window.filterAssetsByMode = function(mode) {
+  const rows = document.querySelectorAll('.asset-row');
+  rows.forEach(r => {
+    const isManaged = r.dataset.managed === 'true';
+    if (mode === 'all') r.style.display = '';
+    else if (mode === 'managed') r.style.display = isManaged ? '' : 'none';
+    else if (mode === 'unmanaged') r.style.display = !isManaged ? '' : 'none';
+  });
+};
+
+window.importArpDiscovery = async function() {
+  const btn = document.getElementById('btnImportArp');
+  const alertBox = document.getElementById('arpImportAlertBox');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Scanning ARP...';
+  }
+
+  try {
+    const res = await api('/api/network/discovery/import-arp', { method: 'POST' });
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+      alertBox.style.border = '1px solid #10b981';
+      alertBox.style.color = '#34d399';
+      alertBox.textContent = `✓ ARP Discovery Complete: ${res.importedCount} new assets cataloged from ${res.totalArpEntries} real kernel ARP cache entries.`;
+    }
+    setTimeout(() => { renderAssetsView(); }, 1200);
+  } catch (err) {
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+      alertBox.style.border = '1px solid #ef4444';
+      alertBox.style.color = '#f87171';
+      alertBox.textContent = `ARP import failed: ${err.message}`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Import from ARP Discovery';
+    }
+  }
+};
+
+window.toggleAssetManaged = async function(nodeId, currentManaged) {
+  try {
+    await api(`/api/network/assets/${nodeId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_managed: !currentManaged })
+    });
+    renderAssetsView();
+  } catch (err) {
+    alert(`Failed to update management status: ${err.message}`);
+  }
+};
+
+window.quickProbeAsset = async function(nodeId, host) {
+  const btn = document.getElementById(`btnPing-${nodeId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+  }
+  try {
+    const res = await api('/api/diagnostics/ping', {
+      method: 'POST',
+      body: JSON.stringify({ host })
+    });
+    if (btn) {
+      if (res.result?.isAlive) {
+        btn.textContent = `${res.result.avgRttMs}ms`;
+        btn.style.color = '#34d399';
+      } else {
+        btn.textContent = 'Timeout';
+        btn.style.color = '#f87171';
+      }
+    }
+  } catch (err) {
+    if (btn) {
+      btn.textContent = 'Err';
+      btn.style.color = '#f87171';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.openEditAssetModal = function(nodeId) {
+  const asset = (window._cachedAssets || []).find(a => a.id === nodeId);
+  if (!asset) return;
+
+  const modal = document.getElementById('modalContainer');
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal-dialog" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <div class="card-title">✏️ Edit Asset: ${asset.name}</div>
+          <button class="btn-logout" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Asset Name</label>
+            <input type="text" class="form-input" id="editAssetName" value="${asset.name}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">IP Address / Hostname</label>
+            <input type="text" class="form-input" id="editAssetHost" value="${asset.hostname_or_ip}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Asset Role / Type</label>
+            <select class="form-select" id="editAssetType">
+              <option value="gateway" ${asset.type === 'gateway' ? 'selected' : ''}>Gateway / Router</option>
+              <option value="server" ${asset.type === 'server' ? 'selected' : ''}>Server / Host</option>
+              <option value="workstation" ${asset.type === 'workstation' ? 'selected' : ''}>Workstation</option>
+              <option value="switch" ${asset.type === 'switch' ? 'selected' : ''}>Network Switch</option>
+              <option value="iot" ${asset.type === 'iot' ? 'selected' : ''}>IoT / Embedded Device</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Hardware Vendor / OUI</label>
+            <input type="text" class="form-input" id="editAssetVendor" value="${asset.vendor || ''}" placeholder="e.g. Cisco, Dell, Intel">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveAssetMetadata('${asset.id}')">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.saveAssetMetadata = async function(nodeId) {
+  const name = document.getElementById('editAssetName').value.trim();
+  const hostname_or_ip = document.getElementById('editAssetHost').value.trim();
+  const type = document.getElementById('editAssetType').value;
+  const vendor = document.getElementById('editAssetVendor').value.trim();
+
+  if (!name || !hostname_or_ip) return alert('Name and Host are required.');
+
+  try {
+    await api(`/api/network/assets/${nodeId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, hostname_or_ip, type, vendor })
+    });
+    closeModal();
+    renderAssetsView();
+  } catch (err) {
+    alert(`Failed to save asset: ${err.message}`);
   }
 };
 
@@ -932,17 +1293,21 @@ window.runExecuteAction = async function(actionId) {
  */
 async function renderAppOwnerView() {
   const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading Governance & Cryptographic Audit Trail...</div>`;
+  container.innerHTML = `<div style="color: var(--text-muted); padding: 20px;">Loading Governance, Enterprise Integrations & Cryptographic Audit Trail...</div>`;
 
   try {
-    const [auditRes, actionsRes, usersRes, healthRes] = await Promise.all([
+    const [auditRes, actionsRes, usersRes, healthRes, integRes, settingsRes] = await Promise.all([
       api('/api/admin/audit-logs?limit=15'),
       api('/api/automation/actions'),
       api('/api/admin/users'),
-      api('/api/admin/system-health')
+      api('/api/admin/system-health'),
+      api('/api/integrations').catch(() => ({ integrations: [] })),
+      api('/api/admin/settings').catch(() => ({ settings: {} }))
     ]);
 
     const pendingApprovals = (actionsRes.actions || []).filter(a => a.approval_status === 'pending_approval');
+    const integrations = integRes.integrations || [];
+    const settings = settingsRes.settings || {};
 
     container.innerHTML = `
       <!-- Pending Approvals (Dual-Custody Gate) -->
@@ -983,11 +1348,60 @@ async function renderAppOwnerView() {
         `}
       </div>
 
-      <!-- Audit Trail & Integrity Check -->
+      <!-- Enterprise Subsystem Integrations -->
       <div class="card" style="margin-bottom: 20px;">
         <div class="card-header">
+          <div class="card-title">🔌 Enterprise Subsystem Integrations (${integrations.length})</div>
+          <button class="btn btn-secondary" onclick="openAddIntegrationModal()">+ Add Integration</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
+          Live connectors tested against actual endpoints using RFC-standard protocol handshakes (SNMP v2c/v3, SSH banner check, HTTP webhooks, WMI).
+        </p>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Integration Name</th>
+                <th>Type</th>
+                <th>Endpoint / Target</th>
+                <th>Status</th>
+                <th>Last Tested</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${integrations.map(i => `
+                <tr>
+                  <td><strong>${i.name}</strong></td>
+                  <td><span class="badge badge-open" style="text-transform: uppercase;">${i.type}</span></td>
+                  <td><code>${i.endpoint_or_host}</code></td>
+                  <td>
+                    <span id="integStatus-${i.id}" class="badge badge-${i.status === 'connected' ? 'healthy' : i.status === 'error' ? 'critical' : 'warning'}">
+                      ${i.status}
+                    </span>
+                  </td>
+                  <td style="font-size: 11px; color: var(--text-dim);">${i.last_tested ? new Date(i.last_tested).toLocaleTimeString() : 'Never'}</td>
+                  <td>
+                    <button class="btn btn-primary" id="btnTestInteg-${i.id}" style="padding: 2px 8px; font-size: 11px;" onclick="testIntegrationConnection('${i.id}')">
+                      ⚡ Test Live
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Trail & Integrity Check -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header" style="flex-wrap: wrap; gap: 8px;">
           <div class="card-title">🛡️ Cryptographic Tamper-Evident Audit Trail (HMAC-SHA256)</div>
-          <button class="btn btn-primary" onclick="verifyAuditIntegrityLive()">Verify Hash Chain Integrity</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-secondary" style="font-size: 11px;" onclick="exportAudit('csv')">📥 Export CSV</button>
+            <button class="btn btn-secondary" style="font-size: 11px;" onclick="exportAudit('json')">📥 Export JSON</button>
+            <button class="btn btn-primary" style="font-size: 11px;" onclick="verifyAuditIntegrityLive()">Verify Hash Chain Integrity</button>
+          </div>
         </div>
         <div id="auditVerifyStatusBox" style="display: none; padding: 10px; margin-bottom: 12px; border-radius: 6px;"></div>
         <div class="table-responsive">
@@ -1020,19 +1434,19 @@ async function renderAppOwnerView() {
         </div>
       </div>
 
-      <!-- User Management & System Health -->
-      <div class="grid-2">
+      <!-- Governance Policies & User Admin & Platform Health -->
+      <div class="grid-3">
+        <!-- User Administration -->
         <div class="card">
           <div class="card-header">
             <div class="card-title">👥 User & Role Administration (${usersRes.count})</div>
           </div>
           <table class="table">
-            <thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Status</th></tr></thead>
+            <thead><tr><th>Username</th><th>Role</th><th>Status</th></tr></thead>
             <tbody>
               ${usersRes.users.map(u => `
                 <tr>
                   <td><strong>${u.username}</strong></td>
-                  <td>${u.full_name}</td>
                   <td><span class="user-role-tag role-${u.role}">${u.role}</span></td>
                   <td><span class="badge badge-${u.is_active ? 'healthy' : 'critical'}">${u.is_active ? 'Active' : 'Disabled'}</span></td>
                 </tr>
@@ -1041,9 +1455,34 @@ async function renderAppOwnerView() {
           </table>
         </div>
 
+        <!-- Governance Policies -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">⚙️ EJII Platform Health</div>
+            <div class="card-title">⚙️ Governance & Retention</div>
+          </div>
+          <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px;">
+            <div>
+              <label class="form-label">Audit Retention (Days)</label>
+              <input type="number" class="form-input" id="setAuditRetention" value="${settings.audit_retention_days || 365}">
+            </div>
+            <div>
+              <label class="form-label">Telemetry Polling Interval (Sec)</label>
+              <input type="number" class="form-input" id="setPollInterval" value="${settings.telemetry_poll_interval_sec || 30}">
+            </div>
+            <div>
+              <label class="form-label">Session Idle Timeout (Min)</label>
+              <input type="number" class="form-input" id="setSessionTimeout" value="${settings.session_timeout_minutes || 60}">
+            </div>
+            <button class="btn btn-primary" onclick="savePlatformSettings()" style="margin-top: 4px;">
+              Save Governance Policies
+            </button>
+          </div>
+        </div>
+
+        <!-- Platform Health -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🖥️ Platform Runtime Health</div>
           </div>
           <div class="grid-2" style="margin-bottom: 12px;">
             <div>
@@ -1055,10 +1494,10 @@ async function renderAppOwnerView() {
               <div class="metric-sub">SQLite Database Size</div>
             </div>
           </div>
-          <div style="font-size: 12px; color: var(--text-dim);">
-            <div>Node Version: ${healthRes.nodeVersion}</div>
-            <div>Daemon Uptime: ${healthRes.uptimeSeconds} seconds</div>
-            <div>Total Audit Entries: ${healthRes.database.totalAuditRecords}</div>
+          <div style="font-size: 12px; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px;">
+            <div>Node Version: <strong>${healthRes.nodeVersion}</strong></div>
+            <div>Daemon Uptime: <strong>${healthRes.uptimeSeconds}s</strong></div>
+            <div>Total Audit Records: <strong>${healthRes.database.totalAuditRecords}</strong></div>
           </div>
         </div>
       </div>
@@ -1067,6 +1506,132 @@ async function renderAppOwnerView() {
     container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load App Owner view: ${err.message}</p></div>`;
   }
 }
+
+window.exportAudit = async function(format) {
+  try {
+    const res = await fetch(`/api/admin/audit/export?format=${format}`, {
+      headers: { 'Authorization': `Bearer ${state.token}` }
+    });
+    if (!res.ok) throw new Error(`Export failed HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eji-audit-export-${Date.now()}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`Failed to export audit log: ${err.message}`);
+  }
+};
+
+window.testIntegrationConnection = async function(id) {
+  const btn = document.getElementById(`btnTestInteg-${id}`);
+  const statusSpan = document.getElementById(`integStatus-${id}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+  }
+  try {
+    const res = await api(`/api/integrations/${id}/test`, { method: 'POST' });
+    if (statusSpan) {
+      if (res.success) {
+        statusSpan.className = 'badge badge-healthy';
+        statusSpan.textContent = `Connected (${res.latencyMs || 0}ms)`;
+      } else {
+        statusSpan.className = 'badge badge-critical';
+        statusSpan.textContent = `Failed: ${res.error || 'Unreachable'}`;
+      }
+    }
+    alert(`Integration Test [${id}]:\n${res.message || (res.success ? 'Success' : res.error)}`);
+  } catch (err) {
+    alert(`Test error: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Test Live';
+    }
+  }
+};
+
+window.savePlatformSettings = async function() {
+  const audit_retention_days = parseInt(document.getElementById('setAuditRetention').value, 10);
+  const telemetry_poll_interval_sec = parseInt(document.getElementById('setPollInterval').value, 10);
+  const session_timeout_minutes = parseInt(document.getElementById('setSessionTimeout').value, 10);
+
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        audit_retention_days,
+        telemetry_poll_interval_sec,
+        session_timeout_minutes
+      })
+    });
+    alert('Governance settings updated and applied.');
+  } catch (err) {
+    alert(`Failed to save settings: ${err.message}`);
+  }
+};
+
+window.openAddIntegrationModal = function() {
+  const modal = document.getElementById('modalContainer');
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal-dialog" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <div class="card-title">🔌 Add Enterprise Integration</div>
+          <button class="btn-logout" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Integration Name</label>
+            <input type="text" class="form-input" id="newIntegName" placeholder="e.g. Core Switch SNMP Agent">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <select class="form-select" id="newIntegType">
+              <option value="snmp">SNMP Agent (v2c/v3)</option>
+              <option value="ssh">SSH Remote Host</option>
+              <option value="webhook">HTTP Webhook</option>
+              <option value="wmi">Windows WMI / WinRM</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Endpoint / Hostname / URL</label>
+            <input type="text" class="form-input" id="newIntegHost" placeholder="e.g. 192.168.1.1 or https://alerts.corp.internal">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitNewIntegration()">Add & Register</button>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.submitNewIntegration = async function() {
+  const name = document.getElementById('newIntegName').value.trim();
+  const type = document.getElementById('newIntegType').value;
+  const endpoint_or_host = document.getElementById('newIntegHost').value.trim();
+
+  if (!name || !endpoint_or_host) return alert('Name and endpoint are required.');
+
+  try {
+    await api('/api/integrations', {
+      method: 'POST',
+      body: JSON.stringify({ name, type, endpoint_or_host })
+    });
+    closeModal();
+    renderAppOwnerView();
+  } catch (err) {
+    alert(`Failed to add integration: ${err.message}`);
+  }
+};
 
 window.reviewActionDecision = async function(actionId, approved) {
   const comment = prompt(`Enter ${approved ? 'Approval' : 'Rejection'} audit notes:`, approved ? 'Authorized by Application Owner.' : 'Rejected.');

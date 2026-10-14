@@ -10,6 +10,9 @@ const { db } = require('../src/db/database');
 async function runAuthTests() {
   console.log('\n--- Running Authentication, RBAC & Audit Trail Test Suite ---');
 
+  // Clear test tokens from previous runs
+  db.prepare("DELETE FROM revoked_tokens WHERE user_id LIKE 'USR-TEST%'").run();
+
   // Test 1: Password Hashing & Verification
   console.log('Testing PBKDF2 Password Hashing...');
   const secret = 'EnterprisePassword987!';

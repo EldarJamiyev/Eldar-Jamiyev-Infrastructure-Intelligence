@@ -8,7 +8,7 @@ const router = express.Router();
 const { authenticate, requireRole } = require('./middleware');
 const { ROLES } = require('../core/security');
 const { db } = require('../db/database');
-const { correlateAndReportIncident, resolveIncident } = require('../core/rca-engine');
+const { correlateAndReportIncident, resolveIncident, createManualIncident, updateIncident } = require('../core/rca-engine');
 const { realPing } = require('../protocols/icmp-ping');
 
 router.use(authenticate);
@@ -34,6 +34,60 @@ router.get('/incidents', (req, res) => {
 
   const incidents = db.prepare(query).all(...params);
   res.json({ count: incidents.length, incidents });
+});
+
+/**
+ * POST /api/rca/incidents
+ * Manual incident creation by Helpdesk, NetAdmin, Sysadmin, AppOwner
+ */
+router.post('/incidents', (req, res) => {
+  const { title, primaryNodeId, severity, whatHappened, rootCause, supportingEvidence, remediationPlan, assignedRole, probeEvidence } = req.body;
+
+  if (!title || !primaryNodeId || !whatHappened) {
+    return res.status(400).json({ error: 'title, primaryNodeId, and whatHappened description are required.' });
+  }
+
+  const result = createManualIncident({
+    title,
+    primaryNodeId,
+    severity: severity || 'P3_MEDIUM',
+    whatHappened,
+    rootCause,
+    supportingEvidence,
+    remediationPlan,
+    user: req.user,
+    assignedRole: assignedRole || 'helpdesk',
+    probeEvidence
+  });
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  res.status(201).json(result);
+});
+
+/**
+ * PUT /api/rca/incidents/:id
+ * Update incident status, notes, assignment, evidence
+ */
+router.put('/incidents/:id', (req, res) => {
+  const { status, assignedRole, assignedToUserId, notes, probeEvidence } = req.body;
+
+  const result = updateIncident(req.params.id, {
+    status,
+    assignedRole,
+    assignedToUserId,
+    notes,
+    probeEvidence,
+    user: req.user
+  });
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  res.json(result);
 });
 
 /**

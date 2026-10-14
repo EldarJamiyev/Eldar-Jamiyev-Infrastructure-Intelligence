@@ -245,11 +245,159 @@ function resolveIncident(incidentId, userId, username, role = 'admin', resolutio
     details: `Resolved incident [${incidentId}]. Notes: ${resolutionNotes}`
   });
 
-  return { success: true, incidentId, resolvedAt: timestamp };
+  return { success: true, incidentId, status: 'resolved', resolvedAt: timestamp };
+}
+
+/**
+ * Manually create an incident from operator diagnostics or helpdesk escalation
+ */
+function createManualIncident({ title, primaryNodeId, affected_node_id, primary_node_id, severity = 'P3_MEDIUM', whatHappened, what_happened, rootCause = '', root_cause = '', supportingEvidence = '', supporting_evidence = '', remediationPlan = '', remediation_plan = '', user, assignedRole = null, probeEvidence = null }) {
+  const incidentId = 'INC-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+  const timestamp = new Date().toISOString();
+
+  const targetNodeId = primaryNodeId || affected_node_id || primary_node_id || 'NODE-LOCAL-HOST';
+  let node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(targetNodeId);
+  if (!node) {
+    node = { id: targetNodeId, name: 'Infrastructure Node' };
+  }
+
+  const severityMap = {
+    critical: 'P1_CRITICAL',
+    p1: 'P1_CRITICAL',
+    p1_critical: 'P1_CRITICAL',
+    high: 'P2_HIGH',
+    p2: 'P2_HIGH',
+    p2_high: 'P2_HIGH',
+    medium: 'P3_MEDIUM',
+    p3: 'P3_MEDIUM',
+    p3_medium: 'P3_MEDIUM',
+    low: 'P4_LOW',
+    p4: 'P4_LOW',
+    p4_low: 'P4_LOW'
+  };
+  const normalizedSeverity = severityMap[String(severity).toLowerCase()] || 'P3_MEDIUM';
+
+  const finalWhatHappened = whatHappened || what_happened || 'Diagnostic anomaly detected.';
+  const finalRootCause = rootCause || root_cause || 'Investigating root cause via telemetry and probe evidence.';
+  const finalSupportingEvidence = supportingEvidence || supporting_evidence || 'Manual diagnostic submission.';
+  const finalRemediationPlan = remediationPlan || remediation_plan || '1. Verify asset power state.\n2. Review diagnostic logs.';
+
+  db.prepare(`
+    INSERT INTO incidents (
+      id, title, status, severity, primary_node_id, what_happened,
+      root_cause, supporting_evidence, remediation_plan, suppressed_count,
+      detected_at, assigned_role, assigned_to_user_id, operator_notes, probe_evidence_json
+    ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+  `).run(
+    incidentId,
+    title.trim(),
+    normalizedSeverity,
+    targetNodeId,
+    finalWhatHappened.trim(),
+    finalRootCause,
+    finalSupportingEvidence,
+    finalRemediationPlan,
+    timestamp,
+    assignedRole || 'helpdesk',
+    user ? (typeof user === 'string' ? user : user.id) : null,
+    `Created by ${user ? (typeof user === 'string' ? user : user.fullName || user.username) : 'operator'}.`,
+    probeEvidence ? JSON.stringify(probeEvidence) : null
+  );
+
+  try {
+    db.prepare('UPDATE nodes SET status = ? WHERE id = ?').run(
+      normalizedSeverity === 'P1_CRITICAL' ? 'critical' : 'warning',
+      targetNodeId
+    );
+  } catch (e) {}
+
+  logAction({
+    userId: user ? (typeof user === 'string' ? user : user.id) : 'SYSTEM',
+    username: user ? (typeof user === 'string' ? user : user.username) : 'Operator',
+    role: user && typeof user === 'object' && user.role ? user.role : 'helpdesk',
+    action: 'INCIDENT_CREATED_MANUAL',
+    resource: incidentId,
+    details: `Manual incident filed for [${node.name}]: ${title} [${severity}]`
+  });
+
+  return {
+    success: true,
+    id: incidentId,
+    incidentId,
+    title,
+    status: 'open',
+    severity,
+    primaryNodeId: targetNodeId,
+    detectedAt: timestamp
+  };
+}
+
+/**
+ * Update an existing incident (status, notes, assigned role/user, evidence)
+ */
+function updateIncident(incidentId, { status, assignedRole, assignedToUserId, notes, probeEvidence, user }) {
+  const incident = db.prepare('SELECT * FROM incidents WHERE id = ?').get(incidentId);
+  if (!incident) {
+    return { success: false, error: 'Incident not found.' };
+  }
+
+  const updates = [];
+  const params = [];
+
+  if (status && ['open', 'investigating', 'resolved'].includes(status)) {
+    updates.push('status = ?');
+    params.push(status);
+    if (status === 'resolved') {
+      updates.push('resolved_at = ?', 'resolved_by = ?');
+      params.push(new Date().toISOString(), user ? user.username : 'operator');
+    }
+  }
+
+  if (assignedRole) {
+    updates.push('assigned_role = ?');
+    params.push(assignedRole);
+  }
+
+  if (assignedToUserId) {
+    updates.push('assigned_to_user_id = ?');
+    params.push(assignedToUserId);
+  }
+
+  if (notes) {
+    const existingNotes = incident.operator_notes ? incident.operator_notes + '\n---\n' : '';
+    const newNoteEntry = `[${new Date().toISOString()}] ${user ? user.username : 'operator'}: ${notes.trim()}`;
+    updates.push('operator_notes = ?');
+    params.push(existingNotes + newNoteEntry);
+  }
+
+  if (probeEvidence) {
+    updates.push('probe_evidence_json = ?');
+    params.push(JSON.stringify(probeEvidence));
+  }
+
+  if (updates.length === 0) {
+    return { success: false, error: 'No valid update fields specified.' };
+  }
+
+  params.push(incidentId);
+  db.prepare(`UPDATE incidents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  logAction({
+    userId: user ? user.id : 'SYSTEM',
+    username: user ? user.username : 'Operator',
+    role: user ? user.role : 'operator',
+    action: 'INCIDENT_UPDATED',
+    resource: incidentId,
+    details: `Updated incident [${incidentId}]. New status: ${status || incident.status}`
+  });
+
+  return { success: true, incidentId };
 }
 
 module.exports = {
   getDependencyTopology,
   correlateAndReportIncident,
-  resolveIncident
+  resolveIncident,
+  createManualIncident,
+  updateIncident
 };

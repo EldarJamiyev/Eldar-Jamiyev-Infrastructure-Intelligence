@@ -13,7 +13,7 @@ const { logAction } = require('../core/audit-logger');
 /**
  * Request an automation action
  */
-function requestAction({ actionType, targetHost = 'localhost', targetResource, parameters = {}, user, dryRun = false }) {
+function requestAction({ actionType, targetHost = 'localhost', targetResource, parameters = {}, user, dryRun = false, incidentId = null }) {
   const safety = validateActionSafety({ actionType, targetHost, targetResource, parameters });
 
   if (!safety.allowed) {
@@ -33,8 +33,8 @@ function requestAction({ actionType, targetHost = 'localhost', targetResource, p
     INSERT INTO automation_actions (
       id, action_type, tier, target_host, target_resource, parameters,
       requested_by_id, requested_by_role, approval_status, execution_status,
-      dry_run, requested_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      dry_run, requested_at, incident_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     actionId,
     actionType,
@@ -47,7 +47,8 @@ function requestAction({ actionType, targetHost = 'localhost', targetResource, p
     initialApprovalStatus,
     initialExecutionStatus,
     dryRun ? 1 : 0,
-    timestamp
+    timestamp,
+    incidentId || null
   );
 
   logAction({
@@ -210,6 +211,18 @@ function executeAction(actionId, user) {
           resource: actionId,
           details: `Executed [${action.action_type}] on [${action.target_resource}]. Result: ${finalSuccess ? 'SUCCESS' : 'FAILED'}`
         });
+
+        // Automatically append remediation result to linked incident if present
+        if (action.incident_id) {
+          try {
+            const noteMsg = `Remediation action [${action.action_type}] (${action.id}) ${finalSuccess ? 'completed successfully' : 'failed'}. Result: ${finalOutput || errOutput}`;
+            const existingInc = db.prepare('SELECT operator_notes FROM incidents WHERE id = ?').get(action.incident_id);
+            if (existingInc) {
+              const updatedNotes = (existingInc.operator_notes ? existingInc.operator_notes + '\n---\n' : '') + `[${timestamp}] Safe Remediation Engine: ${noteMsg}`;
+              db.prepare('UPDATE incidents SET operator_notes = ? WHERE id = ?').run(updatedNotes, action.incident_id);
+            }
+          } catch (e) {}
+        }
 
         resolve({
           success: finalSuccess,

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>EJI Mobile — On-Call Operations & Approvals</title>
+  <link rel="stylesheet" href="mobile-style.css">
+  <link rel="manifest" href="/manifest.json">
+</head>
+<body>
+  <div id="mobileApp">
+    <!-- Top Mobile Header -->
+    <header class="mobile-header">
+      <div class="mobile-brand">
+        <span class="brand-pill">EJI</span>
+        <span class="brand-title">Mobile Intel</span>
+      </div>
+      <div class="header-actions">
+        <span class="connection-indicator connected" id="mobileConnDot" title="Live Telemetry"></span>
+        <button class="btn-icon" id="btnBiometricUnlock" title="Biometric Security" onclick="triggerBiometricAuth()">🔐</button>
+      </div>
+    </header>
+
+    <!-- Main Dynamic View Container -->
+    <main class="mobile-content" id="mobileContent">
+      <!-- Injected by mobile-app.js -->
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-tab="incidents" onclick="switchMobileTab('incidents')">
+        <span class="nav-icon">🚨</span>
+        <span class="nav-label">Incidents</span>
+        <span class="nav-badge" id="badgeIncidents" style="display: none;">0</span>
+      </button>
+      <button class="nav-btn" data-tab="approvals" onclick="switchMobileTab('approvals')">
+        <span class="nav-icon">🛡️</span>
+        <span class="nav-label">Approvals</span>
+        <span class="nav-badge badge-warning" id="badgeApprovals" style="display: none;">0</span>
+      </button>
+      <button class="nav-btn" data-tab="diagnostics" onclick="switchMobileTab('diagnostics')">
+        <span class="nav-icon">⚡</span>
+        <span class="nav-label">Probe</span>
+      </button>
+      <button class="nav-btn" data-tab="health" onclick="switchMobileTab('health')">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Status</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="mobile-app.js"></script>
+</body>
+</html>

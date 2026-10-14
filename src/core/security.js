@@ -66,21 +66,94 @@ function verifyPassword(password, storedHash, salt) {
   return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
 }
 
+const { db } = require('../db/database');
+
+/**
+ * Hash a session token using SHA-256 for persistent revocation tracking
+ */
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+/**
+ * Revoke an active session token
+ */
+function revokeToken(token, userId = 'unknown') {
+  if (!token) return false;
+  const tokenHash = hashToken(token);
+  const decoded = verifyToken(token, false);
+  const expiresAt = decoded && decoded.exp ? new Date(decoded.exp * 1000).toISOString() : new Date(Date.now() + 86400000).toISOString();
+  const user = decoded && decoded.id ? decoded.id : userId;
+  try {
+    db.prepare('INSERT OR REPLACE INTO revoked_tokens (token_hash, user_id, revoked_at, expires_at) VALUES (?, ?, ?, ?)').run(
+      tokenHash,
+      user,
+      new Date().toISOString(),
+      expiresAt
+    );
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Check if a token has been explicitly revoked
+ */
+function isTokenRevoked(token) {
+  if (!token) return true;
+  const tokenHash = hashToken(token);
+  try {
+    const row = db.prepare('SELECT token_hash FROM revoked_tokens WHERE token_hash = ?').get(tokenHash);
+    if (row) return true;
+
+    // Check if user has an active bulk revocation record
+    const decoded = verifyToken(token, false);
+    if (decoded && decoded.id) {
+      const userRevoked = db.prepare('SELECT token_hash FROM revoked_tokens WHERE user_id = ? AND token_hash LIKE ?').get(decoded.id, 'USER_ALL_%');
+      if (userRevoked) return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Revoke all active session tokens for a given user ID
+ */
+function revokeAllUserTokens(userId) {
+  if (!userId) return false;
+  try {
+    db.prepare('INSERT OR REPLACE INTO revoked_tokens (token_hash, user_id, revoked_at, expires_at) VALUES (?, ?, ?, ?)').run(
+      `USER_ALL_${userId}_${Date.now()}`,
+      userId,
+      new Date().toISOString(),
+      new Date(Date.now() + 86400000).toISOString()
+    );
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Create a signed lightweight token for session auth
  */
 function createToken(payload, expiresInHours = 24) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const exp = Math.floor(Date.now() / 1000) + (expiresInHours * 3600);
-  const data = Buffer.from(JSON.stringify({ ...payload, exp })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + (expiresInHours * 3600);
+  const jti = crypto.randomBytes(8).toString('hex');
+  const data = Buffer.from(JSON.stringify({ ...payload, exp, iat: now, jti })).toString('base64url');
   const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${data}`).digest('base64url');
   return `${header}.${data}.${signature}`;
 }
 
 /**
- * Verify and decode token
+ * Verify and decode token with revocation check
  */
-function verifyToken(token) {
+function verifyToken(token, checkRevocation = true) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -94,6 +167,9 @@ function verifyToken(token) {
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
       return null; // Expired
+    }
+    if (checkRevocation && isTokenRevoked(token)) {
+      return null; // Revoked
     }
     return payload;
   } catch (err) {
@@ -116,6 +192,10 @@ module.exports = {
   hashPassword,
   verifyPassword,
   createToken,
+  generateToken: createToken,
   verifyToken,
+  revokeToken,
+  isTokenRevoked,
+  revokeAllUserTokens,
   hasPermission
 };
