@@ -1,7 +1,7 @@
 {
   "name": "eldar-jamiyev-infrastructure-intelligence",
   "version": "1.0.0",
-  "description": "EJII — Enterprise IT Management, Observability & Safe Remediation Platform",
+  "description": "EJII — NOC Network Topology & Wireshark-Grade Wire-Level Packet Dissection Workstation",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -11,13 +11,13 @@
     "cli": "node bin/run-diagnostics-cli.js"
   },
   "keywords": [
-    "infrastructure",
-    "network",
-    "observability",
-    "monitoring",
-    "root-cause-analysis",
-    "sysadmin",
-    "enterprise"
+    "noc",
+    "network-topology",
+    "wireshark",
+    "packet-dissector",
+    "bpf",
+    "npcap",
+    "zero-elevation"
   ],
   "author": "Eldar Jamiyev",
   "license": "UNLICENSED",

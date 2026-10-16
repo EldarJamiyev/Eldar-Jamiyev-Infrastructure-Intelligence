@@ -3,70 +3,322 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EJI — Eldar Jamiyev's Infrastructure Intelligence</title>
+  <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/eji-premium.css?v=20261016-noc">
   <link rel="manifest" href="/manifest.json">
+  <style>
+    /* NOC Dual-Pane Workstation Layout Styles */
+    .noc-dual-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+    }
+    .noc-pane-upper {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .noc-pane-lower {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    /* 3-Pane Deep Packet Inspection */
+    .dpi-three-pane {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    @media (max-width: 1024px) {
+      .dpi-three-pane {
+        grid-template-columns: 1fr;
+      }
+    }
+    .hex-dump-view {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.5;
+      background: #060913;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 12px;
+      color: #94A3B8;
+      max-height: 280px;
+      overflow-y: auto;
+      white-space: pre;
+    }
+    .hex-byte-highlight {
+      background: rgba(56, 189, 248, 0.3);
+      color: #38BDF8;
+      font-weight: 700;
+      border-radius: 2px;
+    }
+    .hex-byte, .ascii-char {
+      display: inline-block;
+      transition: background-color 0.1s, color 0.1s;
+      cursor: crosshair;
+    }
+    .hex-byte:hover, .ascii-char:hover {
+      background: rgba(56, 189, 248, 0.4);
+      color: #FFF;
+    }
+    .hex-byte-active, .ascii-char-active {
+      background: #38BDF8 !important;
+      color: #000000 !important;
+      font-weight: 800 !important;
+      border-radius: 2px;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.9);
+    }
+    .protocol-tree-field:hover, .protocol-layer-header:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-radius: 3px;
+    }
+    .protocol-tree-field.active-field {
+      background: rgba(56, 189, 248, 0.25);
+      border-left: 2px solid #38BDF8;
+    }
+    /* Link Congestion Colors */
+    .link-smooth-green {
+      stroke: #10B981 !important;
+      filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.4));
+    }
+    .link-amber {
+      stroke: #F59E0B !important;
+      filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.6));
+    }
+    .link-flashing-red {
+      stroke: #EF4444 !important;
+      animation: linkFlash 0.8s ease-in-out infinite alternate;
+      filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9));
+    }
+    @keyframes linkFlash {
+      from { stroke-opacity: 0.4; stroke-width: 2px; }
+      to { stroke-opacity: 1; stroke-width: 4.5px; }
+    }
+    /* Node Anomaly Pulsing Alert */
+    .node-anomaly-pulse {
+      animation: nodePulse 0.9s infinite alternate;
+    }
+    @keyframes nodePulse {
+      from { filter: drop-shadow(0 0 4px #F59E0B); }
+      to { filter: drop-shadow(0 0 16px #EF4444); stroke: #EF4444; }
+    }
+    /* Blast Radius Highlighting */
+    .node-severed {
+      stroke: #EF4444 !important;
+      stroke-width: 2px !important;
+      opacity: 0.65;
+    }
+    .link-severed {
+      stroke: #EF4444 !important;
+      stroke-dasharray: 4, 4 !important;
+      opacity: 0.5;
+    }
+    /* Right click context menu */
+    .noc-context-menu {
+      position: absolute;
+      z-index: 1000;
+      background: #0F172A;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      padding: 6px 0;
+      min-width: 190px;
+      font-size: 12px;
+    }
+    .noc-context-item {
+      padding: 8px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-main);
+      transition: background 0.15s;
+    }
+    .noc-context-item:hover {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+    }
+  </style>
 </head>
 <body>
-  <div id="app">
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-logo">EJI</div>
-        <div class="brand-text">
-          <h1>EJI Platform</h1>
-          <p>Infrastructure Intel</p>
+  <!-- Dedicated Standalone Login-First Screen -->
+  <div id="loginScreen" class="login-screen-wrapper">
+    <div class="login-ambient-grid"></div>
+    <div class="login-glow-sphere top-glow"></div>
+    <div class="login-glow-sphere bottom-glow"></div>
+
+    <div class="login-card">
+      <div class="login-card-rim-highlight"></div>
+      
+      <!-- High-Tech Aerospace Status Capsule -->
+      <div class="login-status-capsule">
+        <div class="login-status-indicator">
+          <span class="status-radar-dot"></span>
+          <span class="status-live-text">OPERATIONAL // SECURE RUNTIME</span>
+        </div>
+        <div class="login-security-tag">
+          <span class="tag-accent">CLASSIFICATION:</span> UNPRIVILEGED NOC GATEWAY
         </div>
       </div>
 
-      <div class="user-badge" id="userBadgeArea" style="display: none;">
+      <!-- Brand Identity Section -->
+      <div class="login-card-header">
+        <div class="login-brand-emblem-wrap">
+          <div class="emblem-halo"></div>
+          <svg class="login-brand-svg" width="60" height="60" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="32" cy="32" r="30" stroke="rgba(56, 189, 248, 0.2)" stroke-width="1.5" stroke-dasharray="3 3"/>
+            <circle cx="32" cy="32" r="23" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.5"/>
+            <circle cx="32" cy="32" r="14" stroke="#38BDF8" stroke-width="1.5" opacity="0.8"/>
+            <line x1="32" y1="2" x2="32" y2="9" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+            <line x1="32" y1="55" x2="32" y2="62" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+            <line x1="2" y1="32" x2="9" y2="32" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+            <line x1="55" y1="32" x2="62" y2="32" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+            <path d="M22 26L32 18L42 26L38 38L26 38Z" stroke="#0EA5E9" stroke-width="1.5" fill="rgba(14, 165, 233, 0.15)"/>
+            <circle cx="32" cy="18" r="2.5" fill="#38BDF8" filter="drop-shadow(0 0 4px #38BDF8)"/>
+            <circle cx="22" cy="26" r="2" fill="#34D399"/>
+            <circle cx="42" cy="26" r="2" fill="#34D399"/>
+            <circle cx="26" cy="38" r="2" fill="#A78BFA"/>
+            <circle cx="38" cy="38" r="2" fill="#A78BFA"/>
+            <circle cx="32" cy="29" r="3" fill="#0284C7" stroke="#38BDF8" stroke-width="1.5"/>
+            <circle cx="32" cy="29" r="1.2" fill="#FFFFFF"/>
+          </svg>
+        </div>
+        <h1 class="login-brand-title">Eldar Jamiyev's Infrastructure Intelligence</h1>
+        <p class="login-brand-subtitle">NOC Topology &amp; Wire-Level Packet Dissection Engine</p>
+      </div>
+
+      <!-- Live Environment Introspection Telemetry Bar -->
+      <div id="loginTelemetryBar" class="login-telemetry-grid">
+        <div class="telemetry-chip">
+          <span class="telemetry-label">DEFAULT GATEWAY</span>
+          <span id="loginTelGateway" class="telemetry-value val-cyan">10.168.195.1</span>
+        </div>
+        <div class="telemetry-chip">
+          <span class="telemetry-label">LAN SCOPE</span>
+          <span id="loginTelSubnet" class="telemetry-value val-emerald">10.168.195.0/24</span>
+        </div>
+        <div class="telemetry-chip">
+          <span class="telemetry-label">PACKET DRIVER</span>
+          <span id="loginTelDriver" class="telemetry-value val-purple">Npcap Physical</span>
+        </div>
+        <div class="telemetry-chip">
+          <span class="telemetry-label">SYSTEM HOST</span>
+          <span id="loginTelHost" class="telemetry-value val-amber">Local System</span>
+        </div>
+      </div>
+
+      <div id="loginErrorAlert" class="login-error-alert" role="alert">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+        <span id="loginErrorMessage">Invalid username or password.</span>
+      </div>
+
+      <!-- 1-Click Quick Operator Entry CTA -->
+      <button type="button" class="login-quick-cta-btn" onclick="window.quickNocLogin()">
+        <span class="cta-shimmer"></span>
+        <span class="cta-content">
+          <svg class="cta-bolt" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span class="cta-title">Enter Eldar Jamiyev's Infrastructure Intelligence</span>
+        </span>
+      </button>
+
+      <div class="login-divider">
+        <span>OR AUTHENTICATE WITH OPERATOR CREDENTIALS</span>
+      </div>
+
+      <form id="loginForm" onsubmit="window.handleLoginFormSubmit(event)">
+        <div class="login-form-group">
+          <label class="login-form-label" for="loginUsername">OPERATOR IDENTITY</label>
+          <div class="login-input-wrap">
+            <svg class="login-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="loginUsername" class="login-input" placeholder="e.g. noc" value="noc" required autocomplete="username">
+          </div>
+        </div>
+
+        <div class="login-form-group">
+          <label class="login-form-label" for="loginPassword">ACCESS TOKEN / PASSWORD</label>
+          <div class="login-input-wrap">
+            <svg class="login-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="password" id="loginPassword" class="login-input" placeholder="••••••••" value="noc2026!" required autocomplete="current-password">
+          </div>
+        </div>
+
+        <button type="submit" id="btnSubmitLogin" class="login-btn-submit">
+          <span id="loginBtnText">Sign In to Workstation</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </form>
+
+      <div class="login-card-footer">
+        <div class="login-badges">
+          <span class="hud-pill"><span class="hud-dot dot-green"></span> UNPRIVILEGED RUNTIME</span>
+          <span class="hud-pill"><span class="hud-dot dot-cyan"></span> NPCAP WIRE DIRECT</span>
+          <span class="hud-pill"><span class="hud-dot dot-purple"></span> ZERO-FICTION TELEMETRY</span>
+        </div>
+        <div class="login-footer-meta">STATION: LOCALHOST:8080 &bull; RFC-793 / RFC-826 CONFORMANT &bull; EJII SECURE ENCLAVE</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" style="display: none;">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo" style="background: linear-gradient(135deg, #0284c7, #38bdf8); font-size: 13px; font-weight: 800;" title="Eldar Jamiyev's Infrastructure Intelligence">EJII</div>
+        <div class="brand-text">
+          <h1>Eldar Jamiyev's Infrastructure Intelligence</h1>
+          <p>NOC Workstation &amp; Live Wire Dissector</p>
+        </div>
+      </div>
+
+      <div class="user-badge" id="userBadgeArea">
         <div class="user-info">
-          <span class="user-name" id="userDisplayName">Not Logged In</span>
-          <span class="user-role-tag" id="userRoleTag">Role</span>
+          <span class="user-name" id="userDisplayName">NOC Operator</span>
+          <span class="user-role-tag" id="userRoleTag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">UNPRIVILEGED NOC</span>
         </div>
         <button class="btn-logout" id="btnLogout" title="Sign Out">Sign Out</button>
       </div>
 
-      <div class="nav-section">Operations Hub</div>
+      <!-- Quick Jump Button -->
+      <div style="padding: 10px 14px 4px;">
+        <button id="btnOpenCommandPalette" class="btn" style="width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-muted); font-size: 12px; padding: 7px 12px; border-radius: 6px; cursor: pointer;">
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            Quick Command
+          </span>
+          <span class="command-palette-kbd">Ctrl+K</span>
+        </button>
+      </div>
+
+      <div class="nav-section">NOC OPERATIONS</div>
       <ul class="nav-links">
         <li>
-          <a class="nav-link active" data-view="helpdesk">
-            <span>🔍</span> Helpdesk Diagnostics
+          <a class="nav-link active" data-view="topology" onclick="window.renderView('topology')">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            🗺️ 1. NOC Network Topology &amp; Dependency Graph Map
           </a>
         </li>
         <li>
-          <a class="nav-link" data-view="assets">
-            <span>📦</span> Asset Inventory
+          <a class="nav-link" data-view="packet-sniffer" onclick="window.renderView('packet-sniffer')">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h5l2-8 5 16 3-8h5"/></svg>
+            🦈 2. Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector
           </a>
         </li>
         <li>
-          <a class="nav-link" data-view="network">
-            <span>🌐</span> Network Administrator
+          <a class="nav-link" data-view="ultra-ip-scanner" onclick="window.renderView('ultra-ip-scanner')">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
+            📡 3. Ultra IP Scanner
           </a>
         </li>
         <li>
-          <a class="nav-link" data-view="sysadmin">
-            <span>🖥️</span> System Administrator
-          </a>
-        </li>
-        <li>
-          <a class="nav-link" data-view="rca">
-            <span>⚡</span> Root Cause Analysis (RCA)
-          </a>
-        </li>
-        <li>
-          <a class="nav-link" data-view="automation">
-            <span>🛡️</span> Safe Automation
-          </a>
-        </li>
-        <li>
-          <a class="nav-link" data-view="tools">
-            <span>🛠️</span> 14-Tool Intel Hub
-          </a>
-        </li>
-        <li>
-          <a class="nav-link" data-view="appowner">
-            <span>👑</span> App Owner Governance
+          <a class="nav-link" data-view="pc-automation" onclick="window.renderView('pc-automation')">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            ⚡ 4. Automation of Local PC Settings (BAT Files @ e:\Scripts)
           </a>
         </li>
       </ul>
@@ -74,53 +326,96 @@
       <div class="sidebar-footer">
         <div class="status-pill">
           <span class="status-dot"></span>
-          <span id="wsStatusText">Zero-Simulation Engine Active</span>
+          <span id="wsStatusText">Live Wire Connected</span>
         </div>
-        <div>EJI Enterprise v1.0 Production</div>
+        <div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Zero Elevation &bull; User-Space Safe</div>
       </div>
     </aside>
 
     <!-- Main Content Area -->
     <main class="main-wrapper">
       <header class="topbar">
-        <div class="page-title" id="pageTitle">
-          <span>🔍</span> Helpdesk Diagnostics Workbench
+        <div class="page-title" id="pageTitle" style="display: flex; align-items: center; gap: 8px;">
+          <span>🌐</span> Eldar Jamiyev's Infrastructure Intelligence — NOC Workstation
         </div>
         <div class="topbar-stats">
-          <div class="stat-item">
-            <span>Engine:</span>
-            <span class="stat-val" style="color: var(--accent);">100% Real I/O</span>
+          <div class="stat-item" title="Active Berkeley Packet Filter">
+            <span>BPF Filter:</span>
+            <span class="stat-val" id="topbarBpfFilter" style="color: var(--accent); font-family: var(--font-mono); font-size: 11px;">[ALL WIRE]</span>
           </div>
-          <div class="stat-item">
-            <span>Active Incidents:</span>
-            <span class="stat-val" id="topbarIncidentsCount" style="color: var(--danger);">0</span>
+          <div class="stat-item" title="Wire-level anomalies detected (retransmits, resets, latency spikes)">
+            <span>Anomalies:</span>
+            <span class="stat-val" id="topbarAnomaliesCount" style="color: var(--warning); font-weight: 700;">0</span>
           </div>
-          <div class="stat-item">
-            <span>Monitored Nodes:</span>
-            <span class="stat-val" id="topbarNodesCount">4</span>
+          <div class="stat-item" title="Topology nodes discovered">
+            <span>Nodes:</span>
+            <span class="stat-val" id="topbarNodesCount">6</span>
           </div>
+          <!-- Quick Action Buttons -->
+          <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Run unprivileged SNMP/ARP Layer 2/3 Dynamic Discovery">
+            <span>⚡ Discover L2/3</span>
+          </button>
+          <button class="btn btn-secondary" onclick="window.triggerBlastRadiusModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Simulate failure blast radius on selected node">
+            <span>💥 Blast Radius</span>
+          </button>
+          <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Trace graphical hop-by-hop route across topology">
+            <span>🧭 Path Trace</span>
+          </button>
+          <button class="btn btn-secondary" onclick="window.toggleJuniorAdminCheatSheet()" style="font-size: 11px; padding: 4px 8px; margin-left: 6px; display: inline-flex; align-items: center; gap: 4px;" title="Rookie Admin Operational Field Manual (Ctrl+H)">
+            <span>📘 Field Manual</span>
+            <span class="command-palette-kbd" style="font-size: 9px; padding: 1px 3px;">Ctrl+H</span>
+          </button>
         </div>
       </header>
 
       <section class="content-body" id="mainContent">
-        <!-- Views are rendered dynamically by app.js -->
+        <!-- Rendered dynamically by noc-view.js -->
       </section>
     </main>
   </div>
 
-  <!-- Modal Container for Investigation & Approvals -->
+  <!-- Global Command Palette Modal (Ctrl+K) -->
+  <div id="commandPalette" class="command-palette-backdrop" style="display: none;">
+    <div class="command-palette-modal">
+      <div class="command-palette-input-wrap">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); flex-shrink: 0;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="commandPaletteInput" class="command-palette-input" placeholder="Type command: BPF filter, ping sweep, blast radius, trace path..." autocomplete="off">
+        <span class="command-palette-kbd">ESC</span>
+      </div>
+      <ul id="commandPaletteResults" class="command-palette-results">
+        <!-- Populated dynamically -->
+      </ul>
+    </div>
+  </div>
+
+  <!-- Right-Click Context Menu for Link / Node Sniffing -->
+  <div id="nocContextMenu" class="noc-context-menu" style="display: none;">
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('sniff')">
+      <span>🦈</span> Sniff Traffic on this Link / Node
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('blast')">
+      <span>💥</span> Simulate Failure Blast Radius
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('trace')">
+      <span>🧭</span> Trace Hop-by-Hop Path Here
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('probe')">
+      <span>⚡</span> Run Immediate Dual Probe
+    </div>
+  </div>
+
+  <!-- Modal Container for Blast Radius, Diagnostics & Trace Results -->
   <div id="modalContainer" style="display: none;"></div>
 
+  <!-- Core Scripts -->
+  <script src="/js/components/command-palette.js"></script>
+  <script src="/js/components/junior-admin-guide.js"></script>
+  <script src="/js/components/ai-brain-drawer.js"></script>
+  <script src="/js/views/noc-view.js"></script>
+  <script src="/js/views/topology-view.js"></script>
+  <script src="/js/views/sniffer-view.js"></script>
+  <script src="/js/views/ultra-ip-scanner-view.js"></script>
+  <script src="/js/views/pc-automation-view.js"></script>
   <script src="/js/app.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then(reg => console.log('[EJI] PWA Service Worker active:', reg.scope))
-          .catch(err => console.warn('[EJI] Service Worker registration failed:', err));
-      });
-    }
-  </script>
 </body>
 </html>
-

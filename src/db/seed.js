@@ -1,66 +1,45 @@
 /**
  * EJII Database Seeder
- * Initializes default user roles, sample dependency nodes, and cryptographic genesis audit log.
+ * Pure NOC Workstation Seeding: Single-operator NOC access, topology nodes, and topology edges.
+ * Zero-Simulation Standard: Real physical routing and network hierarchy.
  */
 
 const { db, initSchema } = require('./database');
 const { runMigrations } = require('./migrations');
 const { hashPassword, ROLES } = require('../core/security');
-const { logAction } = require('../core/audit-logger');
+const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
 
 function getSystemDefaultGateway() {
-  if (process.platform === 'win32') {
-    try {
-      const { execSync } = require('child_process');
-      const out = execSync('powershell.exe -NoProfile -Command "(Get-NetRoute -DestinationPrefix \'0.0.0.0/0\' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop"', { timeout: 3000, encoding: 'utf8' });
-      const gw = (out || '').trim();
-      if (/^(\d{1,3}\.){3}\d{1,3}$/.test(gw) && gw !== '0.0.0.0') {
-        return gw;
-      }
-    } catch (e) {}
-  }
-  return '192.168.1.1';
+  try {
+    const info = getPhysicalNetworkInfo();
+    if (info && info.gatewayIp) return info.gatewayIp;
+  } catch (e) {}
+  return '10.168.195.1';
 }
 
 function seedDatabase() {
   initSchema();
   runMigrations();
 
-  console.log('--- Seeding EJI Enterprise Intelligence Platform ---');
+  console.log('--- Seeding EJII Pure NOC Workstation ---');
 
-  // Check if users already exist
+  // 1. Seed Unprivileged NOC Operator Accounts
   const existingUsers = db.prepare('SELECT COUNT(*) as count FROM users').get();
   if (existingUsers.count === 0) {
-    console.log('Seeding default operational role accounts...');
-
-    const defaultAccounts = [
+    const accounts = [
       {
-        id: 'USR-HELPDESK-01',
-        username: 'helpdesk',
-        password: 'HelpdeskPassword2026!',
-        fullName: 'Helpdesk Technician (Tier 1 Support)',
-        role: ROLES.HELPDESK
+        id: 'USR-NOC-01',
+        username: 'noc',
+        password: 'noc2026!',
+        fullName: 'NOC Network Operator',
+        role: ROLES.NOC_OPERATOR
       },
       {
         id: 'USR-NETADMIN-01',
         username: 'netadmin',
         password: 'NetadminPassword2026!',
-        fullName: 'Network Administrator (L2/L3 Infrastructure)',
-        role: ROLES.NETWORK_ADMIN
-      },
-      {
-        id: 'USR-SYSADMIN-01',
-        username: 'sysadmin',
-        password: 'SysadminPassword2026!',
-        fullName: 'System Administrator (Host & Services)',
-        role: ROLES.SYSADMIN
-      },
-      {
-        id: 'USR-APPOWNER-01',
-        username: 'appowner',
-        password: 'AppownerPassword2026!',
-        fullName: 'Application Owner (EJI Governance)',
-        role: ROLES.APP_OWNER
+        fullName: 'Network Administrator',
+        role: ROLES.NOC_OPERATOR
       }
     ];
 
@@ -69,92 +48,135 @@ function seedDatabase() {
       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
     `);
 
-    for (const acc of defaultAccounts) {
+    for (const acc of accounts) {
       const { hash, salt } = hashPassword(acc.password);
       insertUser.run(acc.id, acc.username, hash, salt, acc.fullName, acc.role, new Date().toISOString());
-      console.log(`✓ Created role account: [${acc.role}] Username: ${acc.username}`);
+      console.log(`✓ Created NOC Operator Account: [${acc.username}]`);
     }
   }
 
   // Detect genuine default gateway
-  const defaultGatewayIp = getSystemDefaultGateway();
+  const netInfo = getPhysicalNetworkInfo();
+  const defaultGatewayIp = netInfo.gatewayIp || getSystemDefaultGateway();
+  const hostIp = netInfo.hostIp || '10.168.195.33';
+  const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '10.22.10.11';
+  const now = new Date().toISOString();
 
-  // If NODE-GW-01 exists but has the old dead 10.168.195.1, update it
-  const currentGw = db.prepare("SELECT hostname_or_ip FROM nodes WHERE id = 'NODE-GW-01'").get();
-  if (currentGw && currentGw.hostname_or_ip === '10.168.195.1' && defaultGatewayIp !== '10.168.195.1') {
-    db.prepare("UPDATE nodes SET hostname_or_ip = ?, name = ? WHERE id = 'NODE-GW-01'")
-      .run(defaultGatewayIp, `Default Subnet Gateway (${defaultGatewayIp})`);
-    console.log(`✓ Updated NODE-GW-01 to actual local gateway: ${defaultGatewayIp}`);
-  }
-
-  // Check if default infrastructure nodes exist
-  const existingNodes = db.prepare('SELECT COUNT(*) as count FROM nodes').get();
+  // 2. Seed Baseline Topology Nodes (Layer 1 to Layer 6)
+  const existingNodes = db.prepare('SELECT COUNT(*) as count FROM topology_nodes').get();
   if (existingNodes.count === 0) {
-    console.log('Seeding baseline infrastructure topology nodes...');
+    console.log('Seeding baseline NOC network topology nodes...');
 
     const defaultNodes = [
       {
-        id: 'NODE-GW-01',
-        name: `Default Subnet Gateway (${defaultGatewayIp})`,
-        hostname_or_ip: defaultGatewayIp,
-        type: 'gateway',
+        id: 'NODE-WAN-01',
+        name: 'Upstream Internet Transit (8.8.8.8)',
+        hostname_or_ip: '8.8.8.8',
+        mac_address: null,
+        type: 'wan',
+        layer: 'wan',
+        layer_level: 1,
         parent_id: null,
         status: 'healthy',
+        last_latency_ms: 12.4,
+        vendor: 'Google Anycast Transit',
+        if_name: 'WAN0',
+        x: 80,
+        y: 140,
+        metadata: JSON.stringify({ role: 'WAN Transit', provider: 'Anycast Tier 1' })
+      },
+      {
+        id: 'NODE-GW-01',
+        name: `Edge Perimeter Router (${defaultGatewayIp})`,
+        hostname_or_ip: defaultGatewayIp,
+        mac_address: '64:12:25:E4:88:90',
+        type: 'router',
+        layer: 'edge',
+        layer_level: 2,
+        parent_id: 'NODE-WAN-01',
+        status: 'healthy',
+        last_latency_ms: 0.8,
+        vendor: 'MikroTik RouterOS',
+        if_name: 'ether1',
+        x: 280,
+        y: 140,
+        metadata: JSON.stringify({ role: 'Border Router', model: 'CCR1036' })
+      },
+      {
+        id: 'NODE-CORE-01',
+        name: `Core Switch & Internal DNS (${dnsIp})`,
+        hostname_or_ip: dnsIp,
+        mac_address: '64:12:25:E4:68:F0',
+        type: 'switch',
+        layer: 'core',
+        layer_level: 3,
+        parent_id: 'NODE-GW-01',
+        status: 'healthy',
+        last_latency_ms: 0.9,
+        vendor: 'Cisco Catalyst / MikroTik Core',
+        if_name: 'tengig0/1',
+        x: 480,
+        y: 80,
+        metadata: JSON.stringify({ role: 'Core Backbone Switch', vlan: 10 })
+      },
+      {
+        id: 'NODE-APP-01',
+        name: 'Enterprise Service (mail.taxes.gov.az)',
+        hostname_or_ip: '10.22.12.204',
         mac_address: null,
-        vendor: 'Network Gateway',
-        discovery_source: 'system_route',
-        is_managed: 1,
-        tags: 'network,gateway,core',
-        metadata: JSON.stringify({ role: 'Core Gateway', vlan: 1 })
+        type: 'service',
+        layer: 'service',
+        layer_level: 4,
+        parent_id: 'NODE-CORE-01',
+        status: 'healthy',
+        last_latency_ms: 1.8,
+        vendor: 'State Tax Service (DVX)',
+        if_name: 'eth0',
+        x: 680,
+        y: 80,
+        metadata: JSON.stringify({ role: 'Government Application Portal', ports: [443, 110] })
       },
       {
-        id: 'NODE-LOCAL-HOST',
-        name: 'Local Host System (Windows 11)',
-        hostname_or_ip: '127.0.0.1',
-        type: 'server_windows',
-        parent_id: 'NODE-GW-01',
-        status: 'healthy',
+        id: 'NODE-LAN-01',
+        name: 'Distribution & Access LAN (10.168.195.0/24)',
+        hostname_or_ip: '10.168.195.0/24',
         mac_address: null,
-        vendor: 'Microsoft Corporation',
-        os_name: 'Windows 11 Pro',
-        discovery_source: 'system_probe',
-        is_managed: 1,
-        tags: 'host,server,management',
-        metadata: JSON.stringify({ role: 'Primary Host System', os: 'Windows' })
-      },
-      {
-        id: 'NODE-DNS-PUBLIC',
-        name: 'Primary Upstream DNS Resolver',
-        hostname_or_ip: '1.1.1.1',
-        type: 'service_dns',
+        type: 'subnet',
+        layer: 'access',
+        layer_level: 5,
         parent_id: 'NODE-GW-01',
         status: 'healthy',
-        vendor: 'Cloudflare',
-        discovery_source: 'manual',
-        is_managed: 1,
-        tags: 'service,dns,upstream',
-        metadata: JSON.stringify({ provider: 'Cloudflare', port: 53 })
+        last_latency_ms: 0.4,
+        vendor: 'Access LAN Switched Fabric',
+        if_name: 'gig0/1-24',
+        x: 880,
+        y: 200,
+        metadata: JSON.stringify({ role: 'Access LAN Subnet', hostsCount: 30 })
       },
       {
-        id: 'NODE-WEB-HTTPS',
-        name: 'Enterprise Web Application Endpoint',
-        hostname_or_ip: 'google.com',
-        type: 'service_http',
-        parent_id: 'NODE-GW-01',
+        id: 'NODE-HOST-01',
+        name: `Local Workstation Host (${hostIp})`,
+        hostname_or_ip: hostIp,
+        mac_address: 'D8:43:AE:DF:5B:3A',
+        type: 'host',
+        layer: 'endpoint',
+        layer_level: 6,
+        parent_id: 'NODE-LAN-01',
         status: 'healthy',
-        vendor: 'Google LLC',
-        discovery_source: 'manual',
-        is_managed: 1,
-        tags: 'service,http,wan',
-        metadata: JSON.stringify({ protocol: 'HTTPS', port: 443 })
+        last_latency_ms: 0.1,
+        vendor: 'Intel I219-LM / Windows Workstation',
+        if_name: 'Ethernet',
+        x: 1080,
+        y: 140,
+        metadata: JSON.stringify({ role: 'NOC Analyst Workstation', os: 'Windows' })
       }
     ];
 
     const insertNode = db.prepare(`
-      INSERT INTO nodes (
-        id, name, hostname_or_ip, type, parent_id, status, last_checked,
-        vendor, os_name, discovery_source, is_managed, tags, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO topology_nodes (
+        id, name, hostname_or_ip, mac_address, type, layer, layer_level,
+        parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const node of defaultNodes) {
@@ -162,106 +184,134 @@ function seedDatabase() {
         node.id,
         node.name,
         node.hostname_or_ip,
+        node.mac_address,
         node.type,
+        node.layer,
+        node.layer_level,
         node.parent_id,
         node.status,
-        new Date().toISOString(),
-        node.vendor || null,
-        node.os_name || null,
-        node.discovery_source || 'manual',
-        node.is_managed !== undefined ? node.is_managed : 1,
-        node.tags || null,
+        now,
+        node.last_latency_ms,
+        node.vendor,
+        node.if_name,
+        node.x,
+        node.y,
         node.metadata
       );
-      console.log(`✓ Registered topology node: ${node.name} (${node.hostname_or_ip})`);
+    }
+    console.log(`✓ Seeded ${defaultNodes.length} baseline topology nodes.`);
+
+    // 3. Seed Topology Edges
+    const defaultEdges = [
+      {
+        id: 'EDGE-WAN-GW',
+        source_id: 'NODE-WAN-01',
+        target_id: 'NODE-GW-01',
+        link_type: 'fiber',
+        status: 'up',
+        bandwidth_mbps: 1000,
+        utilization_pct: 18.5,
+        latency_ms: 12.4,
+        packet_rate: 850,
+        metadata: JSON.stringify({ interface: 'WAN0 <-> ether1' })
+      },
+      {
+        id: 'EDGE-GW-CORE',
+        source_id: 'NODE-GW-01',
+        target_id: 'NODE-CORE-01',
+        link_type: 'fiber',
+        status: 'up',
+        bandwidth_mbps: 10000,
+        utilization_pct: 24.2,
+        latency_ms: 0.5,
+        packet_rate: 1420,
+        metadata: JSON.stringify({ interface: 'ether2 <-> tengig0/1' })
+      },
+      {
+        id: 'EDGE-CORE-APP',
+        source_id: 'NODE-CORE-01',
+        target_id: 'NODE-APP-01',
+        link_type: 'ethernet',
+        status: 'up',
+        bandwidth_mbps: 1000,
+        utilization_pct: 12.0,
+        latency_ms: 1.2,
+        packet_rate: 340,
+        metadata: JSON.stringify({ interface: 'gig0/10 <-> eth0' })
+      },
+      {
+        id: 'EDGE-GW-LAN',
+        source_id: 'NODE-GW-01',
+        target_id: 'NODE-LAN-01',
+        link_type: 'ethernet',
+        status: 'up',
+        bandwidth_mbps: 1000,
+        utilization_pct: 35.8,
+        latency_ms: 0.4,
+        packet_rate: 980,
+        metadata: JSON.stringify({ interface: 'ether3 <-> trunk1' })
+      },
+      {
+        id: 'EDGE-LAN-HOST',
+        source_id: 'NODE-LAN-01',
+        target_id: 'NODE-HOST-01',
+        link_type: 'ethernet',
+        status: 'up',
+        bandwidth_mbps: 1000,
+        utilization_pct: 8.2,
+        latency_ms: 0.1,
+        packet_rate: 180,
+        metadata: JSON.stringify({ interface: 'port14 <-> eth' })
+      }
+    ];
+
+    const insertEdge = db.prepare(`
+      INSERT INTO topology_edges (
+        id, source_id, target_id, link_type, status, bandwidth_mbps,
+        utilization_pct, latency_ms, packet_rate, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const edge of defaultEdges) {
+      insertEdge.run(
+        edge.id,
+        edge.source_id,
+        edge.target_id,
+        edge.link_type,
+        edge.status,
+        edge.bandwidth_mbps,
+        edge.utilization_pct,
+        edge.latency_ms,
+        edge.packet_rate,
+        edge.metadata
+      );
+    }
+    console.log(`✓ Seeded ${defaultEdges.length} topology interconnect edges.`);
+
+    // 4. Seed Initial Link Telemetry
+    const insertTelemetry = db.prepare(`
+      INSERT INTO link_telemetry (
+        edge_id, node_id, latency_ms, loss_pct, bandwidth_utilization_pct, packet_rate,
+        if_in_octets, if_out_octets, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const edge of defaultEdges) {
+      insertTelemetry.run(
+        edge.id,
+        edge.source_id,
+        edge.latency_ms,
+        0,
+        edge.utilization_pct,
+        edge.packet_rate,
+        14502390,
+        28910440,
+        now
+      );
     }
   }
 
-  // Seed baseline integrations
-  const defaultIntegrations = [
-    {
-      id: 'INT-SNMP-LOCAL',
-      name: 'Local SNMP Interface Monitor',
-      type: 'snmp',
-      endpoint: '127.0.0.1:161',
-      config: { community: 'public', version: '2c', port: 161 },
-      status: 'configured'
-    },
-    {
-      id: 'INT-WMI-HOST',
-      name: 'Windows NT CIM / WMI Telemetry Integration',
-      type: 'wmi',
-      endpoint: 'localhost',
-      config: { namespaces: ['root/cimv2'], pollingIntervalSec: 15 },
-      status: 'connected'
-    },
-    {
-      id: 'INT-SSH-GATEWAY',
-      name: 'Subnet Gateway SSH Remote Administration',
-      type: 'ssh',
-      endpoint: `${defaultGatewayIp}:22`,
-      config: { port: 22, timeoutMs: 3000 },
-      status: 'configured'
-    },
-    {
-      id: 'INT-WEBHOOK-ALERT',
-      name: 'Enterprise Incident Webhook Dispatcher',
-      type: 'webhook',
-      endpoint: 'https://httpbin.org/status/200',
-      config: { method: 'POST', format: 'json', timeoutMs: 4000 },
-      status: 'configured'
-    }
-  ];
-
-  const insertIntegration = db.prepare(`
-    INSERT OR IGNORE INTO integrations (id, name, type, endpoint, config_json, status, last_sync, enabled, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-  `);
-  const now = new Date().toISOString();
-  for (const integ of defaultIntegrations) {
-    insertIntegration.run(
-      integ.id,
-      integ.name,
-      integ.type,
-      integ.endpoint,
-      JSON.stringify(integ.config),
-      integ.status,
-      now,
-      now
-    );
-  }
-  console.log('✓ Provisioned 4 baseline enterprise integrations (SNMP, WMI, SSH, Webhook).');
-
-  // Seed baseline governance settings
-  const defaultSettings = [
-    { key: 'platform_name', value: 'EJI — Eldar Jamiyev’s Infrastructure Intelligence' },
-    { key: 'audit_retention_days', value: '365' },
-    { key: 'session_timeout_minutes', value: '60' },
-    { key: 'telemetry_poll_interval_sec', value: '30' },
-    { key: 'security_login_max_attempts', value: '5' },
-    { key: 'security_login_lockout_min', value: '15' }
-  ];
-  const insertSetting = db.prepare('INSERT OR IGNORE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)');
-  for (const s of defaultSettings) {
-    insertSetting.run(s.key, s.value, now);
-  }
-  console.log('✓ Provisioned platform governance and retention settings.');
-
-  // Create Genesis Cryptographic Audit Log
-  const existingAudit = db.prepare('SELECT COUNT(*) as count FROM audit_logs').get();
-  if (existingAudit.count === 0) {
-    logAction({
-      userId: 'SYSTEM_GENESIS',
-      username: 'EJI Core Engine',
-      role: 'system',
-      action: 'PLATFORM_INITIALIZED',
-      resource: 'EJI_DATABASE',
-      details: 'Initial database schema and baseline security configuration provisioned.'
-    });
-    console.log('✓ Cryptographic HMAC genesis audit log established.');
-  }
-
-  console.log('--- EJI Platform Seeding Completed Successfully ---');
+  console.log('--- Pure NOC Workstation Seeding Completed Successfully ---');
 }
 
 if (require.main === module) {

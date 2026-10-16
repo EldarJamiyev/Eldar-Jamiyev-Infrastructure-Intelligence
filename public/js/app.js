@@ -1,24 +1,42 @@
 /**
- * EJII — Eldar Jamiyev's Infrastructure Intelligence
- * Frontend Single Page Application Engine
+ * EJII — NOC Topology & Live Packet Dissection Engine
+ * Frontend Controller & WebSocket Coordinator
  */
 
 // State Management
 const state = {
   token: localStorage.getItem('ejii_token') || null,
   user: null,
-  currentView: 'helpdesk',
-  incidents: [],
+  currentView: 'noc',
   nodes: [],
+  edges: [],
   ws: null
 };
 
-// Preset credentials for rapid role switching
-const DEMO_ACCOUNTS = {
-  helpdesk: { username: 'helpdesk', password: 'HelpdeskPassword2026!', label: 'Helpdesk Technician' },
-  network_admin: { username: 'netadmin', password: 'NetadminPassword2026!', label: 'Network Administrator' },
-  sysadmin: { username: 'sysadmin', password: 'SysadminPassword2026!', label: 'System Administrator' },
-  app_owner: { username: 'appowner', password: 'AppownerPassword2026!', label: 'Application Owner' }
+window.state = state;
+window.api = api;
+window.renderView = renderView;
+
+/**
+ * Local Time Formatters
+ */
+window.formatLocalTime = function(isoStr, includeMs = true) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return isoStr;
+  const pad = (n) => String(n).padStart(2, '0');
+  const padMs = (n) => String(n).padStart(3, '0');
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return includeMs ? `${time}.${padMs(d.getMilliseconds())}` : time;
+};
+
+window.formatLocalDateTime = function(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return isoStr;
+  const pad = (n) => String(n).padStart(2, '0');
+  const padMs = (n) => String(n).padStart(3, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${padMs(d.getMilliseconds())}`;
 };
 
 /**
@@ -58,25 +76,39 @@ function initWebSocket() {
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
-      document.getElementById('wsStatusText').textContent = 'Live Telemetry Connected';
-      document.querySelector('.status-dot').style.backgroundColor = '#10b981';
+      const el = document.getElementById('wsStatusText');
+      if (el) el.textContent = 'Live Wire Connected';
+      const dot = document.querySelector('.status-dot');
+      if (dot) dot.style.backgroundColor = '#10b981';
     };
 
     state.ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'NODE_ALERT') {
+        if (msg.type === 'PACKET_STREAM_FRAME' && typeof window.handleLivePacketFrame === 'function') {
+          window.handleLivePacketFrame(msg.payload || msg.frame);
+        } else if (msg.type === 'CAPTURE_STATUS' && typeof window.handleCaptureStatus === 'function') {
+          window.handleCaptureStatus(msg.payload || msg);
+        } else if (msg.type === 'FLOW_STREAM_UPDATE' && typeof window.handleLiveFlowUpdate === 'function') {
+          window.handleLiveFlowUpdate(msg.payload?.flows || msg.flows);
+        } else if (msg.type === 'NETWORK_ANOMALY') {
+          // Anomaly Flash: pulse orange/red on topology canvas
+          if (typeof window.flashTopologyAnomaly === 'function') {
+            window.flashTopologyAnomaly(msg.payload);
+          }
           loadTopbarStats();
-          if (state.currentView === 'rca') renderRcaView();
-        } else if (msg.type === 'NODE_UPDATE') {
+        } else if (msg.type === 'AI_BRAIN_DIAGNOSTIC_UPDATE' && typeof window.handleAiBrainDiagnosticUpdate === 'function') {
+          window.handleAiBrainDiagnosticUpdate(msg.payload);
+        } else if (msg.type === 'NODE_ALERT' || msg.type === 'NODE_UPDATE') {
           loadTopbarStats();
         }
       } catch (e) {}
     };
 
     state.ws.onclose = () => {
-      document.getElementById('wsStatusText').textContent = 'Disconnected (Reconnecting...)';
-      document.querySelector('.status-dot').style.backgroundColor = '#ef4444';
+      const el = document.getElementById('wsStatusText');
+      if (el) el.textContent = 'Disconnected (Reconnecting...)';
+      const dot = document.querySelector('.status-dot');
+      if (dot) dot.style.backgroundColor = '#ef4444';
       setTimeout(initWebSocket, 4000);
     };
   } catch (e) {
@@ -85,29 +117,118 @@ function initWebSocket() {
 }
 
 /**
- * Update Topbar Stats
+ * Update Topbar Stats (BPF Filter, Anomalies, Nodes)
  */
 async function loadTopbarStats() {
   if (!state.token) return;
   try {
-    const [incidentsRes, topologyRes] = await Promise.allSettled([
-      api('/api/rca/incidents?status=open'),
+    const [statusRes, anomRes, topoRes] = await Promise.allSettled([
+      api('/api/network/capture/status'),
+      api('/api/network/tools/anomalies?limit=5'),
       api('/api/network/topology')
     ]);
 
-    if (incidentsRes.status === 'fulfilled' && incidentsRes.value) {
-      document.getElementById('topbarIncidentsCount').textContent = incidentsRes.value.count || 0;
+    if (statusRes.status === 'fulfilled' && statusRes.value) {
+      const bpfEl = document.getElementById('topbarBpfFilter');
+      if (bpfEl) {
+        bpfEl.textContent = statusRes.value.bpfFilter ? `[BPF: ${statusRes.value.bpfFilter}]` : '[ALL WIRE]';
+      }
     }
-    if (topologyRes.status === 'fulfilled' && topologyRes.value) {
-      document.getElementById('topbarNodesCount').textContent = topologyRes.value.nodes.length || 0;
+
+    if (anomRes.status === 'fulfilled' && anomRes.value) {
+      const anomEl = document.getElementById('topbarAnomaliesCount');
+      if (anomEl) {
+        anomEl.textContent = anomRes.value.count || 0;
+        anomEl.style.color = anomRes.value.count > 0 ? '#ef4444' : 'var(--warning)';
+      }
+    }
+
+    if (topoRes.status === 'fulfilled' && topoRes.value) {
+      const nodesEl = document.getElementById('topbarNodesCount');
+      if (nodesEl) {
+        nodesEl.textContent = topoRes.value.nodes?.length || 6;
+      }
     }
   } catch (e) {}
 }
 
 /**
- * Handle Login
+ * Dedicated Standalone Login Screen Controller
  */
-async function login(username, password) {
+function showLoginScreen() {
+  const loginScreen = document.getElementById('loginScreen');
+  const app = document.getElementById('app');
+  if (loginScreen) loginScreen.style.display = 'flex';
+  if (app) app.style.display = 'none';
+
+  const errAlert = document.getElementById('loginErrorAlert');
+  if (errAlert) errAlert.style.display = 'none';
+
+  loadLoginTelemetry();
+}
+
+async function loadLoginTelemetry() {
+  try {
+    const info = await api('/api/network/physical-info').catch(() => null);
+    if (info) {
+      const gwEl = document.getElementById('loginTelGateway');
+      const subEl = document.getElementById('loginTelSubnet');
+      const hostEl = document.getElementById('loginTelHost');
+      if (gwEl && info.gatewayIp) gwEl.textContent = info.gatewayIp;
+      if (subEl && info.subnetCidr) subEl.textContent = info.subnetCidr;
+      if (hostEl && info.hostIp) hostEl.textContent = `${info.hostIp}`;
+    }
+  } catch (e) {}
+}
+
+function hideLoginScreen() {
+  const loginScreen = document.getElementById('loginScreen');
+  const app = document.getElementById('app');
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (app) app.style.display = 'flex';
+}
+
+window.showLoginScreen = showLoginScreen;
+window.hideLoginScreen = hideLoginScreen;
+
+/**
+ * 1-Click Quick NOC Operator Login
+ */
+window.quickNocLogin = async function() {
+  try {
+    const res = await api('/api/auth/quick-noc', { method: 'POST' });
+    state.token = res.token;
+    state.user = res.user;
+    localStorage.setItem('ejii_token', res.token);
+    hideLoginScreen();
+    updateUserBadge();
+    loadTopbarStats();
+    renderView('topology');
+  } catch (err) {
+    const errAlert = document.getElementById('loginErrorAlert');
+    const errMsg = document.getElementById('loginErrorMessage');
+    if (errAlert && errMsg) {
+      errAlert.style.display = 'flex';
+      errMsg.textContent = err.message || 'Login failed.';
+    }
+  }
+};
+
+window.handleLoginFormSubmit = async function(event) {
+  event.preventDefault();
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+
+  const errAlert = document.getElementById('loginErrorAlert');
+  const errMsg = document.getElementById('loginErrorMessage');
+  const submitBtn = document.getElementById('btnSubmitLogin');
+
+  if (errAlert) errAlert.style.display = 'none';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    document.getElementById('loginBtnText').textContent = 'Authenticating...';
+  }
+
   try {
     const res = await api('/api/auth/login', {
       method: 'POST',
@@ -117,1991 +238,330 @@ async function login(username, password) {
     state.token = res.token;
     state.user = res.user;
     localStorage.setItem('ejii_token', res.token);
+    hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
-    renderView(state.currentView);
+    renderView('noc');
   } catch (err) {
-    alert(`Login failed: ${err.message}`);
-  }
-}
-
-/**
- * Handle Logout
- */
-async function logout() {
-  if (state.token) {
-    try {
-      await api('/api/auth/logout', { method: 'POST' });
-    } catch (e) {
-      console.warn('Logout notification error:', e);
+    if (errAlert && errMsg) {
+      errAlert.style.display = 'flex';
+      errMsg.textContent = err.message || 'Invalid username or password.';
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      document.getElementById('loginBtnText').textContent = 'Sign In';
     }
   }
-  state.token = null;
-  state.user = null;
-  localStorage.removeItem('ejii_token');
-  updateUserBadge();
-  renderLoginView();
-}
+};
 
-/**
- * Update User Badge in Sidebar
- */
 function updateUserBadge() {
   const badgeArea = document.getElementById('userBadgeArea');
-  if (!state.user) {
-    badgeArea.style.display = 'none';
-    return;
-  }
+  const nameEl = document.getElementById('userDisplayName');
+  const roleEl = document.getElementById('userRoleTag');
 
-  badgeArea.style.display = 'flex';
-  document.getElementById('userDisplayName').textContent = state.user.fullName;
-  const roleTag = document.getElementById('userRoleTag');
-  roleTag.textContent = state.user.role.replace('_', ' ');
-  roleTag.className = `user-role-tag role-${state.user.role}`;
+  if (state.user) {
+    if (badgeArea) badgeArea.style.display = 'flex';
+    if (nameEl) nameEl.textContent = state.user.fullName || state.user.username;
+    if (roleEl) roleEl.textContent = 'UNPRIVILEGED NOC';
+  }
 }
 
 /**
- * View Router
+ * Universal View Renderer for the 4 Dedicated Workstations
  */
-function renderView(viewName) {
-  state.currentView = viewName;
+function renderView(viewName = 'topology') {
+  let target = viewName;
+  if (target === 'noc') target = 'topology';
+  if (target === 'ip-scanner') target = 'ultra-ip-scanner';
 
-  // Update navigation active state
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.classList.toggle('active', link.dataset.view === viewName);
+  state.currentView = target;
+
+  // Highlight active nav link
+  document.querySelectorAll('.nav-link').forEach(link => {
+    const linkView = link.dataset.view;
+    const isActive = linkView === target ||
+      (linkView === 'ultra-ip-scanner' && target === 'ip-scanner') ||
+      (linkView === 'ip-scanner' && target === 'ultra-ip-scanner') ||
+      (linkView === 'noc' && target === 'topology');
+    link.classList.toggle('active', isActive);
   });
 
-  const titles = {
-    helpdesk: '🔍 Helpdesk Diagnostics Workbench',
-    assets: '📦 Enterprise Asset Inventory & Hardware CMDB',
-    network: '🌐 Network Administrator Operations',
-    sysadmin: '🖥️ System Administrator Health & Controls',
-    rca: '⚡ Root Cause Analysis & Problem Investigation',
-    automation: '🛡️ Safe Remediation & Automation Engine',
-    tools: '🛠️ 14-Tool Unified Subsystems Hub',
-    appowner: '👑 Application Owner Governance & Audit'
-  };
-
-  document.getElementById('pageTitle').innerHTML = titles[viewName] || 'EJI Platform';
-
-  if (!state.token) {
-    renderLoginView();
-    return;
-  }
-
-  switch (viewName) {
-    case 'helpdesk': renderHelpdeskView(); break;
-    case 'assets': renderAssetsView(); break;
-    case 'network': renderNetworkView(); break;
-    case 'sysadmin': renderSysadminView(); break;
-    case 'rca': renderRcaView(); break;
-    case 'automation': renderAutomationView(); break;
-    case 'tools': renderToolsView(); break;
-    case 'appowner': renderAppOwnerView(); break;
-    default: renderHelpdeskView();
+  if (target === 'topology') {
+    if (typeof window.renderTopologyStandaloneView === 'function') {
+      window.renderTopologyStandaloneView();
+    } else if (typeof window.renderNocView === 'function') {
+      window.renderNocView();
+    }
+  } else if (target === 'packet-sniffer') {
+    if (typeof window.renderPacketSnifferStandaloneView === 'function') {
+      window.renderPacketSnifferStandaloneView();
+    }
+  } else if (target === 'ultra-ip-scanner' || target === 'ip-scanner') {
+    if (typeof window.renderUltraIpScannerView === 'function') {
+      window.renderUltraIpScannerView();
+    }
+  } else if (target === 'pc-automation') {
+    if (typeof window.renderPcAutomationView === 'function') {
+      window.renderPcAutomationView();
+    }
+  } else {
+    if (typeof window.renderTopologyStandaloneView === 'function') {
+      window.renderTopologyStandaloneView();
+    }
   }
 }
 
 /**
- * VIEW: Login & Quick Role Switcher
+ * Modals & Interactive Workbenches
  */
-function renderLoginView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `
-    <div style="max-width: 600px; margin: 40px auto;">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">🔐 EJII Authentication & Operational Role Selection</div>
-        </div>
+window.openWireDiagnosticsModal = function() {
+  const modalContainer = document.getElementById('modalContainer');
+  if (!modalContainer) return;
 
-        <p style="color: var(--text-muted); margin-bottom: 20px;">
-          Select one of the four operational roles to authenticate directly, or enter manual credentials:
-        </p>
-
-        <div class="grid-2" style="margin-bottom: 24px;">
-          <button class="btn btn-secondary" onclick="login('${DEMO_ACCOUNTS.helpdesk.username}', '${DEMO_ACCOUNTS.helpdesk.password}')" style="justify-content: flex-start; padding: 12px;">
-            <div style="text-align: left;">
-              <div style="font-weight: 700; color: #a7f3d0;">Helpdesk Technician</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Diagnostics & Plain-Language Guidance</div>
+  modalContainer.style.display = 'flex';
+  modalContainer.innerHTML = `
+    <div class="modal-backdrop" onclick="window.closeModal(event)">
+      <div class="modal-card" style="max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto; scrollbar-gutter: stable; padding-right: 20px;" onclick="event.stopPropagation()">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 20px;">🛠️</span>
+            <div>
+              <div style="font-weight: 800; font-size: 15px; color: var(--accent);">Isolated Wire Diagnostics Hub (Zero Elevation)</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Concurrent Ping Flooder, Passive BGP/OSPF Listener, Transport Error Finder</div>
             </div>
-          </button>
+          </div>
+          <button class="btn-logout" onclick="window.closeModal()">✕</button>
+        </div>
 
-          <button class="btn btn-secondary" onclick="login('${DEMO_ACCOUNTS.network_admin.username}', '${DEMO_ACCOUNTS.network_admin.password}')" style="justify-content: flex-start; padding: 12px;">
-            <div style="text-align: left;">
-              <div style="font-weight: 700; color: #bfdbfe;">Network Administrator</div>
-              <div style="font-size: 11px; color: var(--text-muted);">SNMP, Port Sweeps, TLS & Topology</div>
+        <div style="padding: 16px 0;">
+          <!-- 1. Concurrent Async Ping Flooder / Sweeper -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; margin-bottom: 16px;">
+            <div style="font-weight: 700; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>⚡ 1. Asynchronous Ping / ICMP Flooder (Concurrent Sweeper)</span>
             </div>
-          </button>
-
-          <button class="btn btn-secondary" onclick="login('${DEMO_ACCOUNTS.sysadmin.username}', '${DEMO_ACCOUNTS.sysadmin.password}')" style="justify-content: flex-start; padding: 12px;">
-            <div style="text-align: left;">
-              <div style="font-weight: 700; color: #e9d5ff;">System Administrator</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Host Metrics, Services, Processes & RCA</div>
+            <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+              Probes hundreds of mapped nodes per second asynchronously without OS handle exhaustion or admin rights.
+            </p>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="sweepTargetsInput" class="form-input" placeholder="Leave empty to sweep all mapped nodes, or comma separated IPs" style="flex: 1; font-size: 11px;">
+              <button class="btn btn-primary" onclick="window.runAsyncPingSweep()" style="font-size: 11px; padding: 4px 12px; font-weight: 700;">Start Sweep ⚡</button>
             </div>
-          </button>
+            <div id="sweepResultOutput" style="margin-top: 10px; max-height: 160px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; scrollbar-gutter: stable; padding-right: 10px;"></div>
+          </div>
 
-          <button class="btn btn-secondary" onclick="login('${DEMO_ACCOUNTS.app_owner.username}', '${DEMO_ACCOUNTS.app_owner.password}')" style="justify-content: flex-start; padding: 12px;">
-            <div style="text-align: left;">
-              <div style="font-weight: 700; color: #fbcfe8;">Application Owner</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Governance, Dual Approvals & Audit HMAC</div>
+          <!-- 2. Passive BGP & OSPF Listener -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; margin-bottom: 16px;">
+            <div style="font-weight: 700; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+              <span>📡 2. Passive BGP &amp; OSPF Route Listener</span>
+              <button class="btn btn-secondary" onclick="window.refreshRoutingEvents()" style="font-size: 10px; padding: 2px 8px;">↻ Refresh</button>
             </div>
-          </button>
-        </div>
-
-        <form id="customLoginForm" onsubmit="handleManualLogin(event)">
-          <div class="form-group">
-            <label class="form-label">Username</label>
-            <input type="text" class="form-input" id="manualUsername" required placeholder="e.g. sysadmin">
+            <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+              Passively listens for OSPF hello multicast (224.0.0.5/6) and BGP keepalives (TCP 179) to update topology routing states.
+            </p>
+            <div id="routingEventsOutput" style="max-height: 140px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; scrollbar-gutter: stable; padding-right: 10px;">
+              Awaiting route multicast traffic on physical wire...
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Password</label>
-            <input type="password" class="form-input" id="manualPassword" required placeholder="••••••••••••">
-          </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In with Credentials</button>
-        </form>
-      </div>
-    </div>
-  `;
-}
 
-window.handleManualLogin = function(e) {
-  e.preventDefault();
-  const u = document.getElementById('manualUsername').value;
-  const p = document.getElementById('manualPassword').value;
-  login(u, p);
-};
-
-/**
- * VIEW: Helpdesk Diagnostics
- */
-function renderHelpdeskView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `
-    <div class="grid-2">
-      <!-- Diagnostic Controls -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">⚡ Rapid Infrastructure Diagnostics</div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Diagnostic Tool</label>
-          <select class="form-select" id="diagType" onchange="toggleDiagFields()">
-            <option value="ping">Real ICMP Ping (Latency & Packet Loss)</option>
-            <option value="port">TCP Port Socket Probe (Service Status)</option>
-            <option value="dns">Direct DNS Resolution (RFC 1035)</option>
-            <option value="http">HTTP/HTTPS Synthetic Waterfall</option>
-            <option value="traceroute">Traceroute (Multi-Hop Route)</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Target Host / IP / Domain</label>
-          <input type="text" class="form-input" id="diagTarget" value="127.0.0.1" placeholder="e.g. 127.0.0.1 or google.com">
-          <div style="margin-top: 6px; display: flex; gap: 6px;">
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="setDiagTarget('127.0.0.1')">Localhost</button>
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="setDiagTarget('10.168.195.1')">Subnet Gateway</button>
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="setDiagTarget('google.com')">google.com</button>
-          </div>
-        </div>
-
-        <div class="form-group" id="portFieldGroup" style="display: none;">
-          <label class="form-label">TCP Port</label>
-          <input type="number" class="form-input" id="diagPort" value="80" placeholder="e.g. 80, 443, 3389">
-        </div>
-
-        <button class="btn btn-primary" id="btnRunDiag" onclick="executeDiagnostic()" style="width: 100%;">
-          Run Live Diagnostic Probe
-        </button>
-      </div>
-
-      <!-- Quick Guidance -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">💡 Operational Principles</div>
-        </div>
-        <p style="color: var(--text-muted); margin-bottom: 12px;">
-          <strong>Zero-Simulation Guarantee:</strong> All diagnostics trigger actual system kernel sockets and protocol packets. No simulated or randomized test results are ever produced.
-        </p>
-        <ul style="color: var(--text-dim); padding-left: 20px; font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
-          <li><strong>CLOSED (ECONNREFUSED):</strong> The host machine is online, but no application process is currently listening on the specified port.</li>
-          <li><strong>FILTERED (ETIMEDOUT):</strong> Packets were sent, but dropped with zero response. Indicates a hardware or software firewall blocking traffic.</li>
-          <li><strong>DOWN (100% Loss):</strong> Host machine is powered down, link is severed, or ICMP is disabled on the edge.</li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- Results Display -->
-    <div class="card" id="diagResultCard" style="display: none;">
-      <div class="card-header">
-        <div class="card-title">📊 Live Diagnostic Output & Plain-Language Explanation</div>
-      </div>
-
-      <!-- Automated Plain-English Synthesis -->
-      <div class="explanation-card" id="explanationCard">
-        <h4>📋 Plain-Language Problem Assessment</h4>
-        <p id="expWhatHappened"></p>
-        <h4 style="color: #fbbf24;">🔍 Technical Reason</h4>
-        <p id="expWhyFailed"></p>
-        <h4 style="color: #34d399;">🛠️ Recommended Action</h4>
-        <div id="expRecommendation" style="white-space: pre-line; color: var(--text-muted);"></div>
-      </div>
-
-      <div style="margin-top: 16px;">
-        <label class="form-label">Raw Telemetry Socket Payload</label>
-        <div class="console-box" id="diagRawConsole"></div>
-      </div>
-
-      <!-- Operational Escalation Section -->
-      <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center; padding-top: 14px; border-top: 1px solid var(--border);">
-        <div id="escalateStatusMsg" style="font-size: 12px; color: var(--text-muted);">
-          Probed via genuine OS sockets. Ready to link with incident management.
-        </div>
-        <button class="btn btn-warning" id="btnEscalateIncident" onclick="escalateDiagnosticToIncident()" style="display: inline-flex; align-items: center; gap: 6px;">
-          <span>⚡</span> Escalate to Formal Incident
-        </button>
-      </div>
-    </div>
-  `;
-}
-
-window.setDiagTarget = function(t) {
-  document.getElementById('diagTarget').value = t;
-};
-
-window.toggleDiagFields = function() {
-  const type = document.getElementById('diagType').value;
-  document.getElementById('portFieldGroup').style.display = type === 'port' ? 'block' : 'none';
-};
-
-window.executeDiagnostic = async function() {
-  const type = document.getElementById('diagType').value;
-  const target = document.getElementById('diagTarget').value.trim();
-  const port = document.getElementById('diagPort') ? document.getElementById('diagPort').value : null;
-  const btn = document.getElementById('btnRunDiag');
-
-  if (!target) return alert('Target host is required.');
-
-  btn.disabled = true;
-  btn.textContent = 'Probing...';
-
-  try {
-    let res;
-    if (type === 'ping') {
-      res = await api('/api/diagnostics/ping', { method: 'POST', body: JSON.stringify({ host: target }) });
-    } else if (type === 'port') {
-      res = await api('/api/diagnostics/port', { method: 'POST', body: JSON.stringify({ host: target, port: parseInt(port, 10) }) });
-    } else if (type === 'dns') {
-      res = await api('/api/diagnostics/dns', { method: 'POST', body: JSON.stringify({ domain: target }) });
-    } else if (type === 'http') {
-      res = await api('/api/diagnostics/http', { method: 'POST', body: JSON.stringify({ url: target }) });
-    } else if (type === 'traceroute') {
-      res = await api('/api/diagnostics/traceroute', { method: 'POST', body: JSON.stringify({ host: target }) });
-    }
-
-    document.getElementById('diagResultCard').style.display = 'block';
-
-    if (res.explanation) {
-      document.getElementById('expWhatHappened').textContent = res.explanation.whatHappened || 'Telemetry collected.';
-      document.getElementById('expWhyFailed').textContent = res.explanation.whyItFailed || 'None.';
-      document.getElementById('expRecommendation').textContent = res.explanation.recommendation || 'None.';
-    }
-
-    document.getElementById('diagRawConsole').textContent = JSON.stringify(res.result || res, null, 2);
-
-    state.lastDiagnostic = {
-      type,
-      target,
-      port,
-      result: res.result || res,
-      explanation: res.explanation || {}
-    };
-
-    const statusMsg = document.getElementById('escalateStatusMsg');
-    if (statusMsg) {
-      statusMsg.textContent = 'Probed via genuine OS sockets. Ready to link with incident management.';
-      statusMsg.style.color = 'var(--text-muted)';
-    }
-  } catch (err) {
-    alert(`Diagnostic error: ${err.message}`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Run Live Diagnostic Probe';
-  }
-};
-
-window.escalateDiagnosticToIncident = async function() {
-  if (!state.lastDiagnostic) {
-    return alert('Please execute a diagnostic probe first.');
-  }
-
-  const { type, target, port, result, explanation } = state.lastDiagnostic;
-  const isFailed = (result?.status === 'DOWN' || result?.status === 'CLOSED' || result?.status === 'FILTERED' || result?.packetLossPct > 0 || (result?.statusCode && result?.statusCode >= 400) || result?.error);
-
-  const title = `[Diagnostics Escalation] ${type.toUpperCase()} check on ${target}${port ? ':' + port : ''}`;
-  const whatHappened = explanation.whatHappened || `Diagnostic probe (${type}) against ${target} reported: ${result?.status || result?.error || 'anomalous condition'}.`;
-  const whyFailed = explanation.whyItFailed || result?.error || 'Service unreachable or socket refused';
-  const recommendation = explanation.recommendation || 'Verify service status and network path';
-
-  try {
-    const res = await api('/api/rca/incidents', {
-      method: 'POST',
-      body: JSON.stringify({
-        title,
-        severity: isFailed ? 'high' : 'medium',
-        description: `Escalated from Helpdesk Diagnostics: ${whatHappened}`,
-        what_happened: whatHappened,
-        root_cause: whyFailed,
-        supporting_evidence: JSON.stringify({ type, target, port, result }, null, 2),
-        remediation_plan: recommendation
-      })
-    });
-
-    const statusMsg = document.getElementById('escalateStatusMsg');
-    if (statusMsg) {
-      statusMsg.innerHTML = `<span style="color: #34d399; font-weight: bold;">✓ Incident Created: <code>${res.incident.id}</code></span>`;
-    }
-    loadTopbarStats();
-    alert(`Incident ${res.incident.id} created successfully!\n\nThis incident is now linked in the RCA Investigation DAG.`);
-  } catch (err) {
-    alert(`Failed to escalate incident: ${err.message}`);
-  }
-};
-
-/**
- * VIEW: Enterprise Asset Inventory & CMDB
- */
-async function renderAssetsView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted); padding: 20px;">Querying authoritative asset CMDB & hardware inventory...</div>`;
-
-  try {
-    const res = await api('/api/network/assets');
-    const assets = res.assets || [];
-
-    const totalCount = assets.length;
-    const managedCount = assets.filter(a => a.is_managed).length;
-    const unmanagedCount = assets.filter(a => !a.is_managed).length;
-    const alertCount = assets.filter(a => a.status === 'down' || a.status === 'degraded').length;
-
-    container.innerHTML = `
-      <!-- Stats Ribbon -->
-      <div class="grid-4" style="margin-bottom: 20px;">
-        <div class="card" style="padding: 16px;">
-          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Total Cataloged Assets</div>
-          <div class="metric-large" style="margin: 8px 0 4px 0;">${totalCount}</div>
-          <div style="font-size: 11px; color: var(--text-dim);">Authoritative Nodes in DB</div>
-        </div>
-        <div class="card" style="padding: 16px;">
-          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Managed & Monitored</div>
-          <div class="metric-large" style="margin: 8px 0 4px 0; color: #34d399;">${managedCount}</div>
-          <div style="font-size: 11px; color: var(--text-dim);">Active SLA & Telemetry</div>
-        </div>
-        <div class="card" style="padding: 16px;">
-          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Discovered / Unmanaged</div>
-          <div class="metric-large" style="margin: 8px 0 4px 0; color: #fbbf24;">${unmanagedCount}</div>
-          <div style="font-size: 11px; color: var(--text-dim);">Discovered via ARP / Probes</div>
-        </div>
-        <div class="card" style="padding: 16px;">
-          <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Degraded / Offline</div>
-          <div class="metric-large" style="margin: 8px 0 4px 0; color: ${alertCount > 0 ? 'var(--danger)' : '#38bdf8'};">${alertCount}</div>
-          <div style="font-size: 11px; color: var(--text-dim);">Requiring Attention</div>
-        </div>
-      </div>
-
-      <!-- Asset Inventory Controls & Table -->
-      <div class="card">
-        <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
-          <div class="card-title">📦 Authoritative Infrastructure CMDB (${totalCount} Records)</div>
-          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <input type="text" id="assetSearchInput" class="form-input" placeholder="🔍 Search by name, IP, MAC, vendor..." style="width: 250px; font-size: 12px; padding: 6px 10px;" oninput="filterAssetsTable()">
-            <button class="btn btn-secondary" onclick="filterAssetsByMode('all')" style="padding: 6px 12px; font-size: 12px;">All</button>
-            <button class="btn btn-secondary" onclick="filterAssetsByMode('managed')" style="padding: 6px 12px; font-size: 12px;">Managed Only</button>
-            <button class="btn btn-secondary" onclick="filterAssetsByMode('unmanaged')" style="padding: 6px 12px; font-size: 12px;">Unmanaged</button>
-            <button class="btn btn-primary" id="btnImportArp" onclick="importArpDiscovery()" style="padding: 6px 12px; font-size: 12px;">
-              ⚡ Import from ARP Discovery
-            </button>
-            <button class="btn btn-secondary" onclick="renderAddNodeModal()" style="padding: 6px 12px; font-size: 12px;">
-              + Add Asset
-            </button>
-          </div>
-        </div>
-
-        <div id="arpImportAlertBox" style="display: none; padding: 10px 14px; margin-bottom: 12px; border-radius: 6px; font-size: 12px;"></div>
-
-        <div class="table-responsive">
-          <table class="table" id="assetInventoryTable">
-            <thead>
-              <tr>
-                <th>Asset Name & ID</th>
-                <th>IP Address</th>
-                <th>MAC & Vendor (OUI)</th>
-                <th>Role / Type</th>
-                <th>Management</th>
-                <th>Status / Latency</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="assetTableBody">
-              ${assets.map(a => renderAssetRow(a)).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-
-    window._cachedAssets = assets;
-  } catch (err) {
-    container.innerHTML = `<div class="card" style="color: var(--danger); padding: 20px;">Failed to load assets: ${err.message}</div>`;
-  }
-}
-
-function renderAssetRow(a) {
-  const isManaged = !!a.is_managed;
-  return `
-    <tr class="asset-row" data-managed="${isManaged}" data-search="${(a.name + ' ' + a.hostname_or_ip + ' ' + (a.mac_address || '') + ' ' + (a.vendor || '') + ' ' + (a.type || '')).toLowerCase()}">
-      <td>
-        <div style="font-weight: 600; color: var(--text-main);">${a.name}</div>
-        <div style="font-size: 10px; color: var(--text-dim); font-family: monospace;">${a.id}</div>
-      </td>
-      <td>
-        <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #7dd3fc;">${a.hostname_or_ip}</code>
-      </td>
-      <td>
-        <div style="font-family: monospace; font-size: 11px;">${a.mac_address || '<span style="color: var(--text-dim);">Dynamic/Local</span>'}</div>
-        <div style="font-size: 10px; color: var(--text-muted);">${a.vendor || 'Standard Host'}</div>
-      </td>
-      <td>
-        <span class="badge badge-open" style="text-transform: capitalize;">${a.type || 'server'}</span>
-      </td>
-      <td>
-        <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; ${isManaged ? 'border-color: #10b981; color: #a7f3d0;' : 'color: var(--text-muted);'}" onclick="toggleAssetManaged('${a.id}', ${isManaged})">
-          ${isManaged ? '✓ Managed' : '○ Unmanaged'}
-        </button>
-      </td>
-      <td>
-        <span class="badge badge-${a.status}">${a.status}</span>
-        ${a.last_latency_ms !== null ? `<span style="font-size: 11px; color: var(--text-dim); margin-left: 4px;">${a.last_latency_ms} ms</span>` : ''}
-      </td>
-      <td>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" id="btnPing-${a.id}" onclick="quickProbeAsset('${a.id}', '${a.hostname_or_ip}')" title="Quick ICMP Ping">
-            Ping
-          </button>
-          <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="openEditAssetModal('${a.id}')" title="Edit Metadata">
-            Edit
-          </button>
-        </div>
-      </td>
-    </tr>
-  `;
-}
-
-window.filterAssetsTable = function() {
-  const query = (document.getElementById('assetSearchInput')?.value || '').toLowerCase().trim();
-  const rows = document.querySelectorAll('.asset-row');
-  rows.forEach(r => {
-    const searchData = r.dataset.search || '';
-    r.style.display = searchData.includes(query) ? '' : 'none';
-  });
-};
-
-window.filterAssetsByMode = function(mode) {
-  const rows = document.querySelectorAll('.asset-row');
-  rows.forEach(r => {
-    const isManaged = r.dataset.managed === 'true';
-    if (mode === 'all') r.style.display = '';
-    else if (mode === 'managed') r.style.display = isManaged ? '' : 'none';
-    else if (mode === 'unmanaged') r.style.display = !isManaged ? '' : 'none';
-  });
-};
-
-window.importArpDiscovery = async function() {
-  const btn = document.getElementById('btnImportArp');
-  const alertBox = document.getElementById('arpImportAlertBox');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Scanning ARP...';
-  }
-
-  try {
-    const res = await api('/api/network/discovery/import-arp', { method: 'POST' });
-    if (alertBox) {
-      alertBox.style.display = 'block';
-      alertBox.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
-      alertBox.style.border = '1px solid #10b981';
-      alertBox.style.color = '#34d399';
-      alertBox.textContent = `✓ ARP Discovery Complete: ${res.importedCount} new assets cataloged from ${res.totalArpEntries} real kernel ARP cache entries.`;
-    }
-    setTimeout(() => { renderAssetsView(); }, 1200);
-  } catch (err) {
-    if (alertBox) {
-      alertBox.style.display = 'block';
-      alertBox.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-      alertBox.style.border = '1px solid #ef4444';
-      alertBox.style.color = '#f87171';
-      alertBox.textContent = `ARP import failed: ${err.message}`;
-    }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '⚡ Import from ARP Discovery';
-    }
-  }
-};
-
-window.toggleAssetManaged = async function(nodeId, currentManaged) {
-  try {
-    await api(`/api/network/assets/${nodeId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ is_managed: !currentManaged })
-    });
-    renderAssetsView();
-  } catch (err) {
-    alert(`Failed to update management status: ${err.message}`);
-  }
-};
-
-window.quickProbeAsset = async function(nodeId, host) {
-  const btn = document.getElementById(`btnPing-${nodeId}`);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '...';
-  }
-  try {
-    const res = await api('/api/diagnostics/ping', {
-      method: 'POST',
-      body: JSON.stringify({ host })
-    });
-    if (btn) {
-      if (res.result?.isAlive) {
-        btn.textContent = `${res.result.avgRttMs}ms`;
-        btn.style.color = '#34d399';
-      } else {
-        btn.textContent = 'Timeout';
-        btn.style.color = '#f87171';
-      }
-    }
-  } catch (err) {
-    if (btn) {
-      btn.textContent = 'Err';
-      btn.style.color = '#f87171';
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-};
-
-window.openEditAssetModal = function(nodeId) {
-  const asset = (window._cachedAssets || []).find(a => a.id === nodeId);
-  if (!asset) return;
-
-  const modal = document.getElementById('modalContainer');
-  modal.style.display = 'flex';
-  modal.innerHTML = `
-    <div class="modal-overlay" onclick="closeModal(event)">
-      <div class="modal-dialog" onclick="event.stopPropagation()">
-        <div class="modal-header">
-          <div class="card-title">✏️ Edit Asset: ${asset.name}</div>
-          <button class="btn-logout" onclick="closeModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Asset Name</label>
-            <input type="text" class="form-input" id="editAssetName" value="${asset.name}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">IP Address / Hostname</label>
-            <input type="text" class="form-input" id="editAssetHost" value="${asset.hostname_or_ip}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Asset Role / Type</label>
-            <select class="form-select" id="editAssetType">
-              <option value="gateway" ${asset.type === 'gateway' ? 'selected' : ''}>Gateway / Router</option>
-              <option value="server" ${asset.type === 'server' ? 'selected' : ''}>Server / Host</option>
-              <option value="workstation" ${asset.type === 'workstation' ? 'selected' : ''}>Workstation</option>
-              <option value="switch" ${asset.type === 'switch' ? 'selected' : ''}>Network Switch</option>
-              <option value="iot" ${asset.type === 'iot' ? 'selected' : ''}>IoT / Embedded Device</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Hardware Vendor / OUI</label>
-            <input type="text" class="form-input" id="editAssetVendor" value="${asset.vendor || ''}" placeholder="e.g. Cisco, Dell, Intel">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="saveAssetMetadata('${asset.id}')">Save Changes</button>
-        </div>
-      </div>
-    </div>
-  `;
-};
-
-window.saveAssetMetadata = async function(nodeId) {
-  const name = document.getElementById('editAssetName').value.trim();
-  const hostname_or_ip = document.getElementById('editAssetHost').value.trim();
-  const type = document.getElementById('editAssetType').value;
-  const vendor = document.getElementById('editAssetVendor').value.trim();
-
-  if (!name || !hostname_or_ip) return alert('Name and Host are required.');
-
-  try {
-    await api(`/api/network/assets/${nodeId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name, hostname_or_ip, type, vendor })
-    });
-    closeModal();
-    renderAssetsView();
-  } catch (err) {
-    alert(`Failed to save asset: ${err.message}`);
-  }
-};
-
-/**
- * VIEW: Network Administrator
- */
-async function renderNetworkView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading live network topology...</div>`;
-
-  try {
-    const topology = await api('/api/network/topology');
-    const nodes = topology.nodes || [];
-
-    container.innerHTML = `
-      <!-- Topology Overview -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header">
-          <div class="card-title">🌐 Network Dependency DAG & Node Topology</div>
-          <button class="btn btn-secondary" onclick="renderAddNodeModal()">+ Add Topology Node</button>
-        </div>
-
-        <div class="table-responsive">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Node Name</th>
-                <th>Target IP / Host</th>
-                <th>Type</th>
-                <th>Parent Dependency</th>
-                <th>Status</th>
-                <th>Last Latency</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${nodes.map(n => `
-                <tr>
-                  <td><strong>${n.name}</strong></td>
-                  <td><code>${n.hostname_or_ip}</code></td>
-                  <td><span class="badge badge-open">${n.type}</span></td>
-                  <td>${n.parent_id || '<span style="color: var(--text-dim);">Root Gateway</span>'}</td>
-                  <td><span class="badge badge-${n.status}">${n.status}</span></td>
-                  <td>${n.last_latency_ms !== null ? `${n.last_latency_ms} ms` : 'N/A'}</td>
-                  <td>
-                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="probeNodeLive('${n.id}')">Probe</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Network Operations Workbenches -->
-      <div class="grid-2">
-        <!-- Port Scanner Sweep -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🔍 High-Concurrency TCP Port Sweep</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Target Host</label>
-            <input type="text" class="form-input" id="sweepHost" value="127.0.0.1">
-          </div>
-          <button class="btn btn-primary" onclick="runPortSweep()">Run 23-Port Sweep</button>
-          <div id="sweepResultBox" style="margin-top: 14px; display: none;">
-            <div class="console-box" id="sweepConsole"></div>
-          </div>
-        </div>
-
-        <!-- TLS / SSL Certificate Auditor -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🔒 TLS/SSL Security & Cipher Auditor</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">HTTPS Domain</label>
-            <input type="text" class="form-input" id="tlsTarget" value="google.com">
-          </div>
-          <button class="btn btn-primary" onclick="runTlsAudit()">Audit TLS Certificate</button>
-          <div id="tlsResultBox" style="margin-top: 14px; display: none;">
-            <div class="console-box" id="tlsConsole"></div>
-          </div>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load network view: ${err.message}</p></div>`;
-  }
-}
-
-window.probeNodeLive = async function(nodeId) {
-  try {
-    const res = await api('/api/rca/correlate', { method: 'POST', body: JSON.stringify({ nodeId }) });
-    alert(`Probe complete: ${res.status || 'OK'} - ${res.message || 'Analyzed'}`);
-    renderNetworkView();
-  } catch (e) {
-    alert(`Probe failed: ${e.message}`);
-  }
-};
-
-window.runPortSweep = async function() {
-  const host = document.getElementById('sweepHost').value.trim();
-  const consoleBox = document.getElementById('sweepConsole');
-  document.getElementById('sweepResultBox').style.display = 'block';
-  consoleBox.textContent = `Scanning 23 common enterprise ports on [${host}]...`;
-
-  try {
-    const res = await api('/api/network/port-scan', { method: 'POST', body: JSON.stringify({ host }) });
-    consoleBox.textContent = JSON.stringify(res, null, 2);
-  } catch (e) {
-    consoleBox.textContent = `Sweep failed: ${e.message}`;
-  }
-};
-
-window.runTlsAudit = async function() {
-  const host = document.getElementById('tlsTarget').value.trim();
-  const consoleBox = document.getElementById('tlsConsole');
-  document.getElementById('tlsResultBox').style.display = 'block';
-  consoleBox.textContent = `Performing TLS handshake with [${host}:443]...`;
-
-  try {
-    const res = await api('/api/network/tls-audit', { method: 'POST', body: JSON.stringify({ host, port: 443 }) });
-    consoleBox.textContent = JSON.stringify(res, null, 2);
-  } catch (e) {
-    consoleBox.textContent = `TLS audit failed: ${e.message}`;
-  }
-};
-
-/**
- * VIEW: System Administrator
- */
-async function renderSysadminView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted);">Querying live operating system hardware telemetry...</div>`;
-
-  try {
-    const [host, services, processes, events] = await Promise.all([
-      api('/api/system/host'),
-      api('/api/system/services'),
-      api('/api/system/processes?limit=15'),
-      api('/api/system/events?limit=10')
-    ]);
-
-    container.innerHTML = `
-      <!-- Hardware Telemetry Meters -->
-      <div class="grid-3">
-        <!-- CPU Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🖥️ Processor (CPU)</div>
-          </div>
-          <div class="metric-large">${host.cpu.loadPercentage}%</div>
-          <div class="progress-bar-container">
-            <div class="progress-fill" style="width: ${host.cpu.loadPercentage}%;"></div>
-          </div>
-          <div class="metric-sub">${host.cpu.model} (${host.cpu.cores} Cores)</div>
-        </div>
-
-        <!-- Memory Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🧠 Physical Memory (RAM)</div>
-          </div>
-          <div class="metric-large">${host.memory.usedPercentage}%</div>
-          <div class="progress-bar-container">
-            <div class="progress-fill" style="width: ${host.memory.usedPercentage}%;"></div>
-          </div>
-          <div class="metric-sub">${host.memory.usedFormatted} used of ${host.memory.totalFormatted}</div>
-        </div>
-
-        <!-- Storage Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">💾 Storage Volumes</div>
-          </div>
-          ${host.disks.map(d => `
-            <div style="margin-bottom: 8px;">
-              <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                <span>${d.mount} (${d.volumeName})</span>
-                <span>${d.usedPercentage}% (${d.freeFormatted} free)</span>
-              </div>
-              <div class="progress-bar-container">
-                <div class="progress-fill" style="width: ${d.usedPercentage}%; background-color: ${d.usedPercentage > 85 ? 'var(--danger)' : 'var(--accent)'};"></div>
+          <!-- 3. Wire-Level Error & Problem Finder -->
+          <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;">
+            <div style="font-weight: 700; font-size: 13px; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+              <span>🚨 3. Wire-Level Transport Error &amp; Problem Finder</span>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-secondary" onclick="window.refreshAnomaliesList()" style="font-size: 10px; padding: 2px 8px;">↻ Refresh</button>
+                <button class="btn btn-secondary" onclick="window.clearAnomaliesList()" style="font-size: 10px; padding: 2px 8px;">Clear</button>
               </div>
             </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <!-- Top Processes Table -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header">
-          <div class="card-title">📊 Top Running Processes (Live Windows Kernel)</div>
-        </div>
-        <div class="table-responsive">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>PID</th>
-                <th>Process Name</th>
-                <th>Working Set RAM</th>
-                <th>CPU Seconds</th>
-                <th>Safety Guard</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${processes.processes.map(p => `
-                <tr>
-                  <td><code>${p.pid}</code></td>
-                  <td><strong>${p.name}</strong></td>
-                  <td>${p.workingSetMB} MB</td>
-                  <td>${p.cpuSeconds}s</td>
-                  <td>
-                    ${['csrss', 'lsass', 'services', 'explorer', 'system', 'wininit', 'node'].includes(p.name.toLowerCase())
-                      ? '<span class="badge badge-healthy">Protected Kernel</span>'
-                      : '<span class="badge badge-open">Remediable</span>'}
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- System Services & Event Logs -->
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚙️ Windows Services (${services.count} Discovered)</div>
-          </div>
-          <div style="max-height: 280px; overflow-y: auto;">
-            <table class="table">
-              <thead><tr><th>Service</th><th>State</th><th>Action</th></tr></thead>
-              <tbody>
-                ${services.services.slice(0, 15).map(s => `
-                  <tr>
-                    <td><strong>${s.name}</strong><br><span style="font-size: 11px; color: var(--text-dim);">${s.displayName}</span></td>
-                    <td><span class="badge badge-${s.status === 'Running' ? 'healthy' : 'warning'}">${s.status}</span></td>
-                    <td>
-                      <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 11px;" onclick="requestServiceRestart('${s.name}')">Restart</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📜 Windows Event Log (System Errors)</div>
-          </div>
-          <div style="max-height: 280px; overflow-y: auto;">
-            ${events.events.length === 0
-              ? '<p style="color: var(--text-muted);">No recent error events found in System log.</p>'
-              : events.events.map(e => `
-                <div style="border-bottom: 1px solid var(--border-color); padding: 8px 0;">
-                  <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
-                    <span>${e.provider} (ID: ${e.id})</span>
-                    <span>${new Date(e.timestamp).toLocaleTimeString()}</span>
-                  </div>
-                  <div style="font-size: 12px; color: var(--text-main); margin-top: 4px;">${e.message}</div>
-                </div>
-              `).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load system view: ${err.message}</p></div>`;
-  }
-}
-
-window.requestServiceRestart = async function(serviceName) {
-  try {
-    const res = await api('/api/automation/request', {
-      method: 'POST',
-      body: JSON.stringify({
-        actionType: 'restart_service',
-        targetHost: 'localhost',
-        targetResource: serviceName
-      })
-    });
-    alert(`Automation Request Created: ${res.actionId}\nTier: ${res.tier}\nApproval Required: ${res.requiresApproval}\nStatus: Placed in Application Owner Approval Queue.`);
-  } catch (e) {
-    alert(`Request failed: ${e.message}`);
-  }
-};
-
-/**
- * VIEW: Root Cause Analysis (RCA) Hub
- */
-async function renderRcaView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading RCA Incidents...</div>`;
-
-  try {
-    const res = await api('/api/rca/incidents');
-    const incidents = res.incidents || [];
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">⚡ Incident Correlation & Root Cause Investigations (${incidents.length})</div>
-        </div>
-
-        ${incidents.length === 0 ? '<p style="color: var(--text-muted);">Zero active infrastructure incidents. All monitored nodes are healthy.</p>' : `
-          <div class="table-responsive">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Incident ID</th>
-                  <th>Severity</th>
-                  <th>Primary Node</th>
-                  <th>Title</th>
-                  <th>Suppressed Alarms</th>
-                  <th>Detected At</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${incidents.map(inc => `
-                  <tr>
-                    <td><code>${inc.id}</code></td>
-                    <td><span class="badge badge-critical">${inc.severity}</span></td>
-                    <td><strong>${inc.node_name}</strong></td>
-                    <td>${inc.title}</td>
-                    <td><span class="badge badge-warning">${inc.suppressed_count} Alarms Suppressed</span></td>
-                    <td>${new Date(inc.detected_at).toLocaleTimeString()}</td>
-                    <td><span class="badge badge-${inc.status === 'resolved' ? 'healthy' : 'critical'}">${inc.status}</span></td>
-                    <td>
-                      <button class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;" onclick="inspectIncidentModal('${inc.id}')">Inspect RCA</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load RCA incidents: ${err.message}</p></div>`;
-  }
-}
-
-window.inspectIncidentModal = async function(incidentId) {
-  try {
-    const res = await api(`/api/rca/incidents/${incidentId}`);
-    const inc = res.incident;
-
-    const modal = document.getElementById('modalContainer');
-    modal.style.display = 'flex';
-    modal.innerHTML = `
-      <div class="modal-overlay" onclick="closeModal(event)">
-        <div class="modal-dialog" onclick="event.stopPropagation()">
-          <div class="modal-header">
-            <div class="card-title">🔎 Root Cause Investigation: ${inc.id}</div>
-            <button class="btn-logout" onclick="closeModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            <div style="margin-bottom: 12px;">
-              <span class="badge badge-critical">${inc.severity}</span>
-              <span class="badge badge-warning">${inc.suppressed_count} Secondary Symptoms Suppressed</span>
-            </div>
-            
-            <h4 style="color: var(--accent); margin-bottom: 4px;">What Happened</h4>
-            <p style="color: var(--text-main); margin-bottom: 14px;">${inc.what_happened}</p>
-
-            <h4 style="color: #fbbf24; margin-bottom: 4px;">Identified Root Cause</h4>
-            <p style="color: var(--text-main); margin-bottom: 14px;">${inc.root_cause}</p>
-
-            <h4 style="color: #a7f3d0; margin-bottom: 4px;">Supporting Evidence (Telemetry)</h4>
-            <div class="console-box" style="margin-bottom: 14px;">${inc.supporting_evidence}</div>
-
-            <h4 style="color: #38bdf8; margin-bottom: 4px;">Recommended Remediation Plan</h4>
-            <p style="white-space: pre-line; color: var(--text-muted);">${inc.remediation_plan}</p>
-          </div>
-          <div class="modal-footer">
-            ${inc.status !== 'resolved' ? `
-              <button class="btn btn-success" onclick="resolveIncidentAction('${inc.id}')">Mark Incident Resolved</button>
-            ` : '<span style="color: var(--success); font-weight: 600;">Incident is Resolved</span>'}
-            <button class="btn btn-secondary" onclick="closeModal()">Close</button>
-          </div>
-        </div>
-      </div>
-    `;
-  } catch (e) {
-    alert(`Failed to load incident details: ${e.message}`);
-  }
-};
-
-window.resolveIncidentAction = async function(incidentId) {
-  try {
-    await api(`/api/rca/incidents/${incidentId}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({ notes: 'Resolved by operator via EJII UI.' })
-    });
-    alert('Incident marked as resolved.');
-    closeModal();
-    renderRcaView();
-    loadTopbarStats();
-  } catch (e) {
-    alert(`Resolve failed: ${e.message}`);
-  }
-};
-
-/**
- * VIEW: Safe Automation
- */
-async function renderAutomationView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading Automation Engine...</div>`;
-
-  try {
-    const res = await api('/api/automation/actions');
-    const actions = res.actions || [];
-
-    container.innerHTML = `
-      <div class="grid-2" style="margin-bottom: 20px;">
-        <!-- Submit Action -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚡ Safe Remediation Playbook Dispatcher</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Remediation Action Type</label>
-            <select class="form-select" id="autoActionType">
-              <option value="flush_dns">Flush DNS Client Resolver Cache (Tier 2 - Safe)</option>
-              <option value="restart_service">Restart System Service (Tier 3 - Dual Approval)</option>
-              <option value="kill_process">Terminate Rogue Process by PID (Tier 3 - Guarded)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Target Resource Name or PID</label>
-            <input type="text" class="form-input" id="autoTargetResource" value="Spooler" placeholder="e.g. Spooler or PID">
-          </div>
-          <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="autoDryRun">
-            <label for="autoDryRun" style="font-size: 13px; color: var(--text-main); cursor: pointer;">Execute as Dry-Run (Simulation Plan Only)</label>
-          </div>
-          <button class="btn btn-primary" onclick="submitAutomation()">Submit Remediation Action</button>
-        </div>
-
-        <!-- Safety Architecture Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🛡️ Safety Guardrails Architecture</div>
-          </div>
-          <ul style="color: var(--text-dim); padding-left: 20px; font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
-            <li><strong>Protected Kernel Isolation:</strong> Calls targeting core system processes (<code>csrss</code>, <code>lsass</code>, <code>services</code>, <code>wininit</code>, PID 4) are physically rejected before execution.</li>
-            <li><strong>Tier 3 Dual-Custody Approval Gate:</strong> High-impact actions are held in <code>pending_approval</code> until authorized by an Application Owner.</li>
-            <li><strong>Cryptographic Execution Trail:</strong> Every invocation appends an HMAC-SHA256 record to the immutable audit log.</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Action History -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">📜 Automation Queue & Execution History</div>
-        </div>
-        <div class="table-responsive">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Action ID</th>
-                <th>Type</th>
-                <th>Tier</th>
-                <th>Resource</th>
-                <th>Requester</th>
-                <th>Approval</th>
-                <th>Execution</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${actions.map(a => `
-                <tr>
-                  <td><code>${a.id}</code></td>
-                  <td><strong>${a.action_type}</strong></td>
-                  <td><span class="badge badge-open">Tier ${a.tier}</span></td>
-                  <td><code>${a.target_resource}</code></td>
-                  <td>${a.requester_username} (${a.requested_by_role})</td>
-                  <td><span class="badge badge-${a.approval_status === 'approved' ? 'healthy' : (a.approval_status === 'pending_approval' ? 'warning' : 'open')}">${a.approval_status}</span></td>
-                  <td><span class="badge badge-${a.execution_status === 'success' ? 'healthy' : (a.execution_status === 'failed' ? 'critical' : 'warning')}">${a.execution_status}</span></td>
-                  <td>
-                    ${a.approval_status !== 'pending_approval' && a.execution_status === 'queued' ? `
-                      <button class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;" onclick="runExecuteAction('${a.id}')">Execute</button>
-                    ` : '<span style="color: var(--text-dim); font-size: 11px;">Completed/Gated</span>'}
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load automation view: ${err.message}</p></div>`;
-  }
-}
-
-window.submitAutomation = async function() {
-  const actionType = document.getElementById('autoActionType').value;
-  const targetResource = document.getElementById('autoTargetResource').value.trim();
-  const dryRun = document.getElementById('autoDryRun').checked;
-
-  try {
-    const res = await api('/api/automation/request', {
-      method: 'POST',
-      body: JSON.stringify({ actionType, targetResource, dryRun })
-    });
-    alert(`Automation Dispatched: ${res.actionId}\nTier: ${res.tier}\nApproval Required: ${res.requiresApproval}\nPlan: ${res.dryRunPlan}`);
-    renderAutomationView();
-  } catch (e) {
-    alert(`Automation submission rejected: ${e.message}`);
-  }
-};
-
-window.runExecuteAction = async function(actionId) {
-  try {
-    const res = await api(`/api/automation/actions/${actionId}/execute`, { method: 'POST' });
-    alert(`Execution Complete: Result: ${res.success ? 'SUCCESS' : 'FAILED'}\nOutput: ${res.output || res.error}`);
-    renderAutomationView();
-  } catch (e) {
-    alert(`Execution failed: ${e.message}`);
-  }
-};
-
-/**
- * VIEW: Application Owner Governance
- */
-async function renderAppOwnerView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `<div style="color: var(--text-muted); padding: 20px;">Loading Governance, Enterprise Integrations & Cryptographic Audit Trail...</div>`;
-
-  try {
-    const [auditRes, actionsRes, usersRes, healthRes, integRes, settingsRes] = await Promise.all([
-      api('/api/admin/audit-logs?limit=15'),
-      api('/api/automation/actions'),
-      api('/api/admin/users'),
-      api('/api/admin/system-health'),
-      api('/api/integrations').catch(() => ({ integrations: [] })),
-      api('/api/admin/settings').catch(() => ({ settings: {} }))
-    ]);
-
-    const pendingApprovals = (actionsRes.actions || []).filter(a => a.approval_status === 'pending_approval');
-    const integrations = integRes.integrations || [];
-    const settings = settingsRes.settings || {};
-
-    container.innerHTML = `
-      <!-- Pending Approvals (Dual-Custody Gate) -->
-      <div class="card" style="margin-bottom: 20px; border-left: 4px solid var(--warning);">
-        <div class="card-header">
-          <div class="card-title">⏳ Dual-Custody Approval Gate (${pendingApprovals.length} Pending)</div>
-        </div>
-        ${pendingApprovals.length === 0 ? '<p style="color: var(--text-muted);">No pending remediation actions requiring authorization.</p>' : `
-          <div class="table-responsive">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Action ID</th>
-                  <th>Action</th>
-                  <th>Resource</th>
-                  <th>Requester</th>
-                  <th>Time</th>
-                  <th>Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${pendingApprovals.map(p => `
-                  <tr>
-                    <td><code>${p.id}</code></td>
-                    <td><strong>${p.action_type}</strong></td>
-                    <td><code>${p.target_resource}</code></td>
-                    <td>${p.requester_username}</td>
-                    <td>${new Date(p.requested_at).toLocaleTimeString()}</td>
-                    <td>
-                      <button class="btn btn-success" style="padding: 2px 8px; font-size: 11px;" onclick="reviewActionDecision('${p.id}', true)">Approve</button>
-                      <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="reviewActionDecision('${p.id}', false)">Reject</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
-      </div>
-
-      <!-- Enterprise Subsystem Integrations -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header">
-          <div class="card-title">🔌 Enterprise Subsystem Integrations (${integrations.length})</div>
-          <button class="btn btn-secondary" onclick="openAddIntegrationModal()">+ Add Integration</button>
-        </div>
-        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
-          Live connectors tested against actual endpoints using RFC-standard protocol handshakes (SNMP v2c/v3, SSH banner check, HTTP webhooks, WMI).
-        </p>
-        <div class="table-responsive">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Integration Name</th>
-                <th>Type</th>
-                <th>Endpoint / Target</th>
-                <th>Status</th>
-                <th>Last Tested</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${integrations.map(i => `
-                <tr>
-                  <td><strong>${i.name}</strong></td>
-                  <td><span class="badge badge-open" style="text-transform: uppercase;">${i.type}</span></td>
-                  <td><code>${i.endpoint_or_host}</code></td>
-                  <td>
-                    <span id="integStatus-${i.id}" class="badge badge-${i.status === 'connected' ? 'healthy' : i.status === 'error' ? 'critical' : 'warning'}">
-                      ${i.status}
-                    </span>
-                  </td>
-                  <td style="font-size: 11px; color: var(--text-dim);">${i.last_tested ? new Date(i.last_tested).toLocaleTimeString() : 'Never'}</td>
-                  <td>
-                    <button class="btn btn-primary" id="btnTestInteg-${i.id}" style="padding: 2px 8px; font-size: 11px;" onclick="testIntegrationConnection('${i.id}')">
-                      ⚡ Test Live
-                    </button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Audit Trail & Integrity Check -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header" style="flex-wrap: wrap; gap: 8px;">
-          <div class="card-title">🛡️ Cryptographic Tamper-Evident Audit Trail (HMAC-SHA256)</div>
-          <div style="display: flex; gap: 6px;">
-            <button class="btn btn-secondary" style="font-size: 11px;" onclick="exportAudit('csv')">📥 Export CSV</button>
-            <button class="btn btn-secondary" style="font-size: 11px;" onclick="exportAudit('json')">📥 Export JSON</button>
-            <button class="btn btn-primary" style="font-size: 11px;" onclick="verifyAuditIntegrityLive()">Verify Hash Chain Integrity</button>
-          </div>
-        </div>
-        <div id="auditVerifyStatusBox" style="display: none; padding: 10px; margin-bottom: 12px; border-radius: 6px;"></div>
-        <div class="table-responsive">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Timestamp</th>
-                <th>User</th>
-                <th>Role</th>
-                <th>Action</th>
-                <th>Resource</th>
-                <th>HMAC-SHA256 Chain Hash</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${auditRes.logs.map(l => `
-                <tr>
-                  <td>${l.id}</td>
-                  <td style="font-size: 11px; color: var(--text-dim);">${new Date(l.timestamp).toLocaleTimeString()}</td>
-                  <td><strong>${l.username || 'System'}</strong></td>
-                  <td><span class="user-role-tag role-${l.role}">${l.role}</span></td>
-                  <td><code>${l.action}</code></td>
-                  <td>${l.resource}</td>
-                  <td><code style="font-size: 10px; color: #a5f3fc;">${l.hash.slice(0, 16)}...${l.hash.slice(-8)}</code></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Governance Policies & User Admin & Platform Health -->
-      <div class="grid-3">
-        <!-- User Administration -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">👥 User & Role Administration (${usersRes.count})</div>
-          </div>
-          <table class="table">
-            <thead><tr><th>Username</th><th>Role</th><th>Status</th></tr></thead>
-            <tbody>
-              ${usersRes.users.map(u => `
-                <tr>
-                  <td><strong>${u.username}</strong></td>
-                  <td><span class="user-role-tag role-${u.role}">${u.role}</span></td>
-                  <td><span class="badge badge-${u.is_active ? 'healthy' : 'critical'}">${u.is_active ? 'Active' : 'Disabled'}</span></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Governance Policies -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚙️ Governance & Retention</div>
-          </div>
-          <div style="font-size: 12px; display: flex; flex-direction: column; gap: 10px;">
-            <div>
-              <label class="form-label">Audit Retention (Days)</label>
-              <input type="number" class="form-input" id="setAuditRetention" value="${settings.audit_retention_days || 365}">
-            </div>
-            <div>
-              <label class="form-label">Telemetry Polling Interval (Sec)</label>
-              <input type="number" class="form-input" id="setPollInterval" value="${settings.telemetry_poll_interval_sec || 30}">
-            </div>
-            <div>
-              <label class="form-label">Session Idle Timeout (Min)</label>
-              <input type="number" class="form-input" id="setSessionTimeout" value="${settings.session_timeout_minutes || 60}">
-            </div>
-            <button class="btn btn-primary" onclick="savePlatformSettings()" style="margin-top: 4px;">
-              Save Governance Policies
-            </button>
-          </div>
-        </div>
-
-        <!-- Platform Health -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🖥️ Platform Runtime Health</div>
-          </div>
-          <div class="grid-2" style="margin-bottom: 12px;">
-            <div>
-              <div class="metric-large">${healthRes.memory.rssMb} MB</div>
-              <div class="metric-sub">Process RSS Memory</div>
-            </div>
-            <div>
-              <div class="metric-large">${healthRes.database.sizeFormatted}</div>
-              <div class="metric-sub">SQLite Database Size</div>
+            <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+              Monitors transport layer degradation: MTU black holes, TCP RST drops, DNS resolution spikes, and broadcast storms.
+            </p>
+            <div id="anomaliesListOutput" style="max-height: 180px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; scrollbar-gutter: stable; padding-right: 14px;">
+              Scanning wire streams...
             </div>
           </div>
-          <div style="font-size: 12px; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px;">
-            <div>Node Version: <strong>${healthRes.nodeVersion}</strong></div>
-            <div>Daemon Uptime: <strong>${healthRes.uptimeSeconds}s</strong></div>
-            <div>Total Audit Records: <strong>${healthRes.database.totalAuditRecords}</strong></div>
-          </div>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="card"><p style="color: var(--danger);">Failed to load App Owner view: ${err.message}</p></div>`;
-  }
-}
-
-window.exportAudit = async function(format) {
-  try {
-    const res = await fetch(`/api/admin/audit/export?format=${format}`, {
-      headers: { 'Authorization': `Bearer ${state.token}` }
-    });
-    if (!res.ok) throw new Error(`Export failed HTTP ${res.status}`);
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `eji-audit-export-${Date.now()}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  } catch (err) {
-    alert(`Failed to export audit log: ${err.message}`);
-  }
-};
-
-window.testIntegrationConnection = async function(id) {
-  const btn = document.getElementById(`btnTestInteg-${id}`);
-  const statusSpan = document.getElementById(`integStatus-${id}`);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Testing...';
-  }
-  try {
-    const res = await api(`/api/integrations/${id}/test`, { method: 'POST' });
-    if (statusSpan) {
-      if (res.success) {
-        statusSpan.className = 'badge badge-healthy';
-        statusSpan.textContent = `Connected (${res.latencyMs || 0}ms)`;
-      } else {
-        statusSpan.className = 'badge badge-critical';
-        statusSpan.textContent = `Failed: ${res.error || 'Unreachable'}`;
-      }
-    }
-    alert(`Integration Test [${id}]:\n${res.message || (res.success ? 'Success' : res.error)}`);
-  } catch (err) {
-    alert(`Test error: ${err.message}`);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '⚡ Test Live';
-    }
-  }
-};
-
-window.savePlatformSettings = async function() {
-  const audit_retention_days = parseInt(document.getElementById('setAuditRetention').value, 10);
-  const telemetry_poll_interval_sec = parseInt(document.getElementById('setPollInterval').value, 10);
-  const session_timeout_minutes = parseInt(document.getElementById('setSessionTimeout').value, 10);
-
-  try {
-    await api('/api/admin/settings', {
-      method: 'POST',
-      body: JSON.stringify({
-        audit_retention_days,
-        telemetry_poll_interval_sec,
-        session_timeout_minutes
-      })
-    });
-    alert('Governance settings updated and applied.');
-  } catch (err) {
-    alert(`Failed to save settings: ${err.message}`);
-  }
-};
-
-window.openAddIntegrationModal = function() {
-  const modal = document.getElementById('modalContainer');
-  modal.style.display = 'flex';
-  modal.innerHTML = `
-    <div class="modal-overlay" onclick="closeModal(event)">
-      <div class="modal-dialog" onclick="event.stopPropagation()">
-        <div class="modal-header">
-          <div class="card-title">🔌 Add Enterprise Integration</div>
-          <button class="btn-logout" onclick="closeModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Integration Name</label>
-            <input type="text" class="form-input" id="newIntegName" placeholder="e.g. Core Switch SNMP Agent">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Type</label>
-            <select class="form-select" id="newIntegType">
-              <option value="snmp">SNMP Agent (v2c/v3)</option>
-              <option value="ssh">SSH Remote Host</option>
-              <option value="webhook">HTTP Webhook</option>
-              <option value="wmi">Windows WMI / WinRM</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Endpoint / Hostname / URL</label>
-            <input type="text" class="form-input" id="newIntegHost" placeholder="e.g. 192.168.1.1 or https://alerts.corp.internal">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="submitNewIntegration()">Add & Register</button>
         </div>
       </div>
     </div>
   `;
+  window.refreshRoutingEvents();
+  window.refreshAnomaliesList();
 };
 
-window.submitNewIntegration = async function() {
-  const name = document.getElementById('newIntegName').value.trim();
-  const type = document.getElementById('newIntegType').value;
-  const endpoint_or_host = document.getElementById('newIntegHost').value.trim();
+window.runAsyncPingSweep = async function() {
+  const out = document.getElementById('sweepResultOutput');
+  if (out) out.innerHTML = '<span style="color: var(--accent);">Initiating concurrent unprivileged ping sweep...</span>';
 
-  if (!name || !endpoint_or_host) return alert('Name and endpoint are required.');
-
-  try {
-    await api('/api/integrations', {
-      method: 'POST',
-      body: JSON.stringify({ name, type, endpoint_or_host })
-    });
-    closeModal();
-    renderAppOwnerView();
-  } catch (err) {
-    alert(`Failed to add integration: ${err.message}`);
+  const raw = document.getElementById('sweepTargetsInput')?.value?.trim();
+  let targets = null;
+  if (raw) {
+    targets = raw.split(',').map(s => s.trim()).filter(Boolean);
   }
-};
-
-window.reviewActionDecision = async function(actionId, approved) {
-  const comment = prompt(`Enter ${approved ? 'Approval' : 'Rejection'} audit notes:`, approved ? 'Authorized by Application Owner.' : 'Rejected.');
-  if (comment === null) return;
 
   try {
-    await api(`/api/automation/actions/${actionId}/review`, {
+    const res = await api('/api/network/tools/async-sweep', {
       method: 'POST',
-      body: JSON.stringify({ approved, comment })
+      body: JSON.stringify({ targets, concurrency: 30, timeoutMs: 600 })
     });
-    alert(`Action ${approved ? 'Approved' : 'Rejected'}.`);
-    renderAppOwnerView();
-  } catch (e) {
-    alert(`Review failed: ${e.message}`);
-  }
-};
 
-window.verifyAuditIntegrityLive = async function() {
-  const box = document.getElementById('auditVerifyStatusBox');
-  box.style.display = 'block';
-  box.textContent = 'Verifying sequential SHA-256 HMAC hash links...';
-  box.style.backgroundColor = 'rgba(56, 189, 248, 0.15)';
-  box.style.color = '#38bdf8';
-
-  try {
-    const res = await api('/api/admin/audit-verify');
-    if (res.valid) {
-      box.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
-      box.style.color = '#34d399';
-      box.textContent = `✓ ${res.message} (Zero records altered or deleted)`;
-    } else {
-      box.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-      box.style.color = '#f87171';
-      box.textContent = `❌ ${res.message}`;
+    if (out) {
+      out.innerHTML = `
+        <div style="color: var(--success); font-weight: 700; margin-bottom: 6px;">
+          ✓ Swept ${res.totalProbed} nodes in ${res.durationMs}ms (${res.probesPerSecond} probes/sec). Online: ${res.healthyCount}, Unreachable: ${res.unreachableCount}
+        </div>
+        <table class="data-table" style="font-size: 11px;">
+          <thead>
+            <tr><th>Target</th><th>Status</th><th>Latency</th><th>Method</th></tr>
+          </thead>
+          <tbody>
+            ${res.results.slice(0, 15).map(r => `
+              <tr>
+                <td style="font-weight: 600;">${r.target}</td>
+                <td><span style="color: ${r.status === 'healthy' ? 'var(--success)' : 'var(--danger)'}; font-weight: 700;">${r.status.toUpperCase()}</span></td>
+                <td>${r.latencyMs !== null ? r.latencyMs + ' ms' : '—'}</td>
+                <td style="color: var(--text-dim);">${r.method}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
     }
-  } catch (e) {
-    box.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-    box.style.color = '#f87171';
-    box.textContent = `Verification error: ${e.message}`;
+  } catch (err) {
+    if (out) out.innerHTML = `<span style="color: var(--danger);">Sweep error: ${err.message}</span>`;
   }
+};
+
+window.refreshRoutingEvents = async function() {
+  const out = document.getElementById('routingEventsOutput');
+  try {
+    const res = await api('/api/network/tools/routing-events?limit=20');
+    if (out) {
+      if (res.events && res.events.length > 0) {
+        out.innerHTML = res.events.map(e => `
+          <div style="padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between;">
+            <span><b style="color: var(--accent);">${e.protocol}:</b> ${e.summary}</span>
+            <span style="color: var(--text-dim);">${window.formatLocalTime(e.timestamp)}</span>
+          </div>
+        `).join('');
+      } else {
+        out.innerHTML = '<span style="color: var(--text-dim);">Passively listening on wire... (OSPF multicasts 224.0.0.5 or BGP TCP 179 will appear here dynamically)</span>';
+      }
+    }
+  } catch (e) {}
+};
+
+window.refreshAnomaliesList = async function() {
+  const out = document.getElementById('anomaliesListOutput');
+  try {
+    const res = await api('/api/network/tools/anomalies?limit=20');
+    if (out) {
+      if (res.anomalies && res.anomalies.length > 0) {
+        out.innerHTML = res.anomalies.map(a => `
+          <div style="padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+            <div style="flex: 1; min-width: 0; word-break: break-word;">
+              <span style="color: ${a.severity === 'critical' ? '#ef4444' : '#f59e0b'}; font-weight: 700;">[${a.anomaly_type}]</span>
+              <span style="margin-left: 6px; color: var(--text-main);">${a.details}</span>
+            </div>
+            <span style="color: var(--text-dim); font-size: 10px; flex-shrink: 0; min-width: 85px; text-align: right; margin-left: 12px; white-space: nowrap;">${window.formatLocalTime(a.timestamp)}</span>
+          </div>
+        `).join('');
+      } else {
+        out.innerHTML = '<span style="color: var(--success);">✓ Clean Wire: Zero MTU black holes, RST bursts, or broadcast storms detected.</span>';
+      }
+    }
+  } catch (e) {}
+};
+
+window.clearAnomaliesList = async function() {
+  await api('/api/network/tools/anomalies/clear', { method: 'POST' });
+  window.refreshAnomaliesList();
+};
+
+window.openPcapVaultModal = function() {
+  const modalContainer = document.getElementById('modalContainer');
+  if (!modalContainer) return;
+
+  modalContainer.style.display = 'flex';
+  modalContainer.innerHTML = `
+    <div class="modal-backdrop" onclick="window.closeModal(event)">
+      <div class="modal-card" style="max-width: 600px; width: 90%;" onclick="event.stopPropagation()">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+          <div style="font-weight: 800; font-size: 15px; color: var(--accent);">📁 PCAP Capture Vault</div>
+          <button class="btn-logout" onclick="window.closeModal()">✕</button>
+        </div>
+        <div style="padding: 20px 0;">
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+            Export active buffer to standard libpcap format for Wireshark inspection, or import offline PCAPs for deep dissection.
+          </p>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-primary" onclick="window.downloadPcapExport()" style="flex: 1; padding: 10px; font-weight: 700;">
+              ⬇ Export Current PCAP Buffer
+            </button>
+            <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="flex: 1; padding: 10px; font-weight: 700;">
+              ⬆ Import Offline PCAP
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 };
 
 window.closeModal = function() {
-  document.getElementById('modalContainer').style.display = 'none';
+  const modalContainer = document.getElementById('modalContainer');
+  if (modalContainer) modalContainer.style.display = 'none';
 };
 
 /**
- * 14-Tool Unified Subsystems Hub View
+ * Global Keyboard Shortcuts (Ctrl+K: Command Palette, Ctrl+H: Field Manual)
  */
-function renderToolsView() {
-  const container = document.getElementById('mainContent');
-  container.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-      <div class="panel" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9)); border: 1px solid var(--border);">
-        <div class="panel-header">
-          <div class="panel-title">🛠️ 14-Tool Integrated Intelligence Engine</div>
-          <span class="user-role-tag" style="background: var(--accent); color: #000;">Zero-Simulation Active</span>
-        </div>
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.5rem;">
-          EJII natively subsumes the capabilities of Wireshark, Nmap, PuTTY, Sysinternals, Advanced IP Scanner, iPerf, Netcat, Fiddler, Nagios, Cisco Packet Tracer, BleachBit, HWiNFO, FileZilla, and MTR into a unified operating-system and protocol intelligence engine.
-        </p>
-      </div>
-
-      <!-- Grid of Tool Actions -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem;">
-        
-        <!-- 1. Wireshark -->
-        <div class="panel">
-          <div class="panel-title">🦈 Wireshark Packet Dissector</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Decodes L2 Ethernet II, L3 IPv4/IPv6, L4 TCP/UDP, and L7 HTTP/DNS frame payloads.</p>
-          <button class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" onclick="runWiresharkDemo()">Dissect Sample Packet</button>
-          <div id="wiresharkResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 2. Nmap -->
-        <div class="panel">
-          <div class="panel-title">🛡️ Nmap Security & OS Audit</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">TCP Connect scanning (-sT), service version probe (-sV), and OS stack fingerprinting (-O).</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="nmapTarget" class="input" value="127.0.0.1" style="flex: 1;" placeholder="Target IP">
-            <button class="btn btn-primary" onclick="runNmapTool()">Scan Host</button>
-          </div>
-          <div id="nmapResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 3. Sysinternals -->
-        <div class="panel">
-          <div class="panel-title">⚙️ Sysinternals & TCPView</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Process tree hierarchy (PPID &rarr; PID DAG) and TCPView live socket-to-process table.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <button class="btn btn-primary" style="flex: 1;" onclick="runSysinternalsTree()">Process Tree</button>
-            <button class="btn btn-secondary" style="flex: 1;" onclick="runSysinternalsTcpView()">TCPView</button>
-          </div>
-          <div id="sysinternalsResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 4. Advanced IP Scanner -->
-        <div class="panel">
-          <div class="panel-title">📡 Advanced IP Subnet Scanner</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Subnet sweep with live ARP table polling and IEEE MAC OUI vendor resolution.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="ipScanSubnet" class="input" value="127.0.0" style="flex: 1;" placeholder="Subnet (e.g. 192.168.1)">
-            <button class="btn btn-primary" onclick="runIpScannerTool()">Sweep</button>
-            <button class="btn btn-secondary" onclick="runArpTableTool()">ARP Table</button>
-          </div>
-          <div id="ipScannerResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 5. iPerf Benchmarking -->
-        <div class="panel">
-          <div class="panel-title">⚡ iPerf Bandwidth & Jitter</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Active TCP socket bandwidth saturation and UDP RFC 3550 interarrival jitter benchmark.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <button class="btn btn-primary" style="flex: 1;" onclick="runIperfTcpTool()">TCP Throughput</button>
-            <button class="btn btn-secondary" style="flex: 1;" onclick="runIperfUdpTool()">UDP Jitter</button>
-          </div>
-          <div id="iperfResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 6. Netcat Socket Hub -->
-        <div class="panel">
-          <div class="panel-title">🔌 Netcat (nc) Socket Hub</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Raw TCP/UDP socket streaming, port listener, and raw banner grabbing.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="ncHost" class="input" value="127.0.0.1" style="flex: 2;" placeholder="Host">
-            <input type="number" id="ncPort" class="input" value="8443" style="flex: 1;" placeholder="Port">
-            <button class="btn btn-primary" onclick="runNetcatTool()">Connect</button>
-          </div>
-          <div id="netcatResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 7. Cisco Packet Tracer -->
-        <div class="panel">
-          <div class="panel-title">🌐 Cisco Packet Tracer L2/L3</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">L2/L3 route path evaluation, longest prefix match, and ARP next-hop resolution stepper.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="ptDest" class="input" value="8.8.8.8" style="flex: 1;" placeholder="Destination IP">
-            <button class="btn btn-primary" onclick="runPacketTracerTool()">Trace Path</button>
-          </div>
-          <div id="packetTracerResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 8. BleachBit System Hygiene -->
-        <div class="panel">
-          <div class="panel-title">🧹 BleachBit System Hygiene</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Temporary file reclamation audit and SQLite database vacuuming.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <button class="btn btn-secondary" style="flex: 1;" onclick="runBleachBitAudit()">Audit Cache</button>
-            <button class="btn btn-primary" style="flex: 1;" onclick="runBleachBitVacuum()">Vacuum DB</button>
-          </div>
-          <div id="bleachBitResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 9. HWiNFO & CPU-Z -->
-        <div class="panel">
-          <div class="panel-title">💻 HWiNFO Bare-Metal Telemetry</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">SMBIOS motherboard info, CPU core topology, RAM SPD slots, and S.M.A.R.T. disk health.</p>
-          <button class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" onclick="runHwinfoTool()">Inspect Hardware</button>
-          <div id="hwinfoResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 10. FileZilla Differential Transfer -->
-        <div class="panel">
-          <div class="panel-title">📁 FileZilla Differential Sync</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">SHA-256 cryptographic checksumming and differential file sync analysis.</p>
-          <button class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" onclick="runFilezillaTool()">Verify Package Hashes</button>
-          <div id="filezillaResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 11. MTR Path Analysis -->
-        <div class="panel">
-          <div class="panel-title">📈 MTR Multi-Hop Path Analysis</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">Continuous multi-hop path analysis with packet loss, min/avg/max RTT, and jitter per hop.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="mtrHost" class="input" value="127.0.0.1" style="flex: 1;" placeholder="Host">
-            <button class="btn btn-primary" onclick="runMtrTool()">Run MTR</button>
-          </div>
-          <div id="mtrResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-        <!-- 12. PuTTY Native Bridge -->
-        <div class="panel">
-          <div class="panel-title">🖥️ PuTTY & Native Protocol Bridge</div>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0;">One-click native launcher for Windows RDP (mstsc), OpenSSH, and PowerShell administrative consoles.</p>
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <button class="btn btn-primary" style="flex: 1;" onclick="runPuTTYLaunch('powershell')">PowerShell</button>
-            <button class="btn btn-secondary" style="flex: 1;" onclick="runPuTTYLaunch('rdp')">RDP (mstsc)</button>
-          </div>
-          <div id="puttyResult" style="margin-top: 0.75rem;"></div>
-        </div>
-
-      </div>
-    </div>
-  `;
-}
-
-// Tool Action Handlers
-window.runWiresharkDemo = async function() {
-  const box = document.getElementById('wiresharkResult');
-  box.innerHTML = '<div style="color: var(--accent);">Dissecting raw packet frame...</div>';
-  const sampleHex = '001A11223344000C29AABBCC0800450000281234400080060000C0A80132C0A80101D431005000000001000000005002FFFF00000000';
-  try {
-    const res = await api('/api/tools/wireshark/dissect', { method: 'POST', body: JSON.stringify({ hexPayload: sampleHex }) });
-    box.innerHTML = `
-      <pre style="background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; color: #a7f3d0;">
-L2: ${res.layers.ethernet?.srcMac} -> ${res.layers.ethernet?.dstMac} (${res.layers.ethernet?.etherType})
-L3: ${res.layers.ipv4?.srcIp} -> ${res.layers.ipv4?.dstIp} (TTL=${res.layers.ipv4?.ttl})
-L4: TCP Port ${res.layers.tcp?.srcPort} -> ${res.layers.tcp?.dstPort} [SYN=${res.layers.tcp?.flags?.syn}]
-      </pre>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (typeof window.toggleCommandPalette === 'function') window.toggleCommandPalette();
   }
-};
-
-window.runNmapTool = async function() {
-  const host = document.getElementById('nmapTarget').value;
-  const box = document.getElementById('nmapResult');
-  box.innerHTML = '<div style="color: var(--accent);">Scanning host & fingerprinting OS...</div>';
-  try {
-    const res = await api('/api/tools/nmap/scan', { method: 'POST', body: JSON.stringify({ host, ports: [22, 80, 443, 8443] }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>OS Fingerprint:</strong> ${res.osFingerprint?.osGuess} (${res.osFingerprint?.confidencePct}%)</div>
-        <div><strong>Scanned:</strong> ${res.totalPortsScanned} ports in ${res.durationMs}ms (Open: ${res.openPortsCount})</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+    e.preventDefault();
+    if (typeof window.toggleJuniorAdminCheatSheet === 'function') window.toggleJuniorAdminCheatSheet();
   }
-};
-
-window.runSysinternalsTree = async function() {
-  const box = document.getElementById('sysinternalsResult');
-  box.innerHTML = '<div style="color: var(--accent);">Enumerating process tree DAG...</div>';
-  try {
-    const res = await api('/api/tools/sysinternals/tree');
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Active Processes:</strong> ${res.totalProcesses} across ${res.rootCount} root trees</div>
-        <div><strong>Top Root:</strong> ${res.tree?.[0]?.name} (PID ${res.tree?.[0]?.pid}) - ${res.tree?.[0]?.children?.length || 0} child procs</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
+  if (e.key === 'Escape') {
+    window.closeModal();
+    const cp = document.getElementById('commandPalette');
+    if (cp) cp.style.display = 'none';
+    const ctx = document.getElementById('nocContextMenu');
+    if (ctx) ctx.style.display = 'none';
   }
-};
+});
 
-window.runSysinternalsTcpView = async function() {
-  const box = document.getElementById('sysinternalsResult');
-  box.innerHTML = '<div style="color: var(--accent);">Reading TCPView socket table...</div>';
-  try {
-    const res = await api('/api/tools/sysinternals/tcpview');
-    const first = res.connections?.[0];
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Mapped Sockets:</strong> ${res.count} active sockets</div>
-        ${first ? `<div><strong>Sample:</strong> [${first.proto}] ${first.local} &rarr; ${first.proc} (PID ${first.pid})</div>` : ''}
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runIpScannerTool = async function() {
-  const base = document.getElementById('ipScanSubnet').value;
-  const box = document.getElementById('ipScannerResult');
-  box.innerHTML = '<div style="color: var(--accent);">Sweeping subnet...</div>';
-  try {
-    const res = await api('/api/tools/ipscanner/sweep', { method: 'POST', body: JSON.stringify({ subnetBase: base, start: 1, end: 15 }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Scanned:</strong> ${res.totalScanned} hosts in ${res.durationMs}ms</div>
-        <div><strong>Discovered:</strong> ${res.discoveredCount} active hosts</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runArpTableTool = async function() {
-  const box = document.getElementById('ipScannerResult');
-  box.innerHTML = '<div style="color: var(--accent);">Reading host ARP cache...</div>';
-  try {
-    const res = await api('/api/tools/ipscanner/arp');
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>ARP Cache Entries:</strong> ${res.count} cached hardware bindings</div>
-        ${res.table?.[0] ? `<div><strong>Sample:</strong> ${res.table[0].ip} &rarr; ${res.table[0].mac} (${res.table[0].vendor})</div>` : ''}
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runIperfTcpTool = async function() {
-  const box = document.getElementById('iperfResult');
-  box.innerHTML = '<div style="color: var(--accent);">Running TCP saturation benchmark...</div>';
-  try {
-    const res = await api('/api/tools/iperf/tcp', { method: 'POST', body: JSON.stringify({ durationSeconds: 1 }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div style="color: #34d399; font-weight: bold;">Throughput: ${res.throughputMbps} Mbps</div>
-        <div>Transferred: ${res.megabytesTransferred} MB in ${res.durationSeconds}s</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runIperfUdpTool = async function() {
-  const box = document.getElementById('iperfResult');
-  box.innerHTML = '<div style="color: var(--accent);">Calculating RFC 3550 UDP jitter...</div>';
-  try {
-    const res = await api('/api/tools/iperf/udp', { method: 'POST', body: JSON.stringify({ packets: 30 }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div style="color: #38bdf8;">RFC 3550 Jitter: ${res.rfc3550JitterMs} ms</div>
-        <div>Packets: ${res.packetsReceived}/${res.packetsSent} (Loss: ${res.packetLossPct}%)</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runNetcatTool = async function() {
-  const host = document.getElementById('ncHost').value;
-  const port = document.getElementById('ncPort').value;
-  const box = document.getElementById('netcatResult');
-  box.innerHTML = '<div style="color: var(--accent);">Piping raw socket...</div>';
-  try {
-    const res = await api('/api/tools/netcat/tcp', { method: 'POST', body: JSON.stringify({ host, port: parseInt(port, 10), payload: 'GET / HTTP/1.0' }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Status:</strong> ${res.success ? 'Connected' : 'Refused / Timeout'} (${res.latencyMs}ms)</div>
-        <div><strong>Bytes Received:</strong> ${res.receivedBytes}</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runPacketTracerTool = async function() {
-  const dest = document.getElementById('ptDest').value;
-  const box = document.getElementById('packetTracerResult');
-  box.innerHTML = '<div style="color: var(--accent);">Stepping L2/L3 packet path...</div>';
-  try {
-    const res = await api('/api/tools/packet-tracer/trace', { method: 'POST', body: JSON.stringify({ destinationIp: dest }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Route Match:</strong> ${res.matchedRoute?.prefix} (Interface: ${res.matchedRoute?.interface})</div>
-        <div><strong>Next-Hop:</strong> ${res.nextHop} [MAC: ${res.nextHopMac}]</div>
-        <div><strong>Steps Evaluated:</strong> ${res.traversalSteps?.length} steps</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runBleachBitAudit = async function() {
-  const box = document.getElementById('bleachBitResult');
-  box.innerHTML = '<div style="color: var(--accent);">Auditing reclaimable cache...</div>';
-  try {
-    const res = await api('/api/tools/bleachbit/audit');
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div style="color: #34d399;">Reclaimable: ${res.totalReclaimableFormatted}</div>
-        <div>Categories Audited: ${res.categories?.length}</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runBleachBitVacuum = async function() {
-  const box = document.getElementById('bleachBitResult');
-  box.innerHTML = '<div style="color: var(--accent);">Vacuuming SQLite database...</div>';
-  try {
-    const res = await api('/api/tools/bleachbit/vacuum', { method: 'POST' });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px; color: #34d399;">
-        ✓ ${res.message} (DB Size: ${res.sizeAfterFormatted})
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runHwinfoTool = async function() {
-  const box = document.getElementById('hwinfoResult');
-  box.innerHTML = '<div style="color: var(--accent);">Querying CIM hardware sensors...</div>';
-  try {
-    const res = await api('/api/tools/hwinfo/telemetry');
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>CPU:</strong> ${res.cpu?.name} (${res.cpu?.physicalCores} Cores / ${res.cpu?.logicalThreads} Threads)</div>
-        <div><strong>RAM:</strong> ${res.memory?.totalCapacityGB} GB across ${res.memory?.modulesCount} slot(s)</div>
-        <div><strong>Board:</strong> ${res.motherboard?.motherboardVendor} ${res.motherboard?.motherboardModel}</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runFilezillaTool = async function() {
-  const box = document.getElementById('filezillaResult');
-  box.innerHTML = '<div style="color: var(--accent);">Computing SHA-256 hashes...</div>';
-  try {
-    const res = await api('/api/tools/filezilla/compare', { method: 'POST', body: JSON.stringify({ sourceFile: 'package.json', destFile: 'package.json' }) });
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Status:</strong> ${res.status}</div>
-        <div style="word-break: break-all;"><strong>SHA-256:</strong> ${res.sourceHash}</div>
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runMtrTool = async function() {
-  const host = document.getElementById('mtrHost').value;
-  const box = document.getElementById('mtrResult');
-  box.innerHTML = '<div style="color: var(--accent);">Running multi-hop MTR trace...</div>';
-  try {
-    const res = await api('/api/tools/mtr/run', { method: 'POST', body: JSON.stringify({ host, cycles: 2 }) });
-    const first = res.table?.[0];
-    box.innerHTML = `
-      <div style="font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px;">
-        <div><strong>Hops Analyzed:</strong> ${res.totalHops}</div>
-        ${first ? `<div><strong>Hop 1:</strong> ${first.ip} - Loss: ${first.lossPct}% (Avg RTT: ${first.avgRttMs}ms)</div>` : ''}
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-window.runPuTTYLaunch = async function(tool) {
-  const box = document.getElementById('puttyResult');
-  box.innerHTML = `<div style="color: var(--accent);">Spawning native ${tool}...</div>`;
-  try {
-    const res = await api('/api/tools/putty/launch', { method: 'POST', body: JSON.stringify({ tool, target: '127.0.0.1' }) });
-    box.innerHTML = `<div style="font-size: 0.8rem; color: #34d399; margin-top: 0.5rem;">✓ ${res.message}</div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="color: #f87171;">Error: ${e.message}</div>`;
-  }
-};
-
-// Global Navigation Listener
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.addEventListener('click', () => {
-      const view = link.dataset.view;
-      renderView(view);
-    });
-  });
-
-  document.getElementById('btnLogout').addEventListener('click', logout);
-
+// App Initialization
+window.addEventListener('DOMContentLoaded', async () => {
   initWebSocket();
 
-  // If token exists, load user profile
+  // Sign out button
+  const btnLogout = document.getElementById('btnLogout');
+  if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+      try { await api('/api/auth/logout', { method: 'POST' }); } catch (e) {}
+      state.token = null;
+      state.user = null;
+      localStorage.removeItem('ejii_token');
+      showLoginScreen();
+    });
+  }
+
+  // Check existing session or show login
   if (state.token) {
-    api('/api/auth/me')
-      .then(res => {
-        state.user = res.user;
-        updateUserBadge();
-        loadTopbarStats();
-        renderView(state.currentView);
-      })
-      .catch(() => {
-        logout();
-      });
+    try {
+      const me = await api('/api/auth/me');
+      state.user = me.user;
+      hideLoginScreen();
+      updateUserBadge();
+      loadTopbarStats();
+      renderView('topology');
+    } catch (e) {
+      showLoginScreen();
+    }
   } else {
-    renderLoginView();
+    showLoginScreen();
   }
 });

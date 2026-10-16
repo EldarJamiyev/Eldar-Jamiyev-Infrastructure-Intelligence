@@ -166,8 +166,76 @@ function walkOid(host, rootOid = STANDARD_OIDS.ifDescr, community = 'public', po
   });
 }
 
+/**
+ * Walk IF-MIB and synthesize structured interface table (names, status, bandwidth counters)
+ * @param {string} host 
+ * @param {string} community 
+ * @param {number} port 
+ * @param {number} timeoutMs 
+ * @returns {Promise<object>}
+ */
+async function walkInterfaces(host, community = 'public', port = 161, timeoutMs = 4000) {
+  const cleanHost = (host || '').trim();
+  const ifDescrResult = await walkOid(cleanHost, STANDARD_OIDS.ifDescr, community, port);
+  if (!ifDescrResult.success) {
+    return {
+      success: false,
+      host: cleanHost,
+      error: ifDescrResult.error || 'Failed to query IF-MIB interfaces',
+      interfaces: []
+    };
+  }
+
+  // Also query operStatus and octet counters
+  const [operStatusResult, inOctetsResult, outOctetsResult] = await Promise.all([
+    walkOid(cleanHost, STANDARD_OIDS.ifOperStatus, community, port),
+    walkOid(cleanHost, STANDARD_OIDS.ifInOctets, community, port),
+    walkOid(cleanHost, STANDARD_OIDS.ifOutOctets, community, port)
+  ]);
+
+  const statusMap = new Map();
+  (operStatusResult.items || []).forEach(item => {
+    const idx = item.oid.split('.').pop();
+    statusMap.set(idx, item.value === '1' ? 'UP' : (item.value === '2' ? 'DOWN' : 'TESTING'));
+  });
+
+  const inMap = new Map();
+  (inOctetsResult.items || []).forEach(item => {
+    const idx = item.oid.split('.').pop();
+    inMap.set(idx, parseInt(item.value, 10) || 0);
+  });
+
+  const outMap = new Map();
+  (outOctetsResult.items || []).forEach(item => {
+    const idx = item.oid.split('.').pop();
+    outMap.set(idx, parseInt(item.value, 10) || 0);
+  });
+
+  const interfaces = (ifDescrResult.items || []).map(item => {
+    const idx = item.oid.split('.').pop();
+    return {
+      ifIndex: parseInt(idx, 10),
+      ifDescr: item.value,
+      operStatus: statusMap.get(idx) || 'UNKNOWN',
+      inOctets: inMap.get(idx) || 0,
+      outOctets: outMap.get(idx) || 0,
+      inBytesFormatted: `${((inMap.get(idx) || 0) / (1024 * 1024)).toFixed(2)} MB`,
+      outBytesFormatted: `${((outMap.get(idx) || 0) / (1024 * 1024)).toFixed(2)} MB`
+    };
+  });
+
+  return {
+    success: true,
+    host: cleanHost,
+    interfaceCount: interfaces.length,
+    interfaces
+  };
+}
+
 module.exports = {
   getSystemInfo,
   walkOid,
+  walkInterfaces,
   STANDARD_OIDS
 };
+

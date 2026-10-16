@@ -2,8 +2,9 @@
 set -e
 
 echo "========================================================================"
-echo "  EJII - Eldar Jamiyev's Infrastructure Intelligence Platform"
-echo "  Production Setup & Operational Launcher (POSIX/Linux)"
+echo "  EJII - Eldar Jamiyev's Infrastructure Intelligence"
+echo "  NOC Topology & Wire-Level Packet Dissection Workstation (POSIX/Linux)"
+echo "  Unprivileged Operator Workstation (Zero Administrative Elevation)"
 echo "========================================================================"
 echo ""
 
@@ -30,6 +31,7 @@ node tests/run-all-tests.js
 # 4. Start Server
 echo ""
 echo "========================================================================"
-echo "  Starting EJII Enterprise Server on http://localhost:8443"
+echo "  Starting EJII NOC Workstation on http://localhost:8443"
+echo "  Access Mode: Unprivileged NOC Operator Access"
 echo "========================================================================"
 node src/server.js

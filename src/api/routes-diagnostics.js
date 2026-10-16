@@ -10,7 +10,10 @@ const { realPing, realTraceroute } = require('../protocols/icmp-ping');
 const { checkPort } = require('../protocols/tcp-port');
 const { resolveRecord } = require('../protocols/dns-diag');
 const { probeHttp } = require('../protocols/http-probe');
+const { verifyWebEndpoint, verifyMailEndpoint } = require('../protocols/service-verifier');
+const { runConnectivityMatrix, getConnectivityHistory } = require('../network/routing/connectivity-matrix');
 const { logAction } = require('../core/audit-logger');
+const { diagnosticReasoningEngine } = require('../core/rca-engine');
 
 /**
  * Generate plain-language technical synthesis for helpdesk technicians & users
@@ -243,6 +246,190 @@ router.post('/explain', authenticate, (req, res) => {
 
   const explanation = synthesizeExplanation({ probeType, target, result });
   res.json({ explanation });
+});
+
+// Government & Critical Enterprise Target Catalog
+const GOVERNMENT_TARGETS = [
+  { hostname: 'mail.taxes.gov.az', name: 'State Tax Service Webmail & Relay', agency: 'State Tax Service (DVX)', category: 'MAIL', defaultPort: 443 },
+  { hostname: 'hesabat.taxes.gov.az', name: 'Electronic Tax Declarations Portal (BTP/EVHF)', agency: 'State Tax Service (DVX)', category: 'WEB', defaultPort: 443 },
+  { hostname: 'e-qanun.az', name: 'Unified Database of Legal Acts (E-Qanun)', agency: 'Ministry of Justice (Ədliyyə Nazirliyi)', category: 'WEB', defaultPort: 443 },
+  { hostname: 'ccms.taxes.gov.az', name: 'Centralized Call Center Management System', agency: 'State Tax Service (DVX)', category: 'WEB', defaultPort: 443 },
+  { hostname: 'avis.taxes.gov.az', name: 'Automated Tax Information System (AVIS)', agency: 'State Tax Service (DVX)', category: 'WEB', defaultPort: 443 },
+  { hostname: 'taxes.gov.az', name: 'State Tax Service Official Web Portal', agency: 'State Tax Service (DVX)', category: 'WEB', defaultPort: 443 },
+  { hostname: 'e-gov.az', name: 'Electronic Government Portal', agency: 'Innovation and Digital Development Agency', category: 'WEB', defaultPort: 443 },
+  { hostname: 'customs.gov.az', name: 'State Customs Committee Portal', agency: 'State Customs Committee', category: 'WEB', defaultPort: 443 }
+];
+
+/**
+ * GET /api/diagnostics/gov-targets
+ */
+router.get('/gov-targets', authenticate, (req, res) => {
+  res.json({ targets: GOVERNMENT_TARGETS });
+});
+
+/**
+ * POST /api/diagnostics/verify-web & POST /api/diagnostics/web
+ */
+async function handleWebVerification(req, res) {
+  try {
+    const url = req.body.url || req.body.target || req.body.host;
+    if (!url) return res.status(400).json({ error: 'Target URL or hostname is required.' });
+
+    const safeTimeout = Math.min(Math.max(1000, parseInt(req.body.timeoutMs, 10) || 5000), 15000);
+    const safeRedirects = Math.min(Math.max(1, parseInt(req.body.maxRedirects, 10) || 5), 10);
+
+    const report = await verifyWebEndpoint(url, { timeoutMs: safeTimeout, maxRedirects: safeRedirects });
+
+    // Attach government target intelligence if recognized
+    const cleanHost = (report.hostname || '').toLowerCase();
+    const matchedGov = GOVERNMENT_TARGETS.find(g => cleanHost.includes(g.hostname.toLowerCase()));
+    if (matchedGov) {
+      report.governmentIntel = matchedGov;
+    }
+
+    logAction({
+      userId: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      action: 'DIAGNOSTIC_VERIFY_WEB',
+      resource: url,
+      details: `Web Verification: Verdict ${report.verdict}, Code: ${report.http.statusCode || 'FAIL'}, TCP: ${report.tcp.connectLatencyMs}ms`
+    });
+
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: 'Web verification failed: ' + err.message });
+  }
+}
+
+router.post('/verify-web', authenticate, requirePermission('diag:verify_service'), handleWebVerification);
+router.post('/web', authenticate, requirePermission('diag:verify_service'), handleWebVerification);
+
+/**
+ * POST /api/diagnostics/verify-mail & POST /api/diagnostics/mail
+ */
+async function handleMailVerification(req, res) {
+  try {
+    const host = req.body.host || req.body.target || req.body.url || 'mail.taxes.gov.az';
+    if (!host) return res.status(400).json({ error: 'Target mail host or domain is required.' });
+
+    const safeTimeout = Math.min(Math.max(1000, parseInt(req.body.timeoutMs, 10) || 3500), 10000);
+    const report = await verifyMailEndpoint(host, { timeoutMs: safeTimeout });
+
+    // Attach government target intelligence if recognized
+    const cleanHost = (report.host || host || '').toLowerCase();
+    const matchedGov = GOVERNMENT_TARGETS.find(g => cleanHost.includes(g.hostname.toLowerCase()));
+    if (matchedGov) {
+      report.governmentIntel = matchedGov;
+    }
+
+    logAction({
+      userId: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      action: 'DIAGNOSTIC_VERIFY_MAIL',
+      resource: host,
+      details: `Mail Verification: Verdict ${report.verdict}, Open ports: ${report.ports.filter(p => p.status === 'OPEN').map(p => p.port).join(', ') || 'None'}`
+    });
+
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: 'Mail verification failed: ' + err.message });
+  }
+}
+
+router.post('/verify-mail', authenticate, requirePermission('diag:verify_service'), handleMailVerification);
+router.post('/mail', authenticate, requirePermission('diag:verify_service'), handleMailVerification);
+
+/**
+ * POST /api/diagnostics/connectivity-matrix
+ */
+router.post('/connectivity-matrix', authenticate, requirePermission('diag:connectivity_matrix'), async (req, res) => {
+  try {
+    const { sourceIp, destination, port, protocol = 'TCP', timeoutMs = 3000 } = req.body;
+    if (!destination || !port) {
+      return res.status(400).json({ error: 'Destination IP/host and port are required.' });
+    }
+
+    const safeTimeout = Math.min(Math.max(500, parseInt(timeoutMs, 10) || 3000), 10000);
+    const result = await runConnectivityMatrix(sourceIp, destination, port, protocol, { timeoutMs: safeTimeout });
+
+    logAction({
+      userId: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      action: 'NETWORK_CONNECTIVITY_MATRIX',
+      resource: `${destination}:${port}`,
+      details: `Matrix Probe: Status ${result.status}, Error: ${result.errorCode || 'NONE'}, Regression: ${result.regression.isRegression}`
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Connectivity matrix probe failed: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/diagnostics/connectivity-history
+ */
+router.get('/connectivity-history', authenticate, requirePermission('diag:connectivity_matrix'), (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const history = getConnectivityHistory(limit);
+    res.json({ history });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve connectivity history: ' + err.message });
+  }
+});
+/**
+ * POST /api/diagnostics/analyze-incident
+ * Evaluates network telemetry and produces Dual-Tier Experience:
+ * 1. Simple Operator Mode (copyable incident briefing, non-jargon explanation)
+ * 2. Expert Diagnostic Mode (RFC dissection, 5-tuple, sequence tracking, distinguishing tests)
+ */
+router.post('/analyze-incident', authenticate, (req, res) => {
+  try {
+    const analysis = diagnosticReasoningEngine.analyzeIncident(req.body);
+    res.json({ success: true, ...analysis });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Incident analysis failed: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/diagnostics/run-distinguishing-test
+ * Executes an automated distinguishing probe (ping, TCP port check, external DNS query)
+ */
+router.post('/run-distinguishing-test', authenticate, async (req, res) => {
+  try {
+    const { testId, target, probeType } = req.body;
+    if (!target) return res.status(400).json({ error: 'Probe target is required.' });
+
+    let probeResult = null;
+    if (probeType === 'ping' || probeType === 'ping_mtu') {
+      probeResult = await realPing(target, 2, 1500);
+    } else if (probeType === 'port') {
+      const parts = target.split(':');
+      const host = parts[0];
+      const port = parseInt(parts[1] || '80', 10);
+      probeResult = await checkPort(host, port, 1500);
+    } else if (probeType === 'dns_external') {
+      probeResult = await resolveRecord(target, 'A', { timeoutMs: 2000 });
+    } else {
+      probeResult = await realPing(target, 1, 1000);
+    }
+
+    res.json({
+      success: true,
+      testId,
+      target,
+      probeType,
+      executedAt: new Date().toISOString(),
+      result: probeResult
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Distinguishing probe failed: ' + err.message });
+  }
 });
 
 module.exports = router;

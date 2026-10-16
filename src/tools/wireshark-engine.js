@@ -273,6 +273,13 @@ function dissectPacket(rawBuffer) {
     }
   }
 
+  try {
+    const { PacketDecoder } = require('../network/packet-decoding/packet-decoder');
+    const detailed = PacketDecoder.dissectDetailed(rawBuffer);
+    result.detailedLayers = detailed.layers;
+    result.fields = detailed.fields;
+  } catch (e) {}
+
   return result;
 }
 

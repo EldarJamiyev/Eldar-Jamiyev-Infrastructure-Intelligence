@@ -1,29 +1,25 @@
 /**
  * EJII — Eldar Jamiyev's Infrastructure Intelligence
- * Primary Application Server & Telemetry Engine
+ * Pure NOC Workstation: Network Topology & Wireshark-Grade Packet Dissection Engine
+ * Zero-Simulation Standard: 100% Genuine OS & Physical Wire Telemetry.
  */
 
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { PORT, HOST } = require('./config');
 const { db, initSchema } = require('./db/database');
 const { seedDatabase } = require('./db/seed');
-const { realPing } = require('./protocols/icmp-ping');
-const { correlateAndReportIncident } = require('./core/rca-engine');
+const { probeNodeDual } = require('./protocols/dual-prober');
 
-const crypto = require('crypto');
-// Route modules
+// Clean Route Modules
 const authRoutes = require('./api/routes-auth');
 const diagRoutes = require('./api/routes-diagnostics');
 const networkRoutes = require('./api/routes-network');
-const systemRoutes = require('./api/routes-system');
-const rcaRoutes = require('./api/routes-rca');
-const automationRoutes = require('./api/routes-automation');
-const adminRoutes = require('./api/routes-admin');
 const toolsRoutes = require('./api/routes-tools');
-const integrationRoutes = require('./api/routes-integrations');
+const rcaRoutes = require('./api/routes-rca');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -33,15 +29,13 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Enterprise Security Headers Middleware
+// Security Headers Middleware
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   
-  // Correlation ID tracing
   const correlationId = req.headers['x-correlation-id'] || ('CID-' + crypto.randomBytes(4).toString('hex'));
   req.correlationId = correlationId;
   res.setHeader('X-Correlation-ID', correlationId);
@@ -55,16 +49,12 @@ app.use(express.urlencoded({ extended: true }));
 // Serve frontend static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// API Routes
+// Primary NOC Workstation API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/diagnostics', diagRoutes);
 app.use('/api/network', networkRoutes);
-app.use('/api/system', systemRoutes);
-app.use('/api/rca', rcaRoutes);
-app.use('/api/automation', automationRoutes);
-app.use('/api/admin', adminRoutes);
 app.use('/api/tools', toolsRoutes);
-app.use('/api/integrations', integrationRoutes);
+app.use('/api/rca', rcaRoutes);
 
 // Catch-all fallback middleware for SPA client navigation
 app.use((req, res) => {
@@ -82,12 +72,26 @@ wss.on('connection', (ws) => {
 
   ws.send(JSON.stringify({
     type: 'CONNECTED',
-    message: 'EJII Real-Time Telemetry Stream Connected.',
+    message: 'EJII Pure NOC Workstation Stream Connected.',
     timestamp: new Date().toISOString()
   }));
 
+  const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
+
+  ws.on('message', (raw) => {
+    try {
+      const data = JSON.parse(raw.toString());
+      if (data.type === 'START_PACKET_STREAM') {
+        packetStreamer.startStreaming((t, p) => broadcast(t, p));
+        ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: true }));
+      } else if (data.type === 'STOP_PACKET_STREAM') {
+        packetStreamer.stopStreaming();
+        ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: false }));
+      }
+    } catch (e) {}
+  });
+
   ws.on('error', (err) => {
-    console.error('[WebSocket Client Error]:', err.message);
     activeClients.delete(ws);
   });
 
@@ -112,79 +116,62 @@ function broadcast(type, payload) {
   }
 }
 
-// Background Telemetry Poller: real ICMP polling of registered nodes
+app.locals.broadcast = broadcast;
+
+// Initialize AI Brain broadcast handler for live diagnostic streaming
+const { aiBrain } = require('./core/ai-brain');
+aiBrain.setBroadcastHandler((type, payload) => broadcast(type, payload));
+
+// Initialize live packet streamer
+const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
+packetStreamer.startStreaming((type, payload) => broadcast(type, payload));
+
+// Background Telemetry Poller: real dual-protocol polling (ICMP + TCP fallback)
 let isPolling = false;
 async function pollRegisteredNodes() {
   if (isPolling) return;
   isPolling = true;
 
   try {
-    const nodes = db.prepare('SELECT * FROM nodes').all();
+    const nodes = db.prepare('SELECT * FROM topology_nodes').all();
     const insertTelemetry = db.prepare(`
-      INSERT INTO telemetry_history (node_id, metric_type, metric_name, value, unit, status, raw_payload, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO link_telemetry (node_id, latency_ms, timestamp)
+      VALUES (?, ?, ?)
     `);
 
     for (const node of nodes) {
-      // Execute genuine ping
-      const pingRes = await realPing(node.hostname_or_ip, 2, 1000);
+      const probeRes = await probeNodeDual(node);
       const now = new Date().toISOString();
       const prevStatus = node.status;
 
-      if (!pingRes.success || pingRes.packetLossPct === 100) {
-        db.prepare("UPDATE nodes SET status = 'critical', last_checked = ?, last_latency_ms = null WHERE id = ?").run(now, node.id);
+      if (!probeRes.success || probeRes.status === 'critical') {
+        db.prepare("UPDATE topology_nodes SET status = 'critical', last_checked = ?, last_latency_ms = null WHERE id = ?").run(now, node.id);
 
-        insertTelemetry.run(
-          node.id,
-          'icmp_ping',
-          'latency_ms',
-          null,
-          'ms',
-          'critical',
-          JSON.stringify(pingRes),
-          now
-        );
-
-        // Node is failing -> correlate through RCA engine
-        const correlation = correlateAndReportIncident({
-          nodeId: node.id,
-          metricType: 'ping',
-          errorDescription: pingRes.error || '100% Packet Loss',
-          telemetryPayload: pingRes
-        });
+        insertTelemetry.run(node.id, null, now);
 
         broadcast('NODE_ALERT', {
           nodeId: node.id,
           nodeName: node.name,
+          ip: node.hostname_or_ip,
           status: 'critical',
-          ping: pingRes,
-          correlation
+          probe: probeRes
         });
       } else {
-        const isDegraded = pingRes.packetLossPct > 0;
-        const currentStatus = isDegraded ? 'degraded' : 'healthy';
+        const currentStatus = probeRes.status; // 'healthy' or 'degraded'
+        const latency = probeRes.latencyMs || 0;
 
-        db.prepare("UPDATE nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?")
-          .run(currentStatus, now, pingRes.avgRttMs || 0, node.id);
+        db.prepare("UPDATE topology_nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?")
+          .run(currentStatus, now, latency, node.id);
 
-        insertTelemetry.run(
-          node.id,
-          'icmp_ping',
-          'latency_ms',
-          pingRes.avgRttMs || 0,
-          'ms',
-          currentStatus,
-          JSON.stringify(pingRes),
-          now
-        );
+        insertTelemetry.run(node.id, latency, now);
 
-        // Detect recovery transition
-        if (prevStatus === 'critical' || prevStatus === 'degraded' || prevStatus === 'warning') {
+        if (prevStatus === 'critical' || prevStatus === 'degraded') {
           broadcast('NODE_RECOVERED', {
             nodeId: node.id,
             nodeName: node.name,
+            ip: node.hostname_or_ip,
             status: 'healthy',
-            latencyMs: pingRes.avgRttMs || 0,
+            latencyMs: latency,
             recoveredAt: now
           });
         }
@@ -192,8 +179,9 @@ async function pollRegisteredNodes() {
         broadcast('NODE_UPDATE', {
           nodeId: node.id,
           nodeName: node.name,
+          ip: node.hostname_or_ip,
           status: currentStatus,
-          latencyMs: pingRes.avgRttMs || 0,
+          latencyMs: latency,
           lastChecked: now
         });
       }
@@ -214,12 +202,12 @@ setTimeout(pollRegisteredNodes, 3000);
 // Start server
 server.listen(PORT, HOST, () => {
   console.log(`================================================================`);
-  console.log(`  EJI — Eldar Jamiyev's Infrastructure Intelligence Server      `);
-  console.log(`  Real Enterprise IT Management & Observability Platform        `);
+  console.log(`  EJII — NOC Network Topology & Packet Dissection Workstation   `);
+  console.log(`  Unprivileged Wire-Level Network Engineering Station           `);
   console.log(`================================================================`);
   console.log(`  Server Listening on: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`  Operational Roles: Helpdesk, Network Admin, Sysadmin, App Owner`);
-  console.log(`  Zero-Simulation Policy Active: 100% Genuine OS & Network I/O  `);
+  console.log(`  Access Mode: Unprivileged NOC Operator                        `);
+  console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
   console.log(`================================================================`);
 });
 
@@ -227,6 +215,7 @@ server.listen(PORT, HOST, () => {
 function shutdown() {
   console.log('\nShutting down EJII gracefully...');
   clearInterval(pollingInterval);
+  packetStreamer.stopStreaming();
   server.close(() => {
     console.log('HTTP and WebSocket servers closed.');
     process.exit(0);

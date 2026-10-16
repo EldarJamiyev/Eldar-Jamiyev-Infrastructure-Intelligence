@@ -1,164 +1,199 @@
 /**
- * EJII Root Cause Analysis (RCA) API Routes
- * Incident tracking, correlation evaluation, and evidence review.
+ * EJII Evidence-Driven Root Cause Analysis (RCA) API Routes
+ * Mount point: /api/rca
+ * Exposes evidence-first diagnostic evaluations, dual-mode incident briefings, and probe execution.
  */
+
+'use strict';
 
 const express = require('express');
 const router = express.Router();
-const { authenticate, requireRole } = require('./middleware');
-const { ROLES } = require('../core/security');
-const { db } = require('../db/database');
-const { correlateAndReportIncident, resolveIncident, createManualIncident, updateIncident } = require('../core/rca-engine');
-const { realPing } = require('../protocols/icmp-ping');
-
-router.use(authenticate);
+const { aiBrain } = require('../core/ai-brain');
+const { diagnosticReasoningEngine } = require('../core/rca-engine');
+const { incidentBriefingProvider } = require('../core/llm-provider');
+const { toolSandbox } = require('../core/tool-sandbox');
 
 /**
- * GET /api/rca/incidents
+ * POST /api/rca/generate
+ * Generate deterministic, evidence-grounded RCA with dual-mode briefing
  */
-router.get('/incidents', (req, res) => {
-  const status = req.query.status;
-  let query = `
-    SELECT i.*, n.name as node_name, n.hostname_or_ip, n.type as node_type
-    FROM incidents i
-    JOIN nodes n ON i.primary_node_id = n.id
-  `;
-  const params = [];
-
-  if (status) {
-    query += ' WHERE i.status = ?';
-    params.push(status);
-  }
-
-  query += ' ORDER BY i.detected_at DESC LIMIT 50';
-
-  const incidents = db.prepare(query).all(...params);
-  res.json({ count: incidents.length, incidents });
-});
-
-/**
- * POST /api/rca/incidents
- * Manual incident creation by Helpdesk, NetAdmin, Sysadmin, AppOwner
- */
-router.post('/incidents', (req, res) => {
-  const { title, primaryNodeId, severity, whatHappened, rootCause, supportingEvidence, remediationPlan, assignedRole, probeEvidence } = req.body;
-
-  if (!title || !primaryNodeId || !whatHappened) {
-    return res.status(400).json({ error: 'title, primaryNodeId, and whatHappened description are required.' });
-  }
-
-  const result = createManualIncident({
-    title,
-    primaryNodeId,
-    severity: severity || 'P3_MEDIUM',
-    whatHappened,
-    rootCause,
-    supportingEvidence,
-    remediationPlan,
-    user: req.user,
-    assignedRole: assignedRole || 'helpdesk',
-    probeEvidence
-  });
-
-  if (!result.success) {
-    return res.status(400).json(result);
-  }
-
-  res.status(201).json(result);
-});
-
-/**
- * PUT /api/rca/incidents/:id
- * Update incident status, notes, assignment, evidence
- */
-router.put('/incidents/:id', (req, res) => {
-  const { status, assignedRole, assignedToUserId, notes, probeEvidence } = req.body;
-
-  const result = updateIncident(req.params.id, {
-    status,
-    assignedRole,
-    assignedToUserId,
-    notes,
-    probeEvidence,
-    user: req.user
-  });
-
-  if (!result.success) {
-    return res.status(400).json(result);
-  }
-
-  res.json(result);
-});
-
-/**
- * GET /api/rca/incidents/:id
- */
-router.get('/incidents/:id', (req, res) => {
-  const incident = db.prepare(`
-    SELECT i.*, n.name as node_name, n.hostname_or_ip, n.type as node_type, n.parent_id
-    FROM incidents i
-    JOIN nodes n ON i.primary_node_id = n.id
-    WHERE i.id = ?
-  `).get(req.params.id);
-
-  if (!incident) {
-    return res.status(404).json({ error: 'Incident not found.' });
-  }
-
-  res.json({ incident });
-});
-
-/**
- * POST /api/rca/correlate
- * Execute a live probe against a node and evaluate through the RCA DAG engine
- */
-router.post('/correlate', requireRole(ROLES.NETWORK_ADMIN, ROLES.SYSADMIN, ROLES.APP_OWNER), async (req, res) => {
+router.post('/generate', async (req, res) => {
   try {
-    const { nodeId } = req.body;
-    if (!nodeId) return res.status(400).json({ error: 'nodeId is required.' });
+    const params = req.body || {};
+    const target = params.target || params.destIp || '10.22.12.204';
+    const port = parseInt(params.port || params.destPort || 443, 10);
+    const incidentType = params.incidentType || 'TCP_SYN_TIMEOUT';
 
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(nodeId);
-    if (!node) return res.status(404).json({ error: 'Node not found.' });
+    // 1. Diagnose through AI Brain and Bayesian Reasoning Engine
+    const brainDiag = aiBrain.diagnoseIncident({
+      incidentType,
+      destIp: target,
+      destPort: port,
+      ...params
+    });
 
-    // Execute real live probe
-    const pingRes = await realPing(node.hostname_or_ip, 2, 1000);
+    // 2. Deep protocol RFC evaluation from DiagnosticReasoningEngine
+    const deepDiag = diagnosticReasoningEngine.analyzeIncident({
+      incidentType,
+      destIp: target,
+      destPort: port,
+      ...params
+    });
 
-    if (!pingRes.success || pingRes.packetLossPct === 100) {
-      const correlation = correlateAndReportIncident({
-        nodeId: node.id,
-        metricType: 'ping',
-        errorDescription: pingRes.error || '100% Packet Loss on ICMP Probe',
-        telemetryPayload: pingRes
-      });
-      return res.json({ probeResult: pingRes, correlation });
-    }
-
-    // If healthy, update node to healthy
-    db.prepare("UPDATE nodes SET status = 'healthy', last_checked = ?, last_latency_ms = ? WHERE id = ?")
-      .run(new Date().toISOString(), pingRes.avgRttMs || 0, node.id);
+    // Merge dual-mode briefings and evidence ledger
+    const dualBriefing = incidentBriefingProvider.synthesizeBriefing(
+      { ...brainDiag, ...deepDiag },
+      { destIp: target, destPort: port, ...params }
+    );
 
     res.json({
-      probeResult: pingRes,
-      status: 'NODE_HEALTHY',
-      message: `Probe succeeded. Node ${node.name} is responding normally.`
+      success: true,
+      timestamp: new Date().toISOString(),
+      target: `${target}:${port}`,
+      incidentType,
+      topHypothesis: brainDiag.topHypothesis || deepDiag.expertDiagnosticMode?.rankedHypotheses?.[0],
+      rankedHypotheses: brainDiag.rankedHypotheses || deepDiag.expertDiagnosticMode?.rankedHypotheses || [],
+      distinguishingProbes: brainDiag.distinguishingProbes || deepDiag.expertDiagnosticMode?.recommendedDistinguishingTests || [],
+      briefing: dualBriefing,
+      expertAnalysis: deepDiag.expertDiagnosticMode || null,
+      simpleSummary: deepDiag.simpleOperatorMode || dualBriefing.simpleOperatorMode
     });
   } catch (err) {
-    res.status(500).json({ error: 'Correlation failed: ' + err.message });
+    res.status(500).json({
+      success: false,
+      error: `RCA Generation failed: ${err.message}`
+    });
   }
 });
 
 /**
- * POST /api/rca/incidents/:id/resolve
+ * GET /api/rca/briefing
+ * Return current real-time executive NOC briefing
  */
-router.post('/incidents/:id/resolve', requireRole(ROLES.SYSADMIN, ROLES.NETWORK_ADMIN, ROLES.APP_OWNER), (req, res) => {
-  const { notes = 'Resolved by operator.' } = req.body;
-  const result = resolveIncident(req.params.id, req.user.id, req.user.username, req.user.role, notes);
+router.get('/briefing', (req, res) => {
+  try {
+    const activeIncidents = Array.from(aiBrain.activeIncidents.values());
 
-  if (!result.success) {
-    return res.status(400).json(result);
+    if (activeIncidents.length > 0) {
+      const topIncident = activeIncidents[activeIncidents.length - 1];
+      return res.json({
+        success: true,
+        status: 'ACTIVE_INCIDENT',
+        incidentKey: topIncident.incidentKey,
+        target: topIncident.target,
+        timestamp: topIncident.updatedAt,
+        briefing: topIncident.briefing,
+        activeIncidentsCount: activeIncidents.length
+      });
+    }
+
+    // Nominal operation briefing
+    const nominalBriefing = incidentBriefingProvider.synthesizeBriefing({
+      incidentType: 'NORMAL_OPERATION',
+      topHypothesis: {
+        label: 'Nominal Infrastructure Health',
+        confidence: 98,
+        category: 'NOMINAL_OPERATION'
+      },
+      rankedHypotheses: [
+        { rank: 1, label: 'Nominal Infrastructure Health', confidence: 98, category: 'NOMINAL_OPERATION' }
+      ]
+    }, {
+      destIp: 'Internal Network',
+      destPort: 0
+    });
+
+    res.json({
+      success: true,
+      status: 'NOMINAL',
+      timestamp: new Date().toISOString(),
+      briefing: nominalBriefing,
+      activeIncidentsCount: 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/history
+ * Return recent RCA investigations
+ */
+router.get('/history', (req, res) => {
+  try {
+    const limit = Math.min(100, parseInt(req.query.limit || 30, 10));
+    const history = (aiBrain.incidentHistory || []).slice(-limit).reverse();
+    res.json({
+      success: true,
+      total: history.length,
+      history
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/active
+ * Return all currently active incidents
+ */
+router.get('/active', (req, res) => {
+  try {
+    const active = Array.from(aiBrain.activeIncidents.values()).map(inc => ({
+      incidentKey: inc.incidentKey,
+      incidentType: inc.incidentType,
+      target: inc.target,
+      destPort: inc.destPort,
+      topHypothesis: inc.topHypothesis?.label,
+      confidence: inc.topHypothesis?.confidence,
+      createdAt: inc.createdAt,
+      updatedAt: inc.updatedAt
+    }));
+    res.json({
+      success: true,
+      count: active.length,
+      activeIncidents: active
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/probe
+ * Dispatch a distinguishing probe to refine an active RCA investigation
+ */
+router.post('/probe', async (req, res) => {
+  const { probeType, target, params } = req.body || {};
+  if (!probeType || !target) {
+    return res.status(400).json({ error: "Missing required fields 'probeType' and 'target'." });
   }
 
-  res.json(result);
+  try {
+    let result;
+    if (probeType === 'PATH_MTU_DF_SWEEP' || probeType === 'pmtu_sweep') {
+      result = await toolSandbox.executeTool('pmtu_sweep', { target, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+    } else if (probeType === 'ICMP_PING' || probeType === 'ping') {
+      result = await toolSandbox.executeTool('ping', { target, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+    } else if (probeType === 'TCP_HANDSHAKE' || probeType === 'tcp_handshake') {
+      const port = parseInt(params?.port || 443, 10);
+      result = await toolSandbox.executeTool('tcp_handshake', { target, port, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+    } else {
+      result = await aiBrain.executeDistinguishingProbe(probeType, target, params || {});
+    }
+
+    res.json({
+      success: true,
+      probeType,
+      target,
+      result
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: `Probe execution failed: ${err.message}`
+    });
+  }
 });
 
 module.exports = router;

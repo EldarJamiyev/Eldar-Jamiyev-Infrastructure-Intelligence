@@ -2,8 +2,9 @@
 setlocal enabledelayedexpansion
 
 echo ========================================================================
-echo   EJII - Eldar Jamiyev's Infrastructure Intelligence Platform
-echo   Production Setup & Operational Launcher
+echo   EJII - Eldar Jamiyev's Infrastructure Intelligence
+echo   NOC Topology ^& Wire-Level Packet Dissection Workstation
+echo   Unprivileged Operator Workstation (Zero Administrative Elevation)
 echo ========================================================================
 echo.
 
@@ -32,7 +33,7 @@ if not exist "node_modules\" (
     echo [OK] Node modules verified.
 )
 
-:: 3. Run Automated Reality Verification
+:: 3. Run Automated Verification Test Suite
 echo.
 echo [INFO] Running Zero-Simulation Automated Verification Test Suite...
 node tests/run-all-tests.js
@@ -42,11 +43,11 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: 4. Start EJII Enterprise Server
+:: 4. Start EJII NOC Workstation
 echo.
 echo ========================================================================
-echo   Starting EJII Enterprise Server on http://localhost:8443
-echo   Operational Roles: Helpdesk, Network Admin, Sysadmin, App Owner
+echo   Starting EJII NOC Workstation on http://localhost:8443
+echo   Access Mode: Unprivileged NOC Operator Access
 echo ========================================================================
 echo.
 

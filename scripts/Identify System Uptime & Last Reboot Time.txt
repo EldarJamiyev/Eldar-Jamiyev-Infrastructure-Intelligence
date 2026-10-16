@@ -1,0 +1,1 @@
+Get-CimInstance Win32_OperatingSystem | Select-Object LastBootUpTime, @{N='Uptime (Days)';E={((Get-Date) - $_.LastBootUpTime).Days}}

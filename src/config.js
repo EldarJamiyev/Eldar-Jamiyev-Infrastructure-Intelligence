@@ -7,7 +7,8 @@ const path = require('path');
 const os = require('os');
 
 const PORT = parseInt(process.env.EJII_PORT || '8443', 10);
-const HOST = process.env.EJII_HOST || '0.0.0.0';
+// Secure default: Bind strictly to loopback 127.0.0.1 to avoid exposing unprivileged NOC workstation on public networks
+const HOST = process.env.EJII_HOST || '127.0.0.1';
 const DATA_DIR = process.env.EJII_DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = path.join(DATA_DIR, 'ejii.sqlite');
 const HMAC_SECRET = process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026';
