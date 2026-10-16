@@ -16,9 +16,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { createToken, hasPermission, ROLE_CAPABILITIES } = require('../src/core/security');
 const { requireRole, requirePermission } = require('../src/api/middleware');
-const { autonomousRemediationEngine } = require('../src/systems/remediation/autonomous-remediation-engine');
+const { AutonomousRemediationEngine, autonomousRemediationEngine } = require('../src/systems/remediation/autonomous-remediation-engine');
 const { hostDiagnosticsEngine } = require('../src/systems/diagnostics/host-diagnostics-engine');
-const { logAction, verifyAuditLogIntegrity, AUDIT_FILE } = require('../src/core/audit-logger');
+const { logAction, verifyAuditLogIntegrity, AUDIT_FILE, CHAIN_HEAD_FILE } = require('../src/core/audit-logger');
 
 async function runHostileSecurityAuditTests() {
   console.log('\n========================================================================');
@@ -74,7 +74,7 @@ async function runHostileSecurityAuditTests() {
   // 2. Attack: Tamper with actionToken payload (e.g. modify target PID inside token)
   const [encPayload, sig] = legitimatePreview.actionToken.split('.');
   const decodedPayload = JSON.parse(Buffer.from(encPayload, 'base64url').toString('utf8'));
-  decodedPayload.validatedParams.pid = 1; // Attempt to target PID 1 (Init/System)
+  decodedPayload.validatedParams.pid = 4; // Attempt to target PID 4 (Windows System Process)
   const tamperedPayloadEnc = Buffer.from(JSON.stringify(decodedPayload)).toString('base64url');
   const forgedToken = `${tamperedPayloadEnc}.${sig}`;
 
@@ -90,9 +90,9 @@ async function runHostileSecurityAuditTests() {
   console.log('  ✓ Tampered actionToken rejected by cryptographic HMAC verification (F-11 resolved).');
 
   // -------------------------------------------------------------------------
-  // TEST 3: PowerShell Command Injection Defense (Fixing F-02, F-10)
+  // TEST 3: PowerShell Command Injection Defense (Fixing F-02, F-10, S-03)
   // -------------------------------------------------------------------------
-  console.log('\n[27.3] Testing PowerShell Command Injection & Metacharacter Defenses (F-02, F-10)...');
+  console.log('\n[27.3] Testing PowerShell Command Injection, Metacharacter Defenses & Windows PID Truth (F-02, F-10, S-03)...');
 
   const injectionAttempts = [
     '1234; Invoke-Expression "calc.exe"',
@@ -114,6 +114,18 @@ async function runHostileSecurityAuditTests() {
     assert.equal(rejected, true, `Injection payload '${inj}' was not rejected!`);
   }
   console.log(`  ✓ All ${injectionAttempts.length} PowerShell injection & metacharacter variants rejected.`);
+
+  // Test Windows PID 4 (System) Shield
+  let pid4Blocked = false;
+  try {
+    await autonomousRemediationEngine.executePreview('lower_process_priority', { pid: 4 }, sysadminContext);
+  } catch (err) {
+    if (err.message.includes('SECURITY VIOLATION') && err.message.includes('PID 4')) {
+      pid4Blocked = true;
+    }
+  }
+  assert.equal(pid4Blocked, true, 'Targeting Windows System (PID 4) must trigger SECURITY VIOLATION.');
+  console.log('  ✓ Windows System PID 4 shield verified: PID 4 blocked from remediation (S-03 resolved).');
 
   // Test Process Shield Defense
   let protectedBlocked = false;
@@ -194,6 +206,160 @@ async function runHostileSecurityAuditTests() {
   assert.ok(fullAudit.pillars.network.metadata.collectedAt, 'Metadata must contain collection timestamp');
 
   console.log(`  ✓ 5-State Engine verified: Overall=${fullAudit.overallStatus}, Network=${fullAudit.pillars.network.status}, Storage=${fullAudit.pillars.storage.status}`);
+
+  // -------------------------------------------------------------------------
+  // TEST 6: Action Token Persistent Replay Defense Across Engine Restarts (S-01)
+  // -------------------------------------------------------------------------
+  console.log('\n[27.6] Testing Action Token Persistent Replay Defense Across Engine Restarts (S-01)...');
+
+  // Generate legitimate preview
+  const persistentPreview = await autonomousRemediationEngine.executePreview('trim_working_set', {}, sysadminContext);
+  assert.ok(persistentPreview.actionToken, 'Preview must issue signed HMAC actionToken');
+
+  // Execute it successfully once
+  const firstExec = await autonomousRemediationEngine.executeRemediation({ actionToken: persistentPreview.actionToken }, sysadminContext);
+  assert.equal(firstExec.success, true, 'First execution of actionToken must succeed');
+
+  // Replay attempt against the same engine
+  let inMemoryReplayBlocked = false;
+  try {
+    await autonomousRemediationEngine.executeRemediation({ actionToken: persistentPreview.actionToken }, sysadminContext);
+  } catch (err) {
+    if (err.message.includes('REPLAY_DETECTED')) {
+      inMemoryReplayBlocked = true;
+    }
+  }
+  assert.equal(inMemoryReplayBlocked, true, 'Immediate replay against current engine must be blocked.');
+
+  // Simulate server restart: create completely fresh engine instance reading from disk ledger
+  const restartedEngine = new AutonomousRemediationEngine();
+  let crossRestartReplayBlocked = false;
+  try {
+    await restartedEngine.executeRemediation({ actionToken: persistentPreview.actionToken }, sysadminContext);
+  } catch (err) {
+    if (err.message.includes('REPLAY_DETECTED')) {
+      crossRestartReplayBlocked = true;
+    }
+  }
+  assert.equal(crossRestartReplayBlocked, true, 'Persistent replay defense must block consumed token across engine restarts.');
+  console.log('  ✓ Persistent token replay attack defeated: token rejected across simulated engine restart (S-01 resolved).');
+
+  // -------------------------------------------------------------------------
+  // TEST 7: Cross-User Token Submission & Session Binding Defense (S-01)
+  // -------------------------------------------------------------------------
+  console.log('\n[27.7] Testing Cross-User Token Submission Defense & Session Identity Binding (S-01)...');
+
+  const aliceContext = { id: 'USR-SYS-ALICE', username: 'sysadmin_alice', role: 'SYSADMIN' };
+  const bobContext = { id: 'USR-SYS-BOB', username: 'sysadmin_bob', role: 'SYSADMIN' };
+
+  // Alice generates preview
+  const alicePreview = await autonomousRemediationEngine.executePreview('trim_working_set', {}, aliceContext);
+  assert.ok(alicePreview.actionToken, 'Alice must receive signed actionToken');
+
+  // Bob attempts to execute Alice's token
+  let crossUserBlocked = false;
+  try {
+    await autonomousRemediationEngine.executeRemediation({ actionToken: alicePreview.actionToken }, bobContext);
+  } catch (err) {
+    if (err.message.includes('Caller identity') && err.message.includes('does not match actionToken creator')) {
+      crossUserBlocked = true;
+    }
+  }
+  assert.equal(crossUserBlocked, true, 'Executing an actionToken issued to another user must be rejected.');
+
+  // Alice executes her own token -> succeeds
+  const aliceExec = await autonomousRemediationEngine.executeRemediation({ actionToken: alicePreview.actionToken }, aliceContext);
+  assert.equal(aliceExec.success, true, 'Token creator must be permitted to execute their own preview token.');
+  console.log('  ✓ Cross-user token submission defeated: token strictly bound to caller identity (S-01 resolved).');
+
+  // -------------------------------------------------------------------------
+  // TEST 8: Audit Log Tail Truncation Attack Detection via .chain_head (S-02)
+  // -------------------------------------------------------------------------
+  console.log('\n[27.8] Testing Audit Log Tail Truncation Defense via External .chain_head Anchor (S-02)...');
+
+  // Log an action to ensure current chain is up to date
+  logAction({
+    userId: 'USR-ADMIN-01',
+    username: 'admin',
+    role: 'ADMIN',
+    action: 'anchoring_verification_event',
+    resource: 'audit_chain',
+    details: { anchorTest: true }
+  });
+
+  const verifiedBefore = verifyAuditLogIntegrity();
+  assert.equal(verifiedBefore.valid, true, `Audit chain must be valid prior to truncation attack: ${verifiedBefore.error || ''}`);
+
+  // Attack: Read audit log, remove the last line, and write back without updating .chain_head
+  // (Internal HMACs remain valid, but external anchor detects tail truncation!)
+  const preTruncationContent = fs.readFileSync(AUDIT_FILE, 'utf8');
+  const auditLines = preTruncationContent.trim().split('\n');
+  assert.ok(auditLines.length >= 2, 'Must have at least 2 lines to test truncation');
+  const truncatedContent = auditLines.slice(0, -1).join('\n') + '\n';
+  fs.writeFileSync(AUDIT_FILE, truncatedContent, 'utf8');
+
+  // Run integrity verification: Must detect truncation via .chain_head anchor!
+  const truncationCheck = verifyAuditLogIntegrity();
+  assert.equal(truncationCheck.valid, false, 'verifyAuditLogIntegrity must detect truncated audit log!');
+  assert.ok(truncationCheck.error.includes('CRITICAL_CHAIN_TRUNCATION'), `Expected CRITICAL_CHAIN_TRUNCATION error, got: ${truncationCheck.error}`);
+  console.log(`  ✓ Tail truncation attack flagged: ${truncationCheck.error}`);
+
+  // Restore audit file
+  fs.writeFileSync(AUDIT_FILE, preTruncationContent, 'utf8');
+  const restoredCheck = verifyAuditLogIntegrity();
+  assert.equal(restoredCheck.valid, true, 'Restored audit chain must verify valid.');
+  console.log('  ✓ External .chain_head anchor verified: tail truncation and line deletion attacks detected (S-02 resolved).');
+
+  // -------------------------------------------------------------------------
+  // TEST 9: Process Target TOCTOU Race Condition Defense (S-03)
+  // -------------------------------------------------------------------------
+  console.log('\n[27.9] Testing Process Target TOCTOU Race Condition Defense (S-03)...');
+
+  // Generate preview for process remediation with simulated PID start time
+  const toctouPreview = await autonomousRemediationEngine.executePreview('lower_process_priority', { pid: 9999 }, sysadminContext);
+  // Modify the token's targetProcessStartTime to simulate a recycled PID with a new start time
+  const [toctouPayloadEnc, toctouSig] = toctouPreview.actionToken.split('.');
+  const toctouTokenData = JSON.parse(Buffer.from(toctouPayloadEnc, 'base64url').toString('utf8'));
+  toctouTokenData.validatedParams.targetProcessStartTime = 'SIMULATED_RECYCLE_TIME';
+  
+  // Re-sign with valid HMAC to isolate TOCTOU logic from HMAC rejection
+  const reEnc = Buffer.from(JSON.stringify(toctouTokenData)).toString('base64url');
+  const reSig = crypto.createHmac('sha256', require('../src/config').HMAC_SECRET).update(reEnc).digest('base64url');
+  const toctouToken = `${reEnc}.${reSig}`;
+
+  let toctouCaught = false;
+  try {
+    await autonomousRemediationEngine.executeRemediation({ actionToken: toctouToken }, sysadminContext);
+  } catch (err) {
+    if (err.message.includes('TOCTOU_VIOLATION')) {
+      toctouCaught = true;
+    }
+  }
+  assert.equal(toctouCaught, true, 'Process PID recycle/start-time mismatch must trigger TOCTOU_VIOLATION.');
+  console.log('  ✓ TOCTOU race condition defense verified: PID recycling detected and blocked (S-03 resolved).');
+
+  // -------------------------------------------------------------------------
+  // TEST 10: Concurrent Token Consumption Race Condition Defense (S-01)
+  // -------------------------------------------------------------------------
+  console.log('\n[27.10] Testing Concurrent Token Consumption Race Condition Defense (S-01)...');
+
+  const racePreview = await autonomousRemediationEngine.executePreview('trim_working_set', {}, sysadminContext);
+  assert.ok(racePreview.actionToken, 'Race preview token issued');
+
+  // Launch 5 simultaneous execution promises on the same token
+  const racePromises = Array.from({ length: 5 }, () => 
+    autonomousRemediationEngine.executeRemediation({ actionToken: racePreview.actionToken }, sysadminContext)
+      .then(res => ({ status: 'fulfilled', value: res }))
+      .catch(err => ({ status: 'rejected', reason: err.message }))
+  );
+
+  const raceResults = await Promise.all(racePromises);
+  const fulfilledCount = raceResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
+  const rejectedCount = raceResults.filter(r => r.status === 'rejected' && r.reason.includes('REPLAY_DETECTED')).length;
+
+  assert.equal(fulfilledCount, 1, `Exactly 1 concurrent execution must succeed, got ${fulfilledCount}`);
+  assert.equal(rejectedCount, 4, `Exactly 4 concurrent executions must be rejected as REPLAY_DETECTED, got ${rejectedCount}`);
+  console.log(`  ✓ Concurrency defense verified: 1 succeeded, 4 rejected with REPLAY_DETECTED out of 5 simultaneous requests (S-01 resolved).`);
 
   console.log('\n>>> ALL SUITE 27 HOSTILE SECURITY AUDIT & VERIFICATION TESTS COMPLETED SUCCESSFULLY.');
 }

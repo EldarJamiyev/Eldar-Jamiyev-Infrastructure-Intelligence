@@ -73,21 +73,41 @@ const { verifyToken, hasPermission } = require('./core/security');
 wss.on('connection', (ws, req) => {
   activeClients.add(ws);
 
-  // Authenticate WebSocket connection via query param, auth header, or cookie
+  // Authenticate WebSocket connection via Sec-WebSocket-Protocol, cookie, auth header, or deprecated query
   let token = null;
-  try {
-    const urlObj = new URL(req.url, 'http://localhost');
-    token = urlObj.searchParams.get('token');
-  } catch (e) {}
 
+  // 1. Primary Secure Transport: Sec-WebSocket-Protocol (eliminates query-string log exposure)
+  if (req.headers['sec-websocket-protocol']) {
+    const protocols = req.headers['sec-websocket-protocol'].split(',').map(s => s.trim());
+    if (protocols.length >= 2 && (protocols[0].toLowerCase() === 'token' || protocols[0].toLowerCase() === 'bearer')) {
+      token = protocols[1];
+    } else if (protocols.length === 1 && protocols[0].includes('.')) {
+      token = protocols[0];
+    }
+  }
+
+  // 2. HTTP Authorization Header
   if (!token && req.headers['authorization']) {
     const authHdr = req.headers['authorization'];
     if (authHdr.startsWith('Bearer ')) token = authHdr.slice(7).trim();
   }
 
+  // 3. HTTP Cookie: eji_session
   if (!token && req.headers.cookie) {
     const match = req.headers.cookie.match(/eji_session=([^;]+)/);
     if (match) token = match[1];
+  }
+
+  // 4. Deprecated Query-String fallback (logs security deprecation warning)
+  if (!token) {
+    try {
+      const urlObj = new URL(req.url, 'http://localhost');
+      const queryToken = urlObj.searchParams.get('token');
+      if (queryToken) {
+        console.warn('[SECURITY WARNING]: WebSocket authenticated via query-string token. Query parameters risk exposure in web server and proxy access logs. Please use Sec-WebSocket-Protocol or eji_session cookie.');
+        token = queryToken;
+      }
+    } catch (e) {}
   }
 
   const decoded = token ? verifyToken(token) : null;
@@ -114,11 +134,12 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(raw.toString());
       if (data.type === 'START_PACKET_STREAM') {
-        const canCapture = hasPermission(ws.user.role, 'network.capture.execute') || hasPermission(ws.user.role, 'telemetry.read');
-        if (!canCapture && ws.user.role === 'READONLY') {
+        // Enforce strict network.capture.execute capability (S-04)
+        const canCapture = hasPermission(ws.user.role, 'network.capture.execute');
+        if (!canCapture) {
           return ws.send(JSON.stringify({
             type: 'STREAM_ERROR',
-            error: 'Access denied: Packet capture stream requires network.capture.execute capability.'
+            error: `Access denied: Role '${ws.user.role}' lacks 'network.capture.execute' capability.`
           }));
         }
         packetStreamer.startStreaming((t, p) => broadcast(t, p));

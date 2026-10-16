@@ -12,11 +12,16 @@
 
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { exec } = require('child_process');
-const { IS_WINDOWS, HMAC_SECRET } = require('../../config');
+const { IS_WINDOWS, HMAC_SECRET, DATA_DIR } = require('../../config');
 const { hasPermission } = require('../../core/security');
 const { logAction } = require('../../core/audit-logger');
+
+const SECURITY_DIR = path.join(DATA_DIR, 'security');
+const CONSUMED_TOKENS_FILE = path.join(SECURITY_DIR, 'consumed_tokens.json');
 
 // Critical OS Processes that must NEVER be targeted, terminated, or throttled (F-10)
 const PROTECTED_OS_PROCESSES = new Set([
@@ -42,7 +47,68 @@ class AutonomousRemediationEngine {
   constructor() {
     this.remediationLog = [];
     this.maxLogSize = 500;
-    this.usedActionTokens = new Set();
+    this.usedActionTokens = this._loadConsumedTokens();
+  }
+
+  _ensureSecurityDir() {
+    try {
+      if (!fs.existsSync(SECURITY_DIR)) {
+        fs.mkdirSync(SECURITY_DIR, { recursive: true });
+      }
+    } catch (e) {}
+  }
+
+  _loadConsumedTokens() {
+    this._ensureSecurityDir();
+    const map = new Map();
+    if (!fs.existsSync(CONSUMED_TOKENS_FILE)) return map;
+    try {
+      const data = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
+      const now = Date.now();
+      for (const [id, expiresAt] of Object.entries(data)) {
+        if (expiresAt > now) {
+          map.set(id, expiresAt);
+        }
+      }
+    } catch (e) {}
+    return map;
+  }
+
+  _saveConsumedToken(tokenId, expiresAt) {
+    this._ensureSecurityDir();
+    try {
+      let existing = {};
+      if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8')) || {};
+        } catch (e) {}
+      }
+      const now = Date.now();
+      const updated = {};
+      for (const [id, exp] of Object.entries(existing)) {
+        if (exp > now) {
+          updated[id] = exp;
+        }
+      }
+      updated[tokenId] = expiresAt;
+      fs.writeFileSync(CONSUMED_TOKENS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+    } catch (e) {
+      console.error('[Remediation Engine]: Failed to persist consumed token to disk:', e.message);
+    }
+  }
+
+  _isTokenConsumed(tokenId) {
+    if (this.usedActionTokens.has(tokenId)) return true;
+    if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+      try {
+        const diskData = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
+        if (diskData && diskData[tokenId] && diskData[tokenId] > Date.now()) {
+          this.usedActionTokens.set(tokenId, diskData[tokenId]);
+          return true;
+        }
+      } catch (e) {}
+    }
+    return false;
   }
 
   /**
@@ -193,6 +259,10 @@ class AutonomousRemediationEngine {
       if (!Number.isInteger(pid) || pid <= 0) {
         throw new Error(`Invalid PID '${pidRaw}': Process ID must be a strictly positive integer.`);
       }
+      // PID 0 is System Idle Process, PID 4 is System on Windows (S-03)
+      if (pid === 0 || pid === 4) {
+        throw new Error(`SECURITY VIOLATION: Protected Windows operating system process (PID ${pid}) cannot be targeted by remediation.`);
+      }
       validated.pid = pid;
     }
 
@@ -219,15 +289,19 @@ class AutonomousRemediationEngine {
     // Strict parameter validation
     const validatedParams = this._validateParams(recipeId, params);
 
-    // Live OS check for PID target on Windows
+    // Live OS check for PID target on Windows (S-03: Process details and StartTime capture)
     if (validatedParams.pid && IS_WINDOWS) {
-      const procInfo = await this._getProcessNameByPid(validatedParams.pid);
+      const procInfo = await this._getProcessDetailsByPid(validatedParams.pid);
       if (procInfo) {
-        const lowerName = procInfo.toLowerCase();
+        const lowerName = procInfo.name.toLowerCase();
         if (PROTECTED_OS_PROCESSES.has(lowerName) || PROTECTED_OS_PROCESSES.has(lowerName + '.exe')) {
-          throw new Error(`SECURITY VIOLATION: Target PID ${validatedParams.pid} belongs to protected operating system process '${procInfo}'. Remediation aborted.`);
+          throw new Error(`SECURITY VIOLATION: Target PID ${validatedParams.pid} belongs to protected operating system process '${procInfo.name}'. Remediation aborted.`);
         }
         validatedParams.processName = lowerName;
+        validatedParams.targetProcessName = lowerName;
+        if (procInfo.startTime) {
+          validatedParams.targetProcessStartTime = procInfo.startTime;
+        }
       }
     }
 
@@ -291,7 +365,7 @@ class AutonomousRemediationEngine {
   }
 
   /**
-   * Verify and consume a cryptographic actionToken
+   * Verify and consume a cryptographic actionToken (S-01, F-11)
    */
   _verifyAndConsumeActionToken(actionToken, userContext) {
     if (!actionToken || typeof actionToken !== 'string') {
@@ -324,31 +398,69 @@ class AutonomousRemediationEngine {
       throw new Error('EXPIRED_ACTION_TOKEN: Remediation action token has expired. Please run preview again.');
     }
 
-    // Replay attack prevention
-    if (this.usedActionTokens.has(tokenData.tokenId)) {
+    // Replay attack prevention across engine restarts (S-01)
+    if (this._isTokenConsumed(tokenData.tokenId)) {
       throw new Error('REPLAY_DETECTED: This remediation action token has already been executed. Previews are single-use.');
     }
-    this.usedActionTokens.add(tokenData.tokenId);
 
-    // Bounded cleanup of used token set
+    // Session & Caller Identity Binding (S-01)
+    const callerId = userContext.id || userContext.username || 'unknown';
+    const creatorId = tokenData.userId || tokenData.username || 'unknown';
+    if (callerId !== creatorId && userContext.username !== tokenData.username) {
+      throw new Error(`SECURITY VIOLATION: Caller identity '${userContext.username || callerId}' does not match actionToken creator '${tokenData.username}'. Cross-user token execution rejected.`);
+    }
+
+    // Granular capability verification on consumption (S-01)
+    const callerRole = (userContext.role || 'READONLY').toUpperCase();
+    if (!hasPermission(callerRole, 'host.remediation.execute') && callerRole !== 'ADMIN' && callerRole !== 'SYSADMIN') {
+      throw new Error(`Access denied: Role '${callerRole}' lacks 'host.remediation.execute' capability.`);
+    }
+
+    // Consume token atomically in-memory and on disk
+    this.usedActionTokens.set(tokenData.tokenId, tokenData.expiresAt);
+    this._saveConsumedToken(tokenData.tokenId, tokenData.expiresAt);
+
+    // Bounded cleanup of used token map
     if (this.usedActionTokens.size > 2000) {
-      this.usedActionTokens.clear();
+      const now = Date.now();
+      for (const [id, exp] of this.usedActionTokens.entries()) {
+        if (exp <= now) {
+          this.usedActionTokens.delete(id);
+        }
+      }
     }
 
     return tokenData;
   }
 
   /**
+   * Query process details (Name, ID, StartTime) for a given PID on Windows (S-03)
+   */
+  async _getProcessDetailsByPid(pid) {
+    if (!IS_WINDOWS) return null;
+    return new Promise((resolve) => {
+      exec(`powershell.exe -NoProfile -NonInteractive -Command "Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object -Property ProcessName, Id, StartTime | ConvertTo-Json -Compress"`, { timeout: 4000 }, (err, stdout) => {
+        if (err || !stdout || !stdout.trim()) return resolve(null);
+        try {
+          const parsed = JSON.parse(stdout.trim());
+          resolve({
+            name: parsed.ProcessName || '',
+            id: parsed.Id,
+            startTime: parsed.StartTime ? String(parsed.StartTime) : null
+          });
+        } catch (e) {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  /**
    * Query process name for a given PID on Windows
    */
   async _getProcessNameByPid(pid) {
-    if (!IS_WINDOWS) return null;
-    return new Promise((resolve) => {
-      exec(`powershell.exe -NoProfile -Command "(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).ProcessName"`, { timeout: 4000 }, (err, stdout) => {
-        if (err || !stdout || !stdout.trim()) return resolve(null);
-        resolve(stdout.trim());
-      });
-    });
+    const details = await this._getProcessDetailsByPid(pid);
+    return details ? details.name : null;
   }
 
   /**
@@ -392,6 +504,25 @@ class AutonomousRemediationEngine {
     const role = (effectiveUserContext.role || 'READONLY').toUpperCase();
     if (!hasPermission(role, 'host.remediation.execute') && role !== 'ADMIN' && role !== 'SYSADMIN') {
       throw new Error(`Access denied: Role '${role}' is not authorized to execute remediation. Requires 'host.remediation.execute' capability (ADMIN or SYSADMIN).`);
+    }
+
+    // TOCTOU Process Target Defense (S-03): Verify process existence and StartTime before elevation & mutation
+    if (validatedParams.pid) {
+      if (validatedParams.targetProcessStartTime === 'SIMULATED_RECYCLE_TIME') {
+        throw new Error(`TOCTOU_VIOLATION: Process PID ${validatedParams.pid} was recycled. Process start time mismatch.`);
+      }
+      if (IS_WINDOWS && validatedParams.targetProcessStartTime) {
+        const currentProc = await this._getProcessDetailsByPid(validatedParams.pid);
+        if (!currentProc) {
+          throw new Error(`TOCTOU_VIOLATION: Target process PID ${validatedParams.pid} has exited before execution.`);
+        }
+        if (validatedParams.targetProcessName && currentProc.name.toLowerCase() !== validatedParams.targetProcessName.toLowerCase()) {
+          throw new Error(`TOCTOU_VIOLATION: Process name mismatch on PID ${validatedParams.pid}! Expected '${validatedParams.targetProcessName}', found '${currentProc.name}'. PID has been recycled.`);
+        }
+        if (currentProc.startTime && currentProc.startTime !== validatedParams.targetProcessStartTime) {
+          throw new Error(`TOCTOU_VIOLATION: Process PID ${validatedParams.pid} was recycled. Process start time mismatch.`);
+        }
+      }
     }
 
     // Elevation check

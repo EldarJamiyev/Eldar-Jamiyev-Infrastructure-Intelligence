@@ -30,7 +30,7 @@ router.get('/host/audit', async (req, res) => {
 });
 
 // Process Explorer Table
-router.get('/host/processes', async (req, res) => {
+router.get('/host/processes', authenticate, async (req, res) => {
   try {
     const limit = Math.min(100, parseInt(req.query.limit || 50, 10));
     const processes = await hostDiagnosticsEngine.getProcessList(limit);
@@ -45,7 +45,7 @@ router.get('/host/processes', async (req, res) => {
 });
 
 // Live Network Sockets Matrix
-router.get('/host/sockets', async (req, res) => {
+router.get('/host/sockets', authenticate, async (req, res) => {
   try {
     const sockets = await hostDiagnosticsEngine.getSocketList();
     res.json({
@@ -72,19 +72,19 @@ router.get('/remediation/recipes', (req, res) => {
   }
 });
 
-// Remediation Dry-Run Preview with Cryptographic Action Token (F-11)
-router.post('/remediation/preview', async (req, res) => {
+// Remediation Dry-Run Preview with Cryptographic Action Token (F-11, S-05)
+router.post('/remediation/preview', authenticate, async (req, res) => {
   try {
     const { recipeId, params } = req.body || {};
     if (!recipeId) {
       return res.status(400).json({ success: false, error: "Missing required parameter 'recipeId'." });
     }
 
-    const userContext = req.user ? {
+    const userContext = {
       role: (req.user.role || 'OPERATOR').toUpperCase(),
       username: req.user.username || 'operator',
       id: req.user.id
-    } : { role: 'OPERATOR', username: 'operator' };
+    };
 
     const preview = await autonomousRemediationEngine.executePreview(recipeId, params || {}, userContext);
     res.json({

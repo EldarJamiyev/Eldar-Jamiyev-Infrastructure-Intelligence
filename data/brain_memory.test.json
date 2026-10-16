@@ -1,6 +1,6 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-16T21:00:02.135Z",
+  "lastUpdated": "2026-10-16T21:21:02.305Z",
   "baselinesCount": 234,
   "incidentsRecorded": 50,
   "currentSubnet": "192.168.31.1",
@@ -10,13 +10,13 @@
       "minRtt": 0.1,
       "maxRtt": 19884009,
       "avgRtt": 6308.65,
-      "variance": 45210479667.99,
-      "stddev": 212627.56,
-      "m2": 82909283349624460,
-      "sampleCount": 1833852,
+      "variance": 45210430404.85,
+      "stddev": 212627.45,
+      "m2": 82909283429220080,
+      "sampleCount": 1833854,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:31:24.438Z",
-      "lastObserved": "2026-10-16T21:00:00.652Z"
+      "lastObserved": "2026-10-16T21:21:01.038Z"
     },
     "192.178.24.174": {
       "minRtt": 46,
@@ -34,13 +34,13 @@
       "minRtt": 1,
       "maxRtt": 3.1,
       "avgRtt": 1.36,
-      "variance": 0.27,
-      "stddev": 0.52,
-      "m2": 119.46459999999972,
-      "sampleCount": 445,
+      "variance": 0.29,
+      "stddev": 0.54,
+      "m2": 127.68299999999972,
+      "sampleCount": 449,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:11.150Z",
-      "lastObserved": "2026-10-16T21:00:01.766Z"
+      "lastObserved": "2026-10-16T21:21:02.259Z"
     },
     "10.22.10.11": {
       "minRtt": 1,
@@ -1089,14 +1089,14 @@
     "142.251.142.110": {
       "minRtt": 34,
       "maxRtt": 124,
-      "avgRtt": 47.25,
-      "variance": 38.96,
-      "stddev": 6.24,
-      "m2": 55629.8109,
-      "sampleCount": 1429,
+      "avgRtt": 47.09,
+      "variance": 40.06,
+      "stddev": 6.33,
+      "m2": 57846.78690000001,
+      "sampleCount": 1445,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:58:16.093Z",
-      "lastObserved": "2026-10-16T21:00:00.634Z"
+      "lastObserved": "2026-10-16T21:21:00.810Z"
     },
     "142.251.127.84": {
       "minRtt": 70,
@@ -2781,14 +2781,14 @@
     "192.168.31.89": {
       "minRtt": 2,
       "maxRtt": 124,
-      "avgRtt": 40.44,
-      "variance": 883.45,
-      "stddev": 29.72,
-      "m2": 79510.2476,
-      "sampleCount": 91,
+      "avgRtt": 39.68,
+      "variance": 753.56,
+      "stddev": 27.45,
+      "m2": 79877.72399999999,
+      "sampleCount": 107,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:24:36.484Z",
-      "lastObserved": "2026-10-16T21:00:00.634Z"
+      "lastObserved": "2026-10-16T21:21:00.810Z"
     },
     "192.168.31.1": {
       "minRtt": 2,
@@ -2811,20 +2811,11 @@
       "m2": 20.797999999999995,
       "sampleCount": 5,
       "status": "ESTABLISHED",
-      "firstObserved": "2026-10-16T21:00:01.762Z",
-      "lastObserved": "2026-10-16T21:00:01.762Z"
+      "firstObserved": "2026-10-16T21:21:02.254Z",
+      "lastObserved": "2026-10-16T21:21:02.255Z"
     }
   },
   "incidentHistory": [
-    {
-      "incidentKey": "INC-83230de16bdfb805",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59015,
-      "timestamp": "2026-10-16T18:51:51.553Z"
-    },
     {
       "incidentKey": "INC-4c3c2793cec9710a",
       "incidentType": "TCP_SYN_TIMEOUT",
@@ -3219,7 +3210,7 @@
       "confidence": 52,
       "target": "10.22.12.204",
       "destPort": 443,
-      "timestamp": "2026-10-16T20:59:47.060Z"
+      "timestamp": "2026-10-16T21:20:47.405Z"
     },
     {
       "incidentKey": "INC-3512a40a5a9088c4",
@@ -3228,7 +3219,7 @@
       "confidence": 52,
       "target": "85.132.27.92",
       "destPort": 443,
-      "timestamp": "2026-10-16T21:00:01.767Z"
+      "timestamp": "2026-10-16T21:21:02.260Z"
     },
     {
       "incidentKey": "INC-21308b2a0a5ed6eb",
@@ -3265,6 +3256,15 @@
       "target": "192.168.31.89",
       "destPort": 64970,
       "timestamp": "2026-10-16T20:14:48.948Z"
+    },
+    {
+      "incidentKey": "INC-30c706d4b16a6b46",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "51.132.193.111",
+      "destPort": 443,
+      "timestamp": "2026-10-16T21:09:20.720Z"
     }
   ]
 }

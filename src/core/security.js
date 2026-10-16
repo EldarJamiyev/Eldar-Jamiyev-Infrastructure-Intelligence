@@ -149,7 +149,15 @@ function hasPermission(role, permission) {
   if (!role || !permission) return false;
   const normalizedRole = String(role).toUpperCase();
   const permissions = ROLE_CAPABILITIES[normalizedRole] || [];
-  return permissions.includes(permission);
+  
+  if (permissions.includes(permission)) return true;
+
+  // Map legacy diag:* scoped permissions to network.diagnostics.execute
+  if (permission.startsWith('diag:') && permissions.includes('network.diagnostics.execute')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

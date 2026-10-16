@@ -89,9 +89,10 @@ async function runLiveProductionSmoke() {
     await serverReady;
     console.log(`✓ Production server started and listening on http://${TEST_HOST}:${TEST_PORT}\n`);
 
-    // 1. WebSocket Live Stream Connection
-    console.log('[SMOKE 1] Connecting real WebSocket client to live stream...');
-    const ws = new WebSocket(`ws://${TEST_HOST}:${TEST_PORT}`);
+    // 1. WebSocket Live Stream Connection with Sec-WebSocket-Protocol Auth (S-04)
+    console.log('[SMOKE 1] Connecting real WebSocket client with Sec-WebSocket-Protocol authentication...');
+    const adminToken = generateToken('lead_architect', 'ADMIN');
+    const ws = new WebSocket(`ws://${TEST_HOST}:${TEST_PORT}`, ['token', adminToken]);
     const wsConnectedPromise = new Promise((resolve, reject) => {
       ws.on('message', (msg) => {
         try {
@@ -105,7 +106,28 @@ async function runLiveProductionSmoke() {
     });
 
     const wsGreeting = await wsConnectedPromise;
-    console.log(`  ✓ WebSocket verified: received greeting "${wsGreeting.message}" at ${wsGreeting.timestamp}`);
+    console.log(`  ✓ WebSocket verified: received greeting "${wsGreeting.message}" (User: ${wsGreeting.user.username}, Role: ${wsGreeting.user.role})`);
+    if (wsGreeting.user.role !== 'ADMIN') {
+      throw new Error(`WebSocket Auth Failure: Expected role ADMIN, got ${wsGreeting.user.role}`);
+    }
+
+    // Verify authenticated START_PACKET_STREAM control frame
+    ws.send(JSON.stringify({ type: 'START_PACKET_STREAM' }));
+    const streamStatus = await new Promise((resolve, reject) => {
+      const handler = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.toString());
+          if (parsed.type === 'PACKET_STREAM_STATUS') {
+            ws.off('message', handler);
+            resolve(parsed);
+          }
+        } catch (e) {}
+      };
+      ws.on('message', handler);
+      setTimeout(() => reject(new Error('Timeout waiting for PACKET_STREAM_STATUS')), 5000);
+    });
+    console.log(`  ✓ Authenticated START_PACKET_STREAM verified: active = ${streamStatus.active}`);
+    ws.send(JSON.stringify({ type: 'STOP_PACKET_STREAM' }));
 
     // 2. Security Test: Spoofed Header Without Token -> Must Be 401
     console.log('\n[SMOKE 2] Attacking live server with spoofed X-EJII-Role: ADMIN header (no token)...');
@@ -150,7 +172,7 @@ async function runLiveProductionSmoke() {
 
     // 4. Live Core Diagnostics Audit Endpoint
     console.log('\n[SMOKE 4] Querying live /api/diagnostics/host/audit with ADMIN token...');
-    const adminToken = generateToken('lead_architect', 'ADMIN');
+    // Reusing verified adminToken from SMOKE 1
     const auditRes = await makeRequest({
       hostname: TEST_HOST,
       port: TEST_PORT,
@@ -213,6 +235,25 @@ async function runLiveProductionSmoke() {
       console.log(`  ✓ Verified actionTokenId: ${outcome.actionTokenId}`);
     } else {
       throw new Error(`Remediation Execute Failure: Expected 200 with success outcome, got ${execRes.statusCode}: ${JSON.stringify(execRes.body)}`);
+    }
+
+    // 6b. Live Remediation Token Replay Defense (S-01)
+    console.log('\n[SMOKE 6b] Attacking live server with replayed actionToken (must be rejected)...');
+    const replayRes = await makeRequest({
+      hostname: TEST_HOST,
+      port: TEST_PORT,
+      path: '/api/diagnostics/remediation/execute',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    }, { actionToken });
+
+    if (replayRes.statusCode === 400 && String(replayRes.body.error).includes('REPLAY_DETECTED')) {
+      console.log('  ✓ Replay Attack Defeated: Live server rejected replayed actionToken with REPLAY_DETECTED (S-01 verified).');
+    } else {
+      throw new Error(`Security Failure: Expected 400 with REPLAY_DETECTED, got ${replayRes.statusCode}: ${JSON.stringify(replayRes.body)}`);
     }
 
     // 7. Live Cryptographic Audit Trail Verification

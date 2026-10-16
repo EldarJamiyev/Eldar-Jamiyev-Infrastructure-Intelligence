@@ -14,6 +14,7 @@ const { DATA_DIR, HMAC_SECRET } = require('../config');
 
 const AUDIT_DIR = path.join(DATA_DIR, 'audit');
 const AUDIT_FILE = path.join(AUDIT_DIR, 'audit-trail.jsonl');
+const CHAIN_HEAD_FILE = path.join(AUDIT_DIR, '.chain_head');
 const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 
 // Ensure audit storage directory exists
@@ -31,6 +32,44 @@ try {
 function computeRecordHash(prevHash, timestamp, userId, action, resource, details) {
   const content = `${prevHash}|${timestamp}|${userId || 'anon'}|${action}|${resource}|${JSON.stringify(details || {})}`;
   return crypto.createHmac('sha256', HMAC_SECRET).update(content).digest('hex');
+}
+
+/**
+ * Read and verify external .chain_head anchor
+ */
+function readChainHeadAnchor() {
+  if (!fs.existsSync(CHAIN_HEAD_FILE)) return null;
+  try {
+    const raw = fs.readFileSync(CHAIN_HEAD_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const expectedSig = crypto.createHmac('sha256', HMAC_SECRET)
+      .update(`${parsed.lastSeq}|${parsed.lastHash}|${parsed.lastTimestamp}`)
+      .digest('hex');
+    const bufSig = Buffer.from(parsed.signature || '', 'hex');
+    const bufExp = Buffer.from(expectedSig, 'hex');
+    if (bufSig.length !== 32 || bufExp.length !== 32 || !crypto.timingSafeEqual(bufSig, bufExp)) {
+      return { corrupted: true, error: 'ANCHOR_SIGNATURE_INVALID' };
+    }
+    return parsed;
+  } catch (e) {
+    return { corrupted: true, error: e.message };
+  }
+}
+
+/**
+ * Write signed external .chain_head anchor atomically
+ */
+function writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp) {
+  const signature = crypto.createHmac('sha256', HMAC_SECRET)
+    .update(`${lastSeq}|${lastHash}|${lastTimestamp}`)
+    .digest('hex');
+  const anchor = {
+    lastSeq,
+    lastHash,
+    lastTimestamp,
+    signature
+  };
+  fs.writeFileSync(CHAIN_HEAD_FILE, JSON.stringify(anchor, null, 2), 'utf8');
 }
 
 /**
@@ -61,8 +100,8 @@ function getLastRecordHash() {
 
 /**
  * Append an audited action to the HMAC-chained ledger.
- * FAIL-CLOSED: If writing to the audit log fails, this method throws an error
- * to abort privileged operations rather than proceeding silently without an audit trail.
+ * FAIL-CLOSED: If writing to the audit log or updating the external anchor fails,
+ * this method throws an error to abort privileged operations.
  */
 function logAction({ userId, username, role, action, resource, details }) {
   const timestamp = new Date().toISOString();
@@ -72,11 +111,24 @@ function logAction({ userId, username, role, action, resource, details }) {
     fs.mkdirSync(AUDIT_DIR, { recursive: true });
   }
 
+  // Count current records to derive continuous sequence number
+  let currentSeq = 0;
+  if (fs.existsSync(AUDIT_FILE)) {
+    try {
+      const fileData = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+      if (fileData) {
+        currentSeq = fileData.split('\n').filter(l => l.trim().length > 0).length;
+      }
+    } catch (e) {}
+  }
+  const newSeq = currentSeq + 1;
+
   const prevHash = getLastRecordHash();
   const hash = computeRecordHash(prevHash, timestamp, userId, action, resource, details);
 
   const record = {
     id,
+    seq: newSeq,
     timestamp,
     userId: userId || 'system',
     username: username || 'system',
@@ -92,6 +144,7 @@ function logAction({ userId, username, role, action, resource, details }) {
 
   try {
     fs.appendFileSync(AUDIT_FILE, line, { encoding: 'utf8', flag: 'a' });
+    writeChainHeadAnchor(newSeq, hash, timestamp);
   } catch (err) {
     const fatalMsg = `CRITICAL AUDIT FAILURE: Could not persist audit record for action '${action}'. Operation aborted: ${err.message}`;
     console.error(fatalMsg);
@@ -101,6 +154,7 @@ function logAction({ userId, username, role, action, resource, details }) {
   return {
     success: true,
     id: record.id,
+    seq: record.seq,
     timestamp: record.timestamp,
     hash: record.hash
   };
@@ -108,10 +162,17 @@ function logAction({ userId, username, role, action, resource, details }) {
 
 /**
  * Verify cryptographic integrity of the entire audit chain from genesis.
- * Traverses every record, confirms prevHash links, and verifies HMAC-SHA256 signatures.
+ * Traverses every record, confirms prevHash links, verifies HMAC-SHA256 signatures,
+ * and verifies external .chain_head anchor to defeat tail truncation attacks.
  */
 function verifyAuditLogIntegrity() {
   if (!fs.existsSync(AUDIT_FILE)) {
+    if (fs.existsSync(CHAIN_HEAD_FILE)) {
+      return {
+        valid: false,
+        error: 'CRITICAL_CHAIN_TRUNCATION: Audit trail file is missing but external chain head anchor exists! Complete log deletion detected.'
+      };
+    }
     return {
       valid: true,
       count: 0,
@@ -122,6 +183,12 @@ function verifyAuditLogIntegrity() {
   try {
     const content = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
     if (!content) {
+      if (fs.existsSync(CHAIN_HEAD_FILE)) {
+        return {
+          valid: false,
+          error: 'CRITICAL_CHAIN_TRUNCATION: Audit trail file is empty but external chain head anchor exists! Log file wiped.'
+        };
+      }
       return { valid: true, count: 0, message: 'Audit log empty (genesis state).' };
     }
 
@@ -173,11 +240,56 @@ function verifyAuditLogIntegrity() {
       expectedPrevHash = record.hash;
     }
 
+    // 3. Verify against external .chain_head anchor (detects tail truncation & file replacement)
+    if (fs.existsSync(CHAIN_HEAD_FILE)) {
+      const anchor = readChainHeadAnchor();
+      if (!anchor) {
+        return {
+          valid: false,
+          error: 'CRITICAL_CHAIN_ANCHOR_FAILURE: Unable to read external chain head anchor.'
+        };
+      }
+      if (anchor.corrupted) {
+        return {
+          valid: false,
+          error: `SECURITY VIOLATION: External chain head anchor validation failed (${anchor.error}). Anchor file was tampered with.`
+        };
+      }
+
+      if (lines.length < anchor.lastSeq) {
+        return {
+          valid: false,
+          error: `CRITICAL_CHAIN_TRUNCATION: Tail truncation detected! Expected ${anchor.lastSeq} records, found only ${lines.length}. Records were deleted from the tail of the log.`,
+          expectedCount: anchor.lastSeq,
+          actualCount: lines.length,
+          expectedHead: anchor.lastHash,
+          actualHead: expectedPrevHash
+        };
+      }
+
+      if (lines.length > anchor.lastSeq) {
+        return {
+          valid: false,
+          error: `CRITICAL_CHAIN_ANOMALY: Audit log contains ${lines.length} records exceeding anchored sequence ${anchor.lastSeq}.`
+        };
+      }
+
+      if (expectedPrevHash !== anchor.lastHash) {
+        return {
+          valid: false,
+          error: `CRITICAL_CHAIN_TRUNCATION: Chain head mismatch! Expected anchored head ${anchor.lastHash}, got ${expectedPrevHash}.`
+        };
+      }
+    } else {
+      // Synchronize initial anchor for existing valid log
+      writeChainHeadAnchor(lines.length, expectedPrevHash, new Date().toISOString());
+    }
+
     return {
       valid: true,
       count: lines.length,
       headHash: expectedPrevHash,
-      message: `Audit log verified: ${lines.length} records in unbroken cryptographic chain.`
+      message: `Audit log verified: ${lines.length} records in unbroken cryptographic chain anchored at .chain_head.`
     };
   } catch (err) {
     return {
@@ -212,5 +324,6 @@ module.exports = {
   verifyAuditLogIntegrity,
   getAuditLogs,
   AUDIT_FILE,
+  CHAIN_HEAD_FILE,
   GENESIS_HASH
 };

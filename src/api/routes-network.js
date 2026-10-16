@@ -10,7 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { authenticate } = require('./middleware');
+const { authenticate, requireRole, requirePermission } = require('./middleware');
 const { db } = require('../db/database');
 const { topologyEngine } = require('../network/topology/topology-engine');
 const { packetStreamer } = require('../network/packet-streaming/packet-streamer');
@@ -186,7 +186,7 @@ router.post('/topology/snapshots/compare', (req, res) => {
 /**
  * POST /api/network/topology/node
  */
-router.post('/topology/node', (req, res) => {
+router.post('/topology/node', requireRole('ADMIN', 'NETWORK_ADMIN'), (req, res) => {
   const { name, hostname_or_ip, type = 'host', layer = 'access', parent_id = null } = req.body;
   if (!name || !hostname_or_ip) {
     return res.status(400).json({ error: 'name and hostname_or_ip are required.' });
@@ -206,7 +206,7 @@ router.post('/topology/node', (req, res) => {
 /**
  * DELETE /api/network/topology/node/:id
  */
-router.delete('/topology/node/:id', (req, res) => {
+router.delete('/topology/node/:id', requireRole('ADMIN', 'NETWORK_ADMIN'), (req, res) => {
   const nodeId = req.params.id;
   db.prepare('DELETE FROM topology_nodes WHERE id = ?').run(nodeId);
   res.json({ success: true, message: `Node ${nodeId} deleted.` });
@@ -238,7 +238,7 @@ router.post('/probe/:id', async (req, res) => {
 // PILLAR 2: WIRESHARK-GRADE LIVE PACKET SNIFFER & STREAM DISSECTOR
 // ============================================================================
 
-router.post('/capture/start', (req, res) => {
+router.post('/capture/start', requirePermission('network.capture.execute'), (req, res) => {
   try {
     const { broadcast } = req.app.locals;
     packetStreamer.startStreaming((type, payload) => {
@@ -250,7 +250,7 @@ router.post('/capture/start', (req, res) => {
   }
 });
 
-router.post('/capture/stop', (req, res) => {
+router.post('/capture/stop', requirePermission('network.capture.execute'), (req, res) => {
   try {
     packetStreamer.stopStreaming();
     res.json({ success: true, active: false, message: 'Live packet capture stream paused.' });
@@ -733,7 +733,7 @@ router.post('/automation/view', async (req, res) => {
  * POST /api/network/automation/execute
  * Safely executes script and returns stdout, stderr, exit code, and duration
  */
-router.post('/automation/execute', async (req, res) => {
+router.post('/automation/execute', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADMIN'), async (req, res) => {
   try {
     const { scriptName, params = '' } = req.body;
     if (!scriptName) {
