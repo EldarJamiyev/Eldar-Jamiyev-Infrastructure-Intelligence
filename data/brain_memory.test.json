@@ -1,8 +1,8 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-16T20:14:50.434Z",
-  "baselinesCount": 233,
-  "incidentsRecorded": 51,
+  "lastUpdated": "2026-10-16T20:34:39.833Z",
+  "baselinesCount": 234,
+  "incidentsRecorded": 50,
   "currentSubnet": "192.168.31.1",
   "subnetProfiles": {},
   "baselineMetrics": {
@@ -10,13 +10,13 @@
       "minRtt": 0.1,
       "maxRtt": 19884009,
       "avgRtt": 6308.65,
-      "variance": 45210528931.24,
-      "stddev": 212627.68,
-      "m2": 82909283270028850,
-      "sampleCount": 1833850,
+      "variance": 45210504299.6,
+      "stddev": 212627.62,
+      "m2": 82909283309826660,
+      "sampleCount": 1833851,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:31:24.438Z",
-      "lastObserved": "2026-10-16T20:14:49.515Z"
+      "lastObserved": "2026-10-16T20:34:02.775Z"
     },
     "192.178.24.174": {
       "minRtt": 46,
@@ -34,13 +34,13 @@
       "minRtt": 1,
       "maxRtt": 3.1,
       "avgRtt": 1.36,
-      "variance": 0.25,
-      "stddev": 0.5,
-      "m2": 111.24619999999972,
-      "sampleCount": 441,
+      "variance": 0.26,
+      "stddev": 0.51,
+      "m2": 115.35539999999972,
+      "sampleCount": 443,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:11.150Z",
-      "lastObserved": "2026-10-16T20:14:50.323Z"
+      "lastObserved": "2026-10-16T20:34:03.695Z"
     },
     "10.22.10.11": {
       "minRtt": 1,
@@ -331,16 +331,16 @@
       "lastObserved": "2026-10-16T18:53:15.196Z"
     },
     "172.217.118.4": {
-      "minRtt": 46,
+      "minRtt": 35,
       "maxRtt": 80,
       "avgRtt": 47.99,
-      "variance": 70.31,
+      "variance": 70.38,
       "stddev": 8.39,
-      "m2": 1317319.428799928,
-      "sampleCount": 18736,
+      "m2": 1319513.0500999286,
+      "sampleCount": 18749,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:55:15.623Z",
-      "lastObserved": "2026-10-16T18:53:20.407Z"
+      "lastObserved": "2026-10-16T20:34:36.458Z"
     },
     "5.178.43.107": {
       "minRtt": 58,
@@ -1089,14 +1089,14 @@
     "142.251.142.110": {
       "minRtt": 34,
       "maxRtt": 124,
-      "avgRtt": 47.38,
-      "variance": 38.05,
-      "stddev": 6.17,
-      "m2": 53847.6631,
-      "sampleCount": 1416,
+      "avgRtt": 47.3,
+      "variance": 38.56,
+      "stddev": 6.21,
+      "m2": 54876.431899999996,
+      "sampleCount": 1424,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:58:16.093Z",
-      "lastObserved": "2026-10-16T20:14:48.946Z"
+      "lastObserved": "2026-10-16T20:33:58.582Z"
     },
     "142.251.127.84": {
       "minRtt": 70,
@@ -2779,16 +2779,16 @@
       "lastObserved": "2026-10-16T18:52:06.163Z"
     },
     "192.168.31.89": {
-      "minRtt": 34,
+      "minRtt": 2,
       "maxRtt": 124,
-      "avgRtt": 50.11,
-      "variance": 1112.59,
-      "stddev": 33.36,
-      "m2": 58967.29409999999,
-      "sampleCount": 54,
+      "avgRtt": 40.82,
+      "variance": 944.29,
+      "stddev": 30.73,
+      "m2": 79320.4538,
+      "sampleCount": 85,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:24:36.484Z",
-      "lastObserved": "2026-10-16T20:14:48.947Z"
+      "lastObserved": "2026-10-16T20:34:36.457Z"
     },
     "hesabat.taxes.gov.az": {
       "minRtt": 12.1,
@@ -2799,8 +2799,20 @@
       "m2": 20.797999999999995,
       "sampleCount": 5,
       "status": "ESTABLISHED",
-      "firstObserved": "2026-10-16T20:14:50.320Z",
-      "lastObserved": "2026-10-16T20:14:50.320Z"
+      "firstObserved": "2026-10-16T20:34:03.692Z",
+      "lastObserved": "2026-10-16T20:34:03.692Z"
+    },
+    "192.168.31.1": {
+      "minRtt": 2,
+      "maxRtt": 2,
+      "avgRtt": 2,
+      "variance": 0,
+      "stddev": 0,
+      "m2": 0,
+      "sampleCount": 10,
+      "status": "ESTABLISHED",
+      "firstObserved": "2026-10-16T20:34:35.891Z",
+      "lastObserved": "2026-10-16T20:34:35.961Z"
     }
   },
   "incidentHistory": [
@@ -3207,7 +3219,7 @@
       "confidence": 52,
       "target": "10.22.12.204",
       "destPort": 443,
-      "timestamp": "2026-10-16T20:14:36.004Z"
+      "timestamp": "2026-10-16T20:33:47.278Z"
     },
     {
       "incidentKey": "INC-3512a40a5a9088c4",
@@ -3216,7 +3228,7 @@
       "confidence": 52,
       "target": "85.132.27.92",
       "destPort": 443,
-      "timestamp": "2026-10-16T20:14:50.323Z"
+      "timestamp": "2026-10-16T20:34:03.696Z"
     },
     {
       "incidentKey": "INC-21308b2a0a5ed6eb",
