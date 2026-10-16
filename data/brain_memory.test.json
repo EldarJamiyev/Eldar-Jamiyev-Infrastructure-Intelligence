@@ -1,6 +1,6 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-16T19:46:54.152Z",
+  "lastUpdated": "2026-10-16T19:52:53.262Z",
   "baselinesCount": 233,
   "incidentsRecorded": 51,
   "currentSubnet": "192.168.31.1",
@@ -10,13 +10,13 @@
       "minRtt": 0.1,
       "maxRtt": 19884009,
       "avgRtt": 6308.65,
-      "variance": 45210602826.32,
-      "stddev": 212627.85,
-      "m2": 82909283150635420,
-      "sampleCount": 1833847,
+      "variance": 45210578194.6,
+      "stddev": 212627.79,
+      "m2": 82909283190433230,
+      "sampleCount": 1833848,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:31:24.438Z",
-      "lastObserved": "2026-10-16T19:46:51.498Z"
+      "lastObserved": "2026-10-16T19:52:51.755Z"
     },
     "192.178.24.174": {
       "minRtt": 46,
@@ -34,13 +34,13 @@
       "minRtt": 1,
       "maxRtt": 3.1,
       "avgRtt": 1.36,
-      "variance": 0.23,
-      "stddev": 0.48,
-      "m2": 98.91859999999971,
-      "sampleCount": 435,
+      "variance": 0.24,
+      "stddev": 0.49,
+      "m2": 103.02779999999971,
+      "sampleCount": 437,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:11.150Z",
-      "lastObserved": "2026-10-16T19:46:52.457Z"
+      "lastObserved": "2026-10-16T19:52:52.696Z"
     },
     "10.22.10.11": {
       "minRtt": 1,
@@ -1089,14 +1089,14 @@
     "142.251.142.110": {
       "minRtt": 35,
       "maxRtt": 51,
-      "avgRtt": 47.14,
-      "variance": 3.1,
-      "stddev": 1.76,
-      "m2": 4308.883099999996,
-      "sampleCount": 1392,
+      "avgRtt": 47.06,
+      "variance": 3.78,
+      "stddev": 1.94,
+      "m2": 5294.567099999996,
+      "sampleCount": 1400,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:58:16.093Z",
-      "lastObserved": "2026-10-16T19:46:51.125Z"
+      "lastObserved": "2026-10-16T19:52:48.575Z"
     },
     "142.251.127.84": {
       "minRtt": 70,
@@ -2781,14 +2781,14 @@
     "192.168.31.89": {
       "minRtt": 35,
       "maxRtt": 36,
-      "avgRtt": 35.64,
-      "variance": 0.24,
-      "stddev": 0.49,
-      "m2": 5.767799999999998,
-      "sampleCount": 25,
+      "avgRtt": 35.74,
+      "variance": 0.2,
+      "stddev": 0.45,
+      "m2": 6.7368000000000015,
+      "sampleCount": 35,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:24:36.484Z",
-      "lastObserved": "2026-10-16T19:46:51.126Z"
+      "lastObserved": "2026-10-16T19:52:48.575Z"
     },
     "hesabat.taxes.gov.az": {
       "minRtt": 12.1,
@@ -2799,20 +2799,11 @@
       "m2": 20.797999999999995,
       "sampleCount": 5,
       "status": "ESTABLISHED",
-      "firstObserved": "2026-10-16T19:46:52.454Z",
-      "lastObserved": "2026-10-16T19:46:52.454Z"
+      "firstObserved": "2026-10-16T19:52:52.693Z",
+      "lastObserved": "2026-10-16T19:52:52.693Z"
     }
   },
   "incidentHistory": [
-    {
-      "incidentKey": "INC-8ba4826354f9dfff",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59007,
-      "timestamp": "2026-10-16T18:51:50.261Z"
-    },
     {
       "incidentKey": "INC-7e019d2a44c39897",
       "incidentType": "TCP_RST_REJECT",
@@ -3234,7 +3225,7 @@
       "confidence": 52,
       "target": "10.22.12.204",
       "destPort": 443,
-      "timestamp": "2026-10-16T19:46:38.021Z"
+      "timestamp": "2026-10-16T19:52:37.199Z"
     },
     {
       "incidentKey": "INC-3512a40a5a9088c4",
@@ -3243,7 +3234,7 @@
       "confidence": 52,
       "target": "85.132.27.92",
       "destPort": 443,
-      "timestamp": "2026-10-16T19:46:52.458Z"
+      "timestamp": "2026-10-16T19:52:52.697Z"
     },
     {
       "incidentKey": "INC-21308b2a0a5ed6eb",
@@ -3253,6 +3244,15 @@
       "target": "192.168.31.89",
       "destPort": 63940,
       "timestamp": "2026-10-16T19:46:52.650Z"
+    },
+    {
+      "incidentKey": "INC-eea68127d34d252a",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "192.168.31.89",
+      "destPort": 63275,
+      "timestamp": "2026-10-16T19:52:48.576Z"
     }
   ]
 }

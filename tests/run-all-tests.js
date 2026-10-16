@@ -23,6 +23,10 @@ const { runEdrSafeScannerTests } = require('./verify-edr-safe-scanner.test');
 const { runE2EBrowserWorkflow } = require('./verify-e2e-browser-workflow');
 const { runPacketDissectionEngineTests } = require('./packet-dissection-engine.test');
 const { runAiCausalInvestigatorTests } = require('./ai-causal-investigator.test');
+const { runAdversarialProtocolTests } = require('./adversarial-protocol-fixtures.test');
+const { runTcpStreamWraparoundTests } = require('./tcp-stream-wraparound.test');
+const { runToolSandboxAndSecurityTests } = require('./tool-sandbox-and-security.test');
+const { runAiBrainEvidenceReasoningTests } = require('./ai-brain-evidence-reasoning.test');
 
 async function runAllTests() {
   console.log('========================================================================');
@@ -51,7 +55,11 @@ async function runAllTests() {
     { name: '15. Controlled Two-Phase Discovery & EDR Safety Verification Suite', fn: runEdrSafeScannerTests },
     { name: '16. Browser-Level E2E Workflow & View Contract Verification Suite', fn: runE2EBrowserWorkflow },
     { name: '17. Industrial Packet Dissection Engine, Wireshark AST Filter Compiler & TCP Stream Reassembler', fn: runPacketDissectionEngineTests },
-    { name: '18. Autonomous AI Causal Investigator, Rule of Contradictory Proof & Distinguishing Probes', fn: runAiCausalInvestigatorTests }
+    { name: '18. Autonomous AI Causal Investigator, Rule of Contradictory Proof & Distinguishing Probes', fn: runAiCausalInvestigatorTests },
+    { name: '19. Adversarial Protocol Fixtures, RFC Checksums, IPv4 Frags, Truncation & Loop Defense', fn: runAdversarialProtocolTests },
+    { name: '20. TCP Stream Reassembler 32-Bit Sequence Wraparound, Overlap Trimming & RST Tear-down', fn: runTcpStreamWraparoundTests },
+    { name: '21. Tool Sandbox Hardening, Role-Based Access Control, Parameter Sanitization & Audit Logs', fn: runToolSandboxAndSecurityTests },
+    { name: '22. Shared AI Brain Evidence Reasoning, Multi-Hypothesis Evaluation & LLM Provider Fallback', fn: runAiBrainEvidenceReasoningTests }
   ];
 
   for (const s of suites) {

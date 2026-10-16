@@ -394,6 +394,7 @@ class ToolSandbox {
       isClamped: clampDetected,
       evidence: {
         pmtuSweepExecuted: true,
+        mtuSize: maxSupportedMtu || 1500,
         maxSupportedWireMtu: maxSupportedMtu,
         baseline1500Supported: baseline1472 ? baseline1472.success : null,
         clampedBelow1500: clampDetected

@@ -24,12 +24,21 @@ class IncidentBriefingProvider {
     if (this.providerType !== 'deterministic' && this.endpoint) {
       try {
         const remote = await this._callRemoteLlm(evaluation, context);
-        if (remote) return remote;
+        if (remote) return { ...remote, fallbackUsed: false };
       } catch (e) {
         // Smoothly fall back
       }
     }
-    return this.synthesizeBriefing(evaluation, context);
+    const briefing = this.synthesizeBriefing(evaluation, context);
+    return {
+      ...briefing,
+      provider: this.providerType,
+      fallbackUsed: this.providerType !== 'deterministic'
+    };
+  }
+
+  async generateLlmBriefing(evaluation = {}, context = {}) {
+    return this.generateBriefing(evaluation, context);
   }
 
   async _callRemoteLlm(evaluation, context) {

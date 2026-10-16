@@ -605,7 +605,10 @@ class BayesianReasoningEngine {
           timeout: 1500
         }, { role: 'ANALYST', username: 'ai-brain' });
         outcome.success = sweepRes.result?.success || false;
-        outcome.evidence = sweepRes.result?.evidence || {};
+        outcome.evidence = {
+          mtuSize: sweepRes.result?.evidence?.mtuSize || sweepRes.result?.maxSupportedWireMtu || 1500,
+          ...(sweepRes.result?.evidence || {})
+        };
         outcome.sweep = sweepRes.result?.sweep || [];
       } catch (e) {
         outcome.error = e.message;
