@@ -171,8 +171,8 @@ async function runLiveProductionSmoke() {
       throw new Error(`Diagnostics Failure: Expected 200 with audit body, got ${auditRes.statusCode}: ${JSON.stringify(auditRes.body)}`);
     }
 
-    // 5. Live Remediation Preview Endpoint
-    console.log('\n[SMOKE 5] Querying live /api/diagnostics/remediation/preview for "flush_dns"...');
+    // 5. Live Remediation Preview Endpoint with Cryptographic Action Token
+    console.log('\n[SMOKE 5] Querying live /api/diagnostics/remediation/preview for "trim_working_set"...');
     const previewRes = await makeRequest({
       hostname: TEST_HOST,
       port: TEST_PORT,
@@ -182,18 +182,20 @@ async function runLiveProductionSmoke() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${adminToken}`
       }
-    }, { recipeId: 'flush_dns' });
+    }, { recipeId: 'trim_working_set' });
 
-    if (previewRes.statusCode === 200 && previewRes.body && previewRes.body.preview && previewRes.body.preview.dryRun) {
+    let actionToken = null;
+    if (previewRes.statusCode === 200 && previewRes.body && previewRes.body.preview && previewRes.body.preview.actionToken) {
       const preview = previewRes.body.preview;
+      actionToken = preview.actionToken;
       console.log(`  ✓ Preview returned 200 OK: Recipe "${preview.name}", dryRun: ${preview.dryRun}`);
-      console.log(`  ✓ PowerShell Command: "${preview.command}"`);
+      console.log(`  ✓ Signed HMAC actionToken issued: ${actionToken.substring(0, 32)}...`);
     } else {
-      throw new Error(`Remediation Preview Failure: Expected 200 with preview, got ${previewRes.statusCode}: ${JSON.stringify(previewRes.body)}`);
+      throw new Error(`Remediation Preview Failure: Expected 200 with actionToken, got ${previewRes.statusCode}: ${JSON.stringify(previewRes.body)}`);
     }
 
-    // 6. Live Remediation Safe Execution Endpoint
-    console.log('\n[SMOKE 6] Executing safe unprivileged remediation "trim_working_set"...');
+    // 6. Live Remediation Cryptographically Bound Execution Endpoint
+    console.log('\n[SMOKE 6] Executing remediation using cryptographic actionToken...');
     const execRes = await makeRequest({
       hostname: TEST_HOST,
       port: TEST_PORT,
@@ -203,13 +205,33 @@ async function runLiveProductionSmoke() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${adminToken}`
       }
-    }, { recipeId: 'trim_working_set' });
+    }, { actionToken });
 
     if (execRes.statusCode === 200 && execRes.body && execRes.body.outcome && execRes.body.outcome.success) {
       const outcome = execRes.body.outcome;
-      console.log(`  ✓ Execution returned 200 OK: "${outcome.output}" in ${outcome.durationMs}ms`);
+      console.log(`  ✓ Cryptographically bound execution succeeded: "${outcome.output}" in ${outcome.durationMs}ms`);
+      console.log(`  ✓ Verified actionTokenId: ${outcome.actionTokenId}`);
     } else {
       throw new Error(`Remediation Execute Failure: Expected 200 with success outcome, got ${execRes.statusCode}: ${JSON.stringify(execRes.body)}`);
+    }
+
+    // 7. Live Cryptographic Audit Trail Verification
+    console.log('\n[SMOKE 7] Verifying live tamper-resistant HMAC audit trail...');
+    const auditVerifyRes = await makeRequest({
+      hostname: TEST_HOST,
+      port: TEST_PORT,
+      path: '/api/diagnostics/remediation/audit-verify',
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+
+    if (auditVerifyRes.statusCode === 200 && auditVerifyRes.body && auditVerifyRes.body.verification && auditVerifyRes.body.verification.valid) {
+      const ver = auditVerifyRes.body.verification;
+      console.log(`  ✓ Audit trail verified: ${ver.count} records in unbroken cryptographic chain (head: ${ver.headHash ? ver.headHash.substring(0, 16) : 'genesis'}...)`);
+    } else {
+      throw new Error(`Audit Trail Verification Failure: Expected 200 with valid chain, got ${auditVerifyRes.statusCode}: ${JSON.stringify(auditVerifyRes.body)}`);
     }
 
     // Close WebSocket

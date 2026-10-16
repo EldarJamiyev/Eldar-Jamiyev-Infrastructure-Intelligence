@@ -639,6 +639,28 @@ class AIBrain {
     const overallStatus = hostAudit.overallStatus || 'HEALTHY';
     const hostName = hostAudit.host?.hostname || 'Host';
 
+    if (overallStatus === 'COLLECTION_ERROR') {
+      return {
+        overallStatus: 'COLLECTION_ERROR',
+        summary: `Host ${hostName} telemetry collection encountered operating system or permission errors.`,
+        criticalIssuesCount: 0,
+        warningIssuesCount: anomalies.length,
+        recommendedAction: 'Verify PowerShell execution permissions and WMI/CIM service health.',
+        plainEnglishReport: 'One or more subsystem telemetry queries failed, timed out, or encountered access denials on the host.'
+      };
+    }
+
+    if (overallStatus === 'UNKNOWN') {
+      return {
+        overallStatus: 'UNKNOWN',
+        summary: `Host ${hostName} telemetry unsupported on platform '${hostAudit.host?.platform || 'unknown'}'.`,
+        criticalIssuesCount: 0,
+        warningIssuesCount: 0,
+        recommendedAction: 'Execute on supported Windows environment for full CIM/WMI telemetry.',
+        plainEnglishReport: 'Hardware and subsystem telemetry sources are not supported on this platform.'
+      };
+    }
+
     if (anomalies.length === 0) {
       return {
         overallStatus,

@@ -1,19 +1,65 @@
 /**
- * EJII Lightweight Security & Unprivileged Authentication Module
- * Single-operator / unprivileged NOC access with zero elevated OS dependencies.
+ * EJII Security & Capability-Based Authorization Module
+ * Cryptographically verified token generation, PBKDF2 hashing, and granular capability-based RBAC.
  */
+
+'use strict';
 
 const crypto = require('crypto');
 const { JWT_SECRET } = require('../config');
 
-// Unprivileged Single-Operator NOC Role
+// Explicit Distinct NOC Roles
 const ROLES = {
-  NOC_OPERATOR: 'noc_operator',
-  // Backward compatibility alias for any existing code
-  NETWORK_ADMIN: 'noc_operator',
-  SYSADMIN: 'noc_operator',
-  HELPDESK: 'noc_operator',
-  APP_OWNER: 'noc_operator'
+  ADMIN: 'ADMIN',
+  SYSADMIN: 'SYSADMIN',
+  NETWORK_ADMIN: 'NETWORK_ADMIN',
+  ANALYST: 'ANALYST',
+  OPERATOR: 'OPERATOR',
+  NOC_OPERATOR: 'NOC_OPERATOR',
+  READONLY: 'READONLY'
+};
+
+// Granular Capability Mapping per Role
+const ROLE_CAPABILITIES = {
+  ADMIN: [
+    'system.config.manage',
+    'users.roles.manage',
+    'host.remediation.execute',
+    'host.remediation.preview',
+    'network.capture.execute',
+    'network.diagnostics.execute',
+    'telemetry.read'
+  ],
+  SYSADMIN: [
+    'host.remediation.execute',
+    'host.remediation.preview',
+    'network.diagnostics.execute',
+    'telemetry.read'
+  ],
+  NETWORK_ADMIN: [
+    'network.capture.execute',
+    'network.diagnostics.execute',
+    'host.remediation.preview',
+    'telemetry.read'
+  ],
+  ANALYST: [
+    'network.diagnostics.execute',
+    'host.remediation.preview',
+    'telemetry.read'
+  ],
+  OPERATOR: [
+    'network.diagnostics.execute',
+    'host.remediation.preview',
+    'telemetry.read'
+  ],
+  NOC_OPERATOR: [
+    'network.diagnostics.execute',
+    'host.remediation.preview',
+    'telemetry.read'
+  ],
+  READONLY: [
+    'telemetry.read'
+  ]
 };
 
 /**
@@ -63,7 +109,8 @@ function verifyToken(token) {
   const [header, body, signature] = parts;
   const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
 
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+  if (Buffer.from(signature).length !== Buffer.from(expectedSig).length ||
+      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
     return null;
   }
 
@@ -82,7 +129,8 @@ function verifyToken(token) {
 const revokedTokens = new Set();
 
 function generateToken(user, expiresIn = 86400) {
-  return createToken({ id: user.id, username: user.username, role: user.role || 'noc_operator' }, expiresIn);
+  const role = (user.role || 'NOC_OPERATOR').toUpperCase();
+  return createToken({ id: user.id, username: user.username, role }, expiresIn);
 }
 
 function revokeToken(token, userId, reason) {
@@ -95,14 +143,26 @@ function isTokenRevoked(token) {
 }
 
 /**
- * Lightweight permission checker - all unprivileged NOC capabilities granted to NOC operator
+ * Strict capability-based permission checker
  */
 function hasPermission(role, permission) {
-  return true;
+  if (!role || !permission) return false;
+  const normalizedRole = String(role).toUpperCase();
+  const permissions = ROLE_CAPABILITIES[normalizedRole] || [];
+  return permissions.includes(permission);
+}
+
+/**
+ * Get all capabilities granted to a specific role
+ */
+function getRoleCapabilities(role) {
+  const normalizedRole = String(role || '').toUpperCase();
+  return ROLE_CAPABILITIES[normalizedRole] ? [...ROLE_CAPABILITIES[normalizedRole]] : [];
 }
 
 module.exports = {
   ROLES,
+  ROLE_CAPABILITIES,
   hashPassword,
   verifyPassword,
   createToken,
@@ -110,5 +170,6 @@ module.exports = {
   verifyToken,
   revokeToken,
   isTokenRevoked,
-  hasPermission
+  hasPermission,
+  getRoleCapabilities
 };

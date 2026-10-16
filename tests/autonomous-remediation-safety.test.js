@@ -72,7 +72,7 @@ async function runAutonomousRemediationSafetyTests() {
   }
   console.log(`  ✓ All ${criticalProcs.length} protected operating system processes shielded from modification.`);
 
-  // 4. RBAC Authorization Enforcement
+  // 4. RBAC Authorization Enforcement (SYSADMIN / ADMIN only)
   console.log('[25.4] Testing RBAC role authorization for remediation execution...');
   await assert.rejects(
     async () => {
@@ -87,14 +87,27 @@ async function runAutonomousRemediationSafetyTests() {
     },
     'READONLY user should not be allowed to execute remediation'
   );
-  console.log('  ✓ READONLY user blocked from executing remediation.');
+  await assert.rejects(
+    async () => {
+      await autonomousRemediationEngine.executeRemediation('trim_working_set', {}, {
+        role: 'OPERATOR',
+        username: 'junior_tech'
+      });
+    },
+    (err) => {
+      assert.ok(err.message.includes('Access denied'), `OPERATOR must be denied, got: ${err.message}`);
+      return true;
+    },
+    'OPERATOR user should not be allowed to execute remediation without SYSADMIN capability'
+  );
+  console.log('  ✓ READONLY and OPERATOR users blocked from executing remediation (requires SYSADMIN/ADMIN).');
 
   // 5. Elevation Safety & Non-Elevated Host Feedback
   console.log('[25.5] Testing Elevation Safety and Honest Host Feedback...');
   const { isElevated } = await autonomousRemediationEngine.checkElevation();
   const elevatedOutcome = await autonomousRemediationEngine.executeRemediation('repair_component_store', {}, {
-    role: 'ANALYST',
-    username: 'noc_analyst'
+    role: 'SYSADMIN',
+    username: 'noc_sysadmin'
   });
 
   if (!isElevated) {
@@ -110,8 +123,8 @@ async function runAutonomousRemediationSafetyTests() {
   // 6. Safe Unprivileged Recipe Execution
   console.log('[25.6] Testing Safe Unprivileged Recipe Execution (trim_working_set)...');
   const safeOutcome = await autonomousRemediationEngine.executeRemediation('trim_working_set', {}, {
-    role: 'OPERATOR',
-    username: 'junior_operator'
+    role: 'SYSADMIN',
+    username: 'senior_sysadmin'
   });
   assert.ok(safeOutcome.success, 'Safe unprivileged recipe should succeed');
   assert.ok(typeof safeOutcome.durationMs === 'number');

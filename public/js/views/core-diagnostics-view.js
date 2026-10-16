@@ -129,7 +129,7 @@
     }
   };
 
-  window.executeRemediationRecipe = async function(recipeId, params = {}) {
+  window.executeRemediationRecipe = async function(recipeId, params = {}, actionToken = null) {
     const token = localStorage.getItem('eji_token') || sessionStorage.getItem('eji_token') || '';
     logConsole(`[Action] Executing remediation recipe: ${recipeId}...`);
 
@@ -140,7 +140,7 @@
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ recipeId, params })
+        body: JSON.stringify({ actionToken, recipeId, params })
       });
 
       const data = await res.json();
@@ -198,7 +198,7 @@
 
           <div style="background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 12px; margin-bottom: 14px; font-family: var(--font-mono); font-size: 11px;">
             <div style="color: var(--text-muted); font-size: 10px; margin-bottom: 4px;">EXACT POWERSHELL COMMAND:</div>
-            <div style="color: #38BDF8; word-break: break-all;">${preview.commandPreview}</div>
+            <div style="color: #38BDF8; word-break: break-all;">${preview.commandPreview || preview.command}</div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; font-size: 11px;">
@@ -217,7 +217,7 @@
 
           <div style="display: flex; justify-content: flex-end; gap: 8px;">
             <button class="btn btn-secondary" onclick="window.closeModal()" style="font-size: 11px;">Cancel</button>
-            <button class="btn btn-primary" onclick="window.closeModal(); window.executeRemediationRecipe('${preview.recipeId}', { target: '${preview.target}' })" style="font-size: 11px; font-weight: 700;">Authorize &amp; Apply Fix ⚡</button>
+            <button class="btn btn-primary" onclick="window.closeModal(); window.executeRemediationRecipe('${preview.recipeId}', { target: '${preview.target}' }, '${preview.actionToken || ''}')" style="font-size: 11px; font-weight: 700;">Authorize &amp; Apply Fix ⚡</button>
           </div>
         </div>
       </div>
@@ -227,6 +227,8 @@
   function getStatusBadge(status) {
     if (status === 'HEALTHY') return '<span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">HEALTHY</span>';
     if (status === 'DEGRADED') return '<span style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">DEGRADED</span>';
+    if (status === 'UNKNOWN') return '<span style="background: rgba(107, 114, 128, 0.15); color: #9CA3AF; border: 1px solid rgba(107, 114, 128, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">UNKNOWN</span>';
+    if (status === 'COLLECTION_ERROR') return '<span style="background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">COLLECTION ERROR</span>';
     return '<span style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">CRITICAL</span>';
   }
 

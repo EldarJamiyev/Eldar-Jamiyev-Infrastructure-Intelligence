@@ -31,6 +31,7 @@ const { runSecurityRbacRegressionTests } = require('./security-rbac-regression.t
 const { runCoreDiagnosticsEngineTests } = require('./core-diagnostics-engine.test');
 const { runAutonomousRemediationSafetyTests } = require('./autonomous-remediation-safety.test');
 const { runLiveProductionSmoke } = require('./live-production-smoke.test');
+const { runHostileSecurityAuditTests } = require('./hostile-security-audit.test');
 
 async function runAllTests() {
   console.log('========================================================================');
@@ -67,7 +68,8 @@ async function runAllTests() {
     { name: '23. Security & RBAC Hostile Regression, Zero-Trust Identity & Header Spoofing Defense', fn: runSecurityRbacRegressionTests },
     { name: '24. Core Diagnostics 4-Pillar Host Ingestion, WMI/CIM Telemetry & AI Brain Synthesis', fn: runCoreDiagnosticsEngineTests },
     { name: '25. Autonomous Remediation Safety, Elevation Lifecycle & OS Process Protection', fn: runAutonomousRemediationSafetyTests },
-    { name: '26. Live Production Server Socket & API Smoke Test, Zero-Trust Defenses & Live Host Telemetry', fn: runLiveProductionSmoke }
+    { name: '26. Live Production Server Socket & API Smoke Test, Zero-Trust Defenses & Live Host Telemetry', fn: runLiveProductionSmoke },
+    { name: '27. Hostile Security Audit, Action Token Binding, Injection Defense, HMAC Audit Chain & 5-State Health', fn: runHostileSecurityAuditTests }
   ];
 
   for (const s of suites) {

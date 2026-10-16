@@ -68,13 +68,43 @@ app.use((req, res) => {
 
 // WebSocket real-time connections
 const activeClients = new Set();
+const { verifyToken, hasPermission } = require('./core/security');
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   activeClients.add(ws);
+
+  // Authenticate WebSocket connection via query param, auth header, or cookie
+  let token = null;
+  try {
+    const urlObj = new URL(req.url, 'http://localhost');
+    token = urlObj.searchParams.get('token');
+  } catch (e) {}
+
+  if (!token && req.headers['authorization']) {
+    const authHdr = req.headers['authorization'];
+    if (authHdr.startsWith('Bearer ')) token = authHdr.slice(7).trim();
+  }
+
+  if (!token && req.headers.cookie) {
+    const match = req.headers.cookie.match(/eji_session=([^;]+)/);
+    if (match) token = match[1];
+  }
+
+  const decoded = token ? verifyToken(token) : null;
+  ws.user = decoded ? {
+    id: decoded.id,
+    username: decoded.username,
+    role: (decoded.role || 'READONLY').toUpperCase()
+  } : {
+    id: 'ANON',
+    username: 'unauthenticated',
+    role: 'READONLY'
+  };
 
   ws.send(JSON.stringify({
     type: 'CONNECTED',
     message: 'EJII Pure NOC Workstation Stream Connected.',
+    user: { username: ws.user.username, role: ws.user.role },
     timestamp: new Date().toISOString()
   }));
 
@@ -84,6 +114,13 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(raw.toString());
       if (data.type === 'START_PACKET_STREAM') {
+        const canCapture = hasPermission(ws.user.role, 'network.capture.execute') || hasPermission(ws.user.role, 'telemetry.read');
+        if (!canCapture && ws.user.role === 'READONLY') {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            error: 'Access denied: Packet capture stream requires network.capture.execute capability.'
+          }));
+        }
         packetStreamer.startStreaming((t, p) => broadcast(t, p));
         ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: true }));
       } else if (data.type === 'STOP_PACKET_STREAM') {

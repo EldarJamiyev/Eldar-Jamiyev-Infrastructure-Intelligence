@@ -1,15 +1,216 @@
 /**
- * Lightweight Unprivileged NOC Activity Logger
- * Replaces heavy cryptographic HMAC audit chain with clean, fast console logging.
+ * EJII Cryptographic Tamper-Resistant Audit Logger
+ * Append-only JSONL storage with continuous HMAC-SHA256 hash chaining.
+ * Guarantees tamper-evidence: any modification, deletion, or reordering of audit records
+ * breaks the cryptographic chain and is detected by verifyAuditLogIntegrity().
  */
 
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { DATA_DIR, HMAC_SECRET } = require('../config');
+
+const AUDIT_DIR = path.join(DATA_DIR, 'audit');
+const AUDIT_FILE = path.join(AUDIT_DIR, 'audit-trail.jsonl');
+const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
+
+// Ensure audit storage directory exists
+try {
+  if (!fs.existsSync(AUDIT_DIR)) {
+    fs.mkdirSync(AUDIT_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.error('[Audit Logger Init Error]: Failed to create audit directory:', e.message);
+}
+
+/**
+ * Compute HMAC-SHA256 digest over structured record fields
+ */
+function computeRecordHash(prevHash, timestamp, userId, action, resource, details) {
+  const content = `${prevHash}|${timestamp}|${userId || 'anon'}|${action}|${resource}|${JSON.stringify(details || {})}`;
+  return crypto.createHmac('sha256', HMAC_SECRET).update(content).digest('hex');
+}
+
+/**
+ * Retrieve the hash of the most recent audit record in the chain
+ */
+function getLastRecordHash() {
+  if (!fs.existsSync(AUDIT_FILE)) {
+    return GENESIS_HASH;
+  }
+
+  try {
+    const fileContent = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    if (!fileContent) return GENESIS_HASH;
+
+    const lines = fileContent.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line) {
+        const parsed = JSON.parse(line);
+        if (parsed.hash) return parsed.hash;
+      }
+    }
+    return GENESIS_HASH;
+  } catch (err) {
+    return GENESIS_HASH;
+  }
+}
+
+/**
+ * Append an audited action to the HMAC-chained ledger.
+ * FAIL-CLOSED: If writing to the audit log fails, this method throws an error
+ * to abort privileged operations rather than proceeding silently without an audit trail.
+ */
 function logAction({ userId, username, role, action, resource, details }) {
-  const ts = new Date().toISOString();
-  const detailStr = details ? ` - ${typeof details === 'object' ? JSON.stringify(details) : details}` : '';
-  console.log(`[NOC Activity] ${ts} | ${action} on ${resource} by ${username || 'operator'}${detailStr}`);
-  return { success: true, timestamp: ts };
+  const timestamp = new Date().toISOString();
+  const id = crypto.randomUUID ? crypto.randomUUID() : ('AUD-' + crypto.randomBytes(8).toString('hex'));
+
+  if (!fs.existsSync(AUDIT_DIR)) {
+    fs.mkdirSync(AUDIT_DIR, { recursive: true });
+  }
+
+  const prevHash = getLastRecordHash();
+  const hash = computeRecordHash(prevHash, timestamp, userId, action, resource, details);
+
+  const record = {
+    id,
+    timestamp,
+    userId: userId || 'system',
+    username: username || 'system',
+    role: (role || 'OPERATOR').toUpperCase(),
+    action,
+    resource: resource || 'host',
+    details: details || {},
+    prevHash,
+    hash
+  };
+
+  const line = JSON.stringify(record) + '\n';
+
+  try {
+    fs.appendFileSync(AUDIT_FILE, line, { encoding: 'utf8', flag: 'a' });
+  } catch (err) {
+    const fatalMsg = `CRITICAL AUDIT FAILURE: Could not persist audit record for action '${action}'. Operation aborted: ${err.message}`;
+    console.error(fatalMsg);
+    throw new Error(fatalMsg);
+  }
+
+  return {
+    success: true,
+    id: record.id,
+    timestamp: record.timestamp,
+    hash: record.hash
+  };
+}
+
+/**
+ * Verify cryptographic integrity of the entire audit chain from genesis.
+ * Traverses every record, confirms prevHash links, and verifies HMAC-SHA256 signatures.
+ */
+function verifyAuditLogIntegrity() {
+  if (!fs.existsSync(AUDIT_FILE)) {
+    return {
+      valid: true,
+      count: 0,
+      message: 'Audit log empty (genesis state).'
+    };
+  }
+
+  try {
+    const content = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    if (!content) {
+      return { valid: true, count: 0, message: 'Audit log empty (genesis state).' };
+    }
+
+    const lines = content.split('\n').filter(l => l.trim().length > 0);
+    let expectedPrevHash = GENESIS_HASH;
+
+    for (let i = 0; i < lines.length; i++) {
+      let record;
+      try {
+        record = JSON.parse(lines[i]);
+      } catch (err) {
+        return {
+          valid: false,
+          brokenAtIndex: i,
+          error: `Malformed JSON at line ${i + 1}: ${err.message}`
+        };
+      }
+
+      // 1. Verify prevHash link
+      if (record.prevHash !== expectedPrevHash) {
+        return {
+          valid: false,
+          brokenAtIndex: i,
+          error: `Broken hash chain at line ${i + 1}: expected prevHash ${expectedPrevHash.substring(0, 16)}..., got ${String(record.prevHash).substring(0, 16)}...`
+        };
+      }
+
+      // 2. Recompute and verify HMAC signature with constant-time equality
+      const recomputed = computeRecordHash(
+        record.prevHash,
+        record.timestamp,
+        record.userId,
+        record.action,
+        record.resource,
+        record.details
+      );
+
+      const bufRecorded = Buffer.from(record.hash || '', 'hex');
+      const bufExpected = Buffer.from(recomputed, 'hex');
+
+      if (bufRecorded.length !== 32 || bufExpected.length !== 32 || !crypto.timingSafeEqual(bufRecorded, bufExpected)) {
+        return {
+          valid: false,
+          brokenAtIndex: i,
+          error: `HMAC signature verification failed at line ${i + 1} (record ID: ${record.id}). Record content has been modified or forged.`
+        };
+      }
+
+      expectedPrevHash = record.hash;
+    }
+
+    return {
+      valid: true,
+      count: lines.length,
+      headHash: expectedPrevHash,
+      message: `Audit log verified: ${lines.length} records in unbroken cryptographic chain.`
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Integrity check error: ${err.message}`
+    };
+  }
+}
+
+/**
+ * Retrieve recent audit records
+ */
+function getAuditLogs(limit = 50) {
+  if (!fs.existsSync(AUDIT_FILE)) {
+    return [];
+  }
+
+  try {
+    const content = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    if (!content) return [];
+
+    const lines = content.split('\n').filter(l => l.trim().length > 0);
+    const slice = lines.slice(-Math.min(limit, lines.length));
+    return slice.map(l => JSON.parse(l)).reverse();
+  } catch (err) {
+    return [];
+  }
 }
 
 module.exports = {
-  logAction
+  logAction,
+  verifyAuditLogIntegrity,
+  getAuditLogs,
+  AUDIT_FILE,
+  GENESIS_HASH
 };

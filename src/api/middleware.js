@@ -1,9 +1,11 @@
 /**
- * EJII Lightweight NOC Middleware
- * Streamlined, unprivileged single-operator authentication with zero enterprise overhead.
+ * EJII Capability & Role Middleware
+ * Enforces cryptographic session verification, explicit role checking, and granular capability-based access control.
  */
 
-const { verifyToken } = require('../core/security');
+'use strict';
+
+const { verifyToken, hasPermission } = require('../core/security');
 const { db } = require('../db/database');
 
 function parseCookies(header) {
@@ -77,6 +79,7 @@ function authenticate(req, res, next) {
   next();
 }
 
+// Monotonic Role Hierarchy (preserved for reference)
 const ROLE_HIERARCHY = {
   ADMIN: 4,
   NETWORK_ADMIN: 4,
@@ -88,7 +91,9 @@ const ROLE_HIERARCHY = {
 };
 
 /**
- * Middleware to enforce strict RBAC role hierarchy
+ * Strict role checking middleware:
+ * Enforces EXPLICIT role membership without unintended numeric cross-role escalation.
+ * If requireRole('ADMIN') is requested, only ADMIN is authorized.
  */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
@@ -97,13 +102,10 @@ function requireRole(...allowedRoles) {
     }
 
     const userRole = (req.user.role || 'READONLY').toUpperCase();
-    const userLevel = ROLE_HIERARCHY[userRole] || 1;
-
-    // Check if user has explicit match or satisfies minimum hierarchy level
     const normalizedAllowed = allowedRoles.map(r => String(r).toUpperCase());
-    const minRequiredLevel = Math.min(...normalizedAllowed.map(r => ROLE_HIERARCHY[r] || 2));
 
-    const isAuthorized = normalizedAllowed.includes(userRole) || userLevel >= minRequiredLevel;
+    // Explicit role match OR ADMIN superuser inheritance across operational routes (F-01 resolved)
+    const isAuthorized = normalizedAllowed.includes(userRole) || (userRole === 'ADMIN');
 
     if (!isAuthorized) {
       return res.status(403).json({
@@ -115,15 +117,18 @@ function requireRole(...allowedRoles) {
   };
 }
 
+/**
+ * Granular capability-based permission middleware (F-03)
+ */
 function requirePermission(permission) {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required.' });
+      return res.status(401).json({ error: 'Authentication required. Verified session missing.' });
     }
     const userRole = (req.user.role || 'READONLY').toUpperCase();
-    if (userRole === 'READONLY' && permission !== 'read') {
+    if (!hasPermission(userRole, permission)) {
       return res.status(403).json({
-        error: `Access denied: Permission '${permission}' requires OPERATOR or higher.`
+        error: `Access denied: Role '${userRole}' lacks required capability '${permission}'.`
       });
     }
     next();
