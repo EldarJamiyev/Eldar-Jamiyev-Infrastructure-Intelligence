@@ -632,14 +632,43 @@ class AIBrain {
   }
 
   /**
-   * Reset / Clear memory
+   * Evaluate host hardware diagnostics audit and produce plain-English synthesis with raw proof
    */
-  clearMemory() {
-    this.baselineMetrics.clear();
-    this.incidentHistory = [];
-    this.activeIncidents.clear();
-    this.recentEventsBuffer = [];
-    this._saveMemory();
+  evaluateHostHealth(hostAudit = {}) {
+    const anomalies = hostAudit.anomalies || [];
+    const overallStatus = hostAudit.overallStatus || 'HEALTHY';
+    const hostName = hostAudit.host?.hostname || 'Host';
+
+    if (anomalies.length === 0) {
+      return {
+        overallStatus,
+        summary: `Host ${hostName} is operating with nominal parameters across all 4 foundational pillars.`,
+        criticalIssuesCount: 0,
+        warningIssuesCount: 0,
+        recommendedAction: 'No remediation necessary.',
+        plainEnglishReport: `All hardware subsystems (CPU, memory, storage volumes, network interfaces, and drivers) are functioning within normal operational baselines.`
+      };
+    }
+
+    const criticals = anomalies.filter(a => a.severity === 'CRITICAL');
+    const warnings = anomalies.filter(a => a.severity === 'WARNING');
+    const topAnomaly = criticals[0] || warnings[0];
+
+    return {
+      overallStatus,
+      summary: `Host stability is ${overallStatus.toLowerCase()} with ${criticals.length} critical and ${warnings.length} warning condition(s).`,
+      criticalIssuesCount: criticals.length,
+      warningIssuesCount: warnings.length,
+      topAnomaly: {
+        title: topAnomaly.title,
+        severity: topAnomaly.severity,
+        plainEnglish: topAnomaly.plainEnglish,
+        rawProof: topAnomaly.rawProof,
+        recipeId: topAnomaly.recipeId
+      },
+      recommendedAction: topAnomaly.recipeId || 'review_audit',
+      plainEnglishReport: `Primary operational finding: ${topAnomaly.plainEnglish} Technical evidence: ${topAnomaly.rawProof}. Staged remediation: ${topAnomaly.recipeId}.`
+    };
   }
 }
 

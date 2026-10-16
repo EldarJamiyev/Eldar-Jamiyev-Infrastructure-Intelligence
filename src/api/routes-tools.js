@@ -9,17 +9,23 @@
 const express = require('express');
 const router = express.Router();
 const { toolSandbox, ToolExecutionError } = require('../core/tool-sandbox');
+const { authenticate } = require('./middleware');
+
+// Mandatory cryptographic authentication on all diagnostic tool routes
+router.use(authenticate);
 
 /**
- * Middleware: Extract user context from session or auth token
+ * Extract user context strictly from verified server-side session (req.user).
+ * ZERO TRUST: Client-sent headers (e.g. X-EJII-Role, X-EJII-User) are strictly rejected.
  */
 function extractUserContext(req) {
-  // If session or auth middleware attached user, use it; otherwise fallback to request header or safe analyst
-  const headerRole = req.headers['x-ejii-role'] || (req.user && req.user.role) || 'ANALYST';
-  const headerUser = req.headers['x-ejii-user'] || (req.user && req.user.username) || 'operator';
+  if (!req.user) {
+    throw new ToolExecutionError('Authentication required. Cryptographically verified session token missing.', 401);
+  }
   return {
-    role: headerRole.toUpperCase(),
-    username: headerUser
+    role: (req.user.role || 'READONLY').toUpperCase(),
+    username: req.user.username || 'unknown',
+    id: req.user.id
   };
 }
 
@@ -83,7 +89,8 @@ router.post('/execute', async (req, res) => {
  */
 router.get('/audit', (req, res) => {
   const userContext = extractUserContext(req);
-  if (userContext.role !== 'ADMIN' && userContext.role !== 'ANALYST') {
+  const allowed = ['ADMIN', 'NETWORK_ADMIN', 'SYSADMIN', 'ANALYST'];
+  if (!allowed.includes(userContext.role)) {
     return res.status(403).json({ error: 'Access denied: Audit log requires ANALYST or ADMIN role.' });
   }
 

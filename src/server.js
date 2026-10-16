@@ -17,6 +17,7 @@ const { probeNodeDual } = require('./protocols/dual-prober');
 // Clean Route Modules
 const authRoutes = require('./api/routes-auth');
 const diagRoutes = require('./api/routes-diagnostics');
+const hostRemediationRoutes = require('./api/routes-diagnostics-remediation');
 const networkRoutes = require('./api/routes-network');
 const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
@@ -51,6 +52,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Primary NOC Workstation API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/diagnostics', hostRemediationRoutes);
 app.use('/api/diagnostics', diagRoutes);
 app.use('/api/network', networkRoutes);
 app.use('/api/tools', toolsRoutes);

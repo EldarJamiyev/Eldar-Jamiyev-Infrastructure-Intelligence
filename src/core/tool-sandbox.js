@@ -18,8 +18,11 @@ const DANGEROUS_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 
 const ROLE_PERMISSIONS = {
   ADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
+  NETWORK_ADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
+  SYSADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
   ANALYST: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
   OPERATOR: ['ping', 'tcp_handshake', 'dns_resolve'],
+  NOC_OPERATOR: ['ping', 'tcp_handshake', 'dns_resolve'],
   READONLY: []
 };
 

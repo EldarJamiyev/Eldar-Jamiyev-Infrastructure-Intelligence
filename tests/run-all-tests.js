@@ -27,6 +27,10 @@ const { runAdversarialProtocolTests } = require('./adversarial-protocol-fixtures
 const { runTcpStreamWraparoundTests } = require('./tcp-stream-wraparound.test');
 const { runToolSandboxAndSecurityTests } = require('./tool-sandbox-and-security.test');
 const { runAiBrainEvidenceReasoningTests } = require('./ai-brain-evidence-reasoning.test');
+const { runSecurityRbacRegressionTests } = require('./security-rbac-regression.test');
+const { runCoreDiagnosticsEngineTests } = require('./core-diagnostics-engine.test');
+const { runAutonomousRemediationSafetyTests } = require('./autonomous-remediation-safety.test');
+const { runLiveProductionSmoke } = require('./live-production-smoke.test');
 
 async function runAllTests() {
   console.log('========================================================================');
@@ -59,7 +63,11 @@ async function runAllTests() {
     { name: '19. Adversarial Protocol Fixtures, RFC Checksums, IPv4 Frags, Truncation & Loop Defense', fn: runAdversarialProtocolTests },
     { name: '20. TCP Stream Reassembler 32-Bit Sequence Wraparound, Overlap Trimming & RST Tear-down', fn: runTcpStreamWraparoundTests },
     { name: '21. Tool Sandbox Hardening, Role-Based Access Control, Parameter Sanitization & Audit Logs', fn: runToolSandboxAndSecurityTests },
-    { name: '22. Shared AI Brain Evidence Reasoning, Multi-Hypothesis Evaluation & LLM Provider Fallback', fn: runAiBrainEvidenceReasoningTests }
+    { name: '22. Shared AI Brain Evidence Reasoning, Multi-Hypothesis Evaluation & LLM Provider Fallback', fn: runAiBrainEvidenceReasoningTests },
+    { name: '23. Security & RBAC Hostile Regression, Zero-Trust Identity & Header Spoofing Defense', fn: runSecurityRbacRegressionTests },
+    { name: '24. Core Diagnostics 4-Pillar Host Ingestion, WMI/CIM Telemetry & AI Brain Synthesis', fn: runCoreDiagnosticsEngineTests },
+    { name: '25. Autonomous Remediation Safety, Elevation Lifecycle & OS Process Protection', fn: runAutonomousRemediationSafetyTests },
+    { name: '26. Live Production Server Socket & API Smoke Test, Zero-Trust Defenses & Live Host Telemetry', fn: runLiveProductionSmoke }
   ];
 
   for (const s of suites) {

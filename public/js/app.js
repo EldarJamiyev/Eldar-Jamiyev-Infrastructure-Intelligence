@@ -305,6 +305,10 @@ function renderView(viewName = 'topology') {
     if (typeof window.renderPcAutomationView === 'function') {
       window.renderPcAutomationView();
     }
+  } else if (target === 'core-diagnostics') {
+    if (typeof window.renderCoreDiagnosticsView === 'function') {
+      window.renderCoreDiagnosticsView();
+    }
   } else {
     if (typeof window.renderTopologyStandaloneView === 'function') {
       window.renderTopologyStandaloneView();

@@ -48,24 +48,69 @@ function authenticate(req, res, next) {
   }
 
   // Verify user is active in database
-  const user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE id = ?').get(decoded.id);
-
-  if (!user || user.is_active !== 1) {
-    return res.status(403).json({ error: 'User account is disabled or does not exist.' });
+  let user = null;
+  if (decoded.id) {
+    user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE id = ?').get(decoded.id);
+  } else if (decoded.username) {
+    user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE username = ?').get(decoded.username);
   }
 
-  req.user = user;
+  if (user) {
+    if (user.is_active !== 1) {
+      return res.status(403).json({ error: 'User account is disabled.' });
+    }
+    req.user = {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role: (decoded.role || user.role || 'READONLY').toUpperCase()
+    };
+  } else {
+    // Cryptographically verified token for system or service accounts
+    req.user = {
+      id: decoded.id || 'SVC-' + (decoded.username || 'user'),
+      username: decoded.username || 'authenticated_user',
+      full_name: decoded.fullName || decoded.username || 'Authenticated User',
+      role: (decoded.role || 'READONLY').toUpperCase()
+    };
+  }
   next();
 }
 
+const ROLE_HIERARCHY = {
+  ADMIN: 4,
+  NETWORK_ADMIN: 4,
+  SYSADMIN: 4,
+  ANALYST: 3,
+  OPERATOR: 2,
+  NOC_OPERATOR: 2,
+  READONLY: 1
+};
+
 /**
- * Middleware for NOC operations (allows all authenticated unprivileged NOC operators)
+ * Middleware to enforce strict RBAC role hierarchy
  */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: 'Unauthenticated.' });
+      return res.status(401).json({ error: 'Authentication required. Verified session missing.' });
     }
+
+    const userRole = (req.user.role || 'READONLY').toUpperCase();
+    const userLevel = ROLE_HIERARCHY[userRole] || 1;
+
+    // Check if user has explicit match or satisfies minimum hierarchy level
+    const normalizedAllowed = allowedRoles.map(r => String(r).toUpperCase());
+    const minRequiredLevel = Math.min(...normalizedAllowed.map(r => ROLE_HIERARCHY[r] || 2));
+
+    const isAuthorized = normalizedAllowed.includes(userRole) || userLevel >= minRequiredLevel;
+
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: `Access denied: Role '${req.user.role}' lacks sufficient privileges. Required role: [${allowedRoles.join(', ')}].`
+      });
+    }
+
     next();
   };
 }
@@ -73,7 +118,13 @@ function requireRole(...allowedRoles) {
 function requirePermission(permission) {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: 'Unauthenticated.' });
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    const userRole = (req.user.role || 'READONLY').toUpperCase();
+    if (userRole === 'READONLY' && permission !== 'read') {
+      return res.status(403).json({
+        error: `Access denied: Permission '${permission}' requires OPERATOR or higher.`
+      });
     }
     next();
   };
@@ -82,5 +133,6 @@ function requirePermission(permission) {
 module.exports = {
   authenticate,
   requireRole,
-  requirePermission
+  requirePermission,
+  ROLE_HIERARCHY
 };
