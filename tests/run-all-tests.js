@@ -5,6 +5,19 @@
  */
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+
+process.on('unhandledRejection', (reason) => {
+  console.error('\n❌ CRITICAL ERROR: Unhandled Promise Rejection in Test Runner:');
+  console.error(reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('\n❌ CRITICAL ERROR: Uncaught Exception in Test Runner:');
+  console.error(err);
+  process.exit(1);
+});
+
 const { runNetworkTests } = require('./network-probes.test');
 const { runTopologyTests } = require('./topology-engine.test');
 const { runDissectorTests } = require('./packet-dissector.test');

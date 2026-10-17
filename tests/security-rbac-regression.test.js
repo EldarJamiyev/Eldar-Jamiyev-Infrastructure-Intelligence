@@ -166,6 +166,29 @@ async function runSecurityRbacRegressionTests() {
     assert.strictEqual(legit2Data.success, true);
     console.log('  ✓ Legit 2 verified: ANALYST successfully retrieved audit trail.');
 
+    // 3. Sliding Window Brute-Force Rate Limiter & Lockout Defense
+    console.log('[23.3] Testing Sliding-Window Brute-Force Rate Limiter & Lockout Defense...');
+    const { checkRateLimit, recordFailedAttempt, resetRateLimit } = require('../src/api/rate-limiter');
+    const testIp = '198.51.100.42';
+    resetRateLimit(testIp);
+
+    for (let i = 1; i <= 5; i++) {
+      const status = checkRateLimit(testIp);
+      assert.strictEqual(status.allowed, true, `Attempt ${i} should be allowed`);
+      recordFailedAttempt(testIp);
+    }
+
+    // 6th attempt should be blocked
+    const blockedStatus = checkRateLimit(testIp);
+    assert.strictEqual(blockedStatus.allowed, false, '6th attempt must be blocked');
+    assert.strictEqual(blockedStatus.remainingAttempts, 0, 'Remaining attempts must be 0');
+    assert.ok(blockedStatus.retryAfterSeconds > 0, 'Retry-after must be greater than 0');
+
+    resetRateLimit(testIp);
+    const resetStatus = checkRateLimit(testIp);
+    assert.strictEqual(resetStatus.allowed, true, 'Rate limit should be reset cleanly');
+    console.log('  ✓ Sliding-window rate limiter and brute-force lockout verified.');
+
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
