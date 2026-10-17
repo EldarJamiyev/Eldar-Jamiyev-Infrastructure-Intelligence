@@ -83,13 +83,24 @@ async function runAddendaAcceptanceTests() {
 
   await new Promise(r => setTimeout(r, 1200));
 
-  // Trigger HTTPS request
+  // Trigger HTTPS request explicitly directed to the resolved IP to guarantee BPF filter match
   const { execSync } = require('child_process');
   try {
-    execSync(`curl.exe -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
-  } catch (e) {}
+    execSync(`curl.exe -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+  } catch (e) {
+    try {
+      execSync(`curl.exe -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+    } catch (_) {}
+  }
 
   await new Promise(r => setTimeout(r, 2000));
+
+  if (!capturedTlsFrames.find(f => f.tls && f.tls.sni)) {
+    try {
+      execSync(`curl.exe -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 1500));
+  }
 
   console.log(`Captured ${capturedTlsFrames.length} TCP/TLS frames for ${targetHost}.`);
   assert(capturedTlsFrames.length >= 2, 'Must capture TCP handshake and TLS ClientHello frames');
