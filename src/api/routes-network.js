@@ -23,16 +23,10 @@ const { getArpTable, ultraIpScanner, sendWakeOnLan, generateWolPacket, SCAN_PROF
 const { listAutomationScripts, getScriptContent, executeScript } = require('../tools/script-automation');
 const { probeNodeDual } = require('../protocols/dual-prober');
 
-// All endpoints in this file use unprivileged NOC authentication
-router.use(authenticate);
-
-// ============================================================================
-// PILLAR 1: NOC NETWORK TOPOLOGY & DEPENDENCY GRAPH
-// ============================================================================
-
 /**
  * GET /api/network/physical-info
  * Returns live detected physical adapter info, default gateway, and subnet CIDR
+ * Accessible without authentication to populate the login workstation status banner.
  */
 router.get('/physical-info', (req, res) => {
   try {
@@ -43,6 +37,9 @@ router.get('/physical-info', (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve physical network info: ' + err.message });
   }
 });
+
+// All protected network endpoints require authenticated session
+router.use(authenticate);
 
 /**
  * GET /api/network/topology

@@ -23,43 +23,65 @@ function seedDatabase() {
 
   console.log('--- Seeding EJII Pure NOC Workstation ---');
 
-  // 1. Seed Unprivileged NOC Operator Accounts
-  const existingUsers = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (existingUsers.count === 0) {
-    const accounts = [
-      {
-        id: 'USR-NOC-01',
-        username: 'noc',
-        password: 'noc2026!',
-        fullName: 'NOC Network Operator',
-        role: ROLES.NOC_OPERATOR
-      },
-      {
-        id: 'USR-NETADMIN-01',
-        username: 'netadmin',
-        password: 'NetadminPassword2026!',
-        fullName: 'Network Administrator',
-        role: ROLES.NOC_OPERATOR
-      }
-    ];
+  // 1. Seed NOC Workstation Accounts (Admin, Sysadmin, Network Admin, NOC Operator)
+  const accounts = [
+    {
+      id: 'USR-ADMIN-01',
+      username: 'admin',
+      password: 'admin2026!',
+      fullName: 'Lead Infrastructure Architect & Admin',
+      role: ROLES.ADMIN
+    },
+    {
+      id: 'USR-SYSADMIN-01',
+      username: 'sysadmin',
+      password: 'sysadmin2026!',
+      fullName: 'Systems & Host Administrator',
+      role: ROLES.SYSADMIN
+    },
+    {
+      id: 'USR-NETADMIN-01',
+      username: 'netadmin',
+      password: 'netadmin2026!',
+      fullName: 'Network Infrastructure Administrator',
+      role: ROLES.NETWORK_ADMIN
+    },
+    {
+      id: 'USR-NOC-01',
+      username: 'noc',
+      password: 'noc2026!',
+      fullName: 'NOC Network Operator',
+      role: ROLES.NOC_OPERATOR
+    }
+  ];
 
-    const insertUser = db.prepare(`
-      INSERT INTO users (id, username, password_hash, salt, full_name, role, is_active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-    `);
+  const checkUser = db.prepare('SELECT id FROM users WHERE username = ?');
+  const insertUser = db.prepare(`
+    INSERT INTO users (id, username, password_hash, salt, full_name, role, is_active, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `);
+  const updateUser = db.prepare(`
+    UPDATE users SET role = ?, full_name = ?, password_hash = ?, salt = ?, is_active = 1 WHERE username = ?
+  `);
 
-    for (const acc of accounts) {
-      const { hash, salt } = hashPassword(acc.password);
+  for (const acc of accounts) {
+    const existing = checkUser.get(acc.username);
+    const { hash, salt } = hashPassword(acc.password);
+    if (!existing) {
       insertUser.run(acc.id, acc.username, hash, salt, acc.fullName, acc.role, new Date().toISOString());
-      console.log(`✓ Created NOC Operator Account: [${acc.username}]`);
+      console.log(`✓ Created Account: [${acc.username}] (${acc.role})`);
+    } else {
+      updateUser.run(acc.role, acc.fullName, hash, salt, acc.username);
+      console.log(`✓ Synchronized Account: [${acc.username}] (${acc.role})`);
     }
   }
 
-  // Detect genuine default gateway
+  // Detect genuine physical network info
   const netInfo = getPhysicalNetworkInfo();
   const defaultGatewayIp = netInfo.gatewayIp || getSystemDefaultGateway();
-  const hostIp = netInfo.hostIp || '10.168.195.33';
-  const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '10.22.10.11';
+  const hostIp = netInfo.hostIp || '192.168.31.89';
+  const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '192.168.31.1';
+  const lanCidr = netInfo.subnetCidr || '192.168.31.0/24';
   const now = new Date().toISOString();
 
   // 2. Seed Baseline Topology Nodes (Layer 1 to Layer 6)
@@ -138,8 +160,8 @@ function seedDatabase() {
       },
       {
         id: 'NODE-LAN-01',
-        name: 'Distribution & Access LAN (10.168.195.0/24)',
-        hostname_or_ip: '10.168.195.0/24',
+        name: `Distribution & Access LAN (${lanCidr})`,
+        hostname_or_ip: lanCidr,
         mac_address: null,
         type: 'subnet',
         layer: 'access',

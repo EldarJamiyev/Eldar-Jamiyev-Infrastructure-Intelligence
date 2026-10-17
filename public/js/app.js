@@ -65,10 +65,17 @@ async function api(endpoint, options = {}) {
   }
 }
 
+let wsReconnectTimer = null;
+
 /**
  * Initialize WebSocket Live Connection
  */
 function initWebSocket() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+
   if (state.ws) {
     try {
       state.ws.onclose = null; // Prevent reconnect storm on intentional close
@@ -131,7 +138,8 @@ function initWebSocket() {
       if (el) el.textContent = 'Disconnected (Reconnecting...)';
       const dot = document.querySelector('.status-dot');
       if (dot) dot.style.backgroundColor = '#ef4444';
-      setTimeout(initWebSocket, 4000);
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(initWebSocket, 4000);
     };
   } catch (e) {
     console.warn('WebSocket init failed:', e);
@@ -215,12 +223,38 @@ function hideLoginScreen() {
 window.showLoginScreen = showLoginScreen;
 window.hideLoginScreen = hideLoginScreen;
 
+let selectedProfileUsername = 'admin';
+
+window.selectLoginProfile = function(username, password) {
+  selectedProfileUsername = username;
+  const userInp = document.getElementById('loginUsername');
+  const passInp = document.getElementById('loginPassword');
+  if (userInp) userInp.value = username;
+  if (passInp) passInp.value = password;
+
+  document.querySelectorAll('.login-role-btn').forEach(btn => {
+    btn.style.borderColor = 'rgba(255,255,255,0.08)';
+    btn.style.background = 'var(--bg-input)';
+    btn.style.color = 'var(--text-muted)';
+  });
+
+  const activeBtn = document.getElementById(`pill-${username}`);
+  if (activeBtn) {
+    activeBtn.style.borderColor = 'var(--accent)';
+    activeBtn.style.background = 'rgba(56, 189, 248, 0.15)';
+    activeBtn.style.color = '#38bdf8';
+  }
+};
+
 /**
- * 1-Click Quick NOC Operator Login
+ * 1-Click Quick Operator Login
  */
 window.quickNocLogin = async function() {
   try {
-    const res = await api('/api/auth/quick-noc', { method: 'POST' });
+    const res = await api('/api/auth/quick-noc', {
+      method: 'POST',
+      body: JSON.stringify({ username: selectedProfileUsername || 'admin' })
+    });
     state.token = res.token;
     state.user = res.user;
     localStorage.setItem('ejii_token', res.token);
@@ -267,7 +301,7 @@ window.handleLoginFormSubmit = async function(event) {
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
-    renderView('noc');
+    renderView('topology');
   } catch (err) {
     if (errAlert && errMsg) {
       errAlert.style.display = 'flex';

@@ -200,7 +200,7 @@
                 <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                   <thead>
                     <tr>
-                      <th class="col-num" style="min-width: 65px; width: 65px; white-space: nowrap;">#</th>
+                      <th class="col-num" style="min-width: 75px; width: 75px; white-space: nowrap;">#</th>
                       <th class="col-time" style="min-width: 95px; width: 105px; white-space: nowrap;">Time</th>
                       <th class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;">Source IP:Port</th>
                       <th class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;">Destination IP:Port</th>
@@ -302,6 +302,17 @@
       if (typeof window.refreshNocCounters === 'function') {
         window.refreshNocCounters();
       }
+
+      // Auto-inspect first/latest available frame so the 3-pane inspector is immediately populated
+      setTimeout(() => {
+        const frames = (framesRes?.frames && framesRes.frames.length > 0) ? framesRes.frames : (window.getNocLiveFrames ? window.getNocLiveFrames() : []);
+        if (frames.length > 0 && typeof window.inspectPacketFrame === 'function') {
+          const targetFrame = frames[frames.length - 1];
+          if (targetFrame && targetFrame.frameNumber) {
+            window.inspectPacketFrame(targetFrame.frameNumber);
+          }
+        }
+      }, 150);
     } catch (err) {
       container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Live Packet Sniffer: ${err.message}</div>`;
     }

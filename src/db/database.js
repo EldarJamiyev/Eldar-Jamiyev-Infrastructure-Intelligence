@@ -36,7 +36,7 @@ function initSchema() {
     'drift_baselines', 'drift_records', 'drift_observations', 'drift_reconciliation_runs',
     'chaos_experiments', 'chaos_scenarios', 'chaos_executions',
     'dual_custody_actions', 'automation_actions', 'audit_trail_hmac', 'audit_logs',
-    'revoked_tokens', 'change_requests', 'known_errors', 'service_catalog',
+    'change_requests', 'known_errors', 'service_catalog',
     'service_dependencies', 'tenants', 'monitoring_alert_rules', 'monitoring_alerts',
     'monitoring_notifications', 'incidents'
   ];
@@ -61,6 +61,15 @@ function initSchema() {
       created_at TEXT NOT NULL,
       last_login TEXT
     );
+
+    -- Session Security: Revoked Tokens
+    CREATE TABLE IF NOT EXISTS revoked_tokens (
+      token TEXT PRIMARY KEY,
+      user_id TEXT,
+      reason TEXT,
+      revoked_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user ON revoked_tokens(user_id);
 
     -- Pillar 1: NOC Topology Nodes (Layer 1 - Layer 6 Physical/Logical Network Graph)
     CREATE TABLE IF NOT EXISTS topology_nodes (

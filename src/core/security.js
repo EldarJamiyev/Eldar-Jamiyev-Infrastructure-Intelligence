@@ -103,6 +103,7 @@ function createToken(payload, expiresInSeconds = 86400) {
  */
 function verifyToken(token) {
   if (!token || typeof token !== 'string') return null;
+  if (isTokenRevoked(token)) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
 
@@ -127,19 +128,60 @@ function verifyToken(token) {
 }
 
 const revokedTokens = new Set();
+const revokedUsers = new Set();
 
 function generateToken(user, expiresIn = 86400) {
   const role = (user.role || 'NOC_OPERATOR').toUpperCase();
   return createToken({ id: user.id, username: user.username, role }, expiresIn);
 }
 
-function revokeToken(token, userId, reason) {
+function revokeToken(token, userId = null, reason = 'User logout') {
+  if (!token || typeof token !== 'string') return false;
   revokedTokens.add(token);
+  try {
+    const { db } = require('../db/database');
+    db.prepare(`
+      INSERT OR REPLACE INTO revoked_tokens (token, user_id, reason, revoked_at)
+      VALUES (?, ?, ?, ?)
+    `).run(token, userId || null, reason, new Date().toISOString());
+  } catch (e) {}
+  return true;
+}
+
+function revokeAllUserTokens(userId, reason = 'Bulk user revocation') {
+  if (!userId) return false;
+  revokedUsers.add(userId);
+  try {
+    const { db } = require('../db/database');
+    db.prepare(`
+      INSERT OR REPLACE INTO revoked_tokens (token, user_id, reason, revoked_at)
+      VALUES (?, ?, ?, ?)
+    `).run(`USER_BULK_${userId}_${Date.now()}`, userId, reason, new Date().toISOString());
+  } catch (e) {}
   return true;
 }
 
 function isTokenRevoked(token) {
-  return revokedTokens.has(token);
+  if (!token || typeof token !== 'string') return false;
+  if (revokedTokens.has(token)) return true;
+
+  // Check if token payload has userId in revokedUsers
+  try {
+    const parts = token.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (payload.id && revokedUsers.has(payload.id)) return true;
+    }
+  } catch (e) {}
+
+  // Check persistent SQLite database
+  try {
+    const { db } = require('../db/database');
+    const row = db.prepare('SELECT 1 FROM revoked_tokens WHERE token = ?').get(token);
+    if (row) return true;
+  } catch (e) {}
+
+  return false;
 }
 
 /**
@@ -177,6 +219,7 @@ module.exports = {
   generateToken,
   verifyToken,
   revokeToken,
+  revokeAllUserTokens,
   isTokenRevoked,
   hasPermission,
   getRoleCapabilities

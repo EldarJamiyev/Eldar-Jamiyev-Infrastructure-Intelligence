@@ -256,11 +256,24 @@ async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
       const executionType = detectScriptType(file, preview);
       const title = cleanScriptTitle(file);
 
-      // Generate description from first non-empty line or preview
+      // Generate description from first meaningful operational command line
       let desc = '';
-      const lines = preview.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('rem') && !l.startsWith('::') && !l.startsWith('#'));
+      const lines = preview.split('\n')
+        .map(l => l.trim())
+        .filter(l => {
+          if (!l) return false;
+          const lower = l.toLowerCase();
+          return !lower.startsWith('rem') &&
+                 !lower.startsWith('::') &&
+                 !lower.startsWith('#') &&
+                 !lower.startsWith('@echo') &&
+                 !lower.startsWith('echo ') &&
+                 lower !== 'echo' &&
+                 !lower.startsWith('cls') &&
+                 !lower.startsWith('title ');
+        });
       if (lines.length > 0) {
-        desc = lines[0].substring(0, 120);
+        desc = lines[0].substring(0, 140);
       }
 
       scripts.push({
@@ -387,6 +400,7 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
         '-ExecutionPolicy', 'Bypass',
         '-Command', psCommand
       ], {
+        cwd: scriptsDir,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
@@ -397,6 +411,7 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
       fs.writeFileSync(tempBatPath, `@echo off\r\n${sanitizedBatch}\r\n`, 'utf8');
 
       child = spawn('cmd.exe', ['/c', tempBatPath], {
+        cwd: scriptsDir,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });

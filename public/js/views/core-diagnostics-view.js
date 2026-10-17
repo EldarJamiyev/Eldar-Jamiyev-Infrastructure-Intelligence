@@ -51,24 +51,20 @@
 
   async function fetchHostAudit(force = false) {
     try {
-      const res = await fetch(`/api/diagnostics/host/audit${force ? '?force=true' : ''}`);
-      if (!res.ok) return null;
-      const data = await res.json();
+      const data = await window.api(`/api/diagnostics/host/audit${force ? '?fresh=true' : ''}`);
       return data;
     } catch (err) {
       console.error('Failed to fetch host audit:', err);
+      logConsole(`❌ Host audit collection failed: ${err.message}`);
       return null;
     }
   }
 
   async function loadProcesses() {
     try {
-      const res = await fetch('/api/diagnostics/host/processes');
-      if (res.ok) {
-        const data = await res.json();
-        processTableData = data.processes || [];
-        renderProcessTable();
-      }
+      const data = await window.api('/api/diagnostics/host/processes');
+      processTableData = data.processes || [];
+      renderProcessTable();
     } catch (e) {
       console.error('Failed to load processes:', e);
     }
@@ -76,12 +72,9 @@
 
   async function loadSockets() {
     try {
-      const res = await fetch('/api/diagnostics/host/sockets');
-      if (res.ok) {
-        const data = await res.json();
-        socketTableData = data.sockets || [];
-        renderSocketTable();
-      }
+      const data = await window.api('/api/diagnostics/host/sockets');
+      socketTableData = data.sockets || [];
+      renderSocketTable();
     } catch (e) {
       console.error('Failed to load sockets:', e);
     }
@@ -106,19 +99,21 @@
       btn.disabled = false;
       btn.textContent = '⚡ Run Deep System Audit';
     }
-    logConsole(`✓ Deep audit completed in ${hostAuditData?.durationMs || 100}ms. Status: ${hostAuditData?.overallStatus || 'HEALTHY'}`);
-    updateUI();
+    if (hostAuditData) {
+      logConsole(`✓ Deep audit completed in ${hostAuditData.durationMs || 100}ms. Status: ${hostAuditData.overallStatus || 'HEALTHY'}`);
+      updateUI();
+    } else {
+      logConsole('❌ Deep audit failed. Check server session authentication.');
+    }
   };
 
   window.previewRemediation = async function(recipeId, params = {}) {
     logConsole(`[Preview] Requesting dry-run execution plan for recipe: ${recipeId}...`);
     try {
-      const res = await fetch('/api/diagnostics/remediation/preview', {
+      const data = await window.api('/api/diagnostics/remediation/preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipeId, params })
       });
-      const data = await res.json();
       if (data.success && data.preview) {
         showPreviewModal(data.preview);
       } else {
@@ -130,20 +125,18 @@
   };
 
   window.executeRemediationRecipe = async function(recipeId, params = {}, actionToken = null) {
-    const token = localStorage.getItem('eji_token') || sessionStorage.getItem('eji_token') || '';
-    logConsole(`[Action] Executing remediation recipe: ${recipeId}...`);
+    if (!actionToken) {
+      // Cryptographic binding mandate: Trigger dry-run preview to inspect and sign HMAC action token first
+      return window.previewRemediation(recipeId, params);
+    }
 
+    logConsole(`[Action] Executing remediation recipe: ${recipeId}...`);
     try {
-      const res = await fetch('/api/diagnostics/remediation/execute', {
+      const data = await window.api('/api/diagnostics/remediation/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ actionToken, recipeId, params })
       });
 
-      const data = await res.json();
       if (data.success && data.outcome) {
         logConsole(`✓ [SUCCESS] Recipe ${recipeId} executed (${data.outcome.durationMs}ms): ${data.outcome.output || 'Done'}`);
         alert(`Remediation Executed Successfully:\n\n${data.outcome.name}\n${data.outcome.output || 'Applied'}`);

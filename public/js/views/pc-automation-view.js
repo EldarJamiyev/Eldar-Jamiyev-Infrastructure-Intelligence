@@ -319,10 +319,18 @@ ${formattedOut}
       if (badge) {
         badge.style.background = 'rgba(239, 68, 68, 0.2)';
         badge.style.color = '#EF4444';
-        badge.textContent = 'EXECUTION ERROR';
+        badge.textContent = err.message && err.message.includes('403') ? 'ACCESS DENIED (403)' : 'EXECUTION ERROR';
       }
       if (terminal) {
-        terminal.innerHTML += `\n<span style="color: #EF4444; font-weight: 700;">Error: ${escapeHtml(err.message)}</span>`;
+        const isRbac = err.message && (err.message.includes('403') || err.message.toLowerCase().includes('forbidden') || err.message.toLowerCase().includes('access denied'));
+        const rbacHint = isRbac
+          ? `\n<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 10px; margin-top: 8px; color: #fca5a5; font-size: 11px;">` +
+            `<b>🛡️ [RBAC RESTRICTION]</b> Host script execution requires <b>ADMIN</b>, <b>SYSADMIN</b>, or <b>NETWORK_ADMIN</b> role.<br>` +
+            `The current session lacks the required capability. Please switch to the Lead Architect & Admin profile.` +
+            `</div>`
+          : '';
+        terminal.innerHTML += `\n<span style="color: #EF4444; font-weight: 700;">Error: ${escapeHtml(err.message)}</span>${rbacHint}\n<span style="color: #64748B;">$ _</span>`;
+        terminal.scrollTop = terminal.scrollHeight;
       }
     }
   };

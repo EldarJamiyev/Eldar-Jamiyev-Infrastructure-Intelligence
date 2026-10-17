@@ -28,7 +28,15 @@ seedDatabase();
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  handleProtocols: (protocols, req) => {
+    const list = Array.from(protocols || []);
+    if (list.includes('token')) return 'token';
+    if (list.includes('bearer')) return 'bearer';
+    return false;
+  }
+});
 
 // Security Headers Middleware
 app.use((req, res, next) => {
@@ -167,6 +175,15 @@ function broadcast(type, payload) {
   const message = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
   for (const client of activeClients) {
     if (client.readyState === 1) { // OPEN
+      // Security Filter: PACKET_STREAM_FRAME requires authenticated session with network.capture.execute or telemetry.read
+      if (type === 'PACKET_STREAM_FRAME') {
+        const isAuth = client.user && client.user.id !== 'ANON';
+        const hasAccess = isAuth && (
+          hasPermission(client.user.role, 'network.capture.execute') ||
+          hasPermission(client.user.role, 'telemetry.read')
+        );
+        if (!hasAccess) continue;
+      }
       try {
         client.send(message);
       } catch (err) {

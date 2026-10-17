@@ -431,7 +431,7 @@
     }
 
     const canvasWidth = startX + 6 * (colWidth + colGap);
-    const canvasHeight = Math.max(300, 48 + maxNodesInCol * (cardH + cardGapY) + 20);
+    const canvasHeight = Math.max(480, 52 + maxNodesInCol * (cardH + cardGapY) + 30);
 
     // Position each node card
     const renderedNodes = [];
@@ -443,11 +443,13 @@
       bucket.forEach((node, rowIdx) => {
         let cardY;
         if (bucket.length === 1) {
-          cardY = Math.max(50, Math.round((canvasHeight - cardH) / 2));
+          cardY = Math.max(60, Math.round((canvasHeight - cardH) / 2));
         } else if (bucket.length === 2) {
-          cardY = 48 + rowIdx * 115;
+          const totalSpan = 2 * cardH + cardGapY;
+          const startOffset = Math.max(60, Math.round((canvasHeight - totalSpan) / 2));
+          cardY = startOffset + rowIdx * (cardH + cardGapY);
         } else {
-          cardY = 48 + rowIdx * (cardH + cardGapY);
+          cardY = 52 + rowIdx * (cardH + cardGapY);
         }
 
         const coord = { x: cardX, y: cardY, width: cardW, height: cardH, node, colIdx };
@@ -569,9 +571,7 @@
       const isCluster = n.id === 'NODE-FLEET-CLUSTER';
 
       let titleName = n.name || 'Device';
-      if (titleName.length > 32) titleName = titleName.substring(0, 30) + '…';
       let vendorStr = n.vendor || 'Discovered Host';
-      if (vendorStr.length > 28) vendorStr = vendorStr.substring(0, 26) + '…';
 
       const latencyStr = n.last_latency_ms !== null && n.last_latency_ms !== undefined
         ? `${n.last_latency_ms} ms RTT`
@@ -981,6 +981,12 @@
         protoClass = 'proto-row-tls';
       } else if (f.protocol === 'TCP' || f.protocol === 'HTTP') {
         protoClass = 'proto-row-tcp';
+      } else if (f.protocol === 'QUIC' || f.protocol === 'HTTP/3') {
+        protoClass = 'proto-row-quic';
+      } else if (f.protocol === 'UDP') {
+        protoClass = 'proto-row-udp';
+      } else if (f.protocol === 'ICMP') {
+        protoClass = 'proto-row-icmp';
       } else if (f.protocol === 'ARP') {
         protoClass = 'proto-row-arp';
       } else if (f.protocol === 'DNS') {
@@ -990,7 +996,7 @@
 
       return `
         <tr class="${protoClass}" onclick="window.inspectPacketFrame(${f.frameNumber})" style="cursor: pointer;">
-          <td class="col-num" style="min-width: 65px; width: 65px; color: var(--text-dim); font-weight: 700; white-space: nowrap;">#${f.frameNumber}</td>
+          <td class="col-num" style="min-width: 75px; width: 75px; color: var(--text-dim); font-weight: 700; white-space: nowrap;">#${f.frameNumber}</td>
           <td class="col-time" style="min-width: 95px; width: 105px; color: var(--text-dim); white-space: nowrap;">${timeStr}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${f.srcIp || '0.0.0.0'}</span>${f.srcPort ? ':' + f.srcPort : ''}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${f.dstIp || '0.0.0.0'}</span>${f.dstPort ? ':' + f.dstPort : ''}</td>
@@ -1457,7 +1463,14 @@
 
   function flushPacketBatch() {
     if (frameBatchQueue.length > 0) {
-      while (frameBatchQueue.length > 0) liveFrames.push(frameBatchQueue.shift());
+      const existingFrameIds = new Set(liveFrames.map(f => f.frameNumber));
+      while (frameBatchQueue.length > 0) {
+        const nextFrame = frameBatchQueue.shift();
+        if (nextFrame && !existingFrameIds.has(nextFrame.frameNumber)) {
+          liveFrames.push(nextFrame);
+          existingFrameIds.add(nextFrame.frameNumber);
+        }
+      }
       if (liveFrames.length > 5000) liveFrames.splice(0, liveFrames.length - 5000);
     }
     if (isDisplayFrozen || isTableHovered || currentSnifferMode !== 'packets') return;
@@ -1538,6 +1551,12 @@
     // Enforce backpressure queue limit: drop oldest unhandled frame
     if (frameBatchQueue.length >= MAX_QUEUE_LIMIT) {
       frameBatchQueue.shift();
+      window._uiDroppedCount = (window._uiDroppedCount || 0) + 1;
+      const elDrop = document.getElementById('cntDropped');
+      if (elDrop) {
+        const currentCount = parseInt(elDrop.textContent, 10) || 0;
+        elDrop.textContent = currentCount + 1;
+      }
     }
     frameBatchQueue.push(frame);
   };
@@ -1956,11 +1975,15 @@
       const elDrop = document.getElementById('cntDropped');
       const elDec = document.getElementById('cntDecoded');
       const elDel = document.getElementById('cntDelivered');
-      if (elRecv) elRecv.textContent = c.received || 0;
-      if (elAcc) elAcc.textContent = c.accepted || 0;
-      if (elDrop) elDrop.textContent = c.dropped || 0;
-      if (elDec) elDec.textContent = c.decoded || 0;
-      if (elDel) elDel.textContent = c.delivered || 0;
+      if (elRecv) elRecv.textContent = (c.received || 0).toLocaleString();
+      if (elAcc) elAcc.textContent = (c.accepted || 0).toLocaleString();
+      if (elDrop) {
+        const kernelDrop = c.dropped || 0;
+        const uiDrop = window._uiDroppedCount || 0;
+        elDrop.textContent = `${kernelDrop.toLocaleString()} (Driver) + ${uiDrop.toLocaleString()} (UI)`;
+      }
+      if (elDec) elDec.textContent = (c.decoded || 0).toLocaleString();
+      if (elDel) elDel.textContent = (c.delivered || 0).toLocaleString();
     } catch (e) {}
   };
 

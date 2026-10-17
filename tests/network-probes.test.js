@@ -58,7 +58,11 @@ async function runNetworkTests() {
 
   // Test 6: Real HTTP Synthetic Probe
   console.log('Testing Real HTTP Synthetic Probe (https://google.com)...');
-  const httpRes = await probeHttp('https://google.com', 'GET', 5000);
+  let httpRes = await probeHttp('https://google.com', 'GET', 10000);
+  if (!httpRes.success) {
+    // Retry once in case of transient Wi-Fi/WAN route latency
+    httpRes = await probeHttp('https://google.com', 'GET', 10000);
+  }
   assert.strictEqual(httpRes.success, true, 'HTTP probe must succeed');
   assert.ok(httpRes.statusCode >= 200 && httpRes.statusCode < 400, 'Status code must be 2xx or 3xx');
   assert.ok(httpRes.waterfall.totalMs > 0, 'Waterfall total duration must be measured');

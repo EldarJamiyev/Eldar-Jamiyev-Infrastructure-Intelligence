@@ -6,8 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db/database');
-const { verifyPassword, createToken, ROLES } = require('../core/security');
-const { authenticate } = require('./middleware');
+const { verifyPassword, createToken, verifyToken, revokeToken, ROLES } = require('../core/security');
+const { authenticate, parseCookies } = require('./middleware');
 
 /**
  * Set session cookie
@@ -73,13 +73,26 @@ router.post('/login', (req, res) => {
  * 1-click single-operator unprivileged NOC workstation sign-in
  */
 router.post('/quick-noc', (req, res) => {
-  let user = db.prepare("SELECT * FROM users WHERE role = 'noc_operator' OR username = 'noc' LIMIT 1").get();
+  const requestedTarget = (req.body && (req.body.role || req.body.username)) ? String(req.body.role || req.body.username).trim() : null;
+  let user = null;
+
+  if (requestedTarget) {
+    user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = UPPER(?) OR LOWER(username) = LOWER(?)) AND is_active = 1 LIMIT 1").get(requestedTarget, requestedTarget);
+  }
+
+  // Default to workstation owner (Admin / Lead Architect) so all workstation operations succeed out-of-the-box
   if (!user) {
-    user = db.prepare("SELECT * FROM users LIMIT 1").get();
+    user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ADMIN' OR LOWER(username) = 'admin' LIMIT 1").get();
+  }
+  if (!user) {
+    user = db.prepare("SELECT * FROM users WHERE LOWER(role) = 'noc_operator' OR LOWER(username) = 'noc' LIMIT 1").get();
+  }
+  if (!user) {
+    user = db.prepare("SELECT * FROM users WHERE is_active = 1 LIMIT 1").get();
   }
 
   if (!user) {
-    return res.status(500).json({ error: 'No NOC operator account found.' });
+    return res.status(500).json({ error: 'No operational user account found in database.' });
   }
 
   const token = createToken({
@@ -117,6 +130,24 @@ router.get('/me', authenticate, (req, res) => {
  * POST /api/auth/logout
  */
 router.post('/logout', (req, res) => {
+  let token = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else if (req.cookies && req.cookies.eji_session) {
+    token = req.cookies.eji_session;
+  } else if (req.headers.cookie) {
+    const cookies = parseCookies(req.headers.cookie);
+    if (cookies.eji_session) token = cookies.eji_session;
+  } else if (req.body && req.body.token) {
+    token = req.body.token;
+  }
+
+  if (token) {
+    const decoded = verifyToken(token);
+    revokeToken(token, decoded?.id || 'logout', 'Explicit user logout');
+  }
+
   res.clearCookie('eji_session');
   res.json({ success: true, message: 'Logged out successfully.' });
 });

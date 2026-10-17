@@ -24,3 +24,10 @@ EJI-Platform/
 *.zip
 *.backup-*
 
+# Runtime audit trails and security ledgers
+data/audit/*.jsonl
+data/audit/.chain_head
+data/security/consumed_tokens.json
+data/brain_memory*.json
+
+

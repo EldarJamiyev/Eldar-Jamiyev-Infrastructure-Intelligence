@@ -139,5 +139,6 @@ module.exports = {
   authenticate,
   requireRole,
   requirePermission,
+  parseCookies,
   ROLE_HIERARCHY
 };

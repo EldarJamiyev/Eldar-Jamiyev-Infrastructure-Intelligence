@@ -308,22 +308,22 @@
                   <span style="background: rgba(245, 158, 11, 0.2); color: var(--warning); padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700;">CASPEL & ENTERPRISE STANDARTI</span>
                 </div>
 
-                <div style="font-size: 13px; line-height: 1.7; color: var(--text-main);">
-                  <p style="margin-top: 0; font-weight: 700; color: #fff;">Salam, hörmətli həmkarlar.</p>
+                <div style="font-size: 13px; line-height: 1.7; color: #e2e8f0;">
+                  <p style="margin-top: 0; font-weight: 700; color: #ffffff;">Salam, hörmətli həmkarlar.</p>
                   <p>Sizdən bir xahişim olacaq. Zəhmət olmasa, hər hansı texniki problem yarandıqda bizə mümkün qədər <b>dəqiq və ətraflı məlumat</b> təqdim edin.</p>
-                  <p style="background: rgba(0,0,0,0.25); padding: 8px 12px; border-left: 3px solid var(--danger); border-radius: 4px; margin: 10px 0;">
+                  <p style="background: rgba(0,0,0,0.4); padding: 8px 12px; border-left: 3px solid var(--danger); border-radius: 4px; margin: 10px 0; color: #fca5a5;">
                     ⚠️ Məsələn, istifadəçi sizə <i>“Əvvəl hər şey işləyirdi, indi heç nə işləmir”</i> dedikdə, ilk növbədə konkret olaraq nəyin işləmədiyini müəyyənləşdirib bizə bildirməyinizi xahiş edirik.
                   </p>
-                  <p style="margin-bottom: 6px;"><b>Nümunə üçün:</b></p>
-                  <ul style="margin: 0 0 10px 0; padding-left: 20px; color: var(--text-main);">
-                    <li><code>mail.taxes.gov.az</code> ünvanına müəyyən IP-dən sorğu göndərilir, lakin cavab alınmır.</li>
+                  <p style="margin-bottom: 6px; color: #f8fafc;"><b>Nümunə üçün:</b></p>
+                  <ul style="margin: 0 0 10px 0; padding-left: 20px; color: #cbd5e1;">
+                    <li><code style="color: #38bdf8;">mail.taxes.gov.az</code> ünvanına müəyyən IP-dən sorğu göndərilir, lakin cavab alınmır.</li>
                     <li>Əvvəl A IP ünvanından B IP ünvanına bağlantı mövcud idi, hazırda isə bağlantı qurulmur.</li>
-                    <li>Mümkün olduqda, <b>Source IP</b>, <b>Destination IP</b>, <b>URL / Veb-səhifə və ya Poçt Serveri</b> (məs: <code>mail.taxes.gov.az</code>), <b>Port nömrəsi</b> və <b>Alınan xəta mesajını</b> da qeyd etməyinizi xahiş edirik.</li>
+                    <li>Mümkün olduqda, <b>Source IP</b>, <b>Destination IP</b>, <b>URL / Veb-səhifə və ya Poçt Serveri</b> (məs: <code style="color: #38bdf8;">mail.taxes.gov.az</code>), <b>Port nömrəsi</b> və <b>Alınan xəta mesajını</b> da qeyd etməyinizi xahiş edirik.</li>
                   </ul>
-                  <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 4px;">
+                  <p style="color: #cbd5e1; font-size: 12px; margin-bottom: 4px;">
                     Bu cür dəqiq məlumatların təqdim edilməsi problemin daha operativ araşdırılmasına, səbəbinin müəyyənləşdirilməsinə və qısa müddətdə həll olunmasına kömək edəcək. Məqsədimiz problemi birlikdə daha sürətli və effektiv şəkildə həll etməkdir.
                   </p>
-                  <p style="margin-bottom: 0; font-style: italic; color: var(--accent);">Əməkdaşlığınız üçün əvvəlcədən təşəkkür edirəm.</p>
+                  <p style="margin-bottom: 0; font-style: italic; color: #38bdf8; font-weight: 600;">Əməkdaşlığınız üçün əvvəlcədən təşəkkür edirəm.</p>
                 </div>
               </div>
 
@@ -337,15 +337,15 @@
                   <!-- Quick Preset Chips -->
                   <div style="display: flex; gap: 6px;">
                     <button class="btn btn-secondary" onclick="window.fillStandardPreset('taxes')" style="font-size: 10px; padding: 2px 8px;">🏢 mail.taxes.gov.az</button>
-                    <button class="btn btn-secondary" onclick="window.fillStandardPreset('gateway')" style="font-size: 10px; padding: 2px 8px;">🌐 Gateway (10.168.195.1)</button>
-                    <button class="btn btn-secondary" onclick="window.fillStandardPreset('dns')" style="font-size: 10px; padding: 2px 8px;">🛡️ DNS (10.22.10.11)</button>
+                    <button class="btn btn-secondary" onclick="window.fillStandardPreset('gateway')" style="font-size: 10px; padding: 2px 8px;">🌐 Gateway (192.168.31.1)</button>
+                    <button class="btn btn-secondary" onclick="window.fillStandardPreset('dns')" style="font-size: 10px; padding: 2px 8px;">🛡️ DNS (192.168.31.1)</button>
                   </div>
                 </div>
 
                 <div class="grid-2" style="margin-bottom: 12px;">
                   <div class="form-group" style="margin-bottom: 10px;">
                     <label class="form-label" style="font-size: 11px;">Mənbə IP (Source IP — Sizin Kompüter)</label>
-                    <input type="text" id="stdSrcIp" class="form-input" value="10.168.195.33" style="font-family: var(--font-mono); font-size: 11px;">
+                    <input type="text" id="stdSrcIp" class="form-input" value="192.168.31.89" style="font-family: var(--font-mono); font-size: 11px;">
                   </div>
                   <div class="form-group" style="margin-bottom: 10px;">
                     <label class="form-label" style="font-size: 11px;">Hədəf Host və ya IP (Destination IP / Hostname)</label>
@@ -411,7 +411,7 @@
     }
 
     isOpen = !isOpen;
-    modal.style.display = isOpen ? 'block' : 'none';
+    modal.style.display = isOpen ? 'flex' : 'none';
 
     if (isOpen) {
       const search = document.getElementById('manualSearchInput');
@@ -464,26 +464,26 @@
     const ctx = document.getElementById('stdContext');
 
     if (preset === 'taxes') {
-      if (src) src.value = '10.168.195.33';
+      if (src) src.value = '192.168.31.89';
       if (dst) dst.value = 'mail.taxes.gov.az';
       if (url) url.value = 'https://mail.taxes.gov.az';
       if (port) port.value = '443';
       if (err) err.value = 'Sorğu göndərilir, cavab alınmır (ETIMEDOUT / Timeout)';
-      if (ctx) ctx.value = 'Əvvəl A IP (10.168.195.33) ünvanından B IP (mail.taxes.gov.az) ünvanına bağlantı mövcud idi, hazırda isə bağlantı qurulmur.';
+      if (ctx) ctx.value = 'Əvvəl A IP (192.168.31.89) ünvanından B IP (mail.taxes.gov.az) ünvanına bağlantı mövcud idi, hazırda isə bağlantı qurulmur.';
     } else if (preset === 'gateway') {
-      if (src) src.value = '10.168.195.33';
-      if (dst) dst.value = '10.168.195.1';
-      if (url) url.value = 'http://10.168.195.1';
+      if (src) src.value = '192.168.31.89';
+      if (dst) dst.value = '192.168.31.1';
+      if (url) url.value = 'http://192.168.31.1';
       if (port) port.value = '80';
       if (err) err.value = 'Gateway ping check / L2 ARP verification';
-      if (ctx) ctx.value = 'Lokal alt şəbəkə şlüzü (Default Subnet Gateway 10.168.195.1) ilə əlaqə yoxlanışı.';
+      if (ctx) ctx.value = 'Lokal alt şəbəkə şlüzü (Default Subnet Gateway 192.168.31.1) ilə əlaqə yoxlanışı.';
     } else if (preset === 'dns') {
-      if (src) src.value = '10.168.195.33';
-      if (dst) dst.value = '10.22.10.11';
-      if (url) url.value = 'dns://10.22.10.11';
+      if (src) src.value = '192.168.31.89';
+      if (dst) dst.value = '192.168.31.1';
+      if (url) url.value = 'dns://192.168.31.1';
       if (port) port.value = '53';
       if (err) err.value = 'Daxili DNS sorğuları cavabsız qalır və ya gecikir';
-      if (ctx) ctx.value = 'Müəssisə daxili Active Directory Primary DNS resolver (10.22.10.11) ilə əlaqə və ad həlli.';
+      if (ctx) ctx.value = 'Lokal / Müəssisə daxili Primary DNS resolver (192.168.31.1) ilə əlaqə və ad həlli.';
     }
   };
 
