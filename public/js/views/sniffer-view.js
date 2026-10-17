@@ -31,6 +31,9 @@
       if (flowsRes?.flows && typeof window.setNocLiveFlows === 'function') {
         window.setNocLiveFlows(flowsRes.flows);
       }
+      if (typeof window.startNocBatchFlusher === 'function') {
+        window.startNocBatchFlusher();
+      }
 
       container.innerHTML = `
         <div class="sniffer-standalone-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 10px;">
@@ -131,6 +134,12 @@
               </div>
             </div>
 
+            <!-- Explicit Capture Failure Banner (Requirement 7) -->
+            <div id="captureErrorBanner" style="display: none; background: rgba(239, 68, 68, 0.15); border-bottom: 1px solid rgba(239, 68, 68, 0.4); padding: 8px 18px; color: #f87171; font-size: 11px; font-family: var(--font-mono); align-items: center; gap: 8px; flex-shrink: 0;">
+              <span style="font-weight: 800;">⚠️ CAPTURE FAULT:</span>
+              <span id="captureErrorMessage">Npcap wire interceptor offline.</span>
+            </div>
+
             <!-- View 1: Live Frame Summary Table -->
             <div id="livePacketTableView" style="display: flex; flex: 1; overflow: hidden; flex-direction: column;">
               <div id="livePacketTableContainer" class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable;" onmouseenter="window.onPacketTableMouseEnter()" onmouseleave="window.onPacketTableMouseLeave()">
@@ -212,6 +221,20 @@
           </div>
         </div>
       `;
+
+      if (typeof window.startPacketBatchFlusher === 'function') {
+        window.startPacketBatchFlusher();
+      } else if (typeof window.startNocBatchFlusher === 'function') {
+        window.startNocBatchFlusher();
+      }
+
+      if (typeof window.flushPacketBatch === 'function') {
+        window.flushPacketBatch();
+      }
+
+      if (statusRes && typeof window.handleCaptureStatus === 'function') {
+        window.handleCaptureStatus(statusRes);
+      }
 
       if (typeof window.initAiBrainDrawer === 'function') {
         window.initAiBrainDrawer('snifferAiBrainDrawerContainer');

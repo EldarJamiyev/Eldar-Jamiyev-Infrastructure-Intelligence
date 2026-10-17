@@ -974,3 +974,85 @@ body {
   margin-bottom: 8px;
 }
 
+/* ==========================================================================
+   Wireshark-Grade Protocol Dissection & Hexdump Synchronized Highlighting
+   ========================================================================== */
+.hex-byte {
+  padding: 1px 2px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.ascii-char {
+  padding: 1px 1px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.hex-byte:hover, .ascii-char:hover {
+  background: rgba(56, 189, 248, 0.35);
+  color: #ffffff;
+}
+
+.hex-byte-active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  font-weight: 800;
+  box-shadow: 0 0 4px rgba(2, 132, 199, 0.8);
+}
+
+.ascii-char-active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  font-weight: 800;
+  box-shadow: 0 0 4px rgba(2, 132, 199, 0.8);
+}
+
+.protocol-tree-field:hover {
+  background: rgba(56, 189, 248, 0.12) !important;
+}
+
+/* Wireshark Protocol Row Color-Coding Standards */
+.data-table tr.proto-row-tcp {
+  background-color: rgba(20, 83, 45, 0.18) !important;
+}
+.data-table tr.proto-row-tcp:hover {
+  background-color: rgba(20, 83, 45, 0.35) !important;
+}
+
+.data-table tr.proto-row-tls {
+  background-color: rgba(88, 28, 135, 0.22) !important;
+}
+.data-table tr.proto-row-tls:hover {
+  background-color: rgba(88, 28, 135, 0.40) !important;
+}
+
+.data-table tr.proto-row-arp {
+  background-color: rgba(161, 98, 7, 0.20) !important;
+}
+.data-table tr.proto-row-arp:hover {
+  background-color: rgba(161, 98, 7, 0.38) !important;
+}
+
+.data-table tr.proto-row-dns {
+  background-color: rgba(14, 116, 144, 0.20) !important;
+}
+.data-table tr.proto-row-dns:hover {
+  background-color: rgba(14, 116, 144, 0.38) !important;
+}
+
+.data-table tr.proto-row-retrans {
+  background-color: rgba(153, 27, 27, 0.30) !important;
+  border-left: 3px solid #ef4444;
+}
+.data-table tr.proto-row-retrans:hover {
+  background-color: rgba(153, 27, 27, 0.48) !important;
+}
+
+.data-table tr.proto-row-selected {
+  outline: 2px solid var(--accent);
+  background-color: rgba(56, 189, 248, 0.25) !important;
+}
+

@@ -69,21 +69,38 @@ async function api(endpoint, options = {}) {
  * Initialize WebSocket Live Connection
  */
 function initWebSocket() {
+  if (state.ws) {
+    try {
+      state.ws.onclose = null; // Prevent reconnect storm on intentional close
+      state.ws.close();
+    } catch (e) {}
+    state.ws = null;
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/`;
+  const subprotocols = state.token ? ['token', state.token] : undefined;
   
   try {
-    state.ws = new WebSocket(wsUrl);
+    state.ws = subprotocols ? new WebSocket(wsUrl, subprotocols) : new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
       const el = document.getElementById('wsStatusText');
       if (el) el.textContent = 'Live Wire Connected';
       const dot = document.querySelector('.status-dot');
       if (dot) dot.style.backgroundColor = '#10b981';
+
+      // Request live wire frame streaming if authenticated
+      if (state.token && state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type: 'START_PACKET_STREAM' }));
+      }
     };
 
     state.ws.onmessage = (event) => {
       try {
+        const msg = JSON.parse(event.data);
+        if (!msg || typeof msg !== 'object') return;
+
         if (msg.type === 'PACKET_STREAM_FRAME' && typeof window.handleLivePacketFrame === 'function') {
           window.handleLivePacketFrame(msg.payload || msg.frame);
         } else if (msg.type === 'CAPTURE_STATUS' && typeof window.handleCaptureStatus === 'function') {
@@ -101,7 +118,12 @@ function initWebSocket() {
         } else if (msg.type === 'NODE_ALERT' || msg.type === 'NODE_UPDATE') {
           loadTopbarStats();
         }
-      } catch (e) {}
+      } catch (e) {
+        if (!window._lastWsErrLog || Date.now() - window._lastWsErrLog > 5000) {
+          window._lastWsErrLog = Date.now();
+          console.warn('[EJII WebSocket] Malformed message ignored:', e.message);
+        }
+      }
     };
 
     state.ws.onclose = () => {
@@ -115,6 +137,8 @@ function initWebSocket() {
     console.warn('WebSocket init failed:', e);
   }
 }
+
+window.initWebSocket = initWebSocket;
 
 /**
  * Update Topbar Stats (BPF Filter, Anomalies, Nodes)
@@ -200,6 +224,7 @@ window.quickNocLogin = async function() {
     state.token = res.token;
     state.user = res.user;
     localStorage.setItem('ejii_token', res.token);
+    initWebSocket();
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
@@ -238,6 +263,7 @@ window.handleLoginFormSubmit = async function(event) {
     state.token = res.token;
     state.user = res.user;
     localStorage.setItem('ejii_token', res.token);
+    initWebSocket();
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
@@ -549,6 +575,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       state.token = null;
       state.user = null;
       localStorage.removeItem('ejii_token');
+      initWebSocket();
       showLoginScreen();
     });
   }

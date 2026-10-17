@@ -974,8 +974,22 @@
 
       const lenVal = f.wireLength || f.capturedLength || f.length || 60;
 
+      let protoClass = '';
+      if (f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isRst) {
+        protoClass = 'proto-row-retrans';
+      } else if (f.protocol === 'TLS' || f.protocol === 'TLSv1.3' || f.protocol === 'TLSv1.2') {
+        protoClass = 'proto-row-tls';
+      } else if (f.protocol === 'TCP' || f.protocol === 'HTTP') {
+        protoClass = 'proto-row-tcp';
+      } else if (f.protocol === 'ARP') {
+        protoClass = 'proto-row-arp';
+      } else if (f.protocol === 'DNS') {
+        protoClass = 'proto-row-dns';
+      }
+      if (isSelected) protoClass += ' proto-row-selected';
+
       return `
-        <tr onclick="window.inspectPacketFrame(${f.frameNumber})" style="cursor: pointer; background: ${isSelected ? 'rgba(56, 189, 248, 0.12)' : 'inherit'};">
+        <tr class="${protoClass}" onclick="window.inspectPacketFrame(${f.frameNumber})" style="cursor: pointer;">
           <td class="col-num" style="min-width: 65px; width: 65px; color: var(--text-dim); font-weight: 700; white-space: nowrap;">#${f.frameNumber}</td>
           <td class="col-time" style="min-width: 95px; width: 105px; color: var(--text-dim); white-space: nowrap;">${timeStr}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${f.srcIp || '0.0.0.0'}</span>${f.srcPort ? ':' + f.srcPort : ''}</td>
@@ -1459,13 +1473,39 @@
     }
   }
 
-  window.handleCaptureStatus = function(statusObj) {
+  function startPacketBatchFlusher() {
+    if (batchFlushInterval) clearInterval(batchFlushInterval);
+    batchFlushInterval = setInterval(flushPacketBatch, 300);
+  }
+
+  function stopPacketBatchFlusher() {
+    if (batchFlushInterval) {
+      clearInterval(batchFlushInterval);
+      batchFlushInterval = null;
+    }
+  }
+
+  function handleCaptureStatus(statusObj) {
     if (!statusObj) return;
     const indicator = document.getElementById('captureLiveIndicator');
     const label = document.getElementById('captureStatusLabel');
+    const errBanner = document.getElementById('captureErrorBanner');
+    const errMsg = document.getElementById('captureErrorMessage');
+
+    const st = (statusObj.status || '').toUpperCase();
+    const hasError = st === 'ERROR' || st === 'FAILED' || st === 'NO_ADAPTER' || Boolean(statusObj.error);
+
+    if (errBanner) {
+      if (hasError) {
+        errBanner.style.display = 'flex';
+        if (errMsg) errMsg.textContent = statusObj.error || statusObj.message || 'Physical network capture interface failed.';
+      } else {
+        errBanner.style.display = 'none';
+      }
+    }
+
     if (!indicator || !label) return;
 
-    const st = statusObj.status;
     if (st === 'CAPTURING') {
       indicator.style.background = 'rgba(52, 211, 153, 0.15)';
       indicator.style.color = 'var(--success)';
@@ -1476,11 +1516,11 @@
       indicator.style.color = '#fbbf24';
       indicator.title = statusObj.message || 'Npcap driver requires administrator privileges. Monitoring real active OS sockets only.';
       label.textContent = 'SOCKETS ONLY (UNPRIVILEGED)';
-    } else if (st === 'NO_ADAPTER') {
+    } else if (st === 'NO_ADAPTER' || st === 'ERROR' || st === 'FAILED') {
       indicator.style.background = 'rgba(239, 68, 68, 0.18)';
       indicator.style.color = '#f87171';
-      indicator.title = statusObj.message || 'No physical network interface found for packet sniffing.';
-      label.textContent = 'NO ADAPTER';
+      indicator.title = statusObj.error || statusObj.message || 'No physical network interface found for packet sniffing.';
+      label.textContent = st === 'NO_ADAPTER' ? 'NO ADAPTER' : 'CAPTURE ERROR';
     } else if (st === 'WAITING_FOR_TRAFFIC') {
       indicator.style.background = 'rgba(56, 189, 248, 0.18)';
       indicator.style.color = '#38bdf8';
@@ -1489,8 +1529,16 @@
     }
   };
 
+  const MAX_QUEUE_LIMIT = 500;
   window.handleLivePacketFrame = function(frame) {
-    if (!isCapturing || !frame) return;
+    if (!isCapturing || !frame || typeof frame !== 'object') return;
+    // Strict schema check: frame must have frameNumber and protocol to prevent ghost/malformed rows
+    if (!frame.frameNumber || !frame.protocol) return;
+
+    // Enforce backpressure queue limit: drop oldest unhandled frame
+    if (frameBatchQueue.length >= MAX_QUEUE_LIMIT) {
+      frameBatchQueue.shift();
+    }
     frameBatchQueue.push(frame);
   };
 
@@ -1938,8 +1986,21 @@
   };
 
   window.setNocTopologyData = function(data) { if (data) topologyData = data; };
-  window.setNocLiveFrames = function(frames) { if (frames) liveFrames = frames; };
+  window.setNocLiveFrames = function(frames) {
+    if (Array.isArray(frames)) {
+      liveFrames = frames;
+      const tbody = document.getElementById('livePacketTableBody');
+      if (tbody && currentSnifferMode === 'packets' && !isDisplayFrozen && !isTableHovered) {
+        tbody.innerHTML = renderPacketRows();
+      }
+    }
+  };
   window.setNocLiveFlows = function(flows) { if (flows) liveFlows = flows; };
+  window.startPacketBatchFlusher = startPacketBatchFlusher;
+  window.startNocBatchFlusher = startPacketBatchFlusher;
+  window.stopPacketBatchFlusher = stopPacketBatchFlusher;
+  window.flushPacketBatch = flushPacketBatch;
+  window.handleCaptureStatus = handleCaptureStatus;
   window.renderTopologySvg = renderTopologySvg;
   window.renderTopologyTableRows = renderTopologyTableRows;
   window.renderPacketRows = renderPacketRows;
