@@ -77,6 +77,14 @@ def load_wpcap():
             continue
     return None
 
+def is_physical_candidate(desc_str):
+    d = (desc_str or '').lower()
+    if 'ndiswan' in d or 'wan miniport' in d or 'bluetooth' in d:
+        return False
+    if 'virtual' in d or 'hyper-v' in d or 'vmware' in d or 'vbox' in d or 'direct' in d:
+        return False
+    return True
+
 def find_best_device(wpcap):
     alldevs = ctypes.POINTER(pcap_if)()
     errbuf = ctypes.create_string_buffer(256)
@@ -92,15 +100,6 @@ def find_best_device(wpcap):
         devices.append((name, desc))
         curr = dev.next
     wpcap.pcap_freealldevs(alldevs)
-
-    # Exclude virtual, pseudo, direct, and WAN miniports
-    def is_physical_candidate(desc_str):
-        d = desc_str.lower()
-        if 'ndiswan' in d or 'wan miniport' in d or 'bluetooth' in d:
-            return False
-        if 'virtual' in d or 'hyper-v' in d or 'vmware' in d or 'vbox' in d or 'direct' in d:
-            return False
-        return True
 
     # 1. Prefer true physical NIC (Intel, Realtek, Broadcom, Atheros, Ethernet, Wi-Fi)
     for name, desc in devices:
@@ -545,6 +544,7 @@ def main():
     parser.add_argument("--bpf", help="BPF capture filter expression", default=None)
     parser.add_argument("--snaplen", help="Snapshot length", type=int, default=65535)
     parser.add_argument("--count", help="Exit after N packets (0 = infinite)", type=int, default=0)
+    parser.add_argument("--list-interfaces", action="store_true", help="Print available interfaces in JSON and exit")
     args = parser.parse_args()
 
     wpcap = load_wpcap()
@@ -552,6 +552,32 @@ def main():
         sys.stderr.write(json.dumps({"error": "Failed to load Npcap library (wpcap.dll)"}) + "\n")
         sys.stderr.flush()
         sys.exit(1)
+
+    if args.list_interfaces:
+        alldevs = ctypes.POINTER(pcap_if)()
+        errbuf = ctypes.create_string_buffer(256)
+        if wpcap.pcap_findalldevs(ctypes.byref(alldevs), errbuf) != 0:
+            sys.stdout.write(json.dumps([]) + "\n")
+            sys.exit(0)
+        devs = []
+        curr = alldevs
+        best_name, _ = find_best_device(wpcap)
+        while curr:
+            d = curr.contents
+            n = d.name.decode('utf-8', 'ignore') if d.name else ''
+            desc = d.description.decode('utf-8', 'ignore') if d.description else ''
+            is_phys = is_physical_candidate(desc)
+            is_default = (n == best_name)
+            devs.append({
+                "name": n,
+                "description": desc,
+                "isPhysical": is_phys,
+                "isDefault": is_default
+            })
+            curr = d.next
+        wpcap.pcap_freealldevs(alldevs)
+        sys.stdout.write(json.dumps(devs) + "\n")
+        sys.exit(0)
 
     device_name = args.device
     device_desc = ""

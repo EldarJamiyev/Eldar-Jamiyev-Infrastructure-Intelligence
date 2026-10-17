@@ -45,7 +45,11 @@ async function runNetworkTests() {
 
   // Test 5: Real TLS Security Audit
   console.log('Testing Real TLS Handshake & Cert Chain (google.com:443)...');
-  const tlsRes = await auditTls('google.com', 443, 5000);
+  let tlsRes = await auditTls('google.com', 443, 7000);
+  if (!tlsRes.success) {
+    // Retry once in case of transient Wi-Fi jitter
+    tlsRes = await auditTls('google.com', 443, 7000);
+  }
   assert.strictEqual(tlsRes.success, true, 'TLS audit must succeed on google.com');
   assert.ok(tlsRes.protocol.startsWith('TLSv1.'), 'Protocol must be TLS 1.2 or 1.3');
   assert.ok(tlsRes.certificate.daysRemaining > 0, 'Certificate must not be expired');

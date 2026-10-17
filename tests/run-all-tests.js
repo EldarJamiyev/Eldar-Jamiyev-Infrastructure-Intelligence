@@ -33,6 +33,7 @@ const { runAutonomousRemediationSafetyTests } = require('./autonomous-remediatio
 const { runLiveProductionSmoke } = require('./live-production-smoke.test');
 const { runHostileSecurityAuditTests } = require('./hostile-security-audit.test');
 const { runLivePacketPipelineTests } = require('./live-packet-pipeline.test');
+const { runWiresharkAiWorkstationTests } = require('./wireshark-ai-workstation.test');
 
 async function runAllTests() {
   console.log('========================================================================');
@@ -71,7 +72,8 @@ async function runAllTests() {
     { name: '25. Autonomous Remediation Safety, Elevation Lifecycle & OS Process Protection', fn: runAutonomousRemediationSafetyTests },
     { name: '26. Live Production Server Socket & API Smoke Test, Zero-Trust Defenses & Live Host Telemetry', fn: runLiveProductionSmoke },
     { name: '27. Hostile Security Audit, Action Token Binding, Injection Defense, HMAC Audit Chain & 5-State Health', fn: runHostileSecurityAuditTests },
-    { name: '28. Live Packet Pipeline Forensic Verification, Wire Schemas, Queue Backpressure & Fault Banner', fn: runLivePacketPipelineTests }
+    { name: '28. Live Packet Pipeline Forensic Verification, Wire Schemas, Queue Backpressure & Fault Banner', fn: runLivePacketPipelineTests },
+    { name: '29. Wireshark-Grade Workstation, Interface Enumeration, AST NL Filter & Bayesian Packet Explainer', fn: runWiresharkAiWorkstationTests }
   ];
 
   for (const s of suites) {

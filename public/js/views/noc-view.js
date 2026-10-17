@@ -2005,5 +2005,6 @@
   window.renderTopologyTableRows = renderTopologyTableRows;
   window.renderPacketRows = renderPacketRows;
   window.renderFlowRows = renderFlowRows;
+  window.getSelectedPacket = function() { return selectedFrame; };
   window.renderNocView = renderNocView;
 })(window);

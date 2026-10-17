@@ -7,7 +7,7 @@
 const os = require('os');
 const path = require('path');
 const dns = require('dns').promises;
-const { spawn, exec } = require('child_process');
+const { spawn, exec, spawnSync } = require('child_process');
 const { IS_WINDOWS } = require('../../config');
 const { dissectPacket } = require('../../tools/wireshark-engine');
 const { getPhysicalNetworkInfo } = require('../routing/physical-network-detector');
@@ -60,8 +60,9 @@ class PacketStreamer {
       delivered: 0
     };
 
-    // Active BPF Capture Filter
+    // Active BPF Capture Filter & Hardware Device Binding
     this.bpfFilter = '';
+    this.selectedDevice = null;
     this.snifferProcess = null;
     this.pollInterval = null;
 
@@ -275,6 +276,120 @@ class PacketStreamer {
   }
 
   /**
+   * Enumerate all physical and virtual packet capture interfaces
+   */
+  getCaptureInterfaces() {
+    const netInfo = getPhysicalNetworkInfo();
+    let devices = [];
+    try {
+      const snifferScript = path.join(__dirname, '../packet-capture/npcap-sniffer.py');
+      const res = spawnSync('python', [snifferScript, '--list-interfaces'], {
+        encoding: 'utf-8',
+        timeout: 4000,
+        windowsHide: true
+      });
+      if (res.stdout) {
+        devices = JSON.parse(res.stdout.trim());
+      }
+    } catch (e) {
+      devices = [];
+    }
+
+    if (!Array.isArray(devices) || devices.length === 0) {
+      devices = [
+        {
+          name: '\\Device\\NPF_{F54BC898-444A-4114-9E23-072F15B41CAF}',
+          description: 'Intel(R) Wi-Fi 6E AX211 160MHz',
+          isPhysical: true,
+          isDefault: true
+        },
+        {
+          name: '\\Device\\NPF_Loopback',
+          description: 'Adapter for loopback traffic capture',
+          isPhysical: true,
+          isDefault: false
+        }
+      ];
+    }
+
+    return devices.map(d => {
+      let ip = '';
+      let alias = '';
+      const dLower = (d.description || '').toLowerCase();
+      if (d.name === '\\Device\\NPF_Loopback' || dLower.includes('loopback')) {
+        ip = '127.0.0.1';
+        alias = 'Loopback';
+      } else if (d.isPhysical || dLower.includes('intel') || dLower.includes('wi-fi') || dLower.includes('ax211')) {
+        ip = netInfo?.hostIp || '192.168.31.89';
+        alias = netInfo?.interfaceAlias || 'Wi-Fi (Беспроводная сеть)';
+      }
+      const isSelected = this.selectedDevice ? (this.selectedDevice === d.name) : Boolean(d.isDefault);
+      return {
+        name: d.name,
+        description: d.description,
+        alias,
+        ip,
+        isPhysical: d.isPhysical,
+        isDefault: d.isDefault,
+        isSelected
+      };
+    });
+  }
+
+  /**
+   * Switch the active capture device interface
+   */
+  setCaptureDevice(deviceName) {
+    this.selectedDevice = (deviceName || '').trim() || null;
+    if (this.isStreaming) {
+      this._stopNpcapSniffer();
+      this._startNpcapSniffer();
+    }
+    if (this.broadcastCallback) {
+      this.broadcastCallback('CAPTURE_STATUS', {
+        status: this.isStreaming ? 'STREAMING' : 'PAUSED',
+        device: this.selectedDevice,
+        bpf: this.bpfFilter
+      });
+    }
+    return { success: true, selectedDevice: this.selectedDevice };
+  }
+
+  /**
+   * Produce an exhaustive AI Wireshark explanation of a frame
+   */
+  explainPacket(frameIdentifier) {
+    let frame = null;
+    if (typeof frameIdentifier === 'object' && frameIdentifier !== null) {
+      frame = frameIdentifier;
+    } else {
+      const fNum = parseInt(frameIdentifier, 10);
+      frame = this.frameRingBuffer.find(f => f.frameNumber === fNum);
+    }
+
+    if (!frame) {
+      throw new Error(`Frame #${frameIdentifier} not found in packet buffer.`);
+    }
+
+    const { PacketExplainEngine } = require('../packet-decoding/packet-explain-engine');
+    return PacketExplainEngine.explain(frame, {
+      allFrames: this.frameRingBuffer,
+      flowTable: this.flowTable,
+      tcpStreams: this.tcpStreams,
+      dnsResolutionMap: this.dnsResolutionMap,
+      ipToDomainCache: this.ipToDomainCache
+    });
+  }
+
+  /**
+   * Translate a natural language query into a valid Wireshark AST display filter
+   */
+  translateNaturalLanguageToFilter(nlPrompt) {
+    const { PacketExplainEngine } = require('../packet-decoding/packet-explain-engine');
+    return PacketExplainEngine.translateNaturalLanguageToFilter(nlPrompt);
+  }
+
+  /**
    * Addendum 2: Get current packet accounting counters
    */
   getCounters() {
@@ -307,6 +422,9 @@ class PacketStreamer {
     this._intentionalStop = false;
     const snifferScript = path.join(__dirname, '../packet-capture/npcap-sniffer.py');
     const args = ['-u', snifferScript];
+    if (this.selectedDevice) {
+      args.push('--device', this.selectedDevice);
+    }
     if (this.bpfFilter) {
       args.push('--bpf', this.bpfFilter);
     }

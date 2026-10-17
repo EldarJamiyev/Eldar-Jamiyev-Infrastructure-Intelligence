@@ -279,6 +279,29 @@ router.get('/capture/status', (req, res) => {
   });
 });
 
+router.get('/capture/interfaces', (req, res) => {
+  try {
+    const interfaces = packetStreamer.getCaptureInterfaces();
+    res.json({
+      success: true,
+      interfaces,
+      activeDevice: packetStreamer.selectedDevice || interfaces.find(i => i.isDefault)?.name || null
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/capture/interface', requirePermission('network.capture.execute'), (req, res) => {
+  try {
+    const { device } = req.body;
+    const result = packetStreamer.setCaptureDevice(device);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/capture/frames', (req, res) => {
   const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 100), 500);
   const protocol = req.query.protocol || null;
@@ -514,6 +537,34 @@ router.get('/tools/anomalies', (req, res) => {
  */
 router.post('/tools/anomalies/clear', (req, res) => {
   res.json(wireDiagnostics.clearAnomalies());
+});
+
+/**
+ * POST /api/network/tools/packet-explain
+ * Explains a frame using Bayesian causal intelligence and RFC standards
+ */
+router.post('/tools/packet-explain', (req, res) => {
+  try {
+    const { frameNumber, frame } = req.body;
+    const report = packetStreamer.explainPacket(frame || frameNumber);
+    res.json(report);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/network/tools/nl-filter
+ * Translates natural language into Wireshark AST display filter
+ */
+router.post('/tools/nl-filter', (req, res) => {
+  try {
+    const { query } = req.body;
+    const result = packetStreamer.translateNaturalLanguageToFilter(query);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // ============================================================================
