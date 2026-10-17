@@ -165,6 +165,10 @@ class PacketStreamer {
     }
   }
 
+  stopCapture() {
+    return this.stopStreaming();
+  }
+
   /**
    * Asynchronously resolve all 21 Government & Intranet target domains
    * Builds bidirectional IP <-> Domain mappings in memory

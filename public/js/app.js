@@ -40,6 +40,19 @@ window.formatLocalDateTime = function(isoStr) {
 };
 
 /**
+ * Universal HTML Escape utility
+ */
+window.escapeHtml = function(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
+/**
  * Universal Authenticated API Fetcher
  */
 async function api(endpoint, options = {}) {
@@ -120,8 +133,13 @@ function initWebSocket() {
             window.flashTopologyAnomaly(msg.payload);
           }
           loadTopbarStats();
-        } else if (msg.type === 'AI_BRAIN_DIAGNOSTIC_UPDATE' && typeof window.handleAiBrainDiagnosticUpdate === 'function') {
-          window.handleAiBrainDiagnosticUpdate(msg.payload);
+        } else if (msg.type === 'AI_BRAIN_DIAGNOSTIC_UPDATE') {
+          if (typeof window.handleAiBrainDiagnosticUpdate === 'function') {
+            window.handleAiBrainDiagnosticUpdate(msg.payload || msg);
+          }
+          if (typeof window.handleAiBrainLiveUpdate === 'function') {
+            window.handleAiBrainLiveUpdate(msg.payload || msg);
+          }
         } else if (msg.type === 'NODE_ALERT' || msg.type === 'NODE_UPDATE') {
           loadTopbarStats();
         }

@@ -16,6 +16,10 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const db = new DatabaseSync(DB_PATH);
 
+if (typeof db.pragma !== 'function') {
+  db.pragma = (str) => db.exec('PRAGMA ' + str + ';');
+}
+
 // High-performance WAL mode for low latency
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA busy_timeout = 8000;');

@@ -52,6 +52,7 @@ const { runBrainSelfUpdatingHarnessTests } = require('./brain-self-updating-harn
 const { runWireProbeAndAiBrainTruthTests } = require('./wire-probe-and-ai-brain-truth.test');
 const { runFullSystemE2eAndFeedbackLoopTests } = require('./full-system-e2e-and-feedback-loop.test');
 const { runUtf8IntrospectionIpPinningAndIsolationTests } = require('./utf8-introspection-ip-pinning-and-isolation.test');
+const { runCrossLayerRcaWsSyncAndToolSsrfTests } = require('./cross-layer-rca-ws-sync-and-tool-ssrf.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -103,7 +104,8 @@ async function runAllTests() {
     { name: '31. Autonomous Self-Updating AI Brain Harness, Dynamic Schema Gatekeeper & Circuit Breaker', fn: runBrainSelfUpdatingHarnessTests },
     { name: '32. AI Brain, Wire Probe Semantics, Kernel Socket Error Codes & SSRF Truth Audit', fn: runWireProbeAndAiBrainTruthTests },
     { name: '33. Full System E2E, SSRF Defense, Feedback Calibration & Architecture Integrity', fn: runFullSystemE2eAndFeedbackLoopTests },
-    { name: '34. UTF-8 Adapter Introspection, DNS-Rebinding IP Pinning, Singleton Isolation & Launcher Gate', fn: runUtf8IntrospectionIpPinningAndIsolationTests }
+    { name: '34. UTF-8 Adapter Introspection, DNS-Rebinding IP Pinning, Singleton Isolation & Launcher Gate', fn: runUtf8IntrospectionIpPinningAndIsolationTests },
+    { name: '35. Cross-Layer Host+Wire Causal RCA, Universal Protocol Driver & Redirect SSRF Guard, WS Brain Sync, and Graceful WAL Shutdown', fn: runCrossLayerRcaWsSyncAndToolSsrfTests }
   ];
 
   for (const s of suites) {

@@ -685,11 +685,16 @@
     const synthCard = document.getElementById('diagAiBrainSynthesis');
     const synth = hostAuditData.brainSynthesis;
     if (synthCard && synth) {
+      const summaryText = typeof window.escapeHtml === 'function' ? window.escapeHtml(synth.summary || synth.plainEnglishReport) : (synth.summary || synth.plainEnglishReport);
+      const crossLayerHtml = synth.crossLayerNotes
+        ? `<div style="font-size: 10px; color: #38BDF8; margin-top: 4px; font-family: var(--font-mono);">${typeof window.escapeHtml === 'function' ? window.escapeHtml(synth.crossLayerNotes) : synth.crossLayerNotes}</div>`
+        : '';
       synthCard.innerHTML = `
         <div style="font-weight: 700; color: var(--accent); font-size: 11px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
           <span>🧠 AI Causal Reasoning Synthesis:</span>
         </div>
-        <div style="font-size: 11px; color: var(--text-main); line-height: 1.4;">${synth.summary || synth.plainEnglishReport}</div>
+        <div style="font-size: 11px; color: var(--text-main); line-height: 1.4;">${summaryText}</div>
+        ${crossLayerHtml}
       `;
     }
 
@@ -1025,6 +1030,15 @@
         }
       });
     }, 12000);
+  };
+
+  /**
+   * Real-time WebSocket AI Brain Diagnostic Update Handler
+   */
+  window.handleAiBrainLiveUpdate = function(update) {
+    if (typeof window.handleAiBrainDiagnosticUpdate === 'function') {
+      window.handleAiBrainDiagnosticUpdate(update);
+    }
   };
 
 })(window);

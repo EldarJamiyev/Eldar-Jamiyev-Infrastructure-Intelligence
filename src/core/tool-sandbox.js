@@ -10,6 +10,7 @@ const net = require('net');
 const dns = require('dns').promises;
 const { execFile, exec } = require('child_process');
 const { IS_WINDOWS } = require('../config');
+const { isSafeNetworkTarget } = require('./ai-brain');
 
 // Safe identifier validation regex
 const SAFE_HOST_REGEX = /^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$/;
@@ -232,7 +233,7 @@ class ToolSandbox {
       throw new ToolExecutionError("Parameter 'ip' is required.");
     }
 
-    // Command injection defense
+    // Command injection and SSRF defense
     const validateHost = (hostStr) => {
       const h = String(hostStr || '').trim();
       if (!h) throw new ToolExecutionError('Target cannot be empty.');
@@ -241,6 +242,9 @@ class ToolSandbox {
       }
       if (!SAFE_HOST_REGEX.test(h) && !SAFE_IP_REGEX.test(h)) {
         throw new ToolExecutionError(`Security rejection: Invalid hostname or IP address format '${h}'.`);
+      }
+      if (!isSafeNetworkTarget(h)) {
+        throw new ToolExecutionError('Target rejected by SSRF defense policy', 400);
       }
       return h;
     };

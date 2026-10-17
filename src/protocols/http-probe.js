@@ -6,6 +6,7 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const { isSafeNetworkTarget } = require('../core/ai-brain');
 
 /**
  * Execute real HTTP/HTTPS synthetic probe with waterfall timing
@@ -26,6 +27,22 @@ function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
         success: false,
         url: targetUrl,
         error: 'Invalid URL format: ' + e.message
+      });
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return resolve({
+        success: false,
+        url: targetUrl,
+        error: 'Protocol not allowed: ' + parsedUrl.protocol
+      });
+    }
+
+    if (!isSafeNetworkTarget(parsedUrl.hostname)) {
+      return resolve({
+        success: false,
+        url: targetUrl,
+        error: 'Target rejected by SSRF defense policy'
       });
     }
 
@@ -82,6 +99,26 @@ function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
 
     req.on('response', (res) => {
       timings.firstByte = performance.now();
+
+      // Universal Protocol Driver & Redirect-Hop SSRF Defense
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        try {
+          const redirectUrl = new URL(res.headers.location, parsedUrl.href);
+          if (!isSafeNetworkTarget(redirectUrl.hostname)) {
+            req.destroy();
+            return finish({
+              success: false,
+              ssrfRedirectBlocked: true,
+              redirectLocation: res.headers.location,
+              url: parsedUrl.href,
+              method,
+              statusCode: res.statusCode,
+              statusMessage: res.statusMessage,
+              error: 'Target rejected by SSRF defense policy'
+            });
+          }
+        } catch (_) {}
+      }
 
       res.on('data', (chunk) => {
         if (bodyData.length < 4096) {

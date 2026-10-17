@@ -22,6 +22,7 @@ const { getSystemInfo, walkOid, STANDARD_OIDS } = require('../protocols/snmp-eng
 const { getArpTable, ultraIpScanner, sendWakeOnLan, generateWolPacket, SCAN_PROFILES } = require('../tools/ip-scanner');
 const { listAutomationScripts, getScriptContent, executeScript } = require('../tools/script-automation');
 const { probeNodeDual } = require('../protocols/dual-prober');
+const { isSafeNetworkTarget } = require('../core/ai-brain');
 
 /**
  * GET /api/network/physical-info
@@ -91,6 +92,9 @@ router.post('/topology/trace-path', (req, res) => {
     const { source, target } = req.body;
     if (!source || !target) {
       return res.status(400).json({ error: 'source and target IP or Node IDs are required.' });
+    }
+    if (!isSafeNetworkTarget(source) || !isSafeNetworkTarget(target)) {
+      return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
     }
     const trace = topologyEngine.tracePath(source, target);
     res.json(trace);
@@ -478,6 +482,9 @@ router.post('/flow-path', (req, res) => {
     if (!sourceIp && !destIp) {
       return res.status(400).json({ error: 'sourceIp or destIp is required.' });
     }
+    if ((sourceIp && !isSafeNetworkTarget(sourceIp)) || (destIp && !isSafeNetworkTarget(destIp))) {
+      return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
+    }
 
     // Resolve path across topology
     const pathTrace = topologyEngine.tracePath(sourceIp, destIp);
@@ -504,6 +511,13 @@ router.post('/flow-path', (req, res) => {
 router.post('/tools/async-sweep', async (req, res) => {
   try {
     const { targets, concurrency = 25, timeoutMs = 800 } = req.body;
+    if (Array.isArray(targets)) {
+      for (const t of targets) {
+        if (!isSafeNetworkTarget(t)) {
+          return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
+        }
+      }
+    }
     const result = await wireDiagnostics.asyncSweepNodes(targets, parseInt(concurrency, 10), parseInt(timeoutMs, 10));
     res.json(result);
   } catch (err) {
@@ -572,6 +586,7 @@ router.post('/port-scan', async (req, res) => {
   try {
     const { host, ports, concurrency = 10, timeoutMs = 2000 } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
+    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
     const result = await scanPorts(host, ports, concurrency, timeoutMs);
     res.json(result);
   } catch (err) {
@@ -583,6 +598,7 @@ router.post('/tls-audit', async (req, res) => {
   try {
     const { host, port = 443, timeoutMs = 4000 } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
+    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
     const result = await auditTls(host, port, timeoutMs);
     res.json(result);
   } catch (err) {
@@ -594,6 +610,7 @@ router.post('/snmp', async (req, res) => {
   try {
     const { host, community = 'public', port = 161, mode = 'system', rootOid = null } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
+    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
     let result;
     if (mode === 'walk') {
       result = await walkOid(host, rootOid || STANDARD_OIDS.ifDescr, community, port);
@@ -677,6 +694,9 @@ router.post('/scanner/wol', async (req, res) => {
     const { macAddress, broadcastIp = '255.255.255.255', port = 9 } = req.body;
     if (!macAddress) {
       return res.status(400).json({ error: 'macAddress is required for Wake-on-LAN.' });
+    }
+    if (broadcastIp && broadcastIp !== '255.255.255.255' && !isSafeNetworkTarget(broadcastIp)) {
+      return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
     }
     const result = await sendWakeOnLan(macAddress, broadcastIp, port);
     res.json(result);

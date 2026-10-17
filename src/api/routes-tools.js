@@ -10,6 +10,7 @@ const express = require('express');
 const router = express.Router();
 const { toolSandbox, ToolExecutionError } = require('../core/tool-sandbox');
 const { authenticate } = require('./middleware');
+const { isSafeNetworkTarget } = require('../core/ai-brain');
 
 // Mandatory cryptographic authentication on all diagnostic tool routes
 router.use(authenticate);
@@ -57,6 +58,15 @@ router.post('/execute', async (req, res) => {
     return res.status(400).json({
       success: false,
       error: "Missing required parameter 'tool' in request body."
+    });
+  }
+
+  const targetHost = params && (params.target || params.ip || params.domain || params.host);
+  if (targetHost && !isSafeNetworkTarget(String(targetHost).trim())) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target rejected by SSRF defense policy',
+      code: 'SSRF_REJECTED'
     });
   }
 

@@ -277,6 +277,9 @@ class AIBrain {
     this.hypothesisCalibration = {};
     this.feedbackHistory = [];
 
+    // Cross-Layer Host Telemetry Context Snapshot
+    this.lastHostHealthSnapshot = null;
+
     // Load persisted memory from disk
     this._loadMemory();
 
@@ -336,6 +339,7 @@ class AIBrain {
     this.consecutiveRollbacks = 0;
     this.circuitBreakerTripped = false;
     this.runtimeErrorCount = 0;
+    this.lastHostHealthSnapshot = null;
     return this.dynamicConfig;
   }
 
@@ -352,9 +356,42 @@ class AIBrain {
       this.recentEventsBuffer = [];
       this.hypothesisCalibration = {};
       this.feedbackHistory = [];
+      this.lastHostHealthSnapshot = null;
       this.resetToDefaultConfig();
       this._loadMemory();
     }
+  }
+
+  /**
+   * Extracts a normalized host resource & NIC health context from the 4-pillar host audit
+   * so network wire anomalies can be correlated against local workstation saturation.
+   */
+  _extractHostContext(hostAudit = {}) {
+    const anomalies = Array.isArray(hostAudit.anomalies) ? hostAudit.anomalies : [];
+    const cpuPercent = Number(hostAudit.pillars?.resources?.cpu?.loadPercent ?? hostAudit.cpuLoadPercent ?? hostAudit.resources?.cpuUsagePercent ?? hostAudit.cpuPercent ?? 0);
+    const memPercent = Number(hostAudit.pillars?.resources?.memory?.usedPercent ?? hostAudit.memoryUsedPercent ?? hostAudit.resources?.memoryUsagePercent ?? hostAudit.memPercent ?? 0);
+    const diskQueue = Number(hostAudit.pillars?.storage?.diskQueueLength ?? hostAudit.resources?.diskQueueLength ?? hostAudit.diskQueue ?? 0);
+    const hasNicError = Boolean(hostAudit.network?.localNicDegraded) || Boolean(hostAudit.localNicDegraded) || anomalies.some(a => /network|adapter|nic|driver|ndis|drop/i.test(`${a.title || ''} ${a.plainEnglish || ''}`));
+    const hasCpuOrMemCritical = Boolean(hostAudit.network?.localHostSaturated) || Boolean(hostAudit.localHostSaturated) || cpuPercent >= 90 || memPercent >= 92 || anomalies.some(a => a.severity === 'CRITICAL' && /cpu|memory|ram|resource/i.test(a.title || ''));
+
+    return {
+      overallStatus: hostAudit.overallStatus || 'HEALTHY',
+      cpuPercent,
+      memPercent,
+      diskQueue,
+      localHostSaturated: Boolean(hasCpuOrMemCritical),
+      localNicDegraded: Boolean(hasNicError),
+      activeHostAnomaliesCount: anomalies.length,
+      capturedAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Ingest host telemetry snapshot into memory for cross-layer correlation
+   */
+  ingestHostTelemetrySnapshot(hostAudit = {}) {
+    this.lastHostHealthSnapshot = this._extractHostContext(hostAudit);
+    return this.lastHostHealthSnapshot;
   }
 
   /**
@@ -1182,13 +1219,17 @@ class AIBrain {
       handshakeLatencyMs: event.handshakeLatencyMs,
       appLatencyMs: event.appLatencyMs,
       dnsRcode: event.dnsRcode,
-      tlsAlertCode: event.tlsAlertCode
+      tlsAlertCode: event.tlsAlertCode,
+      hostContext: event.hostContext || this.lastHostHealthSnapshot || null
     });
 
     let revisedEvaluation = evaluation;
     if (this.activeIncidents.has(incidentKey)) {
       const priorIncident = this.activeIncidents.get(incidentKey);
-      revisedEvaluation = reasoningEngine.reviseBeliefs(priorIncident.evaluation, event);
+      revisedEvaluation = reasoningEngine.reviseBeliefs(priorIncident.evaluation, {
+        ...event,
+        hostContext: event.hostContext || this.lastHostHealthSnapshot || null
+      });
     }
 
     const briefing = incidentBriefingProvider.synthesizeBriefing(revisedEvaluation, event);
@@ -1244,8 +1285,12 @@ class AIBrain {
    * Comprehensive On-Demand Incident Diagnostic Entry Point
    */
   diagnoseIncident(params = {}) {
-    const evaluation = reasoningEngine.evaluateIncident(params);
-    const briefing = incidentBriefingProvider.synthesizeBriefing(evaluation, params);
+    const enrichedParams = {
+      ...params,
+      hostContext: params.hostContext || this.lastHostHealthSnapshot || null
+    };
+    const evaluation = reasoningEngine.evaluateIncident(enrichedParams);
+    const briefing = incidentBriefingProvider.synthesizeBriefing(evaluation, enrichedParams);
 
     return {
       incidentType: evaluation.incidentType,
@@ -1256,6 +1301,9 @@ class AIBrain {
       simpleOperatorMode: briefing.simpleOperatorMode,
       expertDiagnosticMode: briefing.expertDiagnosticMode,
       baselineContext: params.destIp ? this.baselineMetrics.get(params.destIp) || null : null,
+      hostContext: evaluation.hostContext || enrichedParams.hostContext || null,
+      crossLayerCorrelation: Boolean(evaluation.crossLayerCorrelation),
+      crossLayerNotes: evaluation.crossLayerNotes || [],
       evaluatedAt: evaluation.evaluatedAt
     };
   }
@@ -1819,62 +1867,77 @@ class AIBrain {
    * Evaluate host hardware diagnostics audit and produce plain-English synthesis with raw proof
    */
   evaluateHostHealth(hostAudit = {}) {
+    this.lastHostHealthSnapshot = this._extractHostContext(hostAudit);
+
     const anomalies = hostAudit.anomalies || [];
     const overallStatus = hostAudit.overallStatus || 'HEALTHY';
     const hostName = hostAudit.host?.hostname || 'Host';
 
+    let result;
     if (overallStatus === 'COLLECTION_ERROR') {
-      return {
+      result = {
         overallStatus: 'COLLECTION_ERROR',
         summary: `Host ${hostName} telemetry collection encountered operating system or permission errors.`,
         criticalIssuesCount: 0,
         warningIssuesCount: anomalies.length,
         recommendedAction: 'Verify PowerShell execution permissions and WMI/CIM service health.',
-        plainEnglishReport: 'One or more subsystem telemetry queries failed, timed out, or encountered access denials on the host.'
+        plainEnglishReport: 'One or more subsystem telemetry queries failed, timed out, or encountered access denials on the host.',
+        crossLayerCorrelationActive: true,
+        hostContext: this.lastHostHealthSnapshot
       };
-    }
-
-    if (overallStatus === 'UNKNOWN') {
-      return {
+    } else if (overallStatus === 'UNKNOWN') {
+      result = {
         overallStatus: 'UNKNOWN',
         summary: `Host ${hostName} telemetry unsupported on platform '${hostAudit.host?.platform || 'unknown'}'.`,
         criticalIssuesCount: 0,
         warningIssuesCount: 0,
         recommendedAction: 'Execute on supported Windows environment for full CIM/WMI telemetry.',
-        plainEnglishReport: 'Hardware and subsystem telemetry sources are not supported on this platform.'
+        plainEnglishReport: 'Hardware and subsystem telemetry sources are not supported on this platform.',
+        crossLayerCorrelationActive: true,
+        hostContext: this.lastHostHealthSnapshot
       };
-    }
-
-    if (anomalies.length === 0) {
-      return {
+    } else if (anomalies.length === 0) {
+      result = {
         overallStatus,
         summary: `Host ${hostName} is operating with nominal parameters across all 4 foundational pillars.`,
         criticalIssuesCount: 0,
         warningIssuesCount: 0,
         recommendedAction: 'No remediation necessary.',
-        plainEnglishReport: 'All hardware subsystems (CPU, memory, storage volumes, network interfaces, and drivers) are functioning within normal operational baselines.'
+        plainEnglishReport: 'All hardware subsystems (CPU, memory, storage volumes, network interfaces, and drivers) are functioning within normal operational baselines.',
+        crossLayerCorrelationActive: true,
+        hostContext: this.lastHostHealthSnapshot
+      };
+    } else {
+      const criticals = anomalies.filter(a => a.severity === 'CRITICAL');
+      const warnings = anomalies.filter(a => a.severity === 'WARNING');
+      const topAnomaly = criticals[0] || warnings[0];
+
+      result = {
+        overallStatus,
+        summary: `Host stability is ${overallStatus.toLowerCase()} with ${criticals.length} critical and ${warnings.length} warning condition(s).`,
+        criticalIssuesCount: criticals.length,
+        warningIssuesCount: warnings.length,
+        topAnomaly: {
+          title: topAnomaly.title,
+          severity: topAnomaly.severity,
+          plainEnglish: topAnomaly.plainEnglish,
+          rawProof: topAnomaly.rawProof,
+          recipeId: topAnomaly.recipeId
+        },
+        recommendedAction: topAnomaly.recipeId || 'review_audit',
+        plainEnglishReport: `Primary operational finding: ${topAnomaly.plainEnglish} Technical evidence: ${topAnomaly.rawProof}. Staged remediation: ${topAnomaly.recipeId}.`,
+        crossLayerCorrelationActive: true,
+        hostContext: this.lastHostHealthSnapshot
       };
     }
 
-    const criticals = anomalies.filter(a => a.severity === 'CRITICAL');
-    const warnings = anomalies.filter(a => a.severity === 'WARNING');
-    const topAnomaly = criticals[0] || warnings[0];
+    this._notifyDiagnosticUpdate({
+      eventType: 'HOST_HEALTH_DIAGNOSTIC',
+      report: result,
+      hostContext: this.lastHostHealthSnapshot
+    });
 
-    return {
-      overallStatus,
-      summary: `Host stability is ${overallStatus.toLowerCase()} with ${criticals.length} critical and ${warnings.length} warning condition(s).`,
-      criticalIssuesCount: criticals.length,
-      warningIssuesCount: warnings.length,
-      topAnomaly: {
-        title: topAnomaly.title,
-        severity: topAnomaly.severity,
-        plainEnglish: topAnomaly.plainEnglish,
-        rawProof: topAnomaly.rawProof,
-        recipeId: topAnomaly.recipeId
-      },
-      recommendedAction: topAnomaly.recipeId || 'review_audit',
-      plainEnglishReport: `Primary operational finding: ${topAnomaly.plainEnglish} Technical evidence: ${topAnomaly.rawProof}. Staged remediation: ${topAnomaly.recipeId}.`
-    };
+    return result;
   }
 }
 

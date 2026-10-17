@@ -9,7 +9,8 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { PORT, HOST } = require('./config');
+const config = require('./config');
+const { PORT, HOST } = config;
 const { db, initSchema } = require('./db/database');
 const { seedDatabase } = require('./db/seed');
 const { probeNodeDual } = require('./protocols/dual-prober');
@@ -182,11 +183,18 @@ wss.on('connection', (ws, req) => {
  * Broadcast payload to all connected WebSocket clients
  */
 function broadcast(type, payload) {
-  const message = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
+  let message;
+  let eventType = type;
+  if (typeof type === 'object' && type !== null) {
+    message = JSON.stringify({ ...type, timestamp: type.timestamp || new Date().toISOString() });
+    eventType = type.type;
+  } else {
+    message = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
+  }
   for (const client of activeClients) {
     if (client.readyState === 1) { // OPEN
       // Security Filter: PACKET_STREAM_FRAME requires authenticated session with network.capture.execute or telemetry.read
-      if (type === 'PACKET_STREAM_FRAME') {
+      if (eventType === 'PACKET_STREAM_FRAME') {
         const isAuth = client.user && client.user.id !== 'ANON';
         const hasAccess = isAuth && (
           hasPermission(client.user.role, 'network.capture.execute') ||
@@ -207,7 +215,14 @@ app.locals.broadcast = broadcast;
 
 // Initialize AI Brain broadcast handler for live diagnostic streaming
 const { aiBrain } = require('./core/ai-brain');
-aiBrain.setBroadcastHandler((type, payload) => broadcast(type, payload));
+aiBrain.setBroadcastHandler((eventType, payload) => {
+  broadcast({
+    type: 'AI_BRAIN_DIAGNOSTIC_UPDATE',
+    subType: eventType,
+    payload,
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Initialize live packet streamer
 const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
@@ -284,7 +299,7 @@ async function pollRegisteredNodes() {
 const pollingInterval = setInterval(pollRegisteredNodes, 30000);
 
 // Run initial poll 3 seconds after boot
-setTimeout(pollRegisteredNodes, 3000);
+const initialPollTimeout = setTimeout(pollRegisteredNodes, 3000);
 
 // Start server
 server.listen(PORT, HOST, () => {
@@ -298,18 +313,52 @@ server.listen(PORT, HOST, () => {
   console.log(`================================================================`);
 });
 
-// Graceful termination
-function shutdown() {
-  console.log('\nShutting down EJII gracefully...');
+// Graceful termination & WAL Checkpoint
+async function gracefulShutdown(signal = 'SIGTERM') {
+  console.log(`\n[EJII] Gracefully shutting down (${signal})...`);
   clearInterval(pollingInterval);
-  packetStreamer.stopStreaming();
-  server.close(() => {
-    console.log('HTTP and WebSocket servers closed.');
-    process.exit(0);
+  if (initialPollTimeout) clearTimeout(initialPollTimeout);
+  try {
+    aiBrain.stopContinuousReasoning();
+  } catch (_) {}
+  try {
+    packetStreamer.stopStreaming();
+  } catch (_) {}
+  for (const client of activeClients) {
+    try {
+      client.close(1001, 'Server shutting down');
+    } catch (_) {}
+  }
+  activeClients.clear();
+
+  await new Promise((resolve) => {
+    wss.close(() => {
+      server.close(() => {
+        try {
+          db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+        } catch (_) {}
+        console.log('[EJII] HTTP & WebSocket servers closed, SQLite WAL checkpointed.');
+        resolve();
+      });
+    });
   });
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+function handleSignal(signal) {
+  gracefulShutdown(signal).then(() => {
+    process.exit(0);
+  }).catch(() => {
+    process.exit(1);
+  });
+}
 
-module.exports = { app, server, broadcast };
+process.on('SIGINT', () => handleSignal('SIGINT'));
+process.on('SIGTERM', () => handleSignal('SIGTERM'));
+
+module.exports = {
+  app,
+  server,
+  broadcast,
+  gracefulShutdown,
+  shutdownServer: gracefulShutdown
+};

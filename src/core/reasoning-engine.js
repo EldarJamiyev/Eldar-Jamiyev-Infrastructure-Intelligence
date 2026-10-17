@@ -28,6 +28,14 @@ class BayesianReasoningEngine {
         category: 'LOCAL_HOST_FAILURE',
         rfc: 'RFC 1122 (Requirements for Internet Hosts - Communication Layers)'
       },
+      LOCAL_HOST_RESOURCE_EXHAUSTION: {
+        id: 'LOCAL_HOST_RESOURCE_EXHAUSTION',
+        label: 'Local Host Workstation Resource Exhaustion',
+        description: 'Local system CPU saturation, memory exhaustion, or disk I/O queue delay causing socket latency or packet drops.',
+        defaultPrior: 0.15,
+        category: 'LOCAL_HOST_FAILURE',
+        rfc: 'RFC 1122 (Requirements for Internet Hosts - Host Architecture)'
+      },
       GATEWAY_UNREACHABLE: {
         id: 'GATEWAY_UNREACHABLE',
         label: 'Default Gateway / L2 Perimeter Router Unreachable',
@@ -143,6 +151,19 @@ class BayesianReasoningEngine {
       ];
     }
 
+    // Incorporate cross-layer host context (e.g. from evaluateHostHealth)
+    const hostContext = safeTelemetry.hostContext || null;
+    const isHostSaturated = Boolean(hostContext?.localHostSaturated || hostContext?.localNicDegraded);
+
+    if (isHostSaturated) {
+      if (!activeHypotheses.includes('LOCAL_NIC_STACK_ERROR')) {
+        activeHypotheses.push('LOCAL_NIC_STACK_ERROR');
+      }
+      if (!activeHypotheses.includes('LOCAL_HOST_RESOURCE_EXHAUSTION')) {
+        activeHypotheses.push('LOCAL_HOST_RESOURCE_EXHAUSTION');
+      }
+    }
+
     // Rule of Contradictory Proof: Evaluate hard disproof rules against telemetry
     const contradictoryEvidence = this._evaluateContradictoryEvidence(safeTelemetry);
     const contradictedMap = new Map();
@@ -186,6 +207,10 @@ class BayesianReasoningEngine {
       if (!contradictedMap.has(hId) && calibrationWeights[hId] !== undefined) {
         const cal = Math.min(2.0, Math.max(0.5, Number(calibrationWeights[hId]) || 1.0));
         weight *= cal;
+      }
+      // Cross-layer host correlation: boost local host/interface bottleneck weight by 1.45x
+      if (isHostSaturated && (hId === 'LOCAL_HOST_RESOURCE_EXHAUSTION' || hId === 'LOCAL_NIC_STACK_ERROR' || this.hypothesesDefinitions[hId]?.category === 'LOCAL_HOST_FAILURE')) {
+        weight *= 1.45;
       }
       posteriors[hId] = weight;
       totalEvidenceWeight += weight;
@@ -251,7 +276,8 @@ class BayesianReasoningEngine {
         status: isContradicted ? 'CONTRADICTED' : (confidencePct >= 60 ? 'PROMOTED' : (confidencePct <= 10 ? 'ELIMINATED' : 'CONSIDERED')),
         isContradicted,
         contradictionRule: contradiction?.rule || null,
-        contradictionReason: contradiction?.reason || null
+        contradictionReason: contradiction?.reason || null,
+        crossLayerEvidence: (hId === 'LOCAL_HOST_RESOURCE_EXHAUSTION' || hId === 'LOCAL_NIC_STACK_ERROR') && isHostSaturated ? 'Correlated with host telemetry saturation' : null
       });
     });
 
@@ -299,6 +325,12 @@ class BayesianReasoningEngine {
       engineeringProvenance = briefing.expertDiagnosticMode || null;
     } catch (e) {}
 
+    const crossLayerActive = Boolean(isHostSaturated);
+    let crossLayerNotes = null;
+    if (crossLayerActive) {
+      crossLayerNotes = `Cross-layer telemetry active: Host CPU=${hostContext.cpuPercent || 0}%, RAM=${hostContext.memPercent || 0}%, NicDegraded=${Boolean(hostContext.localNicDegraded)}, HostSaturated=${Boolean(hostContext.localHostSaturated)}. Local host bottlenecks prioritized over remote link delay.`;
+    }
+
     return {
       incidentType,
       telemetry: safeTelemetry,
@@ -313,6 +345,9 @@ class BayesianReasoningEngine {
         : helpdeskSummary,
       engineeringProvenance,
       totalEvidenceWeight: Number(totalEvidenceWeight.toFixed(4)),
+      hostContext,
+      crossLayerCorrelation: crossLayerActive,
+      crossLayerNotes,
       evaluatedAt: new Date().toISOString()
     };
   }
@@ -343,12 +378,14 @@ class BayesianReasoningEngine {
         reason: 'Default gateway responded to ICMP Echo in <2ms; local L2 network segment and perimeter gateway router are confirmed online.',
         timestamp: new Date().toISOString()
       });
-      contradictory.push({
-        hypothesis: 'LOCAL_NIC_STACK_ERROR',
-        rule: 'RFC 1122',
-        reason: 'Local host network interface controller and NDIS stack successfully transmitted and received frames on the physical wire.',
-        timestamp: new Date().toISOString()
-      });
+      if (!telemetry.hostContext?.localNicDegraded && !telemetry.hostContext?.localHostSaturated) {
+        contradictory.push({
+          hypothesis: 'LOCAL_NIC_STACK_ERROR',
+          rule: 'RFC 1122',
+          reason: 'Local host network interface controller and NDIS stack successfully transmitted and received frames on the physical wire.',
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
     if (targetPingReachable === true) {
@@ -586,8 +623,15 @@ class BayesianReasoningEngine {
         return 0.20;
 
       case 'LOCAL_NIC_STACK_ERROR':
+        if (safeT.hostContext?.localNicDegraded) return 0.95;
+        if (safeT.hostContext?.localHostSaturated) return 0.85;
         if (safeT.gatewayReachable === true || safeT.altPortReachable === true) return 0.02; // Can talk to LAN, NIC is functioning
         return 0.15;
+
+      case 'LOCAL_HOST_RESOURCE_EXHAUSTION':
+        if (safeT.hostContext?.localHostSaturated) return 0.96;
+        if (safeT.hostContext?.localNicDegraded) return 0.85;
+        return 0.10;
 
       case 'REMOTE_HOST_DOWN':
         if (safeT.targetPingReachable === true || safeT.altPortReachable === true || safeT.targetPortReachable === true || safeT.errorCode === 'ECONNREFUSED') return 0.01; // Host verified alive!
