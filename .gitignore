@@ -6,28 +6,28 @@ package-lock.json.bak
 *.log
 npm-debug.log*
 
-# Database (keep schema and seed intact, ignore local test locks/shm/wal)
+# Database & Runtime State (Keep schema and seed intact; ignore runtime mutable databases)
+data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
+
+# Runtime audit trails, security ledgers, and AI memory baselines
+data/audit/
+data/security/
+data/brain_memory*.json
 
 # OS files
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# Environment
+# Environment & Secrets (Never commit production credentials)
+.env
 .env.local
 .env.*.local
 
+# Backups & Archives
 backups/
 EJI-Platform/
 *.zip
 *.backup-*
-
-# Runtime audit trails and security ledgers
-data/audit/*.jsonl
-data/audit/.chain_head
-data/security/consumed_tokens.json
-data/brain_memory*.json
-
-

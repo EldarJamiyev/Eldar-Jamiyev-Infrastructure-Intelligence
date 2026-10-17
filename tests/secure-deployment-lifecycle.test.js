@@ -24,9 +24,6 @@ async function runSecureDeploymentLifecycleTests() {
   console.log('  Production Secrets, First-Run Bootstrap, Password Persistence & Replay');
   console.log('========================================================================');
 
-  // TEMPORARY DELIBERATE FAULT INJECTION FOR TEST-RUNNER INTEGRITY VERIFICATION
-  assert.equal(process.env.EJII_TEST_INDUCED_FAULT ? 1 : 0, 1, 'DELIBERATE_TEST_RUNNER_INTEGRITY_FAULT: Verifying test runner exits with code 1 on failed assertion');
-
   const rootDir = path.resolve(__dirname, '..');
   const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'ejii-lifecycle-test-'));
 
