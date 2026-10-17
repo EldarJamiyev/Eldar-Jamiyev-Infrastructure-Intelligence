@@ -104,8 +104,10 @@ function verifyPassword(plainPassword, storedHash, salt) {
 function createToken(payload, expiresInSeconds = 86400) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
+  const jti = payload.jti || (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
   const tokenPayload = {
     ...payload,
+    jti,
     iat: now,
     exp: now + expiresInSeconds
   };
@@ -174,6 +176,11 @@ function revokeAllUserTokens(userId, reason = 'Bulk user revocation') {
       VALUES (?, ?, ?, ?)
     `).run(`USER_BULK_${userId}_${Date.now()}`, userId, reason, new Date().toISOString());
   } catch (e) {}
+  return true;
+}
+
+function clearRevokedUser(userId) {
+  if (userId) revokedUsers.delete(userId);
   return true;
 }
 
@@ -251,6 +258,7 @@ module.exports = {
   verifyToken,
   revokeToken,
   revokeAllUserTokens,
+  clearRevokedUser,
   isTokenRevoked,
   hasPermission,
   getRoleCapabilities
