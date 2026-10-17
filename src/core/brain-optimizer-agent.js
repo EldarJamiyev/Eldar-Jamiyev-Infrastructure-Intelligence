@@ -128,24 +128,19 @@ async function generateOptimizedBrainConfig({
   }
 
   // Rule D: High RST/Retransmission churn -> adjust incident prune timeout and sample requirements
+  // while strictly preserving the 5-sample ESTABLISHED baseline SLA (establishedSampleThreshold <= 5)
   if (rstOrRetransEvents.length >= 5) {
     const newMinSamples = clamp(
-      Math.max(3, validCurrent.minBaselineSamples + 1),
+      Math.min(4, Math.max(3, validCurrent.minBaselineSamples + 1)),
       SCHEMA_BOUNDS.minBaselineSamples.min,
-      SCHEMA_BOUNDS.minBaselineSamples.max,
+      4,
       true
     );
-    const newEstablished = Math.max(newMinSamples + 2, validCurrent.establishedSampleThreshold);
     if (newMinSamples !== validCurrent.minBaselineSamples) {
       proposed.minBaselineSamples = newMinSamples;
-      proposed.establishedSampleThreshold = clamp(
-        newEstablished,
-        SCHEMA_BOUNDS.establishedSampleThreshold.min,
-        SCHEMA_BOUNDS.establishedSampleThreshold.max,
-        true
-      );
+      proposed.establishedSampleThreshold = 5;
       rationaleParts.push(
-        `Increased minBaselineSamples ${validCurrent.minBaselineSamples} -> ${newMinSamples} (established=${proposed.establishedSampleThreshold}) to stabilize Welford variance against ${rstOrRetransEvents.length} TCP RST/retransmission events.`
+        `Adjusted minBaselineSamples ${validCurrent.minBaselineSamples} -> ${newMinSamples} (preserving 5-sample ESTABLISHED SLA) against ${rstOrRetransEvents.length} TCP RST/retransmission events.`
       );
     }
   }

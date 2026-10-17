@@ -195,11 +195,30 @@ async function resolveAndValidateTarget(rawTarget) {
 
   const dnsPromises = dns.promises;
   const resolvedIps = [];
-  try {
-    const v4 = await dnsPromises.resolve4(clean).catch(() => []);
-    const v6 = await dnsPromises.resolve6(clean).catch(() => []);
-    resolvedIps.push(...v4, ...v6);
-  } catch (_) {}
+
+  if (clean.toLowerCase() === 'localhost') {
+    resolvedIps.push('127.0.0.1', '::1');
+  } else {
+    try {
+      const v4 = await dnsPromises.resolve4(clean).catch(() => []);
+      const v6 = await dnsPromises.resolve6(clean).catch(() => []);
+      resolvedIps.push(...v4, ...v6);
+    } catch (_) {}
+
+    // Fallback to getaddrinfo lookup if resolve4/resolve6 yielded empty
+    if (resolvedIps.length === 0) {
+      try {
+        const lookups = await dnsPromises.lookup(clean, { all: true }).catch(() => []);
+        if (Array.isArray(lookups)) {
+          for (const l of lookups) {
+            if (l && l.address && !resolvedIps.includes(l.address)) {
+              resolvedIps.push(l.address);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }
 
   for (const ip of resolvedIps) {
     if (!isSafeNetworkTarget(ip)) {
@@ -307,15 +326,33 @@ class AIBrain {
   }
 
   /**
-   * Set custom memory file path (useful for test runner isolation)
+   * Resets dynamic configuration and calibration weights back to deterministic factory defaults.
+   */
+  resetToDefaultConfig() {
+    this.dynamicConfig = { ...DEFAULT_BRAIN_CONFIG };
+    this.maxEvents = this.dynamicConfig.maxEvents;
+    this.maxHistory = this.dynamicConfig.maxHistory;
+    this.lastStableConfig = { ...this.dynamicConfig };
+    this.consecutiveRollbacks = 0;
+    this.circuitBreakerTripped = false;
+    this.runtimeErrorCount = 0;
+    return this.dynamicConfig;
+  }
+
+  /**
+   * Set custom memory file path (ensures complete test runner isolation of both memory and config)
    */
   setMemoryFilePath(customPath) {
     if (customPath) {
       this.memoryFilePath = customPath;
+      this.configFilePath = path.join(path.dirname(customPath), 'brain-config.isolated.json');
       this.baselineMetrics.clear();
       this.incidentHistory = [];
+      this.activeIncidents.clear();
+      this.recentEventsBuffer = [];
       this.hypothesisCalibration = {};
       this.feedbackHistory = [];
+      this.resetToDefaultConfig();
       this._loadMemory();
     }
   }
@@ -1285,28 +1322,45 @@ class AIBrain {
 
     // Target safety and SSRF validation (including DNS rebinding defense)
     let target = null;
+    let pinnedIp = null;
+    let isIpLiteral = false;
+
     if (probeType === 'ICMP_PING_GATEWAY') {
       target = isSafeNetworkTarget(targetIp) ? targetIp.trim() : gatewayIp;
+      pinnedIp = target;
+      isIpLiteral = net.isIP(target) !== 0;
     } else {
       if (targetIp) {
         try {
           const validated = await resolveAndValidateTarget(targetIp);
           target = validated.safeTarget;
+          pinnedIp = (validated.resolvedIps && validated.resolvedIps[0])
+            ? validated.resolvedIps[0]
+            : validated.safeTarget;
+          isIpLiteral = Boolean(validated.isIpLiteral);
         } catch (secErr) {
           return {
             success: false,
             probeType,
             target: targetIp,
+            pinnedIp: null,
             probeSuccess: false,
             latencyMs: 0,
             errorCode: 'SECURITY_TARGET_REJECTED',
             rawOutput: `Security rejection: Target '${targetIp}' is invalid or blocked by SSRF defense policy (${secErr.message}).`,
             error: 'SECURITY_TARGET_REJECTED',
+            probeDetails: {
+              target: targetIp,
+              pinnedIp: null,
+              errorCode: 'SECURITY_TARGET_REJECTED'
+            },
             revisedEvaluation: null
           };
         }
       } else {
         target = gatewayIp;
+        pinnedIp = gatewayIp;
+        isIpLiteral = net.isIP(gatewayIp) !== 0;
       }
     }
 
@@ -1323,9 +1377,10 @@ class AIBrain {
     const startTime = Date.now();
     try {
       if (probeType === 'ICMP_PING_GATEWAY' || probeType === 'ICMP_PING_TARGET') {
+        const pingDest = pinnedIp || target;
         const pingArgs = process.platform === 'win32'
-          ? ['-n', '1', '-w', '1000', target]
-          : ['-c', '1', '-W', '1', target];
+          ? ['-n', '1', '-w', '1000', pingDest]
+          : ['-c', '1', '-W', '1', pingDest];
         rawOutput = await new Promise((resolve) => {
           execFile('ping', pingArgs, { timeout: 2500, windowsHide: true }, (err, stdout, stderr) => {
             resolve(stdout || stderr || (err ? err.message : ''));
@@ -1365,19 +1420,19 @@ class AIBrain {
             socket.destroy();
             resolve(false);
           });
-          socket.connect(port, target);
+          socket.connect(port, pinnedIp || target);
         });
 
         if (probeSuccess) {
-          rawOutput = `TCP connection to ${target}:${port} connected in ${latencyMs}ms (full TCP 3-way handshake SYN->SYN/ACK->ACK completed via net.Socket)`;
+          rawOutput = `TCP connection to ${target}:${port} [pinned=${pinnedIp}] connected in ${latencyMs}ms (full TCP 3-way handshake SYN->SYN/ACK->ACK completed via net.Socket)`;
         } else if (socketErrorCode === 'ECONNREFUSED') {
-          rawOutput = `TCP connection to ${target}:${port} rejected with ECONNREFUSED in ${latencyMs}ms (host is online and reachable; target OS kernel returned explicit RFC 793 TCP RST)`;
+          rawOutput = `TCP connection to ${target}:${port} [pinned=${pinnedIp}] rejected with ECONNREFUSED in ${latencyMs}ms (host is online and reachable; target OS kernel returned explicit RFC 793 TCP RST)`;
         } else if (timedOut || socketErrorCode === 'ETIMEDOUT') {
-          rawOutput = `TCP connection to ${target}:${port} timed out in ${latencyMs}ms (no TCP SYN/ACK or RST received; indicates stateful firewall silent drop / perimeter ACL or routing blackhole)`;
+          rawOutput = `TCP connection to ${target}:${port} [pinned=${pinnedIp}] timed out in ${latencyMs}ms (no TCP SYN/ACK or RST received; indicates stateful firewall silent drop / perimeter ACL or routing blackhole)`;
         } else if (socketErrorCode === 'EHOSTUNREACH' || socketErrorCode === 'ENETUNREACH') {
-          rawOutput = `TCP connection to ${target}:${port} failed with ${socketErrorCode} in ${latencyMs}ms (upstream routing failure; intermediate router returned ICMP Destination Unreachable)`;
+          rawOutput = `TCP connection to ${target}:${port} [pinned=${pinnedIp}] failed with ${socketErrorCode} in ${latencyMs}ms (upstream routing failure; intermediate router returned ICMP Destination Unreachable)`;
         } else {
-          rawOutput = `TCP connection to ${target}:${port} failed: ${socketErrorCode || 'timed out or refused'} in ${latencyMs}ms`;
+          rawOutput = `TCP connection to ${target}:${port} [pinned=${pinnedIp}] failed: ${socketErrorCode || 'timed out or refused'} in ${latencyMs}ms`;
         }
       } else if (probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE') {
         const isIp = net.isIP(target) !== 0;
@@ -1409,9 +1464,9 @@ class AIBrain {
       } else if (probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT') {
         probeSuccess = await new Promise((resolve) => {
           const tlsSocket = tls.connect({
-            host: target,
+            host: pinnedIp || target,
             port: destPort,
-            servername: net.isIP(target) !== 0 ? undefined : target,
+            servername: isIpLiteral ? undefined : target,
             rejectUnauthorized: false,
             timeout: 2500
           }, () => {
@@ -1421,7 +1476,7 @@ class AIBrain {
             const alpn = tlsSocket.alpnProtocol || 'none';
             const cert = tlsSocket.getPeerCertificate();
             const certValidTo = cert?.valid_to || 'N/A';
-            rawOutput = `TLS cryptographic handshake established: protocol=${tlsNegotiatedProtocol}, cipher=${tlsNegotiatedCipher}, alpn=${alpn}, certExpiry=${certValidTo} (${latencyMs}ms)`;
+            rawOutput = `TLS cryptographic handshake established [pinned=${pinnedIp}]: protocol=${tlsNegotiatedProtocol}, cipher=${tlsNegotiatedCipher}, alpn=${alpn}, certExpiry=${certValidTo} (${latencyMs}ms)`;
             tlsSocket.end();
             resolve(true);
           });
@@ -1429,14 +1484,14 @@ class AIBrain {
             latencyMs = Date.now() - startTime;
             socketErrorCode = 'ETIMEDOUT';
             tlsSocket.destroy();
-            rawOutput = `TLS handshake timed out after ${latencyMs}ms (no ServerHello returned by endpoint)`;
+            rawOutput = `TLS handshake timed out after ${latencyMs}ms (no ServerHello returned by endpoint [pinned=${pinnedIp}])`;
             resolve(false);
           });
           tlsSocket.on('error', (err) => {
             latencyMs = Date.now() - startTime;
             socketErrorCode = err.code || err.message;
             tlsSocket.destroy();
-            rawOutput = `TLS handshake error [code=${err.code || 'ALERT'}]: ${err.message} (${latencyMs}ms)`;
+            rawOutput = `TLS handshake error [code=${err.code || 'ALERT'}]: ${err.message} (${latencyMs}ms) [pinned=${pinnedIp}]`;
             resolve(false);
           });
         });
@@ -1445,29 +1500,30 @@ class AIBrain {
         const httpLib = isHttps ? https : http;
         probeSuccess = await new Promise((resolve) => {
           const req = httpLib.request({
-            hostname: target,
+            host: pinnedIp || target,
             port: destPort,
             method: 'HEAD',
             timeout: 2500,
-            rejectUnauthorized: false
+            rejectUnauthorized: false,
+            headers: isIpLiteral ? {} : { 'Host': target }
           }, (res) => {
             latencyMs = Date.now() - startTime;
             const serverHdr = res.headers['server'] || 'N/A';
-            rawOutput = `HTTP HEAD status: ${res.statusCode} ${res.statusMessage || ''} [HTTP/${res.httpVersion}, server=${serverHdr}] in ${latencyMs}ms`;
+            rawOutput = `HTTP HEAD status: ${res.statusCode} ${res.statusMessage || ''} [HTTP/${res.httpVersion}, server=${serverHdr}, pinned=${pinnedIp}] in ${latencyMs}ms`;
             resolve(res.statusCode >= 200 && res.statusCode < 500);
           });
           req.on('timeout', () => {
             latencyMs = Date.now() - startTime;
             socketErrorCode = 'ETIMEDOUT';
             req.destroy();
-            rawOutput = `HTTP HEAD timed out after ${latencyMs}ms (no response headers received)`;
+            rawOutput = `HTTP HEAD timed out after ${latencyMs}ms (no response headers received [pinned=${pinnedIp}])`;
             resolve(false);
           });
           req.on('error', (err) => {
             latencyMs = Date.now() - startTime;
             socketErrorCode = err.code || err.message;
             req.destroy();
-            rawOutput = `HTTP HEAD error [code=${err.code || 'CONN_ERR'}]: ${err.message} in ${latencyMs}ms`;
+            rawOutput = `HTTP HEAD error [code=${err.code || 'CONN_ERR'}]: ${err.message} in ${latencyMs}ms [pinned=${pinnedIp}]`;
             resolve(false);
           });
           req.end();
@@ -1565,12 +1621,21 @@ class AIBrain {
       success: true,
       probeType,
       target,
+      pinnedIp: pinnedIp || target,
       port: isAltPortProbe ? altPort : destPort,
       probeSuccess,
       latencyMs,
       rawOutput,
       errorCode: socketErrorCode,
       negotiatedProtocol: tlsNegotiatedProtocol,
+      probeDetails: {
+        target,
+        pinnedIp: pinnedIp || target,
+        port: isAltPortProbe ? altPort : destPort,
+        socketErrorCode,
+        tlsNegotiatedProtocol,
+        tlsNegotiatedCipher
+      },
       revisedEvaluation
     };
   }

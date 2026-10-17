@@ -51,6 +51,7 @@ const { runSecureDeploymentLifecycleTests } = require('./secure-deployment-lifec
 const { runBrainSelfUpdatingHarnessTests } = require('./brain-self-updating-harness.test');
 const { runWireProbeAndAiBrainTruthTests } = require('./wire-probe-and-ai-brain-truth.test');
 const { runFullSystemE2eAndFeedbackLoopTests } = require('./full-system-e2e-and-feedback-loop.test');
+const { runUtf8IntrospectionIpPinningAndIsolationTests } = require('./utf8-introspection-ip-pinning-and-isolation.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -101,7 +102,8 @@ async function runAllTests() {
     { name: '30. Secure Deployment Lifecycle, Production Secrets, Clean Initial Boot & Audit Persistence', fn: runSecureDeploymentLifecycleTests },
     { name: '31. Autonomous Self-Updating AI Brain Harness, Dynamic Schema Gatekeeper & Circuit Breaker', fn: runBrainSelfUpdatingHarnessTests },
     { name: '32. AI Brain, Wire Probe Semantics, Kernel Socket Error Codes & SSRF Truth Audit', fn: runWireProbeAndAiBrainTruthTests },
-    { name: '33. Full System E2E, SSRF Defense, Feedback Calibration & Architecture Integrity', fn: runFullSystemE2eAndFeedbackLoopTests }
+    { name: '33. Full System E2E, SSRF Defense, Feedback Calibration & Architecture Integrity', fn: runFullSystemE2eAndFeedbackLoopTests },
+    { name: '34. UTF-8 Adapter Introspection, DNS-Rebinding IP Pinning, Singleton Isolation & Launcher Gate', fn: runUtf8IntrospectionIpPinningAndIsolationTests }
   ];
 
   for (const s of suites) {

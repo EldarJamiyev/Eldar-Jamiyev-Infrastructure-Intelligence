@@ -51,6 +51,42 @@ function isIpInSubnet(ip, subnetCidr) {
 }
 
 /**
+ * Resolves the exact UTF-8 OS interface name (e.g., "Беспроводная сеть" or "Wi-Fi")
+ * directly from Node's libuv GetAdaptersAddresses binding by matching the active IPv4 address.
+ * Eliminates OEM CP866 / Windows-1251 "???????????? ????" mojibake from CLI stdout.
+ */
+function resolveNativeUtf8AdapterName(hostIp, fallbackName = 'Ethernet') {
+  try {
+    const interfaces = os.networkInterfaces();
+    if (hostIp) {
+      for (const [ifName, addrs] of Object.entries(interfaces)) {
+        if (!Array.isArray(addrs)) continue;
+        for (const addr of addrs) {
+          if (addr && addr.family === 'IPv4' && addr.address === hostIp) {
+            return ifName;
+          }
+        }
+      }
+    }
+    // Secondary fallback: first non-internal IPv4 interface
+    for (const [ifName, addrs] of Object.entries(interfaces)) {
+      if (!Array.isArray(addrs)) continue;
+      for (const addr of addrs) {
+        if (addr && addr.family === 'IPv4' && !addr.internal && !addr.address.startsWith('169.254.')) {
+          return ifName;
+        }
+      }
+    }
+  } catch (_) {}
+
+  // If fallbackName contains mojibake question marks ("????"), replace with clean label
+  if (typeof fallbackName === 'string' && /\?{3,}/.test(fallbackName)) {
+    return 'Wi-Fi / Primary Physical NIC';
+  }
+  return fallbackName || 'Wi-Fi / Primary Physical NIC';
+}
+
+/**
  * Resolve true physical network adapter configuration
  */
 function getPhysicalNetworkInfo() {
@@ -65,6 +101,8 @@ function getPhysicalNetworkInfo() {
     subnetCidr: '10.168.195.0/24',
     subnetMask: '255.255.255.0',
     interfaceAlias: 'Ethernet',
+    adapterName: 'Ethernet',
+    adapter: 'Ethernet',
     interfaceIndex: 7,
     dnsServers: ['10.22.10.11', '10.22.10.12'],
     dhcpServer: null,
@@ -74,6 +112,7 @@ function getPhysicalNetworkInfo() {
   if (IS_WINDOWS) {
     try {
       const psScript = `
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
         $r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1
         if ($r) {
           $ip = Get-NetIPAddress -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254*' } | Select-Object -First 1
@@ -103,13 +142,16 @@ function getPhysicalNetworkInfo() {
         if (parsed.Gateway && parsed.HostIp && !isVirtualHypervisorIp(parsed.HostIp)) {
           const prefix = parsed.Prefix || 24;
           const sub = calculateSubnet(parsed.HostIp, prefix);
+          const resolvedAlias = resolveNativeUtf8AdapterName(parsed.HostIp, parsed.IfAlias);
 
           info = {
             hostIp: parsed.HostIp,
             gatewayIp: parsed.Gateway,
             subnetCidr: `${sub.networkAddress}/${sub.prefixLength}`,
             subnetMask: sub.subnetMask,
-            interfaceAlias: parsed.IfAlias || 'Ethernet',
+            interfaceAlias: resolvedAlias,
+            adapterName: resolvedAlias,
+            adapter: resolvedAlias,
             interfaceIndex: parsed.IfIndex || 7,
             dnsServers: Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : [parsed.Gateway]),
             dhcpServer: parsed.Dhcp || null,
@@ -125,10 +167,13 @@ function getPhysicalNetworkInfo() {
         for (const addr of ifaces[name]) {
           if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
             const sub = calculateSubnet(addr.address, 24);
+            const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
             info.hostIp = addr.address;
             info.subnetCidr = `${sub.networkAddress}/24`;
             info.subnetMask = sub.subnetMask;
-            info.interfaceAlias = name;
+            info.interfaceAlias = resolvedAlias;
+            info.adapterName = resolvedAlias;
+            info.adapter = resolvedAlias;
             info.isDetected = true;
             break;
           }
@@ -215,6 +260,7 @@ function calculateSubnet(ip, prefixLength = 24) {
 module.exports = {
   getPhysicalNetworkInfo,
   detectPhysicalNetwork,
+  resolveNativeUtf8AdapterName,
   calculateSubnet,
   isVirtualHypervisorIp,
   isIpInSubnet

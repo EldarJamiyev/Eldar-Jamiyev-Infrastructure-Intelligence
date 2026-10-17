@@ -26,7 +26,7 @@ fi
 # 3. Run Automated Verification Test Suite
 echo ""
 echo "[INFO] Running Zero-Simulation Automated Verification Test Suite..."
-node tests/run-all-tests.js
+NODE_ENV=test node tests/run-all-tests.js
 
 # 4. Start Server
 echo ""
@@ -34,4 +34,6 @@ echo "========================================================================"
 echo "  Starting EJII NOC Workstation on http://localhost:8443"
 echo "  Access Mode: Unprivileged NOC Operator Access"
 echo "========================================================================"
+export NODE_ENV=${NODE_ENV:-development}
+if [ "$NODE_ENV" = "test" ]; then export NODE_ENV=development; fi
 node src/server.js

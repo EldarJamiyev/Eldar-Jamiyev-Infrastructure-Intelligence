@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ========================================================================
@@ -36,11 +37,12 @@ if not exist "node_modules\" (
 :: 3. Run Automated Verification Test Suite
 echo.
 echo [INFO] Running Zero-Simulation Automated Verification Test Suite...
+set NODE_ENV=test
 node tests/run-all-tests.js
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Test verification failed. Check logs above.
+    echo [ERROR] Test verification failed with exit code %ERRORLEVEL%. Halting startup.
     pause
-    exit /b 1
+    exit /b %ERRORLEVEL%
 )
 
 :: 4. Start EJII NOC Workstation
@@ -50,6 +52,9 @@ echo   Starting EJII NOC Workstation on http://localhost:8443
 echo   Access Mode: Unprivileged NOC Operator Access
 echo ========================================================================
 echo.
+
+if not defined NODE_ENV set NODE_ENV=development
+if "%NODE_ENV%"=="test" set NODE_ENV=development
 
 start http://localhost:8443/
 node src/server.js
