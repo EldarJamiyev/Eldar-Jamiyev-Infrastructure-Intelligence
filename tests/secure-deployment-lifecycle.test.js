@@ -344,6 +344,66 @@ async function runSecureDeploymentLifecycleTests() {
     assert.match(tamperedRes.error, /HMAC signature verification failed|broken hash chain|modified or forged/i, 'Must flag broken HMAC hash chain or modified record');
     console.log('  ✓ Adversarial modification to audit log strictly detected as broken HMAC chain.');
 
+    // -------------------------------------------------------------------------
+    // TEST 6: Production Mode Bootstrap & FIRST_RUN_ADMIN_CREDENTIALS.txt
+    // -------------------------------------------------------------------------
+    console.log('\n[30.6] Testing production mode first-run credential generation & FIRST_RUN_ADMIN_CREDENTIALS.txt...');
+
+    const prodDataDir = path.join(tempBase, 'prod-clean-data');
+    fs.mkdirSync(prodDataDir, { recursive: true });
+
+    const procProdSeed = spawnSync(process.execPath, [
+      'src/db/seed.js'
+    ], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        EJII_EVALUATION_MODE: 'false',
+        EJII_DATA_DIR: prodDataDir,
+        EJII_ADMIN_PASSWORD: '', // Empty in production triggers secure random generation
+        EJII_HMAC_SECRET: 'SUPER-SECURE-PRODUCTION-HMAC-KEY-OF-HIGH-ENTROPY-2026',
+        EJII_JWT_SECRET: 'SUPER-SECURE-PRODUCTION-JWT-SECRET-OF-HIGH-ENTROPY-2026'
+      },
+      encoding: 'utf8'
+    });
+
+    assert.equal(procProdSeed.status, 0, `Production seed failed: ${procProdSeed.stderr}`);
+    assert.match(procProdSeed.stdout, /First-run production credentials written securely to/i);
+
+    const credsFilePath = path.join(prodDataDir, 'security', 'FIRST_RUN_ADMIN_CREDENTIALS.txt');
+    assert.equal(fs.existsSync(credsFilePath), true, 'FIRST_RUN_ADMIN_CREDENTIALS.txt must exist');
+    const credsContent = fs.readFileSync(credsFilePath, 'utf8');
+    assert.match(credsContent, /FIRST-RUN PRODUCTION OPERATOR CREDENTIALS/);
+    assert.match(credsContent, /Username: admin/);
+    assert.match(credsContent, /Username: sysadmin/);
+    assert.match(credsContent, /Username: netadmin/);
+    assert.match(credsContent, /Username: noc/);
+
+    // Verify dynamic consumed token file resolution
+    const dynamicTokenCheckScript = `
+      const { autonomousRemediationEngine } = require('./src/systems/remediation/autonomous-remediation-engine');
+      const tokenFile = autonomousRemediationEngine._getConsumedTokensFile();
+      console.log('TOKEN_FILE:' + tokenFile);
+    `;
+    const procDynamicTokens = spawnSync(process.execPath, [
+      '-e', dynamicTokenCheckScript
+    ], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        EJII_EVALUATION_MODE: 'false',
+        EJII_DATA_DIR: prodDataDir,
+        EJII_HMAC_SECRET: 'SUPER-SECURE-PRODUCTION-HMAC-KEY-OF-HIGH-ENTROPY-2026',
+        EJII_JWT_SECRET: 'SUPER-SECURE-PRODUCTION-JWT-SECRET-OF-HIGH-ENTROPY-2026'
+      },
+      encoding: 'utf8'
+    });
+    assert.equal(procDynamicTokens.status, 0);
+    assert.match(procDynamicTokens.stdout, new RegExp(path.join(prodDataDir, 'security', 'consumed_tokens.json').replace(/\\/g, '\\\\')));
+    console.log('  ✓ Production first-run credentials and dynamic security dir verified.');
+
     console.log('\n========================================================================');
     console.log('  SUITE 30 PASSED: SECURE DEPLOYMENT LIFECYCLE 100% OPERATIONAL         ');
     console.log('========================================================================');

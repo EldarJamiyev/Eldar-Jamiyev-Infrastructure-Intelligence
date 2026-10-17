@@ -451,8 +451,74 @@ async function runLivePacketPipelineTests() {
     console.log('  ✓ Bounded queue limit (500 max) successfully enforced backpressure under packet burst.');
   }
 
+  // ========================================================================
+  // [Test 28.9] Row selection preserved and auto-scroll paused during batch flush (Task 4)
+  // ========================================================================
+  console.log('[Test 28.9] Testing row selection highlight & details preservation across batch flush (Task 4)...');
+  {
+    const sb = createPipelineSandbox();
+    sb.state.ws = { onmessage: null };
+    sb.initWebSocket();
+
+    // Send 5 frames
+    for (let i = 1; i <= 5; i++) {
+      sb.window.handleLivePacketFrame({
+        frameNumber: i,
+        timestamp: new Date().toISOString(),
+        srcIp: '192.168.1.10',
+        dstIp: '142.250.180.3',
+        srcPort: 50000 + i,
+        dstPort: 443,
+        protocol: 'TCP',
+        length: 100 + i,
+        summary: `Frame ${i}`
+      });
+    }
+
+    sb.window.flushPacketBatch();
+
+    // Select frame #3
+    sb.window.inspectPacketFrame(3);
+
+    assert.equal(sb.window.getSelectedFrameNumber(), 3, 'selectedFrameNumber must be 3');
+    assert.equal(sb.document.getElementById('packetDetailsPane').style.display, 'flex', '#packetDetailsPane must be visible');
+
+    // Verify row #3 exists in tbody
+    let tbody = sb.document.getElementById('livePacketTableBody');
+    assert.ok(tbody.innerHTML.includes('#3</td>') || tbody.innerHTML.includes('data-frame-number="3"'), 'Frame 3 row must exist');
+
+    // Now send 10 more frames and flush batch again
+    for (let i = 6; i <= 15; i++) {
+      sb.window.handleLivePacketFrame({
+        frameNumber: i,
+        timestamp: new Date().toISOString(),
+        srcIp: '192.168.1.10',
+        dstIp: '142.250.180.3',
+        srcPort: 50000 + i,
+        dstPort: 443,
+        protocol: 'TCP',
+        length: 100 + i,
+        summary: `Frame ${i}`
+      });
+    }
+
+    sb.window.flushPacketBatch();
+
+    // Assert that selectedFrameNumber remains 3, #packetDetailsPane remains displayed, and row 3 remains pinned
+    assert.equal(sb.window.getSelectedFrameNumber(), 3, 'selectedFrameNumber must remain 3 across batch flush');
+    assert.equal(sb.document.getElementById('packetDetailsPane').style.display, 'flex', '#packetDetailsPane must remain open across batch flush');
+    tbody = sb.document.getElementById('livePacketTableBody');
+    assert.ok(tbody.innerHTML.includes('#3</td>') || tbody.innerHTML.includes('data-frame-number="3"'), 'Frame #3 must remain pinned in rendered table');
+
+    // Verify auto-scroll toggle button exists and reports paused
+    const autoScrollBtn = sb.document.getElementById('autoScrollToggleBtn');
+    assert.ok(autoScrollBtn.innerHTML.includes('PAUSED'), 'Auto-scroll must be paused while frame is selected');
+
+    console.log('  ✓ Frame selection, #packetDetailsPane, and auto-scroll pause preserved across live batch flushes.');
+  }
+
   console.log('\n========================================================================');
-  console.log('  ALL 8 LIVE PACKET PIPELINE FORENSIC TESTS PASSED (100% GREEN)         ');
+  console.log('  ALL 9 LIVE PACKET PIPELINE FORENSIC TESTS PASSED (100% GREEN)         ');
   console.log('========================================================================\n');
 }
 

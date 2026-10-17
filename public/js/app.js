@@ -213,6 +213,30 @@ async function loadLoginTelemetry() {
   } catch (e) {}
 }
 
+async function checkAuthConfig() {
+  try {
+    const authConfig = await api('/api/auth/config').catch(() => null);
+    if (authConfig && authConfig.evaluationMode === false) {
+      const pillsContainer = document.getElementById('evaluationLoginPills');
+      const quickCta = document.getElementById('evaluationQuickCta');
+      const divider = document.getElementById('evaluationLoginDivider');
+      if (pillsContainer) pillsContainer.style.display = 'none';
+      if (quickCta) quickCta.style.display = 'none';
+      if (divider) divider.style.display = 'none';
+
+      const userInp = document.getElementById('loginUsername');
+      const passInp = document.getElementById('loginPassword');
+      if (userInp) userInp.value = '';
+      if (passInp) passInp.value = '';
+      window.isEvaluationMode = false;
+    } else {
+      window.isEvaluationMode = true;
+    }
+  } catch (e) {
+    window.isEvaluationMode = true;
+  }
+}
+
 function hideLoginScreen() {
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
@@ -220,12 +244,16 @@ function hideLoginScreen() {
   if (app) app.style.display = 'flex';
 }
 
-window.showLoginScreen = showLoginScreen;
+window.showLoginScreen = function() {
+  showLoginScreen();
+  checkAuthConfig();
+};
 window.hideLoginScreen = hideLoginScreen;
 
 let selectedProfileUsername = 'admin';
 
 window.selectLoginProfile = function(username, password) {
+  if (window.isEvaluationMode === false) return;
   selectedProfileUsername = username;
   const userInp = document.getElementById('loginUsername');
   const passInp = document.getElementById('loginPassword');
@@ -250,6 +278,15 @@ window.selectLoginProfile = function(username, password) {
  * 1-Click Quick Operator Login
  */
 window.quickNocLogin = async function() {
+  if (window.isEvaluationMode === false) {
+    const errAlert = document.getElementById('loginErrorAlert');
+    const errMsg = document.getElementById('loginErrorMessage');
+    if (errAlert && errMsg) {
+      errAlert.style.display = 'flex';
+      errMsg.textContent = 'Quick NOC login is disabled in production environments.';
+    }
+    return;
+  }
   try {
     const res = await api('/api/auth/quick-noc', {
       method: 'POST',

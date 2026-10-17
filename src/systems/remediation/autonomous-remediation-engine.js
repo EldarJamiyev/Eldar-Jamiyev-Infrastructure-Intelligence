@@ -20,8 +20,7 @@ const { IS_WINDOWS, HMAC_SECRET, DATA_DIR } = require('../../config');
 const { hasPermission } = require('../../core/security');
 const { logAction } = require('../../core/audit-logger');
 
-const SECURITY_DIR = path.join(DATA_DIR, 'security');
-const CONSUMED_TOKENS_FILE = path.join(SECURITY_DIR, 'consumed_tokens.json');
+const DANGEROUS_SHELL_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 
 // Critical OS Processes that must NEVER be targeted, terminated, or throttled (F-10)
 const PROTECTED_OS_PROCESSES = new Set([
@@ -41,8 +40,6 @@ const PROTECTED_OS_PROCESSES = new Set([
   'node.exe', 'node' // Workstation runtime self-defense
 ]);
 
-const DANGEROUS_SHELL_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
-
 class AutonomousRemediationEngine {
   constructor() {
     this.remediationLog = [];
@@ -50,10 +47,20 @@ class AutonomousRemediationEngine {
     this.usedActionTokens = this._loadConsumedTokens();
   }
 
+  _getSecurityDir() {
+    const config = require('../../config');
+    return path.join(config.DATA_DIR || DATA_DIR, 'security');
+  }
+
+  _getConsumedTokensFile() {
+    return path.join(this._getSecurityDir(), 'consumed_tokens.json');
+  }
+
   _ensureSecurityDir() {
     try {
-      if (!fs.existsSync(SECURITY_DIR)) {
-        fs.mkdirSync(SECURITY_DIR, { recursive: true });
+      const secDir = this._getSecurityDir();
+      if (!fs.existsSync(secDir)) {
+        fs.mkdirSync(secDir, { recursive: true });
       }
     } catch (e) {}
   }
@@ -62,6 +69,7 @@ class AutonomousRemediationEngine {
     this._ensureSecurityDir();
     const map = new Map();
     const now = Date.now();
+    const tokenFile = this._getConsumedTokensFile();
 
     // 1. Load from persistent SQLite table (primary ACID ledger)
     try {
@@ -76,9 +84,9 @@ class AutonomousRemediationEngine {
     } catch (e) {}
 
     // 2. Also load from consumed_tokens.json for cross-compatibility
-    if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+    if (fs.existsSync(tokenFile)) {
       try {
-        const data = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
         for (const [id, expiresAt] of Object.entries(data)) {
           if (expiresAt > now) {
             map.set(id, expiresAt);
@@ -92,6 +100,7 @@ class AutonomousRemediationEngine {
   _saveConsumedToken(tokenId, expiresAt, userId = 'operator', recipeId = 'remediation') {
     this._ensureSecurityDir();
     const now = Date.now();
+    const tokenFile = this._getConsumedTokensFile();
 
     // 1. Atomic insertion into SQLite table (throws on duplicate primary key)
     try {
@@ -100,31 +109,37 @@ class AutonomousRemediationEngine {
         INSERT INTO consumed_action_tokens (token_id, user_id, recipe_id, expires_at, consumed_at)
         VALUES (?, ?, ?, ?, ?)
       `).run(tokenId, userId, recipeId, expiresAt, new Date().toISOString());
+
+      // Prune expired entries from SQLite ledger older than 2 * TTL (10m = 600,000ms)
+      try {
+        db.prepare('DELETE FROM consumed_action_tokens WHERE expires_at < ?').run(now - 300000);
+      } catch (e) {}
     } catch (e) {
       if (e.message && (e.message.includes('UNIQUE constraint') || e.message.includes('PRIMARY KEY'))) {
         throw new Error('REPLAY_DETECTED: This remediation action token has already been executed. Previews are single-use.');
       }
     }
 
-    // 2. Persist to disk file with atomic rename
+    // 2. Persist to disk file with atomic rename and pruning of entries older than 2 * TTL (10m)
     try {
       let existing = {};
-      if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+      if (fs.existsSync(tokenFile)) {
         try {
-          existing = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8')) || {};
+          existing = JSON.parse(fs.readFileSync(tokenFile, 'utf8')) || {};
         } catch (e) {}
       }
       const updated = {};
+      const pruneCutoff = now - 300000; // 5m expired + 5m buffer = 10m total lifecycle
       for (const [id, exp] of Object.entries(existing)) {
-        if (exp > now) {
+        if (exp > pruneCutoff) {
           updated[id] = exp;
         }
       }
       updated[tokenId] = expiresAt;
 
-      const tmpFile = `${CONSUMED_TOKENS_FILE}.tmp.${Date.now()}`;
+      const tmpFile = `${tokenFile}.tmp.${Date.now()}`;
       fs.writeFileSync(tmpFile, JSON.stringify(updated, null, 2), 'utf8');
-      fs.renameSync(tmpFile, CONSUMED_TOKENS_FILE);
+      fs.renameSync(tmpFile, tokenFile);
     } catch (e) {
       console.error('[Remediation Engine]: Failed to persist consumed token to disk:', e.message);
     }
@@ -144,9 +159,10 @@ class AutonomousRemediationEngine {
     } catch (e) {}
 
     // Check disk ledger
-    if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+    const tokenFile = this._getConsumedTokensFile();
+    if (fs.existsSync(tokenFile)) {
       try {
-        const diskData = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
+        const diskData = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
         if (diskData && diskData[tokenId] && diskData[tokenId] > Date.now()) {
           this.usedActionTokens.set(tokenId, diskData[tokenId]);
           return true;
@@ -242,6 +258,16 @@ class AutonomousRemediationEngine {
         expectedOutcome: 'Stops runaway CPU monopolization while allowing application to complete in background.'
       },
       {
+        id: 'kill_process',
+        pillar: 'resource',
+        name: 'Terminate Runaway Process',
+        description: 'Terminates an unresponsive or runaway non-system process after strict PID identity validation.',
+        requiresElevation: true,
+        riskLevel: 'HIGH',
+        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system)$') { $p.Kill() } else { throw 'PROTECTED_PROCESS' }",
+        expectedOutcome: 'Runaway process terminated safely; resources reclaimed.'
+      },
+      {
         id: 'repair_print_spooler',
         pillar: 'peripherals',
         name: 'Purge & Re-initialize Windows Print Spooler',
@@ -295,7 +321,7 @@ class AutonomousRemediationEngine {
       validated.processName = pName;
     }
 
-    if (recipeId === 'lower_process_priority' || params.pid !== undefined) {
+    if (recipeId === 'lower_process_priority' || recipeId === 'kill_process' || params.pid !== undefined) {
       const pidRaw = params.pid;
       if (pidRaw === undefined || pidRaw === null || pidRaw === '') {
         throw new Error("Missing required parameter 'pid' for process remediation.");
@@ -346,6 +372,9 @@ class AutonomousRemediationEngine {
         validatedParams.targetProcessName = lowerName;
         if (procInfo.startTime) {
           validatedParams.targetProcessStartTime = procInfo.startTime;
+        }
+        if (procInfo.startTimeUtc) {
+          validatedParams.targetProcessStartTimeUtc = procInfo.startTimeUtc;
         }
       }
     }
@@ -479,19 +508,20 @@ class AutonomousRemediationEngine {
   }
 
   /**
-   * Query process details (Name, ID, StartTime) for a given PID on Windows (S-03)
+   * Query process details (Name, ID, StartTime, StartTimeUtc) for a given PID on Windows (S-03)
    */
   async _getProcessDetailsByPid(pid) {
     if (!IS_WINDOWS) return null;
     return new Promise((resolve) => {
-      exec(`powershell.exe -NoProfile -NonInteractive -Command "Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object -Property ProcessName, Id, StartTime | ConvertTo-Json -Compress"`, { timeout: 4000 }, (err, stdout) => {
+      exec(`powershell.exe -NoProfile -NonInteractive -Command "$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { [PSCustomObject]@{ ProcessName = $p.ProcessName; Id = $p.Id; StartTime = $p.StartTime.ToString('o'); StartTimeUtc = $p.StartTime.ToFileTimeUtc().ToString() } | ConvertTo-Json -Compress }"`, { timeout: 4000 }, (err, stdout) => {
         if (err || !stdout || !stdout.trim()) return resolve(null);
         try {
           const parsed = JSON.parse(stdout.trim());
           resolve({
             name: parsed.ProcessName || '',
             id: parsed.Id,
-            startTime: parsed.StartTime ? String(parsed.StartTime) : null
+            startTime: parsed.StartTime ? String(parsed.StartTime) : null,
+            startTimeUtc: parsed.StartTimeUtc ? String(parsed.StartTimeUtc) : null
           });
         } catch (e) {
           resolve(null);
@@ -551,22 +581,10 @@ class AutonomousRemediationEngine {
       throw new Error(`Access denied: Role '${role}' is not authorized to execute remediation. Requires 'host.remediation.execute' capability (ADMIN or SYSADMIN).`);
     }
 
-    // TOCTOU Process Target Defense (S-03): Verify process existence and StartTime before elevation & mutation
+    // TOCTOU Process Target Defense (S-03): Check simulated recycle marker immediately
     if (validatedParams.pid) {
-      if (validatedParams.targetProcessStartTime === 'SIMULATED_RECYCLE_TIME') {
+      if (validatedParams.targetProcessStartTime === 'SIMULATED_RECYCLE_TIME' || validatedParams.targetProcessStartTimeUtc === 'SIMULATED_RECYCLE_TIME') {
         throw new Error(`TOCTOU_VIOLATION: Process PID ${validatedParams.pid} was recycled. Process start time mismatch.`);
-      }
-      if (IS_WINDOWS && validatedParams.targetProcessStartTime) {
-        const currentProc = await this._getProcessDetailsByPid(validatedParams.pid);
-        if (!currentProc) {
-          throw new Error(`TOCTOU_VIOLATION: Target process PID ${validatedParams.pid} has exited before execution.`);
-        }
-        if (validatedParams.targetProcessName && currentProc.name.toLowerCase() !== validatedParams.targetProcessName.toLowerCase()) {
-          throw new Error(`TOCTOU_VIOLATION: Process name mismatch on PID ${validatedParams.pid}! Expected '${validatedParams.targetProcessName}', found '${currentProc.name}'. PID has been recycled.`);
-        }
-        if (currentProc.startTime && currentProc.startTime !== validatedParams.targetProcessStartTime) {
-          throw new Error(`TOCTOU_VIOLATION: Process PID ${validatedParams.pid} was recycled. Process start time mismatch.`);
-        }
       }
     }
 
@@ -590,20 +608,56 @@ class AutonomousRemediationEngine {
     let execOutcome = { success: false, output: '', error: null };
     try {
       if (IS_WINDOWS) {
-        const cmd = recipe.command.replace('$TargetPid', String(validatedParams.pid || 0));
+        let psCmd;
+        if (validatedParams.pid && (recipe.id === 'lower_process_priority' || recipe.id === 'kill_process')) {
+          // Single Atomic PowerShell Invocation: Verify PID identity, name, start time, and mutate priority class / kill in a single script on the same process handle $p (Zero TOCTOU window)
+          const targetPid = validatedParams.pid;
+          const expectedName = validatedParams.targetProcessName || validatedParams.processName || '';
+          const expectedStartTimeUtc = validatedParams.targetProcessStartTimeUtc || '';
+          const actionBody = recipe.id === 'kill_process'
+            ? `$p.Kill(); Write-Output "Successfully terminated process PID ${targetPid} ($($p.ProcessName))."`
+            : `$p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; Write-Output "Successfully adjusted priority class to BelowNormal for PID ${targetPid} ($($p.ProcessName))."`;
+
+          psCmd = [
+            `$p = Get-Process -Id ${targetPid} -ErrorAction SilentlyContinue;`,
+            `if (-not $p) { Write-Error "TOCTOU_VIOLATION: Target process PID ${targetPid} has exited before execution."; exit 10 };`,
+            expectedName ? `if ($p.ProcessName.ToLower() -ne '${expectedName.toLowerCase()}') { Write-Error "TOCTOU_VIOLATION: Process name mismatch on PID ${targetPid}! Expected '${expectedName}', found '$($p.ProcessName)'. PID has been recycled."; exit 11 };` : '',
+            expectedStartTimeUtc ? `if ($p.StartTime.ToFileTimeUtc().ToString() -ne '${expectedStartTimeUtc}') { Write-Error "TOCTOU_VIOLATION: Process PID ${targetPid} was recycled. Process start time mismatch."; exit 12 };` : '',
+            `if ($p.ProcessName -match '^(csrss|lsass|smss|services|wininit|dwm|node|system)$') { Write-Error 'PROTECTED_PROCESS'; exit 13 };`,
+            actionBody
+          ].filter(Boolean).join(' ');
+        } else {
+          psCmd = recipe.command.replace('$TargetPid', String(validatedParams.pid || 0));
+        }
+
         execOutcome = await new Promise((resolve) => {
-          exec(`powershell.exe -NoProfile -NonInteractive -Command "${cmd}"`, { timeout: 20000 }, (err, stdout, stderr) => {
+          exec(`powershell.exe -NoProfile -NonInteractive -Command "${psCmd}"`, { timeout: 20000 }, (err, stdout, stderr) => {
+            const outStr = (stdout || '').trim();
+            const errStr = (stderr || '').trim();
             if (err) {
-              resolve({ success: false, output: stderr || stdout, error: err.message });
+              const fullErr = errStr || outStr || err.message;
+              if (fullErr.includes('TOCTOU_VIOLATION')) {
+                const match = fullErr.match(/TOCTOU_VIOLATION:[^\r\n]*/);
+                resolve({ success: false, output: outStr, error: match ? match[0] : fullErr, isToctou: true });
+              } else {
+                resolve({ success: false, output: errStr || outStr, error: err.message });
+              }
             } else {
-              resolve({ success: true, output: (stdout || 'Success').trim(), error: null });
+              resolve({ success: true, output: outStr || 'Success', error: null });
             }
           });
         });
+
+        if (execOutcome.isToctou || (execOutcome.error && execOutcome.error.includes('TOCTOU_VIOLATION'))) {
+          throw new Error(execOutcome.error);
+        }
       } else {
         execOutcome = { success: true, output: 'Simulated POSIX environment remediation complete.' };
       }
     } catch (e) {
+      if (e.message && e.message.includes('TOCTOU_VIOLATION')) {
+        throw e;
+      }
       execOutcome = { success: false, output: '', error: e.message };
     }
 

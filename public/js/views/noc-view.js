@@ -20,6 +20,7 @@
   let isTableHovered = false;
   let autoScrollFrames = true;
   let selectedFrame = null;
+  let selectedFrameNumber = null;
   let selectedFlow = null;
   let currentSnifferMode = 'packets';
   let currentTopologyMode = 'map';
@@ -213,6 +214,9 @@
                   <span>Hide Loopback/8443</span>
                 </label>
 
+                <button id="autoScrollToggleBtn" class="btn ${autoScrollFrames ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleAutoScroll()" style="font-size: 11px; padding: 4px 8px;" title="Toggle automatic scrolling on incoming frames">
+                  ${autoScrollFrames ? '📜 Auto-Scroll: ON' : '⏸ Auto-Scroll: PAUSED'}
+                </button>
                 <button id="freezeStreamBtn" class="btn btn-secondary" onclick="window.toggleFreezeStreamView()" style="font-size: 11px; padding: 4px 8px;">⏸ Freeze</button>
                 <button id="toggleCaptureBtn" class="btn ${isCapturing ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px;">
                   ${isCapturing ? '⏸ Pause' : '▶ Resume'}
@@ -221,6 +225,9 @@
                 <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px;" title="Export standard libpcap binary file">⬇ PCAP</button>
                 <input type="file" id="pcapFileInput" style="display: none;" accept=".pcap,.cap" onchange="window.handlePcapFileChosen(this)">
                 <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px;" title="Import offline PCAP file">⬆ Import</button>
+                <span id="packetFilterCounterBadge" style="font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; font-weight: 600; white-space: nowrap;">
+                  Displayed: ${Math.min(liveFrames.length, 60)} / Captured: ${liveFrames.length} | Hidden: 0
+                </span>
               </div>
             </div>
 
@@ -884,6 +891,55 @@
     if (menu) menu.style.display = 'none';
   });
 
+  function updateFilterCounterBadge(displayed, captured, hidden) {
+    const badge = document.getElementById('packetFilterCounterBadge');
+    if (!badge) return;
+    badge.textContent = `Displayed: ${displayed} / Captured: ${captured} | Hidden: ${hidden}`;
+  }
+
+  function updateAutoScrollStatusUI() {
+    const btn = document.getElementById('autoScrollToggleBtn');
+    if (btn) {
+      if (autoScrollFrames) {
+        btn.className = 'btn btn-secondary';
+        btn.innerHTML = '📜 Auto-Scroll: ON';
+        btn.title = 'Auto-scroll is active. Click to pause auto-scroll.';
+      } else {
+        btn.className = 'btn btn-primary';
+        btn.innerHTML = '⏸ Auto-Scroll: PAUSED' + (selectedFrameNumber !== null ? ` (#${selectedFrameNumber})` : '');
+        btn.title = 'Auto-scroll is paused while examining frames. Click to resume auto-scroll.';
+      }
+    }
+  }
+
+  window.toggleAutoScroll = function() {
+    autoScrollFrames = !autoScrollFrames;
+    if (autoScrollFrames) {
+      selectedFrameNumber = null;
+      selectedFrame = null;
+    }
+    updateAutoScrollStatusUI();
+    const tbody = document.getElementById('livePacketTableBody');
+    if (tbody) tbody.innerHTML = renderPacketRows();
+  };
+
+  window.clearAllPacketFilters = function() {
+    protocolFilter = 'ALL';
+    searchFilter = '';
+    hideInternalEji = false;
+    window.compiledDisplayFilter = null;
+    const protoSelect = document.getElementById('packetProtocolFilter');
+    if (protoSelect) protoSelect.value = 'ALL';
+    const searchInput = document.getElementById('packetSearchInput');
+    if (searchInput) searchInput.value = '';
+    const chk = document.getElementById('hideInternalEjiCheckbox');
+    if (chk) chk.checked = false;
+    const filterInput = document.getElementById('displayFilterInput');
+    if (filterInput) filterInput.value = '';
+    const tbody = document.getElementById('livePacketTableBody');
+    if (tbody) tbody.innerHTML = renderPacketRows();
+  };
+
   /**
    * Packet Rendering (Lower Pane)
    */
@@ -926,21 +982,32 @@
       } catch (e) {}
     }
 
+    const totalCaptured = liveFrames.length;
+    const totalMatching = filtered.length;
+    const displayedCount = Math.min(totalMatching, 60);
+    const hiddenCount = Math.max(0, totalCaptured - displayedCount);
+    updateFilterCounterBadge(displayedCount, totalCaptured, hiddenCount);
+
     if (filtered.length === 0) {
+      updateFilterCounterBadge(0, totalCaptured, totalCaptured);
+      if (totalCaptured > 0) {
+        return `<tr><td colspan="9" style="text-align: center; color: #f59e0b; padding: 30px; font-weight: 600;">⚠️ All ${totalCaptured} captured wire frames are hidden by active filters (Protocol: ${protocolFilter}, Search: "${searchFilter || 'none'}", Loopback Filter: ${hideInternalEji ? 'Active' : 'Off'}). Adjust filters or click <a href="javascript:void(0)" onclick="window.clearAllPacketFilters()" style="color: var(--accent); text-decoration: underline; cursor: pointer;">Clear Filters</a> to view frames.</td></tr>`;
+      }
       return `<tr><td colspan="9" style="text-align: center; color: var(--text-dim); padding: 30px;">Awaiting live wire frames from Npcap/Socket interceptor...</td></tr>`;
     }
 
     let displaySlice = filtered.slice(-60);
-    // Pin active selectedFrame in the rendered slice so packet inspection is never interrupted by incoming frames
-    if (selectedFrame && !displaySlice.some(f => f.frameNumber === selectedFrame.frameNumber)) {
-      const found = filtered.find(f => f.frameNumber === selectedFrame.frameNumber);
+    // Pin active selectedFrame / selectedFrameNumber in the rendered slice so packet inspection is never interrupted by incoming frames
+    const activeSelectedNum = selectedFrameNumber !== null ? selectedFrameNumber : (selectedFrame ? selectedFrame.frameNumber : null);
+    if (activeSelectedNum !== null && !displaySlice.some(f => f.frameNumber === activeSelectedNum)) {
+      const found = filtered.find(f => f.frameNumber === activeSelectedNum) || liveFrames.find(f => f.frameNumber === activeSelectedNum);
       if (found) {
         displaySlice = [found, ...displaySlice.slice(1)];
       }
     }
 
     return displaySlice.reverse().map(f => {
-      const isSelected = selectedFrame && selectedFrame.frameNumber === f.frameNumber;
+      const isSelected = (selectedFrameNumber !== null && f.frameNumber === selectedFrameNumber) || (selectedFrame && selectedFrame.frameNumber === f.frameNumber);
       const timeStr = window.formatLocalTime ? window.formatLocalTime(f.timestamp) : f.timestamp;
 
       // Retransmission & TCP Delta flags
@@ -1185,8 +1252,12 @@
    * Three-Pane Deep Packet Inspector (Frame Summary, Protocol Tree, Synchronized Hex)
    */
   window.inspectPacketFrame = function(frameNumber) {
-    selectedFrame = liveFrames.find(f => f.frameNumber === frameNumber);
+    selectedFrameNumber = frameNumber;
+    selectedFrame = liveFrames.find(f => f.frameNumber === frameNumber) || selectedFrame;
     if (!selectedFrame) return;
+
+    autoScrollFrames = false;
+    updateAutoScrollStatusUI();
 
     const tbody = document.getElementById('livePacketTableBody');
     if (tbody) tbody.innerHTML = renderPacketRows();
@@ -1257,7 +1328,9 @@
   };
 
   window.closePacketDetails = function() {
+    selectedFrameNumber = null;
     selectedFrame = null;
+    updateAutoScrollStatusUI();
     const pane = document.getElementById('packetDetailsPane');
     if (pane) pane.style.display = 'none';
     const drawer = document.getElementById('packetDpiDrawer');
@@ -2037,5 +2110,9 @@
   window.renderPacketRows = renderPacketRows;
   window.renderFlowRows = renderFlowRows;
   window.getSelectedPacket = function() { return selectedFrame; };
+  window.getSelectedFrameNumber = function() { return selectedFrameNumber; };
+  window.setSelectedFrameNumber = function(fn) { selectedFrameNumber = fn; };
+  window.updateFilterCounterBadge = updateFilterCounterBadge;
+  window.updateAutoScrollStatusUI = updateAutoScrollStatusUI;
   window.renderNocView = renderNocView;
 })(window);

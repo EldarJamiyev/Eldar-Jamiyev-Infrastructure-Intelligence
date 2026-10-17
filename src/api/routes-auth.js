@@ -122,6 +122,18 @@ router.post('/quick-noc', (req, res) => {
 });
 
 /**
+ * GET /api/auth/config
+ * Public endpoint exposing evaluation mode state and permitted roles
+ */
+router.get('/config', (req, res) => {
+  const { IS_EVALUATION_MODE } = require('../config');
+  res.json({
+    evaluationMode: IS_EVALUATION_MODE,
+    roles: Object.keys(ROLES)
+  });
+});
+
+/**
  * GET /api/auth/me
  */
 router.get('/me', authenticate, (req, res) => {

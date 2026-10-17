@@ -212,7 +212,7 @@
       </div>
 
       <!-- Operational Profile Quick Selector -->
-      <div style="margin-bottom: 14px;">
+      <div style="margin-bottom: 14px;" id="evaluationLoginPills">
         <div style="font-size: 10px; font-weight: 700; color: #94A3B8; letter-spacing: 0.5px; margin-bottom: 6px; font-family: var(--font-mono);">WORKSTATION PROFILE</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" id="loginRolePills">
           <button type="button" class="btn btn-secondary login-role-btn active-profile" id="pill-admin" onclick="window.selectLoginProfile('admin', 'admin2026!')" style="font-size: 11px; padding: 6px 8px; font-weight: 700; text-align: left; display: flex; align-items: center; gap: 6px; border: 1px solid var(--accent); background: rgba(56,189,248,0.15); color: #38bdf8;">
@@ -235,7 +235,7 @@
       </div>
 
       <!-- 1-Click Quick Operator Entry CTA -->
-      <button type="button" class="login-quick-cta-btn" onclick="window.quickNocLogin()">
+      <button type="button" class="login-quick-cta-btn" id="evaluationQuickCta" onclick="window.quickNocLogin()">
         <span class="cta-shimmer"></span>
         <span class="cta-content">
           <svg class="cta-bolt" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
@@ -243,7 +243,7 @@
         </span>
       </button>
 
-      <div class="login-divider">
+      <div class="login-divider" id="evaluationLoginDivider">
         <span>OR AUTHENTICATE WITH OPERATOR CREDENTIALS</span>
       </div>
 

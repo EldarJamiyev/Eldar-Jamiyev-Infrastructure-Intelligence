@@ -514,13 +514,28 @@ class FilterEvaluator {
       case 'tcp.flags.ack':
         return Boolean(layers.tcp?.flags?.ack ?? frame.tcp?.flags?.ack);
       case 'tcp.flags.rst':
+      case 'tcp.flags.reset':
         return Boolean(layers.tcp?.flags?.rst ?? frame.tcp?.flags?.rst);
       case 'tcp.flags.fin':
         return Boolean(layers.tcp?.flags?.fin ?? frame.tcp?.flags?.fin);
       case 'tcp.flags.psh':
+      case 'tcp.flags.push':
         return Boolean(layers.tcp?.flags?.psh ?? frame.tcp?.flags?.psh);
       case 'tcp.flags.urg':
+      case 'tcp.flags.urgent':
         return Boolean(layers.tcp?.flags?.urg ?? frame.tcp?.flags?.urg);
+      case 'tcp.analysis.retransmission':
+        return Boolean(frame.tcpAnalysis?.isRetransmission);
+      case 'tcp.analysis.duplicate_ack':
+      case 'tcp.analysis.dupack':
+        return Boolean(frame.tcpAnalysis?.isDupAck);
+      case 'tcp.analysis.zero_window':
+      case 'tcp.analysis.zerowindow':
+        return Boolean(frame.tcpAnalysis?.isZeroWindow || (frame.tcp?.windowSize === 0));
+      case 'tcp.analysis.rst':
+        return Boolean(frame.tcpAnalysis?.isRst || frame.tcp?.flags?.rst);
+      case 'tcp.analysis.ack_rtt':
+        return frame.tcpAnalysis?.rttMs ?? frame.tcpAnalysis?.ackRtt ?? 0;
 
       // UDP (L4)
       case 'udp.port':

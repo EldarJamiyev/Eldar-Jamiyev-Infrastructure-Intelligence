@@ -59,6 +59,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Primary NOC Workstation API Routes
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'UP',
+    timestamp: new Date().toISOString(),
+    evaluationMode: config.IS_EVALUATION_MODE,
+    platform: config.PLATFORM,
+    port: config.PORT
+  });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/diagnostics', hostRemediationRoutes);
 app.use('/api/diagnostics', diagRoutes);

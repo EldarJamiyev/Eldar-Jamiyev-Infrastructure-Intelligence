@@ -31,3 +31,5 @@ backups/
 EJI-Platform/
 *.zip
 *.backup-*
+*.bak
+*.bak.*

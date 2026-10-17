@@ -354,29 +354,146 @@ class PacketExplainEngine {
       });
     }
 
-    return {
-      success: true,
-      frameNumber: frame.frameNumber,
-      timestamp: frame.timestamp,
-      protocol,
-      wireLength: wireLen,
-      endpoints: {
-        source: `${srcIp}${srcPort ? ':' + srcPort : ''}`,
-        destination: `${dstIp}${dstPort ? ':' + dstPort : ''}`,
-        resolvedTarget: resolvedName
-      },
-      plainEnglish,
-      severity,
-      layers,
-      anomalies,
-      recommendedFilter,
-      remediation,
-      rfcStandards: layers.map(l => l.rfc).filter(Boolean)
-    };
+      return {
+        success: true,
+        frameNumber: frame.frameNumber,
+        timestamp: frame.timestamp,
+        protocol,
+        wireLength: wireLen,
+        capturedLength: frame.capturedLength || wireLen,
+        endpoints: {
+          source: `${srcIp}${srcPort ? ':' + srcPort : ''}`,
+          destination: `${dstIp}${dstPort ? ':' + dstPort : ''}`,
+          resolvedTarget: resolvedName
+        },
+        plainEnglish,
+        severity,
+        layers,
+        anomalies,
+        recommendedFilter,
+        remediation,
+        rfcStandards: layers.map(l => l.rfc).filter(Boolean),
+        // Comprehensive Field-Level Citations across all OSI Layers (Task 5)
+        fieldCitations: {
+          frameNumber: frame.frameNumber,
+          timestamp: frame.timestamp,
+          wireLengthBytes: wireLen,
+          capturedLengthBytes: frame.capturedLength || wireLen,
+          l2Ethernet: frame.ethernet ? {
+            sourceMac: frame.ethernet.srcMac,
+            destMac: frame.ethernet.dstMac,
+            etherType: frame.ethernet.ethertype,
+            vlanId: frame.ethernet.vlanId || null
+          } : null,
+          l3Network: frame.ipv4 ? {
+            version: 4,
+            sourceIp: frame.ipv4.srcIp || srcIp,
+            destIp: frame.ipv4.dstIp || dstIp,
+            ttl: frame.ipv4.ttl,
+            headerLengthBytes: frame.ipv4.ihl || 20,
+            totalLengthBytes: frame.ipv4.totalLength || wireLen,
+            identification: frame.ipv4.identification,
+            flags: frame.ipv4.flags || {},
+            checksum: frame.ipv4.checksum
+          } : (frame.ipv6 ? {
+            version: 6,
+            sourceIp: frame.ipv6.srcIp || srcIp,
+            destIp: frame.ipv6.dstIp || dstIp,
+            hopLimit: frame.ipv6.hopLimit || 64,
+            trafficClass: frame.ipv6.trafficClass,
+            flowLabel: frame.ipv6.flowLabel
+          } : (arp ? {
+            protocol: 'ARP',
+            opcode: arp.opcode,
+            senderIp: arp.senderIp,
+            senderMac: arp.senderMac,
+            targetIp: arp.targetIp,
+            targetMac: arp.targetMac
+          } : null)),
+          l4Transport: tcp ? {
+            protocol: 'TCP',
+            sourcePort: srcPort,
+            destPort: dstPort,
+            sequenceNumber: tcp.seq,
+            ackNumber: tcp.ack,
+            windowSize: tcp.windowSize,
+            flags: tcp.flags || {},
+            flagNames: tcp.flagNames || [],
+            checksum: tcp.checksum,
+            headerLengthBytes: tcp.headerLengthBytes || 20,
+            streamId: frame.tcpAnalysis?.streamId ?? frame.streamId ?? null
+          } : (udp ? {
+            protocol: 'UDP',
+            sourcePort: srcPort,
+            destPort: dstPort,
+            lengthBytes: udp.length,
+            checksum: udp.checksum
+          } : (icmp ? {
+            protocol: 'ICMP',
+            type: icmp.type,
+            code: icmp.code,
+            description: icmp.typeDescription || null
+          } : null)),
+          l7Application: tls ? {
+            protocol: tls.version || 'TLS',
+            contentType: tls.contentType || 'Application Data',
+            sni: tls.sni || null,
+            cipherSuite: tls.cipherSuite || null
+          } : (http ? {
+            protocol: 'HTTP',
+            type: http.type,
+            method: http.method || null,
+            uri: http.uri || null,
+            statusCode: http.status || null,
+            host: http.host || null
+          } : (dns ? {
+            protocol: 'DNS',
+            isResponse: Boolean(dns.isResponse),
+            questions: dns.questions || [],
+            answers: dns.answers || [],
+            rcode: dns.rcode ?? null
+          } : (quic ? {
+            protocol: 'QUIC',
+            headerType: quic.headerType,
+            packetType: quic.packetType || null
+          } : null)))
+        },
+        // Physical Wire Boundary: Cleartext Headers vs Encrypted TLS 1.3 Payload (Task 5)
+        encryptionBoundary: {
+          isEncryptedSession: Boolean(tls || quic),
+          protocol: tls ? (tls.version || 'TLS 1.3') : (quic ? 'QUIC' : 'CLEARTEXT'),
+          standard: (tls?.version === 'TLSv1.3' || tls?.version === 'TLS 1.3') ? 'RFC 8446 (TLS 1.3)' : (tls ? 'RFC 5246 (TLS 1.2)' : 'N/A'),
+          observableCleartextHeaders: [
+            `Layer 2 Ethernet: Source MAC (${frame.ethernet?.srcMac || 'observable'}), Destination MAC (${frame.ethernet?.dstMac || 'observable'})`,
+            `Layer 3 IP: Source IP (${srcIp}), Destination IP (${dstIp}), TTL, Header Length, Identification`,
+            `Layer 4 TCP: Source Port (${srcPort}), Destination Port (${dstPort}), Seq (${tcp?.seq}), Ack (${tcp?.ack}), Window (${tcp?.windowSize}), Flags (${(tcp?.flagNames || []).join(',') || 'none'})`,
+            `Layer 7 TLS Record Header: ContentType (${tls?.contentType || 'Application Data'}), Record Version (${tls?.version || 'TLS'}), Record Length`
+          ].concat(tls?.sni ? [`Layer 7 TLS ClientHello Extension: SNI Server Name Indication ("${tls.sni}") observable in pre-handshake hello`] : []),
+          encryptedPayloadBoundary: (tls || quic) ? {
+            isOpaqueCiphertext: true,
+            cipherSuite: tls?.cipherSuite || 'AEAD (Authenticated Encryption with Associated Data)',
+            explanation: (tls?.version === 'TLSv1.3' || tls?.version === 'TLS 1.3')
+              ? 'TLS 1.3 AEAD Encrypted Payload (RFC 8446): All inner application data, encrypted extensions, certificate messages, and HTTP/2 or HTTP/3 frames are cryptographically opaque on the physical wire. Cleartext packet payload cannot be recovered or inspected without ephemeral forward-secret session keys (Zero-Simulation Integrity).'
+              : 'TLS Encrypted Payload (RFC 5246): Application data payload is symmetric ciphertext (AES-GCM / AES-CBC) and cannot be decrypted without private session keys.'
+          } : {
+            isOpaqueCiphertext: false,
+            explanation: 'Cleartext Transmission: Application payload is transmitted unencrypted and fully observable on the physical wire.'
+          }
+        }
+      };
+  }
+
+  /**
+   * Alias for explain() to satisfy external contract callers
+   */
+  static explainPacket(frame, context = {}) {
+    return this.explain(frame, context);
   }
 
   /**
    * Translate a natural language query into a valid Wireshark AST display filter.
+   * Supports multi-condition combinations: IPs, ports, protocols, TCP flags (SYN/ACK/RST/FIN/PSH),
+   * anomalies, and latency/length thresholds (Task 5).
    * @param {string} prompt Natural language request
    * @returns {Object} { filter: string, valid: boolean, explanation: string }
    */
@@ -387,97 +504,202 @@ class PacketExplainEngine {
     }
 
     const lower = raw.toLowerCase();
+
+    // If user provided a raw Wireshark display filter expression (e.g. contains ==, &&, ||, contains), check it directly
+    if (raw.includes('==') || raw.includes('>') || raw.includes('<') || raw.includes('!=') || (raw.includes('&&') && raw.includes('.'))) {
+      const v = validateFilter(raw);
+      if (v.valid) {
+        return {
+          success: true,
+          query: raw,
+          filter: raw,
+          valid: true,
+          error: null,
+          explanation: 'Direct Wireshark display filter validated and applied directly.'
+        };
+      }
+    }
+
+    const conditions = [];
+    const explanations = [];
+
+    // 1. TCP Flags & Special States
+    if (lower.includes('syn-ack') || lower.includes('syn ack')) {
+      conditions.push('tcp.flags.syn == 1 && tcp.flags.ack == 1');
+      explanations.push('TCP 3-way handshake SYN-ACK response packets');
+    } else {
+      if (lower.includes('syn') && !lower.includes('ack') && !lower.includes('async')) {
+        conditions.push('tcp.flags.syn == 1 && tcp.flags.ack == 0');
+        explanations.push('TCP connection initiation SYN packets');
+      } else if (lower.includes('syn')) {
+        conditions.push('tcp.flags.syn == 1');
+        explanations.push('TCP SYN flag set');
+      }
+      if (lower.includes('ack') && !lower.includes('syn') && !lower.includes('dup ack') && !lower.includes('duplicate ack') && !lower.includes('pack')) {
+        conditions.push('tcp.flags.ack == 1');
+        explanations.push('TCP ACK flag set');
+      }
+    }
+
+    if (lower.includes('reset') || lower.includes('rst') || lower.includes('rejected')) {
+      conditions.push('tcp.flags.reset == 1');
+      explanations.push('TCP connection reset (RST flag)');
+    }
+
+    if (lower.includes('fin') && !lower.includes('find') && !lower.includes('defined') && !lower.includes('finish')) {
+      conditions.push('tcp.flags.fin == 1');
+      explanations.push('TCP connection graceful termination (FIN flag)');
+    }
+
+    if (lower.includes('psh') || lower.includes('push flag') || lower.includes('push packet')) {
+      conditions.push('tcp.flags.psh == 1');
+      explanations.push('TCP PUSH (PSH flag)');
+    }
+
+    // 2. Network / TCP / Protocol Anomalies
+    if (lower.includes('retrans') || lower.includes('lost packet') || lower.includes('dropped')) {
+      conditions.push('tcp.analysis.retransmission');
+      explanations.push('TCP wire retransmissions');
+    }
+
+    if (lower.includes('zero window') || lower.includes('window full')) {
+      conditions.push('tcp.window_size == 0');
+      explanations.push('TCP zero receive window flow control freeze');
+    }
+
+    if (lower.includes('dup ack') || lower.includes('duplicate ack')) {
+      conditions.push('tcp.analysis.duplicate_ack');
+      explanations.push('TCP duplicate acknowledgments');
+    }
+
+    // 3. Application Protocols & Specific Handshakes
+    if (lower.includes('tls handshake') || lower.includes('client hello') || lower.includes('clienthello')) {
+      conditions.push('tls.handshake.type == 1');
+      explanations.push('TLS ClientHello handshake negotiation');
+    } else if (lower.includes('tls') || lower.includes('ssl') || lower.includes('https')) {
+      if (!conditions.some(c => c.includes('tcp.flags'))) {
+        conditions.push('tls || tcp.port == 443');
+        explanations.push('TLS / SSL HTTPS traffic');
+      }
+    }
+
+    if (lower.includes('http error') || lower.includes('404') || lower.includes('500') || lower.includes('bad request')) {
+      conditions.push('http.response.code >= 400');
+      explanations.push('HTTP 4xx/5xx client and server errors');
+    } else if (lower.includes('http') && !lower.includes('http/3') && !lower.includes('http3') && !lower.includes('https')) {
+      if (!conditions.some(c => c.includes('tcp.flags'))) {
+        conditions.push('http || tcp.port == 80');
+        explanations.push('HTTP application traffic');
+      }
+    }
+
+    const domainMatch = raw.match(/\b([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:gov\.az|az|com|net|org|io|local))\b/i);
+    if (lower.includes('dns quer') || lower.includes('dns lookup')) {
+      if (domainMatch) {
+        conditions.push(`dns.qry.name contains "${domainMatch[1]}"`);
+        explanations.push(`DNS queries containing domain "${domainMatch[1]}"`);
+      } else {
+        conditions.push('dns.flags.response == 0');
+        explanations.push('DNS standard query lookups');
+      }
+    } else if (lower.includes('dns')) {
+      conditions.push('dns || udp.port == 53');
+      explanations.push('Domain Name System (DNS) traffic');
+    }
+
+    if (lower.includes('quic') || lower.includes('http/3') || lower.includes('http3')) {
+      conditions.push('quic || (udp.port == 443 && frame.len > 80)');
+      explanations.push('QUIC / HTTP/3 encrypted UDP transport');
+    }
+
+    if (lower.includes('arp') || lower.includes('mac address lookup')) {
+      conditions.push('arp');
+      explanations.push('Address Resolution Protocol (ARP)');
+    }
+
+    if (lower.includes('icmp') || lower.includes('ping')) {
+      conditions.push('icmp');
+      explanations.push('ICMP diagnostic and echo packets');
+    }
+
+    // 4. Length & Latency Thresholds
+    const lenGtMatch = raw.match(/(?:length|len|size|frame\.len)\s*(?:>=|>)\s*(\d+)/i) ||
+                       raw.match(/(?:larger than|greater than|exceeding|over)\s*(\d+)\s*(?:bytes)?/i);
+    const lenLtMatch = raw.match(/(?:length|len|size|frame\.len)\s*(?:<=|<)\s*(\d+)/i) ||
+                       raw.match(/(?:smaller than|less than|under)\s*(\d+)\s*(?:bytes)?/i);
+
+    if (lenGtMatch) {
+      const lenVal = lenGtMatch[1];
+      conditions.push(`frame.len > ${lenVal}`);
+      explanations.push(`Frame wire length exceeding ${lenVal} bytes`);
+    } else if (lenLtMatch) {
+      const lenVal = lenLtMatch[1];
+      conditions.push(`frame.len < ${lenVal}`);
+      explanations.push(`Frame wire length under ${lenVal} bytes`);
+    } else if (lower.includes('large packet') || lower.includes('jumbo') || lower.includes('big frame')) {
+      conditions.push('frame.len > 1400');
+      explanations.push('Large wire frames exceeding 1400 bytes');
+    }
+
+    const rttMatch = raw.match(/(?:rtt|latency)\s*(?:>=|>)\s*(\d+)/i) || raw.match(/(?:high latency|slow rtt)/i);
+    if (rttMatch) {
+      const rttVal = rttMatch[1] || '100';
+      conditions.push(`tcp.analysis.ack_rtt > ${rttVal}`);
+      explanations.push(`TCP ACK round-trip time exceeding ${rttVal} ms`);
+    }
+
+    // 5. IP Addresses & Directions (from, to, src, dst, or general ip.addr)
+    const ipPattern = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+    const allIps = [...raw.matchAll(ipPattern)];
+    for (const match of allIps) {
+      const ip = match[0];
+      const idx = match.index;
+      const preceding = raw.substring(Math.max(0, idx - 25), idx).toLowerCase();
+      if (preceding.includes('from') || preceding.includes('src') || preceding.includes('source')) {
+        conditions.push(`ip.src == ${ip}`);
+        explanations.push(`Source IP ${ip}`);
+      } else if (preceding.includes('to') || preceding.includes('dst') || preceding.includes('dest') || preceding.includes('towards')) {
+        conditions.push(`ip.dst == ${ip}`);
+        explanations.push(`Destination IP ${ip}`);
+      } else {
+        conditions.push(`ip.addr == ${ip}`);
+        explanations.push(`Host IP ${ip}`);
+      }
+    }
+
+    // 6. Ports & Directions
+    const portPattern = /\b(?:port\s*(\d+)|:(\d{2,5})\b)/gi;
+    const portMatches = [...raw.matchAll(portPattern)];
+    for (const pm of portMatches) {
+      const portNum = pm[1] || pm[2];
+      if (portNum) {
+        const idx = pm.index;
+        const preceding = raw.substring(Math.max(0, idx - 25), idx).toLowerCase();
+        if (preceding.includes('from') || preceding.includes('src') || preceding.includes('source')) {
+          conditions.push(`(tcp.srcport == ${portNum} || udp.srcport == ${portNum})`);
+          explanations.push(`Source port ${portNum}`);
+        } else if (preceding.includes('to') || preceding.includes('dst') || preceding.includes('dest')) {
+          conditions.push(`(tcp.dstport == ${portNum} || udp.dstport == ${portNum})`);
+          explanations.push(`Destination port ${portNum}`);
+        } else {
+          conditions.push(`(tcp.port == ${portNum} || udp.port == ${portNum})`);
+          explanations.push(`Port ${portNum}`);
+        }
+      }
+    }
+
+    // Deduplicate conditions while maintaining order
+    const uniqueConditions = Array.from(new Set(conditions));
+
     let filter = '';
     let explanation = '';
 
-    // Regex matchers for IP addresses and ports
-    const ipMatch = raw.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-    const portMatch = raw.match(/\bport\s*(\d+)\b/i) || raw.match(/:(\d+)\b/);
-    const domainMatch = raw.match(/\b([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:gov\.az|az|com|net|org|io|local))\b/i);
-
-    // 1. Specific Anomaly / Protocol Pattern Mappings
-    if (lower.includes('reset') || lower.includes('rst') || lower.includes('rejected')) {
-      filter = 'tcp.flags.reset == 1';
-      explanation = 'Filters for all packets where the TCP RST (Reset) flag is set to 1.';
-    } else if (lower.includes('retrans') || lower.includes('lost packet') || lower.includes('dropped')) {
-      filter = 'tcp.analysis.retransmission';
-      explanation = 'Filters for packets identified by the TCP stream analyzer as retransmissions.';
-    } else if (lower.includes('syn-ack') || lower.includes('syn ack')) {
-      filter = 'tcp.flags.syn == 1 && tcp.flags.ack == 1';
-      explanation = 'Filters for second step of the TCP 3-way handshake (SYN+ACK).';
-    } else if (lower.includes('syn') && !lower.includes('ack')) {
-      filter = 'tcp.flags.syn == 1 && tcp.flags.ack == 0';
-      explanation = 'Filters for TCP connection initiation packets (SYN without ACK).';
-    } else if (lower.includes('zero window') || lower.includes('window full')) {
-      filter = 'tcp.window_size == 0';
-      explanation = 'Filters for TCP packets advertising a zero receive window.';
-    } else if (lower.includes('tls handshake') || lower.includes('client hello') || lower.includes('clienthello')) {
-      filter = 'tls.handshake.type == 1';
-      explanation = 'Filters for TLS ClientHello handshake messages.';
-    } else if (lower.includes('tls') || lower.includes('ssl') || lower.includes('https')) {
-      filter = 'tls || tcp.port == 443';
-      explanation = 'Filters for TLS records or traffic targeting TCP port 443.';
-    } else if (lower.includes('http error') || lower.includes('404') || lower.includes('500') || lower.includes('bad request')) {
-      filter = 'http.response.code >= 400';
-      explanation = 'Filters for HTTP responses with status code 400 or higher (client/server errors).';
-    } else if (lower.includes('http')) {
-      filter = 'http || tcp.port == 80';
-      explanation = 'Filters for cleartext HTTP application traffic or port 80.';
-    } else if (lower.includes('dns quer') || lower.includes('dns lookup')) {
-      if (domainMatch) {
-        filter = `dns.qry.name contains "${domainMatch[1]}"`;
-        explanation = `Filters for DNS queries containing target domain "${domainMatch[1]}".`;
-      } else {
-        filter = 'dns.flags.response == 0';
-        explanation = 'Filters for DNS standard query requests.';
-      }
-    } else if (lower.includes('dns')) {
-      filter = 'dns || udp.port == 53';
-      explanation = 'Filters for Domain Name System (DNS) traffic.';
-    } else if (lower.includes('quic') || lower.includes('http/3') || lower.includes('http3')) {
-      filter = 'quic || (udp.port == 443 && frame.len > 80)';
-      explanation = 'Filters for QUIC / HTTP/3 encrypted UDP frames on port 443.';
-    } else if (lower.includes('arp') || lower.includes('mac address lookup')) {
-      filter = 'arp';
-      explanation = 'Filters for Address Resolution Protocol (ARP) packets.';
-    } else if (lower.includes('icmp') || lower.includes('ping')) {
-      filter = 'icmp';
-      explanation = 'Filters for Internet Control Message Protocol (ICMP) echo and control packets.';
-    } else if (lower.includes('large packet') || lower.includes('jumbo') || lower.includes('big frame')) {
-      filter = 'frame.len > 1400';
-      explanation = 'Filters for large frames exceeding 1400 bytes.';
-    }
-
-    // 2. Combine with IP Address if specified
-    if (ipMatch) {
-      const ip = ipMatch[0];
-      if (lower.includes('from') || lower.includes('src') || lower.includes('source')) {
-        filter = filter ? `${filter} && ip.src == ${ip}` : `ip.src == ${ip}`;
-      } else if (lower.includes('to') || lower.includes('dst') || lower.includes('dest')) {
-        filter = filter ? `${filter} && ip.dst == ${ip}` : `ip.dst == ${ip}`;
-      } else {
-        filter = filter ? `${filter} && ip.addr == ${ip}` : `ip.addr == ${ip}`;
-      }
-      explanation += ` Scoped to IP address ${ip}.`;
-    }
-
-    // 3. Combine with Port if specified
-    if (portMatch) {
-      const port = portMatch[1];
-      filter = filter ? `${filter} && (tcp.port == ${port} || udp.port == ${port})` : `tcp.port == ${port} || udp.port == ${port}`;
-      explanation += ` Scoped to port ${port}.`;
-    }
-
-    // Fallback if no specific rule matched
-    if (!filter) {
-      // If user typed raw field expression, attempt to preserve it
-      if (raw.includes('==') || raw.includes('>') || raw.includes('<') || raw.includes('contains') || raw.includes('&&') || raw.includes('||')) {
-        filter = raw;
-        explanation = 'Direct Wireshark display filter passed through.';
-      } else {
-        filter = `frame contains "${raw}"`;
-        explanation = `Fallback string search for "${raw}" across frame payloads.`;
-      }
+    if (uniqueConditions.length > 0) {
+      filter = uniqueConditions.join(' && ');
+      explanation = 'Constructed multi-condition Wireshark AST filter: ' + explanations.join('; ') + '.';
+    } else {
+      filter = `frame contains "${raw}"`;
+      explanation = `Fallback payload text search for "${raw}".`;
     }
 
     // Validate the generated filter against the AST compiler

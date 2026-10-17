@@ -83,7 +83,7 @@ const AUTOMATION_TIERS = {
   }
 };
 
-const IS_EVALUATION_MODE = process.env.NODE_ENV !== 'production' || process.env.EJII_EVALUATION_MODE === 'true';
+const IS_EVALUATION_MODE = process.env.EJII_EVALUATION_MODE === 'true' || (process.env.NODE_ENV !== 'production' && process.env.EJII_EVALUATION_MODE !== 'false');
 
 module.exports = {
   PORT,

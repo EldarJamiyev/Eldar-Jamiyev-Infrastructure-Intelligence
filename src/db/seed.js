@@ -4,10 +4,14 @@
  * Zero-Simulation Standard: Real physical routing and network hierarchy.
  */
 
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { db, initSchema } = require('./database');
 const { runMigrations } = require('./migrations');
 const { hashPassword, ROLES } = require('../core/security');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+const { DATA_DIR, IS_EVALUATION_MODE } = require('../config');
 
 function getSystemDefaultGateway() {
   try {
@@ -64,13 +68,34 @@ function seedDatabase() {
     UPDATE users SET role = ?, full_name = ? WHERE username = ?
   `);
 
+  const isProduction = process.env.NODE_ENV === 'production' && !IS_EVALUATION_MODE;
+  const KNOWN_DEFAULT_PASSWORDS = ['admin2026!', 'sysadmin2026!', 'netadmin2026!', 'noc2026!'];
+
+  if (isProduction && process.env.EJII_ADMIN_PASSWORD) {
+    if (process.env.EJII_ADMIN_PASSWORD.length < 12 || KNOWN_DEFAULT_PASSWORDS.includes(process.env.EJII_ADMIN_PASSWORD)) {
+      throw new Error('FATAL CONFIGURATION ERROR: In production mode, EJII_ADMIN_PASSWORD must be at least 12 characters and cannot be a default credential.');
+    }
+  }
+
+  const generatedCredentials = [];
+
   for (const acc of accounts) {
     const existing = checkUser.get(acc.username);
     if (!existing) {
       let initialPassword = acc.password;
-      if (acc.username === 'admin' && process.env.EJII_ADMIN_PASSWORD) {
-        initialPassword = process.env.EJII_ADMIN_PASSWORD;
+      if (isProduction) {
+        if (acc.username === 'admin' && process.env.EJII_ADMIN_PASSWORD) {
+          initialPassword = process.env.EJII_ADMIN_PASSWORD;
+        } else {
+          initialPassword = crypto.randomBytes(18).toString('base64url');
+          generatedCredentials.push({ username: acc.username, role: acc.role, password: initialPassword });
+        }
+      } else {
+        if (acc.username === 'admin' && process.env.EJII_ADMIN_PASSWORD) {
+          initialPassword = process.env.EJII_ADMIN_PASSWORD;
+        }
       }
+
       const { hash, salt } = hashPassword(initialPassword);
       insertUser.run(acc.id, acc.username, hash, salt, acc.fullName, acc.role, new Date().toISOString());
       console.log(`✓ Created Initial Account: [${acc.username}] (${acc.role})`);
@@ -79,6 +104,36 @@ function seedDatabase() {
       updateUserMetadata.run(acc.role, acc.fullName, acc.username);
       console.log(`✓ Synchronized Account: [${acc.username}] (${acc.role}) [Credentials Preserved]`);
     }
+  }
+
+  if (generatedCredentials.length > 0) {
+    const securityDir = path.join(DATA_DIR, 'security');
+    if (!fs.existsSync(securityDir)) {
+      fs.mkdirSync(securityDir, { recursive: true });
+    }
+    const credsFile = path.join(securityDir, 'FIRST_RUN_ADMIN_CREDENTIALS.txt');
+    const lines = [
+      '========================================================================',
+      '  EJII — FIRST-RUN PRODUCTION OPERATOR CREDENTIALS                      ',
+      `  Generated At: ${new Date().toISOString()}                             `,
+      `  Data Directory: ${DATA_DIR}                                           `,
+      '========================================================================',
+      '',
+      'Store these initial credentials securely. Delete this file or rotate',
+      'operator passwords after initial workstation deployment.',
+      ''
+    ];
+    for (const cred of generatedCredentials) {
+      lines.push(`Username: ${cred.username}`);
+      lines.push(`Role:     ${cred.role}`);
+      lines.push(`Password: ${cred.password}`);
+      lines.push('');
+    }
+    lines.push('========================================================================');
+    const tmpFile = `${credsFile}.tmp.${Date.now()}`;
+    fs.writeFileSync(tmpFile, lines.join('\n'), { mode: 0o600, encoding: 'utf8' });
+    fs.renameSync(tmpFile, credsFile);
+    console.log(`✓ First-run production credentials written securely to ${credsFile}`);
   }
 
   // Detect genuine physical network info
