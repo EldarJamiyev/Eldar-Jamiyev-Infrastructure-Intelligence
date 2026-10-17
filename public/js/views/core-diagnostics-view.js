@@ -172,13 +172,24 @@
         logConsole(`✓ [SUCCESS] Brain optimization applied: ${res.updateRecord?.updateId} (Hash: ${(res.updateRecord?.newHash || '').slice(0, 8)}...)`);
         alert(`AI Brain Parameter Optimization Applied & Verified:\n\nUpdate ID: ${res.updateRecord?.updateId}\nOptimizer: ${res.updateRecord?.optimizerSource}\nRationale: ${res.updateRecord?.rationale}`);
       } else {
-        logConsole(`❌ [REJECTED] Brain optimization failed: ${res.error || res.message}`);
-        alert(`Optimization Failed:\n\n${res.error || res.message}`);
+        const errMsg = res.error || res.message || 'Optimization rejected';
+        if (res.status === 403 || /forbidden|permission/i.test(errMsg)) {
+          logConsole(`❌ [403 FORBIDDEN] Permission 'system.config.manage' (ADMIN role) required to modify AI Brain configuration.`);
+          alert(`Access Denied (403 Forbidden):\n\nOnly administrators with 'system.config.manage' capability may modify AI Brain parameters.`);
+        } else {
+          logConsole(`❌ [REJECTED] Brain optimization failed: ${errMsg}`);
+          alert(`Optimization Failed:\n\n${errMsg}`);
+        }
       }
       await window.loadBrainGovernance();
     } catch (err) {
-      logConsole(`❌ Optimization request error: ${err.message}`);
-      alert(`Optimization request error: ${err.message}`);
+      if (/403/i.test(err.message)) {
+        logConsole(`❌ [403 FORBIDDEN] Permission 'system.config.manage' (ADMIN role) required to modify AI Brain configuration.`);
+        alert(`Access Denied (403 Forbidden): Administrator role required.`);
+      } else {
+        logConsole(`❌ Optimization request error: ${err.message}`);
+        alert(`Optimization request error: ${err.message}`);
+      }
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -199,13 +210,76 @@
         logConsole(`✓ [RESTORED] Configuration rolled back: ${res.rollbackRecord?.updateId}`);
         alert(`AI Brain Configuration Rolled Back:\n\nUpdate ID: ${res.rollbackRecord?.updateId}\nReason: ${res.rollbackRecord?.reason}`);
       } else {
-        logConsole(`❌ Rollback failed: ${res.error || 'Unknown error'}`);
-        alert(`Rollback failed: ${res.error || 'Unknown error'}`);
+        const errMsg = res.error || res.message || 'Rollback rejected';
+        if (res.status === 403 || /forbidden|permission/i.test(errMsg)) {
+          logConsole(`❌ [403 FORBIDDEN] Permission 'system.config.manage' (ADMIN role) required to rollback configuration.`);
+          alert(`Access Denied (403 Forbidden): Administrator capability required.`);
+        } else {
+          logConsole(`❌ Rollback failed: ${errMsg}`);
+          alert(`Rollback failed: ${errMsg}`);
+        }
       }
       await window.loadBrainGovernance();
     } catch (err) {
-      logConsole(`❌ Rollback request error: ${err.message}`);
-      alert(`Rollback request error: ${err.message}`);
+      if (/403/i.test(err.message)) {
+        logConsole(`❌ [403 FORBIDDEN] Permission 'system.config.manage' (ADMIN role) required to rollback configuration.`);
+        alert(`Access Denied (403 Forbidden): Administrator capability required.`);
+      } else {
+        logConsole(`❌ Rollback request error: ${err.message}`);
+        alert(`Rollback request error: ${err.message}`);
+      }
+    }
+  };
+
+  window.triggerAutonomousInvestigation = async function(targetIpOverride = null, targetPortOverride = null) {
+    const inputIp = targetIpOverride || document.getElementById('investigateTargetIp')?.value || '127.0.0.1';
+    const inputPort = targetPortOverride || parseInt(document.getElementById('investigateTargetPort')?.value || 443, 10);
+
+    logConsole(`[Investigation] Starting autonomous multi-protocol wire investigation against ${inputIp}:${inputPort}...`);
+    const btn = document.getElementById('btnRunAutonomousInvestigation');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '🔎 Investigating Wire...';
+    }
+
+    try {
+      const res = await window.api('/api/rca/brain/investigate', {
+        method: 'POST',
+        body: JSON.stringify({ targetIp: inputIp, targetPort: inputPort, maxSteps: 4 })
+      });
+
+      if (res && res.success) {
+        logConsole(`✓ [INVESTIGATION COMPLETE] ${res.investigationId}: executed ${res.stepsExecuted} probe(s) in ${res.durationMs}ms`);
+        logConsole(`→ Top Root Cause: ${res.finalTopHypothesis?.label} (${res.finalTopHypothesis?.confidence}% confidence) [Conclusive: ${res.conclusive ? 'YES' : 'NO'}]`);
+        if (Array.isArray(res.steps)) {
+          for (const s of res.steps) {
+            logConsole(`   Step ${s.stepNumber} [${s.probeType}]: ${s.probeSuccess ? 'SUCCESS' : 'FAILED'} (${s.latencyMs}ms) → ${s.rawOutput}`);
+          }
+        }
+        alert(`Autonomous Investigation Completed:\n\nInvestigation ID: ${res.investigationId}\nTarget: ${res.target}:${res.targetPort}\nTop Root Cause: ${res.finalTopHypothesis?.label} (${res.finalTopHypothesis?.confidence}% confidence)\nSteps Executed: ${res.stepsExecuted}\nConclusive: ${res.conclusive ? 'YES' : 'NO'}`);
+      } else {
+        const errMsg = res.error || res.message || 'Investigation failed';
+        if (res.status === 403 || /forbidden|permission/i.test(errMsg)) {
+          logConsole(`❌ [403 FORBIDDEN] Permission 'network.diagnostics.execute' required to dispatch physical wire probes.`);
+          alert(`Access Denied: You require 'network.diagnostics.execute' permission to run physical network investigations.`);
+        } else {
+          logConsole(`❌ [FAILED] Investigation failed: ${errMsg}`);
+          alert(`Investigation Failed: ${errMsg}`);
+        }
+      }
+    } catch (err) {
+      if (/403/i.test(err.message)) {
+        logConsole(`❌ [403 FORBIDDEN] Permission 'network.diagnostics.execute' required to dispatch physical wire probes.`);
+        alert(`Access Denied (403 Forbidden): Operator role or permission 'network.diagnostics.execute' required.`);
+      } else {
+        logConsole(`❌ [ERROR] Investigation request error: ${err.message}`);
+        alert(`Investigation request error: ${err.message}`);
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔎 Run Multi-Protocol Probe Sweep';
+      }
     }
   };
 
@@ -705,6 +779,18 @@
                 <div style="display: flex; gap: 8px;">
                   <button id="btnRunBrainOptimization" class="btn btn-primary" onclick="window.triggerBrainOptimization()" style="font-size: 11px; font-weight: 700; padding: 6px 12px;">⚡ Run Self-Optimization Cycle</button>
                   <button id="btnRollbackBrain" class="btn btn-secondary" onclick="window.triggerBrainRollback()" style="font-size: 11px; font-weight: 700; padding: 6px 12px;">↩️ Rollback to Stable Baseline</button>
+                </div>
+              </div>
+
+              <!-- Autonomous Multi-Protocol Wire Investigation Control Bar -->
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 4px; padding: 10px 14px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 10px; font-weight: 800; color: var(--success);">AUTONOMOUS WIRE INVESTIGATION:</span>
+                  <input id="investigateTargetIp" type="text" placeholder="127.0.0.1" value="127.0.0.1" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 3px; width: 140px;" />
+                  <input id="investigateTargetPort" type="number" placeholder="443" value="443" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 3px; width: 70px;" />
+                </div>
+                <div>
+                  <button id="btnRunAutonomousInvestigation" class="btn btn-secondary" onclick="window.triggerAutonomousInvestigation()" style="font-size: 11px; font-weight: 700; padding: 6px 12px; border-color: rgba(16, 185, 129, 0.4); color: var(--success);">🔎 Run Multi-Protocol Probe Sweep</button>
                 </div>
               </div>
 

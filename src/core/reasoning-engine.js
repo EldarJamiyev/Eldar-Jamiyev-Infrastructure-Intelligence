@@ -105,6 +105,11 @@ class BayesianReasoningEngine {
       incidentType = 'TCP_SYN_TIMEOUT',
       gatewayReachable = null, // boolean or null
       targetPingReachable = null, // boolean or null
+      altPortReachable = null, // boolean or null
+      targetPortReachable = null, // boolean or null
+      dnsResolved = null, // boolean or null
+      tlsHandshakeSuccess = null, // boolean or null
+      httpStatusOk = null, // boolean or null
       tcpRstObserved = false,
       retransCount = 0,
       handshakeLatencyMs = null,
@@ -119,13 +124,13 @@ class BayesianReasoningEngine {
     // Select candidate hypothesis subspace based on fundamental protocol layer
     if (incidentType === 'TCP_RST_REJECT' || tcpRstObserved) {
       activeHypotheses = ['PORT_CLOSED_SERVICE_STOPPED', 'FIREWALL_SILENT_DROP', 'LOCAL_NIC_STACK_ERROR'];
-    } else if (incidentType === 'DNS_FAILURE' || dnsRcode !== null) {
+    } else if (incidentType === 'DNS_FAILURE' || dnsRcode !== null || dnsResolved === false) {
       activeHypotheses = ['DNS_RESOLUTION_FAILURE', 'GATEWAY_UNREACHABLE', 'UPSTREAM_TRANSIT_DROP', 'LOCAL_NIC_STACK_ERROR'];
-    } else if (incidentType === 'TLS_ALERT_FAILURE' || tlsAlertCode !== null) {
+    } else if (incidentType === 'TLS_ALERT_FAILURE' || tlsAlertCode !== null || tlsHandshakeSuccess === false) {
       activeHypotheses = ['TLS_NEGOTIATION_ALERT', 'BACKEND_PROCESSING_LATENCY', 'FIREWALL_SILENT_DROP'];
     } else if (incidentType === 'HIGH_HANDSHAKE_VS_APP_LATENCY' || (handshakeLatencyMs !== null && appLatencyMs !== null && appLatencyMs > handshakeLatencyMs * 10)) {
       activeHypotheses = ['BACKEND_PROCESSING_LATENCY', 'UPSTREAM_TRANSIT_DROP', 'LOCAL_NIC_STACK_ERROR'];
-    } else if (incidentType === 'NORMAL_OPERATION') {
+    } else if (incidentType === 'NORMAL_OPERATION' || (targetPortReachable === true && (httpStatusOk === true || tlsHandshakeSuccess === true))) {
       activeHypotheses = ['NORMAL_OPERATION', 'LOCAL_NIC_STACK_ERROR', 'GATEWAY_UNREACHABLE', 'UPSTREAM_TRANSIT_DROP'];
     } else {
       // Default: Transport layer timeout (TCP SYN timeout)
@@ -298,6 +303,11 @@ class BayesianReasoningEngine {
     const {
       gatewayReachable,
       targetPingReachable,
+      altPortReachable,
+      targetPortReachable,
+      dnsResolved,
+      tlsHandshakeSuccess,
+      httpStatusOk,
       tcpRstObserved,
       tlsAlertCode,
       dnsRcode,
@@ -330,6 +340,135 @@ class BayesianReasoningEngine {
         hypothesis: 'UPSTREAM_TRANSIT_DROP',
         rule: 'RFC 791 IPv4 Routing',
         reason: 'Bidirectional IP transit path between client and destination host is intact and actively delivering packets.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (altPortReachable === true) {
+      contradictory.push({
+        hypothesis: 'REMOTE_HOST_DOWN',
+        rule: 'RFC 793 TCP SYN/ACK (Alt Port)',
+        reason: 'Target host kernel successfully responded to TCP connection on alternate port; remote host is verified online.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'UPSTREAM_TRANSIT_DROP',
+        rule: 'RFC 791 IPv4 Routing',
+        reason: 'Packets to alternate TCP port traversed upstream carrier transit without loss.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'GATEWAY_UNREACHABLE',
+        rule: 'RFC 826 / RFC 793',
+        reason: 'Alternate TCP port established through perimeter gateway router.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (targetPortReachable === true) {
+      contradictory.push({
+        hypothesis: 'FIREWALL_SILENT_DROP',
+        rule: 'RFC 793 Section 3.4',
+        reason: 'TCP connection succeeded on target port; packets are not dropped by firewall.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'REMOTE_HOST_DOWN',
+        rule: 'RFC 793 Section 3.4',
+        reason: 'Target host service listener completed 3-way handshake on target port.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'PORT_CLOSED_SERVICE_STOPPED',
+        rule: 'RFC 793 Section 3.4',
+        reason: 'Target port accepted incoming TCP connection.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'UPSTREAM_TRANSIT_DROP',
+        rule: 'RFC 791 IPv4 Routing',
+        reason: 'Target port traffic completed full bidirectional transit.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (dnsResolved === true) {
+      contradictory.push({
+        hypothesis: 'DNS_RESOLUTION_FAILURE',
+        rule: 'RFC 1035 Domain Resolution',
+        reason: 'DNS resolver successfully returned valid resource records; name resolution is functional.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (dnsResolved === false) {
+      contradictory.push({
+        hypothesis: 'NORMAL_OPERATION',
+        rule: 'RFC 1035 Domain Failure',
+        reason: 'DNS query failed to resolve target domain name.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (tlsHandshakeSuccess === true) {
+      contradictory.push({
+        hypothesis: 'TLS_NEGOTIATION_ALERT',
+        rule: 'RFC 8446 TLS 1.3 Handshake',
+        reason: 'TLS cryptographic handshake completed successfully with cipher suite agreement and valid peer certificate.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'PORT_CLOSED_SERVICE_STOPPED',
+        rule: 'RFC 8446 / RFC 793',
+        reason: 'TLS session established over open transport socket.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'FIREWALL_SILENT_DROP',
+        rule: 'RFC 8446',
+        reason: 'TLS handshake records exchanged bidirectionally across perimeter boundary.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'REMOTE_HOST_DOWN',
+        rule: 'RFC 8446',
+        reason: 'Remote server daemon performed TLS cryptographic key exchange.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (tlsHandshakeSuccess === false) {
+      contradictory.push({
+        hypothesis: 'NORMAL_OPERATION',
+        rule: 'RFC 8446 Handshake Failure',
+        reason: 'TLS cryptographic handshake was terminated or rejected.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (httpStatusOk === true) {
+      contradictory.push({
+        hypothesis: 'PORT_CLOSED_SERVICE_STOPPED',
+        rule: 'RFC 9110 HTTP/1.1 Semantics',
+        reason: 'HTTP application server returned valid HTTP status response.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'FIREWALL_SILENT_DROP',
+        rule: 'RFC 9110 HTTP/1.1 Semantics',
+        reason: 'HTTP application request completed full transaction through firewall.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'REMOTE_HOST_DOWN',
+        rule: 'RFC 9110 HTTP/1.1 Semantics',
+        reason: 'Application server daemon processed HTTP request and returned response.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'TLS_NEGOTIATION_ALERT',
+        rule: 'RFC 9110 / RFC 8446',
+        reason: 'Application layer HTTP data exchanged successfully over transport/TLS.',
         timestamp: new Date().toISOString()
       });
     }
@@ -395,6 +534,8 @@ class BayesianReasoningEngine {
     const safeT = t || {};
     switch (hypothesisId) {
       case 'PORT_CLOSED_SERVICE_STOPPED':
+        if (safeT.targetPortReachable === true || safeT.httpStatusOk === true || safeT.tlsHandshakeSuccess === true) return 0.01;
+        if (safeT.altPortReachable === true && safeT.targetPortReachable === false && safeT.tcpRstObserved) return 0.99;
         if (safeT.tcpRstObserved || safeT.incidentType === 'TCP_RST_REJECT') return 0.99;
         return 0.05;
 
@@ -406,40 +547,51 @@ class BayesianReasoningEngine {
         return 0.10;
 
       case 'DNS_RESOLUTION_FAILURE':
+        if (safeT.dnsResolved === true) return 0.01;
+        if (safeT.dnsResolved === false) return 0.99;
         if (safeT.dnsRcode !== null && safeT.dnsRcode !== 'NOERROR') return 0.99;
         return 0.10;
 
       case 'TLS_NEGOTIATION_ALERT':
+        if (safeT.tlsHandshakeSuccess === true) return 0.01;
+        if (safeT.tlsHandshakeSuccess === false) return 0.99;
         if (safeT.tlsAlertCode !== null) return 0.99;
         return 0.10;
 
       case 'GATEWAY_UNREACHABLE':
-        if (safeT.gatewayReachable === true) return 0.01; // Gateway ping replied! Eliminates gateway unreachable.
+        if (safeT.gatewayReachable === true || safeT.altPortReachable === true) return 0.01; // Gateway ping replied! Eliminates gateway unreachable.
         if (safeT.gatewayReachable === false) return 0.95;
         return 0.20;
 
       case 'LOCAL_NIC_STACK_ERROR':
-        if (safeT.gatewayReachable === true) return 0.02; // Can talk to LAN, NIC is functioning
+        if (safeT.gatewayReachable === true || safeT.altPortReachable === true) return 0.02; // Can talk to LAN, NIC is functioning
         return 0.15;
 
       case 'REMOTE_HOST_DOWN':
-        if (safeT.targetPingReachable === true) return 0.02; // ICMP ping answered! Host is alive!
+        if (safeT.targetPingReachable === true || safeT.altPortReachable === true || safeT.targetPortReachable === true) return 0.01; // Host verified alive!
+        if (safeT.targetPingReachable === false && safeT.altPortReachable === false) return 0.95;
         if (safeT.targetPingReachable === false) return 0.85;
         if (safeT.retransCount >= 3) return 0.70;
         return 0.40;
 
       case 'FIREWALL_SILENT_DROP':
+        if (safeT.targetPortReachable === true) return 0.01;
+        if (safeT.altPortReachable === true && safeT.targetPortReachable === false) return 0.98; // Host answers alt port, but target port drops! Decisive firewall filtering.
+        if (safeT.targetPingReachable === true && safeT.targetPortReachable === false) return 0.96;
         if (safeT.targetPingReachable === true) return 0.95; // Host answers ping, but port drops SYN! Strong firewall indicator.
         if (safeT.tcpRstObserved) return 0.05; // Firewalls silently drop; they don't produce standard target RSTs.
         if (safeT.retransCount >= 2) return 0.85;
         return 0.50;
 
       case 'UPSTREAM_TRANSIT_DROP':
+        if (safeT.altPortReachable === true || safeT.targetPortReachable === true) return 0.01;
         if (safeT.gatewayReachable === true && safeT.targetPingReachable === false) return 0.60;
         return 0.25;
 
       case 'NORMAL_OPERATION':
+        if (safeT.targetPortReachable === true && (safeT.httpStatusOk === true || safeT.tlsHandshakeSuccess === true)) return 0.99;
         if (safeT.incidentType === 'NORMAL_OPERATION') return 0.99;
+        if (safeT.targetPortReachable === false || safeT.dnsResolved === false || safeT.tlsHandshakeSuccess === false) return 0.01;
         return 0.10;
 
       default:
@@ -499,11 +651,35 @@ class BayesianReasoningEngine {
     if (hypothesisId === 'REMOTE_HOST_DOWN' && evidence.targetPingReachable === true) {
       return 'Remote endpoint responded to ICMP Echo Request, proving server hardware and IP stack are running. Hypothesis eliminated.';
     }
+    if (hypothesisId === 'REMOTE_HOST_DOWN' && evidence.altPortReachable === true) {
+      return 'Target responded on alternate TCP port, confirming remote server hardware and operating system are online. Hypothesis eliminated.';
+    }
     if (hypothesisId === 'FIREWALL_SILENT_DROP' && evidence.targetPingReachable === true) {
       return 'Target machine is verified alive via ICMP Ping, yet silently drops TCP SYN on port. Conclusively promotes Firewall / Security ACL drop.';
     }
+    if (hypothesisId === 'FIREWALL_SILENT_DROP' && evidence.altPortReachable === true && evidence.targetPortReachable === false) {
+      return 'Target accepted alternate port connection while target service port was dropped, conclusively confirming port-based firewall ACL filtering.';
+    }
     if (hypothesisId === 'PORT_CLOSED_SERVICE_STOPPED' && evidence.tcpRstObserved === true) {
       return 'Observed RFC 793 TCP RST packet from destination host. Proves host is alive and rejects the closed port.';
+    }
+    if (hypothesisId === 'PORT_CLOSED_SERVICE_STOPPED' && evidence.targetPortReachable === true) {
+      return 'Target port accepted TCP connection, disproving closed port or stopped service.';
+    }
+    if (hypothesisId === 'DNS_RESOLUTION_FAILURE' && evidence.dnsResolved === true) {
+      return 'Empirical RFC 1035 DNS probe resolved domain records successfully. DNS failure eliminated.';
+    }
+    if (hypothesisId === 'DNS_RESOLUTION_FAILURE' && evidence.dnsResolved === false) {
+      return 'Empirical DNS resolution query failed or timed out. Promotes DNS resolution failure.';
+    }
+    if (hypothesisId === 'TLS_NEGOTIATION_ALERT' && evidence.tlsHandshakeSuccess === true) {
+      return 'Empirical TLS 1.3 handshake completed successfully without alerts. TLS failure eliminated.';
+    }
+    if (hypothesisId === 'TLS_NEGOTIATION_ALERT' && evidence.tlsHandshakeSuccess === false) {
+      return 'Empirical TLS handshake failed or received fatal alert. Promotes TLS negotiation failure.';
+    }
+    if (evidence.httpStatusOk === true && delta > 0) {
+      return 'HTTP HEAD probe returned valid response status, confirming application layer listener is operational.';
     }
     return `Posterior probability shifted by ${delta > 0 ? '+' : ''}${delta}% based on latest empirical network wire telemetry.`;
   }

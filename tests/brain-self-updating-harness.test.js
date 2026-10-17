@@ -126,8 +126,185 @@ async function runBrainSelfUpdatingHarnessTests() {
     assert.strictEqual(hashBrainConfig(diskRestored), initialHash, 'Disk config must be restored on rollback');
     console.log('  ✓ Watchdog Circuit Breaker automatic rollback verified.');
 
+    // 31.6 Real Multi-Protocol Probe Execution, Belief Revision & Autonomous Investigation
+    console.log('  [31.6] Verifying real multi-protocol probe execution (TCP, DNS, HTTP) and Hare-Niemeyer 100% belief revision...');
+    const http = require('http');
+    const express = require('express');
+    const { generateToken } = require('../src/core/security');
+    const rcaRouter = require('../src/api/routes-rca');
+
+    // Spin up local HTTP server to act as live wire target
+    let localPort = 0;
+    const probeServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('EJII Live Target Wire Listener OK');
+    });
+
+    await new Promise((resolve) => {
+      probeServer.listen(0, '127.0.0.1', () => {
+        localPort = probeServer.address().port;
+        resolve();
+      });
+    });
+
+    try {
+      // 1. TCP Alternate Port Probe
+      const altProbe = await brain.executeDiagnosticProbe({
+        probeType: 'TCP_SYN_ALTERNATE_PORT',
+        targetIp: '127.0.0.1',
+        alternatePort: localPort
+      });
+      assert.strictEqual(altProbe.success, true);
+      assert.strictEqual(altProbe.probeSuccess, true);
+      assert.ok(altProbe.rawOutput.includes('connected in'));
+
+      // 2. DNS Query Probe (RFC 1035)
+      const dnsProbe = await brain.executeDiagnosticProbe({
+        probeType: 'DNS_QUERY_PROBE',
+        targetIp: '127.0.0.1'
+      });
+      assert.strictEqual(dnsProbe.success, true);
+      assert.strictEqual(typeof dnsProbe.probeSuccess, 'boolean');
+      assert.ok(dnsProbe.rawOutput.length > 0);
+
+      // 3. HTTP HEAD Probe
+      const httpProbe = await brain.executeDiagnosticProbe({
+        probeType: 'HTTP_HEAD_PROBE',
+        targetIp: '127.0.0.1',
+        targetPort: localPort
+      });
+      assert.strictEqual(httpProbe.success, true);
+      assert.strictEqual(httpProbe.probeSuccess, true);
+      assert.ok(httpProbe.rawOutput.includes('HTTP HEAD status: 200'));
+
+      // 4. Verify belief revision sums strictly to 100.0% (Hare-Niemeyer invariant)
+      const revEval = httpProbe.revisedEvaluation;
+      assert.ok(revEval, 'revisedEvaluation must be populated');
+      const sumPct = revEval.rankedHypotheses.reduce((acc, h) => acc + h.confidence, 0);
+      assert.strictEqual(sumPct, 100, 'All hypothesis probabilities must sum to exactly 100%');
+
+      // 5. Unrecognized probe rejection (no fake fallback)
+      const unkProbe = await brain.executeDiagnosticProbe({
+        probeType: 'NON_EXISTENT_PROBE_TYPE',
+        targetIp: '127.0.0.1'
+      });
+      assert.strictEqual(unkProbe.probeSuccess, false, 'Unknown probe must NOT fake success');
+
+      // 6. Autonomous Investigation Run
+      const invResult = await brain.runAutonomousInvestigation({
+        targetIp: '127.0.0.1',
+        targetPort: localPort,
+        maxSteps: 3
+      });
+      assert.strictEqual(invResult.success, true);
+      assert.ok(invResult.stepsExecuted >= 1, 'Must execute at least 1 probe step');
+      assert.ok(invResult.investigationId.startsWith('INV-'));
+      assert.ok(invResult.finalTopHypothesis);
+      assert.ok(Array.isArray(invResult.steps));
+      console.log('  ✓ Multi-protocol probe execution and belief revision verified.');
+    } finally {
+      await new Promise(r => probeServer.close(r));
+    }
+
+    // 31.7 Live HTTP REST Endpoint RBAC Enforcement (401, 403, 200)
+    console.log('  [31.7] Verifying live HTTP RBAC enforcement on /api/rca/brain endpoints...');
+    const app = express();
+    app.use(express.json());
+    app.use('/api/rca', rcaRouter);
+
+    let apiPort = 0;
+    const apiServer = http.createServer(app);
+    await new Promise((resolve) => {
+      apiServer.listen(0, '127.0.0.1', () => {
+        apiPort = apiServer.address().port;
+        resolve();
+      });
+    });
+
+    function requestHttp(urlPath, method = 'GET', token = null, body = null) {
+      return new Promise((resolve, reject) => {
+        const payload = body ? JSON.stringify(body) : null;
+        const options = {
+          hostname: '127.0.0.1',
+          port: apiPort,
+          path: urlPath,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {})
+          }
+        };
+        const req = http.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => { data += chunk; });
+          res.on('end', () => {
+            let json = null;
+            try { json = JSON.parse(data); } catch (_) {}
+            resolve({ statusCode: res.statusCode, data: json || data });
+          });
+        });
+        req.on('error', reject);
+        if (payload) req.write(payload);
+        req.end();
+      });
+    }
+
+    try {
+      const adminToken = generateToken({ id: 'u-admin', username: 'sec_admin', role: 'ADMIN' });
+      const opToken = generateToken({ id: 'u-operator', username: 'net_op', role: 'OPERATOR' });
+      const roToken = generateToken({ id: 'u-auditor', username: 'auditor', role: 'READONLY' });
+
+      // 1. Unauthenticated requests must receive 401
+      const resUnauthStatus = await requestHttp('/api/rca/brain/self-update-status');
+      assert.strictEqual(resUnauthStatus.statusCode, 401, 'Unauthenticated status must be 401');
+
+      const resUnauthOpt = await requestHttp('/api/rca/brain/self-update/optimize', 'POST', null, {});
+      assert.strictEqual(resUnauthOpt.statusCode, 401, 'Unauthenticated optimize must be 401');
+
+      const resUnauthRbk = await requestHttp('/api/rca/brain/self-update/rollback', 'POST', null, {});
+      assert.strictEqual(resUnauthRbk.statusCode, 401, 'Unauthenticated rollback must be 401');
+
+      const resUnauthInv = await requestHttp('/api/rca/brain/investigate', 'POST', null, {});
+      assert.strictEqual(resUnauthInv.statusCode, 401, 'Unauthenticated investigate must be 401');
+
+      // 2. READONLY user: Can read status (200), but blocked from self-update mutations (403)
+      const resRoStatus = await requestHttp('/api/rca/brain/self-update-status', 'GET', roToken);
+      assert.strictEqual(resRoStatus.statusCode, 200, 'READONLY must be allowed to read self-update status');
+
+      const resRoOpt = await requestHttp('/api/rca/brain/self-update/optimize', 'POST', roToken, {});
+      assert.strictEqual(resRoOpt.statusCode, 403, 'READONLY must receive 403 on self-update optimize');
+
+      const resRoRbk = await requestHttp('/api/rca/brain/self-update/rollback', 'POST', roToken, {});
+      assert.strictEqual(resRoRbk.statusCode, 403, 'READONLY must receive 403 on self-update rollback');
+
+      // 3. OPERATOR user: Blocked from system.config.manage (403), but allowed on network.diagnostics.execute (200)
+      const resOpOpt = await requestHttp('/api/rca/brain/self-update/optimize', 'POST', opToken, {});
+      assert.strictEqual(resOpOpt.statusCode, 403, 'OPERATOR must receive 403 on self-update optimize');
+
+      const resOpRbk = await requestHttp('/api/rca/brain/self-update/rollback', 'POST', opToken, {});
+      assert.strictEqual(resOpRbk.statusCode, 403, 'OPERATOR must receive 403 on self-update rollback');
+
+      const resOpInv = await requestHttp('/api/rca/brain/investigate', 'POST', opToken, {
+        targetIp: '127.0.0.1',
+        maxSteps: 1
+      });
+      assert.strictEqual(resOpInv.statusCode, 200, 'OPERATOR must be allowed to trigger autonomous investigation');
+
+      // 4. ADMIN user: Full capability on all endpoints (200)
+      const resAdmStatus = await requestHttp('/api/rca/brain/self-update-status', 'GET', adminToken);
+      assert.strictEqual(resAdmStatus.statusCode, 200, 'ADMIN must be permitted on self-update status');
+
+      const resAdmRbk = await requestHttp('/api/rca/brain/self-update/rollback', 'POST', adminToken, {});
+      assert.strictEqual(resAdmRbk.statusCode, 200, 'ADMIN must be permitted on self-update rollback');
+
+      console.log('  ✓ Live HTTP endpoint RBAC enforcement (401, 403, 200) strictly verified.');
+    } finally {
+      await new Promise(r => apiServer.close(r));
+    }
+
     console.log('\n========================================================================');
-    console.log('  ALL 5 AI BRAIN SELF-UPDATING HARNESS TESTS PASSED (100% GREEN)        ');
+    console.log('  ALL 7 AI BRAIN SELF-UPDATING HARNESS TESTS PASSED (100% GREEN)        ');
     console.log('========================================================================\n');
   } finally {
     brain.stopContinuousReasoning();

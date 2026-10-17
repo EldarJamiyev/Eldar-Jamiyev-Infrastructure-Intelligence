@@ -1,7 +1,7 @@
 # EJII — Test Execution Integrity & Verification Report
 
 **System Name:** Eldar Jamiyev’s Infrastructure Intelligence (EJII)  
-**Release Tag / Git HEAD:** `122c7ef` (Clean Working Tree)  
+**Release Tag / Git HEAD:** `e0bb1b1` (Clean Working Tree)  
 **Date of Audit:** October 17, 2026  
 **Auditor:** Principal Software Architect, Application Security Engineer & QA Lead (Claude Source Pro Max)  
 **Overall Verdict:** **UNCONDITIONAL TEST RUNNER INTEGRITY PASS (All 31 Suites Verified)**
@@ -144,12 +144,14 @@ The audit logger maintains an external, HMAC-signed `.chain_head` file containin
 * If an attacker attempts tail truncation (e.g. deleting the last audit line to conceal unauthorized execution), `verifyAuditLogIntegrity()` detects that line count < `lastSeq` and flags `CRITICAL_CHAIN_TRUNCATION`.
 
 ### 4.4 Autonomous AI Brain Self-Updating Harness & Circuit Breaker (Suite 31)
-The AI Brain features a closed-loop self-updating architecture:
-* **Schema Boundary Invariants:** `src/core/brain-config-schema.js` rejects prototype pollution, unknown keys, float-for-integer, and out-of-bounds parameters.
-* **Command Injection Defense:** Strict target sanitization (`isSafeNetworkTarget`) and safe `execFile` replace vulnerable shell interpolation.
-* **Day-Bucket SHA-256 Alignment:** Belief revision dynamically correlates active incidents without generating orphaned duplicates.
-* **Isolated Child-Process Sandbox Gate:** Candidate configurations are executed inside an isolated Node.js child process (`brain-config.sandbox.json`) before production promotion.
-* **Watchdog Circuit Breaker:** Any post-deployment runtime fault automatically triggers an immediate zero-downtime rollback to the prior stable configuration and logs to the cryptographic HMAC audit trail.
+The AI Brain features a closed-loop self-updating architecture with 7 verified tests:
+* **Schema Boundary Invariants (31.1):** `src/core/brain-config-schema.js` rejects prototype pollution, unknown keys, float-for-integer, and out-of-bounds parameters.
+* **Command Injection Defense (31.2):** Strict target sanitization (`isSafeNetworkTarget`) and safe `execFile` replace vulnerable shell interpolation.
+* **Day-Bucket SHA-256 Alignment (31.3):** Belief revision dynamically correlates active incidents without generating orphaned duplicates.
+* **Isolated Child-Process Sandbox Gate (31.4):** Candidate configurations are executed inside an isolated Node.js child process (`brain-config.sandbox.json`) before production promotion.
+* **Watchdog Circuit Breaker (31.5):** Any post-deployment runtime fault automatically triggers an immediate zero-downtime rollback to the prior stable configuration and logs to the cryptographic HMAC audit trail.
+* **Real Multi-Protocol Probes & Bayesian Belief Revision (31.6):** Zero-mock physical wire probe execution (ICMP, TCP SYN, DNS RFC 1035, TLS 1.3, HTTP HEAD) feeding `altPortReachable`, `targetPortReachable`, `dnsResolved`, `tlsHandshakeSuccess`, and `httpStatusOk` into Bayesian belief revision with strict Hare-Niemeyer 100% normalization, plus multi-step `runAutonomousInvestigation()`.
+* **Live HTTP RBAC Enforcement (31.7):** Verified 401 Unauthorized for missing tokens, 403 Forbidden for insufficient permissions (e.g., READONLY and OPERATOR blocked from `system.config.manage`), and 200 OK for authorized operations.
 
 ---
 

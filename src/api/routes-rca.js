@@ -255,4 +255,27 @@ router.post('/brain/self-update/rollback', authenticate, requirePermission('syst
   }
 });
 
+/**
+ * POST /api/rca/brain/investigate
+ * Runs an autonomous multi-step diagnostic investigation on physical wire using AI Brain.
+ */
+router.post('/brain/investigate', authenticate, requirePermission('network.diagnostics.execute'), async (req, res) => {
+  try {
+    const { target, targetIp, port, targetPort, maxSteps } = req.body || {};
+    const candidateIp = targetIp || target || '127.0.0.1';
+    const candidatePort = parseInt(targetPort || port || 443, 10);
+    const steps = parseInt(maxSteps || 4, 10);
+
+    const outcome = await aiBrain.runAutonomousInvestigation({
+      targetIp: candidateIp,
+      targetPort: candidatePort,
+      maxSteps: steps
+    });
+
+    res.json(outcome);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

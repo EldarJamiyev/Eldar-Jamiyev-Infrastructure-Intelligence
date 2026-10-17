@@ -92,6 +92,41 @@ Produce Simple Operator Mode summary and Expert Diagnostic Mode recommendations 
   }
 
   /**
+   * Safe completion hook for autonomous optimization agents.
+   * Calls remote LLM if configured and reachable; otherwise returns null cleanly.
+   */
+  async getRawCompletion(prompt) {
+    if (this.providerType === 'deterministic' || !this.endpoint) {
+      return null;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: this.modelName,
+          prompt,
+          stream: false
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const text = data.response || data.choices?.[0]?.message?.content || null;
+      return typeof text === 'string' ? text : null;
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+  }
+
+  /**
    * Alias for dual-mode briefing generation
    */
   generateDualBriefing(evaluation = {}, context = {}) {
@@ -331,5 +366,6 @@ const defaultBriefingProvider = new IncidentBriefingProvider();
 
 module.exports = {
   IncidentBriefingProvider,
-  incidentBriefingProvider: defaultBriefingProvider
+  incidentBriefingProvider: defaultBriefingProvider,
+  llmProvider: defaultBriefingProvider
 };

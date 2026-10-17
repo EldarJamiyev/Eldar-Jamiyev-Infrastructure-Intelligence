@@ -12,6 +12,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const net = require('net');
+const dns = require('dns');
+const tls = require('tls');
+const http = require('http');
+const https = require('https');
 const { execFile, spawnSync } = require('child_process');
 const { reasoningEngine } = require('./reasoning-engine');
 const { incidentBriefingProvider } = require('./llm-provider');
@@ -1001,11 +1005,13 @@ class AIBrain {
    * Executes a recommended diagnostic probe on real physical network wire using safe execFile,
    * feeds results into Bayesian engine, and dynamically revises beliefs on matching active incidents.
    */
-  async executeDiagnosticProbe({ probeType, targetIp, probeId }) {
+  async executeDiagnosticProbe({ probeType, targetIp, probeId, targetPort = 443, alternatePort = 80 }) {
     const netInfo = getPhysicalNetworkInfo();
     const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
     const rawCandidate = targetIp || (probeType === 'ICMP_PING_GATEWAY' ? gatewayIp : gatewayIp);
     const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate : gatewayIp;
+    const destPort = parseInt(targetPort || 443, 10);
+    const altPort = parseInt(alternatePort || 80, 10);
 
     let probeSuccess = false;
     let latencyMs = 0;
@@ -1035,27 +1041,128 @@ class AIBrain {
           });
           socket.on('timeout', () => { socket.destroy(); resolve(false); });
           socket.on('error', () => { socket.destroy(); resolve(false); });
-          socket.connect(80, target);
+          socket.connect(altPort, target);
         });
-        rawOutput = probeSuccess ? `TCP 80 connected in ${latencyMs}ms` : 'TCP 80 connection timed out';
+        rawOutput = probeSuccess ? `TCP alternate port ${altPort} connected in ${latencyMs}ms` : `TCP alternate port ${altPort} connection timed out or refused`;
+      } else if (probeType === 'TCP_SYN_TARGET_PORT' || probeType === 'TCP_PORT_PROBE') {
+        probeSuccess = await new Promise((resolve) => {
+          const socket = new net.Socket();
+          socket.setTimeout(1500);
+          socket.on('connect', () => {
+            latencyMs = Date.now() - startTime;
+            socket.destroy();
+            resolve(true);
+          });
+          socket.on('timeout', () => { socket.destroy(); resolve(false); });
+          socket.on('error', () => { socket.destroy(); resolve(false); });
+          socket.connect(destPort, target);
+        });
+        rawOutput = probeSuccess ? `TCP target port ${destPort} connected in ${latencyMs}ms` : `TCP target port ${destPort} connection timed out or refused`;
+      } else if (probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE') {
+        const isIp = /^[0-9.]+$/.test(target);
+        if (isIp) {
+          try {
+            const hostnames = await dns.promises.reverse(target);
+            latencyMs = Date.now() - startTime;
+            probeSuccess = Array.isArray(hostnames) && hostnames.length > 0;
+            rawOutput = `DNS reverse lookup for ${target}: ${hostnames.join(', ')}`;
+          } catch (dnsErr) {
+            latencyMs = Date.now() - startTime;
+            probeSuccess = false;
+            rawOutput = `DNS reverse lookup failed for ${target}: ${dnsErr.message}`;
+          }
+        } else {
+          try {
+            const addresses = await dns.promises.resolve4(target);
+            latencyMs = Date.now() - startTime;
+            probeSuccess = Array.isArray(addresses) && addresses.length > 0;
+            rawOutput = `DNS RFC 1035 A record for ${target}: ${addresses.join(', ')}`;
+          } catch (dnsErr) {
+            latencyMs = Date.now() - startTime;
+            probeSuccess = false;
+            rawOutput = `DNS resolution failed for ${target}: ${dnsErr.message}`;
+          }
+        }
+      } else if (probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT') {
+        probeSuccess = await new Promise((resolve) => {
+          const tlsSocket = tls.connect({
+            host: target,
+            port: destPort,
+            servername: /^[0-9.]+$/.test(target) ? undefined : target,
+            rejectUnauthorized: false,
+            timeout: 2500
+          }, () => {
+            latencyMs = Date.now() - startTime;
+            rawOutput = `TLS 1.3/1.2 handshake established: protocol=${tlsSocket.getProtocol()}, cipher=${tlsSocket.getCipher()?.name}`;
+            tlsSocket.end();
+            resolve(true);
+          });
+          tlsSocket.on('timeout', () => {
+            latencyMs = Date.now() - startTime;
+            tlsSocket.destroy();
+            rawOutput = 'TLS handshake timed out';
+            resolve(false);
+          });
+          tlsSocket.on('error', (err) => {
+            latencyMs = Date.now() - startTime;
+            tlsSocket.destroy();
+            rawOutput = `TLS handshake error: ${err.message}`;
+            resolve(false);
+          });
+        });
+      } else if (probeType === 'HTTP_HEAD_PROBE' || probeType === 'HTTP_PROBE') {
+        const isHttps = destPort === 443;
+        const httpLib = isHttps ? https : http;
+        probeSuccess = await new Promise((resolve) => {
+          const req = httpLib.request({
+            hostname: target,
+            port: destPort,
+            method: 'HEAD',
+            timeout: 2500,
+            rejectUnauthorized: false
+          }, (res) => {
+            latencyMs = Date.now() - startTime;
+            rawOutput = `HTTP HEAD status: ${res.statusCode} ${res.statusMessage || ''}`;
+            resolve(res.statusCode >= 200 && res.statusCode < 500);
+          });
+          req.on('timeout', () => {
+            latencyMs = Date.now() - startTime;
+            req.destroy();
+            rawOutput = 'HTTP HEAD timed out';
+            resolve(false);
+          });
+          req.on('error', (err) => {
+            latencyMs = Date.now() - startTime;
+            req.destroy();
+            rawOutput = `HTTP HEAD error: ${err.message}`;
+            resolve(false);
+          });
+          req.end();
+        });
       } else {
-        probeSuccess = true;
-        rawOutput = `Diagnostic probe ${probeType} executed against ${target}`;
+        probeSuccess = false;
+        rawOutput = `Unrecognized diagnostic probe type: ${probeType}`;
       }
     } catch (e) {
+      probeSuccess = false;
       rawOutput = `Probe error: ${e.message}`;
     }
 
     const revisionEvidence = {
       destIp: target,
       gatewayReachable: probeType === 'ICMP_PING_GATEWAY' ? probeSuccess : null,
-      targetPingReachable: probeType === 'ICMP_PING_TARGET' ? probeSuccess : null
+      targetPingReachable: probeType === 'ICMP_PING_TARGET' ? probeSuccess : null,
+      altPortReachable: probeType === 'TCP_SYN_ALTERNATE_PORT' ? probeSuccess : null,
+      targetPortReachable: (probeType === 'TCP_SYN_TARGET_PORT' || probeType === 'TCP_PORT_PROBE') ? probeSuccess : null,
+      dnsResolved: (probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE') ? probeSuccess : null,
+      tlsHandshakeSuccess: (probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT') ? probeSuccess : null,
+      httpStatusOk: (probeType === 'HTTP_HEAD_PROBE' || probeType === 'HTTP_PROBE') ? probeSuccess : null
     };
 
     const dayBucket = new Date().toISOString().slice(0, 10);
     const normalizedTarget = target.toLowerCase().trim();
-    const dayBucketKey = `INC-${crypto.createHash('sha256').update(`${dayBucket}:${normalizedTarget}:443:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
-    const legacyKey = `INC-${crypto.createHash('sha256').update(`${normalizedTarget}:443:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
+    const dayBucketKey = `INC-${crypto.createHash('sha256').update(`${dayBucket}:${normalizedTarget}:${destPort}:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
+    const legacyKey = `INC-${crypto.createHash('sha256').update(`${normalizedTarget}:${destPort}:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
 
     // Match day-bucketed key first, then legacy key, then any active incident for this target IP
     let matchedKey = null;
@@ -1088,8 +1195,14 @@ class AIBrain {
       revisedEvaluation = reasoningEngine.evaluateIncident({
         incidentType: 'TCP_SYN_TIMEOUT',
         destIp: normalizedTarget,
+        destPort,
         gatewayReachable: revisionEvidence.gatewayReachable,
-        targetPingReachable: revisionEvidence.targetPingReachable
+        targetPingReachable: revisionEvidence.targetPingReachable,
+        altPortReachable: revisionEvidence.altPortReachable,
+        targetPortReachable: revisionEvidence.targetPortReachable,
+        dnsResolved: revisionEvidence.dnsResolved,
+        tlsHandshakeSuccess: revisionEvidence.tlsHandshakeSuccess,
+        httpStatusOk: revisionEvidence.httpStatusOk
       });
       const incident = {
         id: incidentKey,
@@ -1097,8 +1210,8 @@ class AIBrain {
         type: 'TCP_SYN_TIMEOUT',
         incidentType: 'TCP_SYN_TIMEOUT',
         target: normalizedTarget,
-        port: 443,
-        destPort: 443,
+        port: destPort,
+        destPort,
         status: 'INVESTIGATING',
         topHypothesis: revisedEvaluation.topHypothesis,
         rankedHypotheses: revisedEvaluation.rankedHypotheses,
@@ -1127,6 +1240,109 @@ class AIBrain {
    */
   async executeDistinguishingProbe(probeType, targetIp, params = {}) {
     return this.executeDiagnosticProbe({ probeType, targetIp, ...params });
+  }
+
+  /**
+   * Runs an end-to-end autonomous multi-step diagnostic investigation against a target host/port.
+   * Dispatches distinguishing probes on physical wire, revises Bayesian beliefs iteratively,
+   * and terminates early when conclusive disambiguation (>= 80% confidence or 40% lead) is achieved.
+   */
+  async runAutonomousInvestigation({ targetIp, targetPort = 443, maxSteps = 4 } = {}) {
+    const netInfo = getPhysicalNetworkInfo();
+    const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
+    const rawCandidate = targetIp || gatewayIp;
+    const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate : gatewayIp;
+    const port = parseInt(targetPort, 10) || 443;
+    const boundedSteps = Math.min(Math.max(1, parseInt(maxSteps, 10) || 4), 10);
+
+    const investigationId = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const startTime = Date.now();
+
+    // 1. Initial Evaluation
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    const dayBucketKey = `INC-${crypto.createHash('sha256').update(`${dayBucket}:${target.toLowerCase().trim()}:${port}:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
+    let currentIncident = this.activeIncidents.get(dayBucketKey);
+
+    let currentEvaluation = currentIncident?.evaluation || reasoningEngine.evaluateIncident({
+      incidentType: 'TCP_SYN_TIMEOUT',
+      destIp: target,
+      destPort: port
+    });
+
+    const initialTopHypothesis = currentEvaluation.topHypothesis;
+    const steps = [];
+    const executedProbeTypes = new Set();
+
+    const probeCandidates = [
+      { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
+      { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP SYN Alternate Port 80' },
+      { probeType: 'DNS_QUERY_PROBE', label: 'RFC 1035 DNS Query' },
+      { probeType: 'HTTP_HEAD_PROBE', label: 'HTTP/HTTPS Application Layer Probe' },
+      { probeType: 'TLS_HANDSHAKE_PROBE', label: 'TLS 1.3 Cryptographic Handshake' },
+      { probeType: 'ICMP_PING_GATEWAY', label: 'ICMP Echo Perimeter Gateway Probe' }
+    ];
+
+    for (let step = 1; step <= boundedSteps; step++) {
+      const top = currentEvaluation.topHypothesis;
+      const second = currentEvaluation.rankedHypotheses?.[1];
+      const isConclusive = top && (top.confidence >= 80 || (second && (top.confidence - second.confidence) >= 40));
+
+      if (isConclusive && step > 1) {
+        break;
+      }
+
+      let selectedProbe = (currentEvaluation.distinguishingProbes || []).find(p => !executedProbeTypes.has(p.probeType));
+      if (!selectedProbe) {
+        selectedProbe = probeCandidates.find(p => !executedProbeTypes.has(p.probeType));
+      }
+      if (!selectedProbe) break;
+
+      executedProbeTypes.add(selectedProbe.probeType);
+
+      const probeResult = await this.executeDiagnosticProbe({
+        probeType: selectedProbe.probeType,
+        targetIp: target,
+        targetPort: port
+      });
+
+      const priorTop = currentEvaluation.topHypothesis;
+      currentEvaluation = probeResult.revisedEvaluation || currentEvaluation;
+      const newTop = currentEvaluation.topHypothesis;
+
+      steps.push({
+        stepNumber: step,
+        probeType: selectedProbe.probeType,
+        probeSuccess: probeResult.probeSuccess,
+        latencyMs: probeResult.latencyMs,
+        rawOutput: probeResult.rawOutput,
+        priorTopHypothesis: priorTop?.label || null,
+        newTopHypothesis: newTop?.label || null,
+        confidence: newTop?.confidence || 0,
+        revisions: currentEvaluation.revisions || []
+      });
+    }
+
+    const durationMs = Date.now() - startTime;
+    const finalTop = currentEvaluation.topHypothesis;
+    const finalSecond = currentEvaluation.rankedHypotheses?.[1];
+    const conclusive = Boolean(finalTop && (finalTop.confidence >= 70 || (finalSecond && (finalTop.confidence - finalSecond.confidence) >= 30)));
+
+    return {
+      success: true,
+      investigationId,
+      target,
+      targetPort: port,
+      stepsExecuted: steps.length,
+      maxSteps: boundedSteps,
+      conclusive,
+      durationMs,
+      initialTopHypothesis: initialTopHypothesis?.label || null,
+      finalTopHypothesis: finalTop,
+      rankedHypotheses: currentEvaluation.rankedHypotheses || [],
+      contradictoryEvidence: currentEvaluation.contradictoryEvidence || [],
+      steps,
+      evaluation: currentEvaluation
+    };
   }
 
   /**
