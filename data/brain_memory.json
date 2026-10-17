@@ -1,7 +1,7 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-17T11:02:52.076Z",
-  "baselinesCount": 448,
+  "lastUpdated": "2026-10-17T11:03:24.037Z",
+  "baselinesCount": 449,
   "incidentsRecorded": 100,
   "currentSubnet": "192.168.31.1",
   "subnetProfiles": {
@@ -5012,26 +5012,26 @@
     "172.217.114.4": {
       "minRtt": 34,
       "maxRtt": 19090,
-      "avgRtt": 3230.07,
-      "variance": 18672261.78,
-      "stddev": 4321.14,
-      "m2": 1546044602833.2756,
-      "sampleCount": 82800,
+      "avgRtt": 3224.21,
+      "variance": 18618420.74,
+      "stddev": 4314.91,
+      "m2": 1547004579410.4326,
+      "sampleCount": 83091,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:30:34.824Z",
-      "lastObserved": "2026-10-17T11:02:51.926Z"
+      "lastObserved": "2026-10-17T11:03:23.584Z"
     },
     "172.217.117.4": {
       "minRtt": 34,
       "maxRtt": 23153,
-      "avgRtt": 556.85,
-      "variance": 664550.56,
-      "stddev": 815.2,
-      "m2": 87171754935.72392,
-      "sampleCount": 131175,
+      "avgRtt": 615.89,
+      "variance": 863598.29,
+      "stddev": 929.3,
+      "m2": 117841441111.75249,
+      "sampleCount": 136455,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:30:37.009Z",
-      "lastObserved": "2026-10-17T11:02:52.060Z"
+      "lastObserved": "2026-10-17T11:03:23.485Z"
     },
     "151.101.206.172": {
       "minRtt": 77,
@@ -5253,13 +5253,13 @@
       "minRtt": 34,
       "maxRtt": 18775,
       "avgRtt": 57.05,
-      "variance": 133665.18,
+      "variance": 133663.51,
       "stddev": 365.6,
-      "m2": 12590190724.965294,
-      "sampleCount": 94193,
+      "m2": 12590300190.170296,
+      "sampleCount": 94195,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:26.202Z",
-      "lastObserved": "2026-10-17T11:02:48.770Z"
+      "lastObserved": "2026-10-17T11:03:19.715Z"
     },
     "5.178.43.113": {
       "minRtt": 59,
@@ -6416,14 +6416,14 @@
     "172.217.119.4": {
       "minRtt": 34,
       "maxRtt": 4586,
-      "avgRtt": 1434.16,
-      "variance": 4361429.51,
-      "stddev": 2088.4,
-      "m2": 493548086373.20135,
-      "sampleCount": 113163,
+      "avgRtt": 1654.15,
+      "variance": 4683902.18,
+      "stddev": 2164.23,
+      "m2": 567815409459.0192,
+      "sampleCount": 121228,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:35:52.795Z",
-      "lastObserved": "2026-10-17T11:02:51.924Z"
+      "lastObserved": "2026-10-17T11:03:23.059Z"
     },
     "172.217.113.4": {
       "minRtt": 34,
@@ -6908,14 +6908,14 @@
     "104.18.39.21": {
       "minRtt": 3,
       "maxRtt": 3382,
-      "avgRtt": 441.8,
-      "variance": 564865.96,
-      "stddev": 751.58,
-      "m2": 1117869741.7839017,
-      "sampleCount": 1980,
+      "avgRtt": 441.63,
+      "variance": 564640,
+      "stddev": 751.43,
+      "m2": 1117987195.3479016,
+      "sampleCount": 1981,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:48:53.165Z",
-      "lastObserved": "2026-10-17T11:02:42.330Z"
+      "lastObserved": "2026-10-17T11:03:04.754Z"
     },
     "172.215.188.232": {
       "minRtt": 179,
@@ -7028,26 +7028,26 @@
     "192.168.31.89": {
       "minRtt": 0.1,
       "maxRtt": 2222761,
-      "avgRtt": 2960.83,
-      "variance": 382555450.11,
-      "stddev": 19559.02,
-      "m2": 320299141268076.3,
-      "sampleCount": 837263,
+      "avgRtt": 2989.99,
+      "variance": 376337858.86,
+      "stddev": 19399.43,
+      "m2": 320472385400336.25,
+      "sampleCount": 851556,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:07:20.318Z",
-      "lastObserved": "2026-10-17T11:02:52.071Z"
+      "lastObserved": "2026-10-17T11:03:24.028Z"
     },
     "192.168.31.1": {
       "minRtt": 0.1,
       "maxRtt": 2222761,
-      "avgRtt": 31187.75,
-      "variance": 32730121000.87,
-      "stddev": 180914.68,
-      "m2": 257095100461807.4,
-      "sampleCount": 7856,
+      "avgRtt": 31136.29,
+      "variance": 32677642610.86,
+      "stddev": 180769.58,
+      "m2": 257107692062266.94,
+      "sampleCount": 7869,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:07:20.318Z",
-      "lastObserved": "2026-10-17T11:02:47.862Z"
+      "lastObserved": "2026-10-17T11:03:22.124Z"
     },
     "142.251.151.119": {
       "minRtt": 37,
@@ -7160,14 +7160,14 @@
     "172.64.148.235": {
       "minRtt": 3,
       "maxRtt": 3836,
-      "avgRtt": 1303.22,
-      "variance": 2994456.75,
-      "stddev": 1730.45,
-      "m2": 5908063174.631397,
-      "sampleCount": 1974,
+      "avgRtt": 1306.4,
+      "variance": 2998974.93,
+      "stddev": 1731.75,
+      "m2": 5928973443.272998,
+      "sampleCount": 1978,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:10:57.757Z",
-      "lastObserved": "2026-10-17T11:02:42.019Z"
+      "lastObserved": "2026-10-17T11:03:04.597Z"
     },
     "20.89.1.9": {
       "minRtt": 291,
@@ -8516,14 +8516,14 @@
     "146.75.122.172": {
       "minRtt": 71,
       "maxRtt": 22837,
-      "avgRtt": 3820.96,
-      "variance": 21645900.67,
-      "stddev": 4652.52,
-      "m2": 507141806754.08325,
-      "sampleCount": 23430,
+      "avgRtt": 3817.04,
+      "variance": 20759447.07,
+      "stddev": 4556.25,
+      "m2": 511678851476.9179,
+      "sampleCount": 24649,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T09:57:51.981Z",
-      "lastObserved": "2026-10-17T11:02:52.070Z"
+      "lastObserved": "2026-10-17T11:03:24.025Z"
     },
     "2.20.45.81": {
       "minRtt": 268,
@@ -8564,14 +8564,14 @@
     "23.7.245.148": {
       "minRtt": 63,
       "maxRtt": 9454,
-      "avgRtt": 3249.29,
-      "variance": 6233006.61,
-      "stddev": 2496.6,
-      "m2": 209877798680.19177,
-      "sampleCount": 33673,
+      "avgRtt": 3369.21,
+      "variance": 6981655.4,
+      "stddev": 2642.28,
+      "m2": 243471268603.5456,
+      "sampleCount": 34874,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T09:57:56.962Z",
-      "lastObserved": "2026-10-17T11:02:52.070Z"
+      "lastObserved": "2026-10-17T11:03:24.025Z"
     },
     "172.67.75.39": {
       "minRtt": 2504,
@@ -8888,14 +8888,14 @@
     "92.223.124.62": {
       "minRtt": 70,
       "maxRtt": 17409,
-      "avgRtt": 1956.81,
-      "variance": 2978174.05,
-      "stddev": 1725.74,
-      "m2": 64602551599.41367,
-      "sampleCount": 21693,
+      "avgRtt": 1863.19,
+      "variance": 2911604.24,
+      "stddev": 1706.34,
+      "m2": 67560864788.96889,
+      "sampleCount": 23205,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T10:03:14.792Z",
-      "lastObserved": "2026-10-17T11:02:52.071Z"
+      "lastObserved": "2026-10-17T11:03:24.028Z"
     },
     "172.217.20.193": {
       "minRtt": 129,
@@ -9488,14 +9488,14 @@
     "20.215.74.200": {
       "minRtt": 395,
       "maxRtt": 8081,
-      "avgRtt": 1102.13,
-      "variance": 3121423.32,
-      "stddev": 1766.76,
-      "m2": 2762459640.6877046,
-      "sampleCount": 886,
+      "avgRtt": 1097.66,
+      "variance": 3099458.69,
+      "stddev": 1760.53,
+      "m2": 2764717150.4673047,
+      "sampleCount": 893,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T10:24:57.174Z",
-      "lastObserved": "2026-10-17T11:02:47.138Z"
+      "lastObserved": "2026-10-17T11:03:12.486Z"
     },
     "52.77.26.177": {
       "minRtt": 483,
@@ -10184,26 +10184,26 @@
     "34.143.75.2": {
       "minRtt": 832,
       "maxRtt": 1149,
-      "avgRtt": 985.22,
-      "variance": 7516.54,
-      "stddev": 86.7,
-      "m2": 323211.15160000004,
-      "sampleCount": 44,
+      "avgRtt": 985.39,
+      "variance": 7347.05,
+      "stddev": 85.71,
+      "m2": 323270.35740000004,
+      "sampleCount": 45,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T10:58:42.817Z",
-      "lastObserved": "2026-10-17T11:02:51.848Z"
+      "lastObserved": "2026-10-17T11:02:52.493Z"
     },
     "34.143.77.2": {
       "minRtt": 614,
       "maxRtt": 848,
-      "avgRtt": 812.89,
-      "variance": 7160.8,
-      "stddev": 84.62,
-      "m2": 279271.00750000007,
-      "sampleCount": 40,
+      "avgRtt": 815.35,
+      "variance": 6731.19,
+      "stddev": 82.04,
+      "m2": 282709.9920000001,
+      "sampleCount": 43,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T10:58:43.151Z",
-      "lastObserved": "2026-10-17T11:02:51.754Z"
+      "lastObserved": "2026-10-17T11:02:55.078Z"
     },
     "2.20.45.219": {
       "minRtt": 482,
@@ -10292,14 +10292,14 @@
     "173.194.6.199": {
       "minRtt": 638,
       "maxRtt": 1699,
-      "avgRtt": 1180.22,
-      "variance": 242355.21,
-      "stddev": 492.3,
-      "m2": 223451505.9328999,
-      "sampleCount": 923,
+      "avgRtt": 1179.18,
+      "variance": 242334.96,
+      "stddev": 492.28,
+      "m2": 223917504.5128999,
+      "sampleCount": 925,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T10:59:48.501Z",
-      "lastObserved": "2026-10-17T11:02:47.683Z"
+      "lastObserved": "2026-10-17T11:03:06.445Z"
     },
     "192.178.24.2": {
       "minRtt": 744,
@@ -10314,16 +10314,16 @@
       "lastObserved": "2026-10-17T11:01:53.569Z"
     },
     "20.20.44.160": {
-      "minRtt": 3637,
+      "minRtt": 166,
       "maxRtt": 5550,
-      "avgRtt": 5195.74,
-      "variance": 573441.66,
-      "stddev": 757.26,
-      "m2": 14909483.278400004,
-      "sampleCount": 27,
+      "avgRtt": 3443.9,
+      "variance": 6344080.22,
+      "stddev": 2518.75,
+      "m2": 298171770.1222,
+      "sampleCount": 48,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T11:00:39.920Z",
-      "lastObserved": "2026-10-17T11:00:51.718Z"
+      "lastObserved": "2026-10-17T11:02:55.211Z"
     },
     "2.20.45.9": {
       "minRtt": 2754,
@@ -10336,126 +10336,21 @@
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-17T11:00:41.236Z",
       "lastObserved": "2026-10-17T11:01:22.919Z"
+    },
+    "20.67.186.184": {
+      "minRtt": 89,
+      "maxRtt": 89,
+      "avgRtt": 89,
+      "variance": 0,
+      "stddev": 0,
+      "m2": 0,
+      "sampleCount": 41,
+      "status": "ESTABLISHED",
+      "firstObserved": "2026-10-17T11:02:53.561Z",
+      "lastObserved": "2026-10-17T11:03:04.472Z"
     }
   },
   "incidentHistory": [
-    {
-      "incidentKey": "INC-fd1dc574e0169d97",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "192.168.31.89",
-      "destPort": 55189,
-      "timestamp": "2026-10-17T11:02:41.835Z"
-    },
-    {
-      "incidentKey": "INC-ab5b9c2f270eb6e2",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "172.64.148.235",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:42.019Z"
-    },
-    {
-      "incidentKey": "INC-033e68e66938c9e4",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "192.168.31.89",
-      "destPort": 62032,
-      "timestamp": "2026-10-17T11:02:42.019Z"
-    },
-    {
-      "incidentKey": "INC-1252f03d513060b5",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "192.168.31.89",
-      "destPort": 60413,
-      "timestamp": "2026-10-17T11:02:00.712Z"
-    },
-    {
-      "incidentKey": "INC-fce21a964e13925c",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "192.168.31.89",
-      "destPort": 60470,
-      "timestamp": "2026-10-17T11:02:00.713Z"
-    },
-    {
-      "incidentKey": "INC-7b4c94ca0e532705",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "192.168.31.89",
-      "destPort": 59764,
-      "timestamp": "2026-10-17T11:02:41.720Z"
-    },
-    {
-      "incidentKey": "INC-c0b3c3d353fa7da1",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "146.75.122.172",
-      "destPort": 80,
-      "timestamp": "2026-10-17T11:02:00.776Z"
-    },
-    {
-      "incidentKey": "INC-c43351ebef1c47b6",
-      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
-      "topHypothesis": "Application Server Backend Processing Bottleneck",
-      "confidence": 67,
-      "target": "172.217.118.4",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:48.770Z"
-    },
-    {
-      "incidentKey": "INC-4e7b9d89dfd1c247",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "34.143.77.2",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:47.364Z"
-    },
-    {
-      "incidentKey": "INC-a7722697c355b1b4",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "34.143.75.2",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:07.615Z"
-    },
-    {
-      "incidentKey": "INC-2eac9e8994f2e2d7",
-      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
-      "topHypothesis": "Application Server Backend Processing Bottleneck",
-      "confidence": 67,
-      "target": "192.168.31.89",
-      "destPort": 51492,
-      "timestamp": "2026-10-17T11:02:52.068Z"
-    },
-    {
-      "incidentKey": "INC-af2d9abc2800ae99",
-      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
-      "topHypothesis": "Application Server Backend Processing Bottleneck",
-      "confidence": 67,
-      "target": "34.54.84.110",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:48.598Z"
-    },
-    {
-      "incidentKey": "INC-5ea001ce972b38b6",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "34.54.84.110",
-      "destPort": 443,
-      "timestamp": "2026-10-17T11:02:33.533Z"
-    },
     {
       "incidentKey": "INC-29c8d04add779ab0",
       "incidentType": "TCP_SYN_TIMEOUT",
@@ -10463,7 +10358,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 60471,
-      "timestamp": "2026-10-17T11:02:49.825Z"
+      "timestamp": "2026-10-17T11:03:22.460Z"
     },
     {
       "incidentKey": "INC-2bedb0f3ec4e28b2",
@@ -10472,7 +10367,7 @@
       "confidence": 67,
       "target": "172.217.119.4",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:51.924Z"
+      "timestamp": "2026-10-17T11:03:04.832Z"
     },
     {
       "incidentKey": "INC-d74b196bedb2d4f4",
@@ -10499,7 +10394,7 @@
       "confidence": 52,
       "target": "172.217.118.4",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:48.770Z"
+      "timestamp": "2026-10-17T11:03:19.715Z"
     },
     {
       "incidentKey": "INC-699567e3ea4b2f51",
@@ -10517,7 +10412,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 51492,
-      "timestamp": "2026-10-17T11:02:49.606Z"
+      "timestamp": "2026-10-17T11:03:24.022Z"
     },
     {
       "incidentKey": "INC-7ef84beb66bd4ae5",
@@ -10544,7 +10439,7 @@
       "confidence": 52,
       "target": "172.217.119.4",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:51.572Z"
+      "timestamp": "2026-10-17T11:03:22.431Z"
     },
     {
       "incidentKey": "INC-0fd05a2e3802ed8c",
@@ -10553,7 +10448,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 59043,
-      "timestamp": "2026-10-17T11:02:48.976Z"
+      "timestamp": "2026-10-17T11:03:22.345Z"
     },
     {
       "incidentKey": "INC-3334ec5f1ebc1c04",
@@ -10571,7 +10466,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 50312,
-      "timestamp": "2026-10-17T11:02:47.144Z"
+      "timestamp": "2026-10-17T11:03:04.349Z"
     },
     {
       "incidentKey": "INC-3b162028cd00bb62",
@@ -10580,7 +10475,7 @@
       "confidence": 52,
       "target": "172.217.114.4",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:51.556Z"
+      "timestamp": "2026-10-17T11:02:54.951Z"
     },
     {
       "incidentKey": "INC-71a0c94c74a51441",
@@ -10589,7 +10484,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 60626,
-      "timestamp": "2026-10-17T11:02:48.760Z"
+      "timestamp": "2026-10-17T11:02:54.947Z"
     },
     {
       "incidentKey": "INC-f9d2dec410b9bd06",
@@ -10598,7 +10493,7 @@
       "confidence": 67,
       "target": "172.217.117.4",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:51.844Z"
+      "timestamp": "2026-10-17T11:03:23.485Z"
     },
     {
       "incidentKey": "INC-f8d1e424a0d95467",
@@ -10697,7 +10592,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 61398,
-      "timestamp": "2026-10-17T11:02:47.460Z"
+      "timestamp": "2026-10-17T11:03:15.864Z"
     },
     {
       "incidentKey": "INC-d89b132b8696c2cf",
@@ -10733,7 +10628,7 @@
       "confidence": 52,
       "target": "192.168.31.89",
       "destPort": 55149,
-      "timestamp": "2026-10-17T11:02:49.795Z"
+      "timestamp": "2026-10-17T11:03:22.309Z"
     },
     {
       "incidentKey": "INC-a1c944308c2bfaca",
@@ -10778,7 +10673,7 @@
       "confidence": 52,
       "target": "34.93.91.7",
       "destPort": 443,
-      "timestamp": "2026-10-17T11:02:48.194Z"
+      "timestamp": "2026-10-17T11:02:52.494Z"
     },
     {
       "incidentKey": "INC-5baa9e4256d2490b",
@@ -10788,6 +10683,123 @@
       "target": "34.54.84.110",
       "destPort": 443,
       "timestamp": "2026-10-17T11:02:48.598Z"
+    },
+    {
+      "incidentKey": "INC-7ed512db208ce038",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 55646,
+      "timestamp": "2026-10-17T11:02:55.424Z"
+    },
+    {
+      "incidentKey": "INC-e9a3f2a8b5848b8b",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 61390,
+      "timestamp": "2026-10-17T11:02:55.076Z"
+    },
+    {
+      "incidentKey": "INC-af91429fb2c3a344",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 54370,
+      "timestamp": "2026-10-17T11:02:52.492Z"
+    },
+    {
+      "incidentKey": "INC-2fe397d964426627",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 56745,
+      "timestamp": "2026-10-17T11:02:53.034Z"
+    },
+    {
+      "incidentKey": "INC-6e948cf05190cf48",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "20.67.186.184",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:02:54.412Z"
+    },
+    {
+      "incidentKey": "INC-566f7feebada3a8d",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 56746,
+      "timestamp": "2026-10-17T11:02:54.540Z"
+    },
+    {
+      "incidentKey": "INC-8a74bfca16669e79",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "20.20.44.160",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:02:55.015Z"
+    },
+    {
+      "incidentKey": "INC-3d2630293402f47a",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "192.168.31.89",
+      "destPort": 56747,
+      "timestamp": "2026-10-17T11:02:55.204Z"
+    },
+    {
+      "incidentKey": "INC-8f52fa8644ea5e54",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "34.93.91.7",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:03:17.851Z"
+    },
+    {
+      "incidentKey": "INC-66a18b023e683dec",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "2.20.45.203",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:03:04.472Z"
+    },
+    {
+      "incidentKey": "INC-87f495e29c551284",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "20.67.186.184",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:03:04.472Z"
+    },
+    {
+      "incidentKey": "INC-e61690e273fd2103",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "173.194.6.199",
+      "destPort": 443,
+      "timestamp": "2026-10-17T11:03:06.445Z"
+    },
+    {
+      "incidentKey": "INC-a9497c475198f79c",
+      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
+      "topHypothesis": "Application Server Backend Processing Bottleneck",
+      "confidence": 67,
+      "target": "192.168.31.89",
+      "destPort": 55682,
+      "timestamp": "2026-10-17T11:03:11.003Z"
     }
   ]
 }
