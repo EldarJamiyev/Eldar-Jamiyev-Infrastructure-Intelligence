@@ -8,7 +8,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { aiBrain } = require('../core/ai-brain');
+const { aiBrain, isSafeNetworkTarget } = require('../core/ai-brain');
 const { diagnosticReasoningEngine } = require('../core/rca-engine');
 const { incidentBriefingProvider } = require('../core/llm-provider');
 const { toolSandbox } = require('../core/tool-sandbox');
@@ -165,21 +165,28 @@ router.get('/active', (req, res) => {
  * POST /api/rca/probe
  * Dispatch a distinguishing probe to refine an active RCA investigation
  */
-router.post('/probe', async (req, res) => {
+router.post('/probe', authenticate, requirePermission('network.diagnostics.execute'), async (req, res) => {
   const { probeType, target, params } = req.body || {};
   if (!probeType || !target) {
     return res.status(400).json({ error: "Missing required fields 'probeType' and 'target'." });
   }
 
+  if (!isSafeNetworkTarget(target)) {
+    return res.status(400).json({
+      success: false,
+      error: `Security rejection: Target '${target}' is invalid or blocked by SSRF defense policy.`
+    });
+  }
+
   try {
     let result;
     if (probeType === 'PATH_MTU_DF_SWEEP' || probeType === 'pmtu_sweep') {
-      result = await toolSandbox.executeTool('pmtu_sweep', { target, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+      result = await toolSandbox.executeTool('pmtu_sweep', { target, ...params }, { role: req.user?.role || 'ANALYST', username: req.user?.username || 'rca-agent' });
     } else if (probeType === 'ICMP_PING' || probeType === 'ping') {
-      result = await toolSandbox.executeTool('ping', { target, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+      result = await toolSandbox.executeTool('ping', { target, ...params }, { role: req.user?.role || 'ANALYST', username: req.user?.username || 'rca-agent' });
     } else if (probeType === 'TCP_HANDSHAKE' || probeType === 'tcp_handshake') {
       const port = parseInt(params?.port || 443, 10);
-      result = await toolSandbox.executeTool('tcp_handshake', { target, port, ...params }, { role: 'ANALYST', username: 'rca-agent' });
+      result = await toolSandbox.executeTool('tcp_handshake', { target, port, ...params }, { role: req.user?.role || 'ANALYST', username: req.user?.username || 'rca-agent' });
     } else {
       result = await aiBrain.executeDistinguishingProbe(probeType, target, params || {});
     }
@@ -266,11 +273,22 @@ router.post('/brain/investigate', authenticate, requirePermission('network.diagn
     const candidatePort = parseInt(targetPort || port || 443, 10);
     const steps = parseInt(maxSteps || 4, 10);
 
+    if (!isSafeNetworkTarget(candidateIp)) {
+      return res.status(400).json({
+        success: false,
+        error: `Security rejection: Target '${candidateIp}' is invalid or blocked by SSRF defense policy.`
+      });
+    }
+
     const outcome = await aiBrain.runAutonomousInvestigation({
       targetIp: candidateIp,
       targetPort: candidatePort,
       maxSteps: steps
     });
+
+    if (!outcome.success) {
+      return res.status(400).json(outcome);
+    }
 
     res.json(outcome);
   } catch (err) {

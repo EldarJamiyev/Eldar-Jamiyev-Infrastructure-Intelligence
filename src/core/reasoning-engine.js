@@ -122,7 +122,7 @@ class BayesianReasoningEngine {
     let activeHypotheses = [];
 
     // Select candidate hypothesis subspace based on fundamental protocol layer
-    if (incidentType === 'TCP_RST_REJECT' || tcpRstObserved) {
+    if (incidentType === 'TCP_RST_REJECT' || tcpRstObserved || safeTelemetry.errorCode === 'ECONNREFUSED') {
       activeHypotheses = ['PORT_CLOSED_SERVICE_STOPPED', 'FIREWALL_SILENT_DROP', 'LOCAL_NIC_STACK_ERROR'];
     } else if (incidentType === 'DNS_FAILURE' || dnsRcode !== null || dnsResolved === false) {
       activeHypotheses = ['DNS_RESOLUTION_FAILURE', 'GATEWAY_UNREACHABLE', 'UPSTREAM_TRANSIT_DROP', 'LOCAL_NIC_STACK_ERROR'];
@@ -184,7 +184,7 @@ class BayesianReasoningEngine {
     }
 
     // Exact 100% normalization guarantee using Largest Remainder Method (Hare-Niemeyer)
-    const validWeight = totalEvidenceWeight > 0 && !isNaN(totalEvidenceWeight);
+    const validWeight = totalEvidenceWeight > 0 && !isNaN(totalEvidenceWeight) && isFinite(totalEvidenceWeight);
     const rawPcts = activeHypotheses.map(hId => {
       const prob = validWeight ? (posteriors[hId] / totalEvidenceWeight) : (1 / activeHypotheses.length);
       return prob * 100;
@@ -212,6 +212,8 @@ class BayesianReasoningEngine {
     for (let i = 0; i < difference; i++) {
       integerParts[remainders[i].idx] += 1;
     }
+
+    const allHypothesesContradicted = activeHypotheses.length > 0 && activeHypotheses.every(hId => contradictedMap.has(hId));
 
     const rankedHypotheses = [];
     activeHypotheses.forEach((hId, idx) => {
@@ -262,6 +264,10 @@ class BayesianReasoningEngine {
       h.likelihood = h.confidence >= 70 ? 'HIGH' : (h.confidence >= 40 ? 'MEDIUM' : 'LOW');
     });
 
+    const diagnosticState = allHypothesesContradicted
+      ? 'INCONCLUSIVE_ALL_HYPOTHESES_CONTRADICTED'
+      : (rankedHypotheses[0]?.confidence >= 70 ? 'CONCLUSIVE' : 'AMBIGUOUS');
+
     // Generate next-best distinguishing probes based on the top 2 competing hypotheses
     const distinguishingProbes = this.recommendDistinguishingTests(rankedHypotheses, safeTelemetry);
 
@@ -286,9 +292,13 @@ class BayesianReasoningEngine {
       telemetry: safeTelemetry,
       topHypothesis: rankedHypotheses[0],
       rankedHypotheses,
+      allHypothesesContradicted,
+      diagnosticState,
       contradictoryEvidence,
       distinguishingProbes,
-      helpdeskSummary,
+      helpdeskSummary: allHypothesesContradicted
+        ? 'INCONCLUSIVE: All candidate hypotheses contradict empirical wire evidence. Observed telemetry indicates an anomalous multi-layer conflict or complex edge case. Further manual investigation or additional packet capture required.'
+        : helpdeskSummary,
       engineeringProvenance,
       totalEvidenceWeight: Number(totalEvidenceWeight.toFixed(4)),
       evaluatedAt: new Date().toISOString()
@@ -473,7 +483,7 @@ class BayesianReasoningEngine {
       });
     }
 
-    if (tcpRstObserved === true || incidentType === 'TCP_RST_REJECT') {
+    if (tcpRstObserved === true || incidentType === 'TCP_RST_REJECT' || telemetry.errorCode === 'ECONNREFUSED') {
       contradictory.push({
         hypothesis: 'REMOTE_HOST_DOWN',
         rule: 'RFC 793 Section 3.4',
@@ -535,8 +545,8 @@ class BayesianReasoningEngine {
     switch (hypothesisId) {
       case 'PORT_CLOSED_SERVICE_STOPPED':
         if (safeT.targetPortReachable === true || safeT.httpStatusOk === true || safeT.tlsHandshakeSuccess === true) return 0.01;
-        if (safeT.altPortReachable === true && safeT.targetPortReachable === false && safeT.tcpRstObserved) return 0.99;
-        if (safeT.tcpRstObserved || safeT.incidentType === 'TCP_RST_REJECT') return 0.99;
+        if (safeT.altPortReachable === true && safeT.targetPortReachable === false && (safeT.tcpRstObserved || safeT.errorCode === 'ECONNREFUSED')) return 0.99;
+        if (safeT.tcpRstObserved || safeT.errorCode === 'ECONNREFUSED' || safeT.incidentType === 'TCP_RST_REJECT') return 0.99;
         return 0.05;
 
       case 'BACKEND_PROCESSING_LATENCY':
@@ -568,7 +578,8 @@ class BayesianReasoningEngine {
         return 0.15;
 
       case 'REMOTE_HOST_DOWN':
-        if (safeT.targetPingReachable === true || safeT.altPortReachable === true || safeT.targetPortReachable === true) return 0.01; // Host verified alive!
+        if (safeT.targetPingReachable === true || safeT.altPortReachable === true || safeT.targetPortReachable === true || safeT.errorCode === 'ECONNREFUSED') return 0.01; // Host verified alive!
+        if (safeT.errorCode === 'EHOSTUNREACH' || safeT.errorCode === 'ENETUNREACH') return 0.85;
         if (safeT.targetPingReachable === false && safeT.altPortReachable === false) return 0.95;
         if (safeT.targetPingReachable === false) return 0.85;
         if (safeT.retransCount >= 3) return 0.70;
@@ -579,12 +590,14 @@ class BayesianReasoningEngine {
         if (safeT.altPortReachable === true && safeT.targetPortReachable === false) return 0.98; // Host answers alt port, but target port drops! Decisive firewall filtering.
         if (safeT.targetPingReachable === true && safeT.targetPortReachable === false) return 0.96;
         if (safeT.targetPingReachable === true) return 0.95; // Host answers ping, but port drops SYN! Strong firewall indicator.
-        if (safeT.tcpRstObserved) return 0.05; // Firewalls silently drop; they don't produce standard target RSTs.
+        if (safeT.tcpRstObserved || safeT.errorCode === 'ECONNREFUSED') return 0.05; // Firewalls silently drop; they don't produce standard target RSTs.
+        if (safeT.errorCode === 'ETIMEDOUT') return 0.95;
         if (safeT.retransCount >= 2) return 0.85;
         return 0.50;
 
       case 'UPSTREAM_TRANSIT_DROP':
-        if (safeT.altPortReachable === true || safeT.targetPortReachable === true) return 0.01;
+        if (safeT.altPortReachable === true || safeT.targetPortReachable === true || safeT.errorCode === 'ECONNREFUSED') return 0.01;
+        if (safeT.errorCode === 'ENETUNREACH') return 0.95;
         if (safeT.gatewayReachable === true && safeT.targetPingReachable === false) return 0.60;
         return 0.25;
 

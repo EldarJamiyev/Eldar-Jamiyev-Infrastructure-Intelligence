@@ -48,14 +48,98 @@ function writeFileAtomicSync(targetPath, content) {
 }
 
 /**
- * Validates that a probe target is a safe IPv4/IPv6 address or RFC-1123 hostname
- * (Strictly blocks command injection metacharacters).
+ * Validates that a probe target is a safe IPv4/IPv6 address or RFC-1123 hostname.
+ * Strictly blocks command injection metacharacters, cloud link-local metadata endpoints
+ * (169.254.169.254, 169.254.0.0/16, AWS IPv6 fd00:ec2::254, metadata hostnames),
+ * hex/dword/octal IP obfuscations, and non-routable ranges.
+ * Preserves legitimate RFC 1918 private subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+ * and loopback (127.0.0.0/8, ::1) for authentic NOC diagnostics.
  */
 function isSafeNetworkTarget(target) {
-  if (typeof target !== 'string' || target.length === 0 || target.length > 253) return false;
-  if (/[;&|`$><\n\r\0\\'"]/.test(target)) return false;
-  if (net.isIP(target) !== 0) return true;
-  return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(target);
+  if (typeof target !== 'string') return false;
+  let normalized = target.trim();
+  if (normalized.length === 0 || normalized.length > 253) return false;
+
+  // Unwrap bracketed IPv6: e.g. [::1] -> ::1
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    const inner = normalized.slice(1, -1);
+    if (net.isIPv6(inner)) {
+      normalized = inner;
+    } else {
+      return false;
+    }
+  }
+
+  // Strictly block shell metacharacters, control chars, spaces, and path traversals
+  if (/[;&|`$><\n\r\0\\'"(){}[\]\s]|\.\./.test(normalized)) {
+    return false;
+  }
+
+  // Canonicalize Dword integer format: e.g. 2852039166 -> 169.254.169.254
+  if (/^\d+$/.test(normalized)) {
+    const dword = parseInt(normalized, 10);
+    if (dword >= 0 && dword <= 4294967295) {
+      const b0 = (dword >>> 24) & 255;
+      const b1 = (dword >>> 16) & 255;
+      if (b0 === 169 && b1 === 254) return false; // Cloud metadata
+    }
+    return false; // Plain raw integers without dots are not valid hostnames
+  }
+
+  // Canonicalize Hex integer format: e.g. 0xa9fea9fe
+  if (/^0x[0-9a-fA-F]+$/i.test(normalized)) {
+    const hexNum = parseInt(normalized, 16);
+    if (hexNum >= 0 && hexNum <= 4294967295) {
+      const b0 = (hexNum >>> 24) & 255;
+      const b1 = (hexNum >>> 16) & 255;
+      if (b0 === 169 && b1 === 254) return false;
+    }
+    return false;
+  }
+
+  // Check 4-part IP representations (including octal/hex segments)
+  const parts = normalized.split('.');
+  if (parts.length === 4 && parts.every(p => /^(0x[0-9a-fA-F]+|0[0-7]+|\d+)$/i.test(p))) {
+    const octets = parts.map(p => {
+      if (/^0x/i.test(p)) return parseInt(p, 16);
+      if (/^0[0-7]+$/.test(p)) return parseInt(p, 8);
+      return parseInt(p, 10);
+    });
+    if (octets.some(o => isNaN(o) || o < 0 || o > 255)) return false;
+
+    // Check link-local / cloud metadata range 169.254.0.0/16
+    if (octets[0] === 169 && octets[1] === 254) return false;
+
+    // Check 0.0.0.0/8, multicast 224.0.0.0/4, broadcast 255.255.255.255
+    if (octets[0] === 0 || octets[0] >= 224) return false;
+
+    // Must be valid canonical decimal IPv4
+    if (net.isIPv4(normalized)) {
+      return true;
+    }
+    // Non-standard decimal/octal/hex notation is rejected as evasion attempt
+    return false;
+  }
+
+  // Check IPv6
+  if (net.isIPv6(normalized)) {
+    const lower = normalized.toLowerCase();
+    // Block AWS metadata IPv6 fd00:ec2::254
+    if (lower === 'fd00:ec2::254' || lower.startsWith('fd00:ec2:')) return false;
+    // Block IPv6 link-local fe80::/10
+    if (lower.startsWith('fe80:')) return false;
+    return true;
+  }
+
+  // Check Cloud Metadata Hostnames
+  const lowerHost = normalized.toLowerCase();
+  const blockedHostnames = ['metadata.google.internal', 'metadata', 'instance-data'];
+  if (blockedHostnames.includes(lowerHost) || lowerHost.endsWith('.metadata.google.internal')) {
+    return false;
+  }
+
+  // Standard RFC 1123 Hostname Validation
+  return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(normalized);
 }
 
 class AIBrain {
@@ -1004,18 +1088,48 @@ class AIBrain {
   /**
    * Executes a recommended diagnostic probe on real physical network wire using safe execFile,
    * feeds results into Bayesian engine, and dynamically revises beliefs on matching active incidents.
+   * Accurately extracts OS kernel socket error codes (ECONNREFUSED, ETIMEDOUT, EHOSTUNREACH),
+   * dynamically reports negotiated TLS versions and cipher suites, attributes DNS resolver types,
+   * and enforces strict target canonicalization and cloud metadata SSRF defense.
    */
   async executeDiagnosticProbe({ probeType, targetIp, probeId, targetPort = 443, alternatePort = 80 }) {
     const netInfo = getPhysicalNetworkInfo();
     const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
-    const rawCandidate = targetIp || (probeType === 'ICMP_PING_GATEWAY' ? gatewayIp : gatewayIp);
-    const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate : gatewayIp;
+
+    // Target safety and SSRF validation
+    let target = null;
+    if (probeType === 'ICMP_PING_GATEWAY') {
+      target = isSafeNetworkTarget(targetIp) ? targetIp.trim() : gatewayIp;
+    } else {
+      if (targetIp) {
+        if (!isSafeNetworkTarget(targetIp)) {
+          return {
+            success: false,
+            probeType,
+            target: targetIp,
+            probeSuccess: false,
+            latencyMs: 0,
+            errorCode: 'SECURITY_TARGET_REJECTED',
+            rawOutput: `Security rejection: Target '${targetIp}' is invalid or blocked by SSRF defense policy (RFC 3927 link-local / cloud metadata / command injection).`,
+            error: 'SECURITY_TARGET_REJECTED',
+            revisedEvaluation: null
+          };
+        }
+        target = targetIp.trim();
+      } else {
+        target = gatewayIp;
+      }
+    }
+
     const destPort = parseInt(targetPort || 443, 10);
     const altPort = parseInt(alternatePort || 80, 10);
 
     let probeSuccess = false;
     let latencyMs = 0;
     let rawOutput = '';
+    let socketErrorCode = null;
+    let tlsNegotiatedProtocol = null;
+    let tlsNegotiatedCipher = null;
 
     const startTime = Date.now();
     try {
@@ -1030,7 +1144,17 @@ class AIBrain {
         });
         latencyMs = Date.now() - startTime;
         probeSuccess = /TTL=/i.test(rawOutput) || /bytes from/i.test(rawOutput);
-      } else if (probeType === 'TCP_SYN_ALTERNATE_PORT') {
+      } else if (
+        probeType === 'TCP_SYN_ALTERNATE_PORT' ||
+        probeType === 'TCP_CONNECT_ALTERNATE_PORT' ||
+        probeType === 'TCP_SYN_TARGET_PORT' ||
+        probeType === 'TCP_CONNECT_TARGET_PORT' ||
+        probeType === 'TCP_PORT_PROBE'
+      ) {
+        const isAlt = probeType === 'TCP_SYN_ALTERNATE_PORT' || probeType === 'TCP_CONNECT_ALTERNATE_PORT';
+        const port = isAlt ? altPort : destPort;
+        let timedOut = false;
+
         probeSuccess = await new Promise((resolve) => {
           const socket = new net.Socket();
           socket.setTimeout(1500);
@@ -1039,48 +1163,58 @@ class AIBrain {
             socket.destroy();
             resolve(true);
           });
-          socket.on('timeout', () => { socket.destroy(); resolve(false); });
-          socket.on('error', () => { socket.destroy(); resolve(false); });
-          socket.connect(altPort, target);
-        });
-        rawOutput = probeSuccess ? `TCP alternate port ${altPort} connected in ${latencyMs}ms` : `TCP alternate port ${altPort} connection timed out or refused`;
-      } else if (probeType === 'TCP_SYN_TARGET_PORT' || probeType === 'TCP_PORT_PROBE') {
-        probeSuccess = await new Promise((resolve) => {
-          const socket = new net.Socket();
-          socket.setTimeout(1500);
-          socket.on('connect', () => {
+          socket.on('timeout', () => {
             latencyMs = Date.now() - startTime;
+            timedOut = true;
+            socketErrorCode = 'ETIMEDOUT';
             socket.destroy();
-            resolve(true);
+            resolve(false);
           });
-          socket.on('timeout', () => { socket.destroy(); resolve(false); });
-          socket.on('error', () => { socket.destroy(); resolve(false); });
-          socket.connect(destPort, target);
+          socket.on('error', (err) => {
+            latencyMs = Date.now() - startTime;
+            socketErrorCode = err.code || err.message;
+            socket.destroy();
+            resolve(false);
+          });
+          socket.connect(port, target);
         });
-        rawOutput = probeSuccess ? `TCP target port ${destPort} connected in ${latencyMs}ms` : `TCP target port ${destPort} connection timed out or refused`;
+
+        if (probeSuccess) {
+          rawOutput = `TCP connection to ${target}:${port} connected in ${latencyMs}ms (full TCP 3-way handshake SYN->SYN/ACK->ACK completed via net.Socket)`;
+        } else if (socketErrorCode === 'ECONNREFUSED') {
+          rawOutput = `TCP connection to ${target}:${port} rejected with ECONNREFUSED in ${latencyMs}ms (host is online and reachable; target OS kernel returned explicit RFC 793 TCP RST)`;
+        } else if (timedOut || socketErrorCode === 'ETIMEDOUT') {
+          rawOutput = `TCP connection to ${target}:${port} timed out in ${latencyMs}ms (no TCP SYN/ACK or RST received; indicates stateful firewall silent drop / perimeter ACL or routing blackhole)`;
+        } else if (socketErrorCode === 'EHOSTUNREACH' || socketErrorCode === 'ENETUNREACH') {
+          rawOutput = `TCP connection to ${target}:${port} failed with ${socketErrorCode} in ${latencyMs}ms (upstream routing failure; intermediate router returned ICMP Destination Unreachable)`;
+        } else {
+          rawOutput = `TCP connection to ${target}:${port} failed: ${socketErrorCode || 'timed out or refused'} in ${latencyMs}ms`;
+        }
       } else if (probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE') {
-        const isIp = /^[0-9.]+$/.test(target);
+        const isIp = net.isIP(target) !== 0;
         if (isIp) {
           try {
             const hostnames = await dns.promises.reverse(target);
             latencyMs = Date.now() - startTime;
             probeSuccess = Array.isArray(hostnames) && hostnames.length > 0;
-            rawOutput = `DNS reverse lookup for ${target}: ${hostnames.join(', ')}`;
+            rawOutput = `DNS reverse PTR query (RFC 1035 via c-ares resolver) for ${target}: ${hostnames.join(', ')} (${latencyMs}ms)`;
           } catch (dnsErr) {
             latencyMs = Date.now() - startTime;
             probeSuccess = false;
-            rawOutput = `DNS reverse lookup failed for ${target}: ${dnsErr.message}`;
+            socketErrorCode = dnsErr.code || 'DNS_ERR';
+            rawOutput = `DNS reverse PTR query (RFC 1035 via c-ares resolver) failed for ${target} [code=${socketErrorCode}]: ${dnsErr.message} (${latencyMs}ms)`;
           }
         } else {
           try {
             const addresses = await dns.promises.resolve4(target);
             latencyMs = Date.now() - startTime;
             probeSuccess = Array.isArray(addresses) && addresses.length > 0;
-            rawOutput = `DNS RFC 1035 A record for ${target}: ${addresses.join(', ')}`;
+            rawOutput = `DNS RFC 1035 A record query (via c-ares resolver) for ${target}: ${addresses.join(', ')} (${latencyMs}ms)`;
           } catch (dnsErr) {
             latencyMs = Date.now() - startTime;
             probeSuccess = false;
-            rawOutput = `DNS resolution failed for ${target}: ${dnsErr.message}`;
+            socketErrorCode = dnsErr.code || 'DNS_ERR';
+            rawOutput = `DNS RFC 1035 A record query (via c-ares resolver) failed for ${target} [code=${socketErrorCode}]: ${dnsErr.message} (${latencyMs}ms)`;
           }
         }
       } else if (probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT') {
@@ -1088,25 +1222,32 @@ class AIBrain {
           const tlsSocket = tls.connect({
             host: target,
             port: destPort,
-            servername: /^[0-9.]+$/.test(target) ? undefined : target,
+            servername: net.isIP(target) !== 0 ? undefined : target,
             rejectUnauthorized: false,
             timeout: 2500
           }, () => {
             latencyMs = Date.now() - startTime;
-            rawOutput = `TLS 1.3/1.2 handshake established: protocol=${tlsSocket.getProtocol()}, cipher=${tlsSocket.getCipher()?.name}`;
+            tlsNegotiatedProtocol = tlsSocket.getProtocol() || 'TLSv1.3';
+            tlsNegotiatedCipher = tlsSocket.getCipher()?.name || 'UNKNOWN';
+            const alpn = tlsSocket.alpnProtocol || 'none';
+            const cert = tlsSocket.getPeerCertificate();
+            const certValidTo = cert?.valid_to || 'N/A';
+            rawOutput = `TLS cryptographic handshake established: protocol=${tlsNegotiatedProtocol}, cipher=${tlsNegotiatedCipher}, alpn=${alpn}, certExpiry=${certValidTo} (${latencyMs}ms)`;
             tlsSocket.end();
             resolve(true);
           });
           tlsSocket.on('timeout', () => {
             latencyMs = Date.now() - startTime;
+            socketErrorCode = 'ETIMEDOUT';
             tlsSocket.destroy();
-            rawOutput = 'TLS handshake timed out';
+            rawOutput = `TLS handshake timed out after ${latencyMs}ms (no ServerHello returned by endpoint)`;
             resolve(false);
           });
           tlsSocket.on('error', (err) => {
             latencyMs = Date.now() - startTime;
+            socketErrorCode = err.code || err.message;
             tlsSocket.destroy();
-            rawOutput = `TLS handshake error: ${err.message}`;
+            rawOutput = `TLS handshake error [code=${err.code || 'ALERT'}]: ${err.message} (${latencyMs}ms)`;
             resolve(false);
           });
         });
@@ -1122,19 +1263,22 @@ class AIBrain {
             rejectUnauthorized: false
           }, (res) => {
             latencyMs = Date.now() - startTime;
-            rawOutput = `HTTP HEAD status: ${res.statusCode} ${res.statusMessage || ''}`;
+            const serverHdr = res.headers['server'] || 'N/A';
+            rawOutput = `HTTP HEAD status: ${res.statusCode} ${res.statusMessage || ''} [HTTP/${res.httpVersion}, server=${serverHdr}] in ${latencyMs}ms`;
             resolve(res.statusCode >= 200 && res.statusCode < 500);
           });
           req.on('timeout', () => {
             latencyMs = Date.now() - startTime;
+            socketErrorCode = 'ETIMEDOUT';
             req.destroy();
-            rawOutput = 'HTTP HEAD timed out';
+            rawOutput = `HTTP HEAD timed out after ${latencyMs}ms (no response headers received)`;
             resolve(false);
           });
           req.on('error', (err) => {
             latencyMs = Date.now() - startTime;
+            socketErrorCode = err.code || err.message;
             req.destroy();
-            rawOutput = `HTTP HEAD error: ${err.message}`;
+            rawOutput = `HTTP HEAD error [code=${err.code || 'CONN_ERR'}]: ${err.message} in ${latencyMs}ms`;
             resolve(false);
           });
           req.end();
@@ -1148,15 +1292,25 @@ class AIBrain {
       rawOutput = `Probe error: ${e.message}`;
     }
 
+    const isAltPortProbe = probeType === 'TCP_SYN_ALTERNATE_PORT' || probeType === 'TCP_CONNECT_ALTERNATE_PORT';
+    const isTargetPortProbe = probeType === 'TCP_SYN_TARGET_PORT' || probeType === 'TCP_CONNECT_TARGET_PORT' || probeType === 'TCP_PORT_PROBE';
+    const isDnsProbe = probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE';
+    const isTlsProbe = probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT';
+    const isHttpProbe = probeType === 'HTTP_HEAD_PROBE' || probeType === 'HTTP_PROBE';
+
     const revisionEvidence = {
       destIp: target,
       gatewayReachable: probeType === 'ICMP_PING_GATEWAY' ? probeSuccess : null,
       targetPingReachable: probeType === 'ICMP_PING_TARGET' ? probeSuccess : null,
-      altPortReachable: probeType === 'TCP_SYN_ALTERNATE_PORT' ? probeSuccess : null,
-      targetPortReachable: (probeType === 'TCP_SYN_TARGET_PORT' || probeType === 'TCP_PORT_PROBE') ? probeSuccess : null,
-      dnsResolved: (probeType === 'DNS_QUERY_PROBE' || probeType === 'DNS_RESOLVE') ? probeSuccess : null,
-      tlsHandshakeSuccess: (probeType === 'TLS_HANDSHAKE_PROBE' || probeType === 'TLS_AUDIT') ? probeSuccess : null,
-      httpStatusOk: (probeType === 'HTTP_HEAD_PROBE' || probeType === 'HTTP_PROBE') ? probeSuccess : null
+      altPortReachable: isAltPortProbe ? probeSuccess : null,
+      targetPortReachable: isTargetPortProbe ? probeSuccess : null,
+      tcpRstObserved: (isAltPortProbe || isTargetPortProbe) ? (socketErrorCode === 'ECONNREFUSED') : false,
+      dnsResolved: isDnsProbe ? probeSuccess : null,
+      tlsHandshakeSuccess: isTlsProbe ? probeSuccess : null,
+      httpStatusOk: isHttpProbe ? probeSuccess : null,
+      errorCode: socketErrorCode,
+      negotiatedProtocol: tlsNegotiatedProtocol,
+      cipher: tlsNegotiatedCipher
     };
 
     const dayBucket = new Date().toISOString().slice(0, 10);
@@ -1193,16 +1347,10 @@ class AIBrain {
     } else {
       const incidentKey = dayBucketKey;
       revisedEvaluation = reasoningEngine.evaluateIncident({
-        incidentType: 'TCP_SYN_TIMEOUT',
+        incidentType: revisionEvidence.tcpRstObserved ? 'TCP_RST_REJECT' : 'TCP_SYN_TIMEOUT',
         destIp: normalizedTarget,
         destPort,
-        gatewayReachable: revisionEvidence.gatewayReachable,
-        targetPingReachable: revisionEvidence.targetPingReachable,
-        altPortReachable: revisionEvidence.altPortReachable,
-        targetPortReachable: revisionEvidence.targetPortReachable,
-        dnsResolved: revisionEvidence.dnsResolved,
-        tlsHandshakeSuccess: revisionEvidence.tlsHandshakeSuccess,
-        httpStatusOk: revisionEvidence.httpStatusOk
+        ...revisionEvidence
       });
       const incident = {
         id: incidentKey,
@@ -1228,9 +1376,12 @@ class AIBrain {
       success: true,
       probeType,
       target,
+      port: isAltPortProbe ? altPort : destPort,
       probeSuccess,
       latencyMs,
       rawOutput,
+      errorCode: socketErrorCode,
+      negotiatedProtocol: tlsNegotiatedProtocol,
       revisedEvaluation
     };
   }
@@ -1246,17 +1397,34 @@ class AIBrain {
    * Runs an end-to-end autonomous multi-step diagnostic investigation against a target host/port.
    * Dispatches distinguishing probes on physical wire, revises Bayesian beliefs iteratively,
    * and terminates early when conclusive disambiguation (>= 80% confidence or 40% lead) is achieved.
+   * Strictly enforces target SSRF protection, bounded step limits, and explainable stopping conditions.
    */
   async runAutonomousInvestigation({ targetIp, targetPort = 443, maxSteps = 4 } = {}) {
     const netInfo = getPhysicalNetworkInfo();
     const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
     const rawCandidate = targetIp || gatewayIp;
-    const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate : gatewayIp;
     const port = parseInt(targetPort, 10) || 443;
     const boundedSteps = Math.min(Math.max(1, parseInt(maxSteps, 10) || 4), 10);
-
     const investigationId = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const startTime = Date.now();
+
+    if (targetIp && !isSafeNetworkTarget(targetIp)) {
+      return {
+        success: false,
+        investigationId,
+        target: targetIp,
+        targetPort: port,
+        stepsExecuted: 0,
+        maxSteps: boundedSteps,
+        conclusive: false,
+        durationMs: 0,
+        stoppingReason: 'SECURITY_TARGET_REJECTED',
+        error: `Target '${targetIp}' is rejected by security and SSRF protection policy.`,
+        steps: []
+      };
+    }
+
+    const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate.trim() : gatewayIp;
 
     // 1. Initial Evaluation
     const dayBucket = new Date().toISOString().slice(0, 10);
@@ -1272,10 +1440,11 @@ class AIBrain {
     const initialTopHypothesis = currentEvaluation.topHypothesis;
     const steps = [];
     const executedProbeTypes = new Set();
+    let stoppingReason = 'MAX_STEPS_REACHED';
 
     const probeCandidates = [
       { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
-      { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP SYN Alternate Port 80' },
+      { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP Alternate Port 80 Connection' },
       { probeType: 'DNS_QUERY_PROBE', label: 'RFC 1035 DNS Query' },
       { probeType: 'HTTP_HEAD_PROBE', label: 'HTTP/HTTPS Application Layer Probe' },
       { probeType: 'TLS_HANDSHAKE_PROBE', label: 'TLS 1.3 Cryptographic Handshake' },
@@ -1287,7 +1456,13 @@ class AIBrain {
       const second = currentEvaluation.rankedHypotheses?.[1];
       const isConclusive = top && (top.confidence >= 80 || (second && (top.confidence - second.confidence) >= 40));
 
+      if (currentEvaluation.allHypothesesContradicted) {
+        stoppingReason = 'ALL_HYPOTHESES_CONTRADICTED';
+        break;
+      }
+
       if (isConclusive && step > 1) {
+        stoppingReason = 'CONFIDENCE_THRESHOLD_REACHED';
         break;
       }
 
@@ -1295,7 +1470,10 @@ class AIBrain {
       if (!selectedProbe) {
         selectedProbe = probeCandidates.find(p => !executedProbeTypes.has(p.probeType));
       }
-      if (!selectedProbe) break;
+      if (!selectedProbe) {
+        stoppingReason = 'PROBE_SPACE_EXHAUSTED';
+        break;
+      }
 
       executedProbeTypes.add(selectedProbe.probeType);
 
@@ -1315,6 +1493,7 @@ class AIBrain {
         probeSuccess: probeResult.probeSuccess,
         latencyMs: probeResult.latencyMs,
         rawOutput: probeResult.rawOutput,
+        errorCode: probeResult.errorCode || null,
         priorTopHypothesis: priorTop?.label || null,
         newTopHypothesis: newTop?.label || null,
         confidence: newTop?.confidence || 0,
@@ -1335,6 +1514,7 @@ class AIBrain {
       stepsExecuted: steps.length,
       maxSteps: boundedSteps,
       conclusive,
+      stoppingReason,
       durationMs,
       initialTopHypothesis: initialTopHypothesis?.label || null,
       finalTopHypothesis: finalTop,

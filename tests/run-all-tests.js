@@ -49,6 +49,7 @@ const { runLivePacketPipelineTests } = require('./live-packet-pipeline.test');
 const { runWiresharkAiWorkstationTests } = require('./wireshark-ai-workstation.test');
 const { runSecureDeploymentLifecycleTests } = require('./secure-deployment-lifecycle.test');
 const { runBrainSelfUpdatingHarnessTests } = require('./brain-self-updating-harness.test');
+const { runWireProbeAndAiBrainTruthTests } = require('./wire-probe-and-ai-brain-truth.test');
 
 async function runAllTests() {
   console.log('========================================================================');
@@ -90,7 +91,8 @@ async function runAllTests() {
     { name: '28. Live Packet Pipeline Forensic Verification, Wire Schemas, Queue Backpressure & Fault Banner', fn: runLivePacketPipelineTests },
     { name: '29. Wireshark-Grade Workstation, Interface Enumeration, AST NL Filter & Bayesian Packet Explainer', fn: runWiresharkAiWorkstationTests },
     { name: '30. Secure Deployment Lifecycle, Production Secrets, Clean Initial Boot & Audit Persistence', fn: runSecureDeploymentLifecycleTests },
-    { name: '31. Autonomous Self-Updating AI Brain Harness, Dynamic Schema Gatekeeper & Circuit Breaker', fn: runBrainSelfUpdatingHarnessTests }
+    { name: '31. Autonomous Self-Updating AI Brain Harness, Dynamic Schema Gatekeeper & Circuit Breaker', fn: runBrainSelfUpdatingHarnessTests },
+    { name: '32. AI Brain, Wire Probe Semantics, Kernel Socket Error Codes & SSRF Truth Audit', fn: runWireProbeAndAiBrainTruthTests }
   ];
 
   for (const s of suites) {
