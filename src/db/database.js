@@ -35,7 +35,7 @@ function initSchema() {
     'cmdb_subnets', 'cmdb_relationships', 'cmdb_reconciliation_log',
     'drift_baselines', 'drift_records', 'drift_observations', 'drift_reconciliation_runs',
     'chaos_experiments', 'chaos_scenarios', 'chaos_executions',
-    'dual_custody_actions', 'automation_actions', 'audit_trail_hmac', 'audit_logs',
+    'dual_custody_actions', 'automation_actions', 'audit_trail_hmac',
     'change_requests', 'known_errors', 'service_catalog',
     'service_dependencies', 'tenants', 'monitoring_alert_rules', 'monitoring_alerts',
     'monitoring_notifications', 'incidents'
@@ -49,6 +49,22 @@ function initSchema() {
 
   // 2. Pure NOC Workstation Schema
   db.exec(`
+    -- Cryptographic HMAC Audit Trail
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      role TEXT NOT NULL,
+      action TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      details TEXT,
+      ip_address TEXT,
+      prev_hash TEXT NOT NULL,
+      hash TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+
     -- Single-Operator / Unprivileged Local Authentication
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -70,6 +86,16 @@ function initSchema() {
       revoked_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user ON revoked_tokens(user_id);
+
+    -- Pillar 4: Cryptographic Remediation Replay Ledger (S-01)
+    CREATE TABLE IF NOT EXISTS consumed_action_tokens (
+      token_id TEXT PRIMARY KEY,
+      user_id TEXT,
+      recipe_id TEXT,
+      expires_at INTEGER NOT NULL,
+      consumed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_consumed_tokens_exp ON consumed_action_tokens(expires_at);
 
     -- Pillar 1: NOC Topology Nodes (Layer 1 - Layer 6 Physical/Logical Network Graph)
     CREATE TABLE IF NOT EXISTS topology_nodes (

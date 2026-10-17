@@ -36,7 +36,7 @@ class HostDiagnosticsEngine {
 
     const start = Date.now();
     return new Promise((resolve) => {
-      const wrapped = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${command} | ConvertTo-Json -Depth 3 -Compress"`;
+      const wrapped = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command} | ConvertTo-Json -Depth 3 -Compress"`;
       exec(wrapped, { timeout: timeoutMs, maxBuffer: 15 * 1024 * 1024 }, (err, stdout, stderr) => {
         const durationMs = Date.now() - start;
         if (err) {

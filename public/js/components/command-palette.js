@@ -11,55 +11,46 @@
   let currentResults = [];
 
   const STATIC_COMMANDS = [
-    // Views
-    { id: 'view-eoc', category: 'Navigation', title: 'Go to Executive Operations Center (EOC)', icon: '🌐', action: () => window.renderView('eoc') },
-    { id: 'view-itsm', category: 'Navigation', title: 'Go to ITSM Service Desk & SLAs', icon: '🎫', action: () => window.renderView('itsm') },
-    { id: 'view-cmdb', category: 'Navigation', title: 'Go to Enterprise CMDB & IPAM', icon: '📦', action: () => window.renderView('cmdb') },
-    { id: 'view-noc', category: 'Navigation', title: 'Go to NOC Topology & Packets', icon: '📡', action: () => window.renderView('noc') },
-    { id: 'view-systems', category: 'Navigation', title: 'Go to Systems Admin Center (SAC)', icon: '🖥️', action: () => window.renderView('systems') },
-    { id: 'view-observability', category: 'Navigation', title: 'Go to Observability & Alert Matrix', icon: '📊', action: () => window.renderView('observability') },
-    { id: 'view-rca', category: 'Navigation', title: 'Go to Incident Intelligence & RCA', icon: '⚡', action: () => window.renderView('rca') },
-    { id: 'view-automation', category: 'Navigation', title: 'Go to Safe Automation & Remediations', icon: '🛡️', action: () => window.renderView('automation') },
-    { id: 'view-drift', category: 'Navigation', title: 'Go to Configuration Drift Intelligence', icon: '🔍', action: () => window.renderView('drift') },
-    { id: 'view-chaos', category: 'Navigation', title: 'Go to Resilience & Chaos Lab', icon: '🧪', action: () => window.renderView('chaos') },
-    { id: 'view-services', category: 'Navigation', title: 'Go to Business Service Catalog', icon: '🏢', action: () => window.renderView('services') },
-    { id: 'view-governance', category: 'Navigation', title: 'Go to Audit, Security & Governance', icon: '🔒', action: () => window.renderView('governance') },
+    // Dedicated NOC Workstations
+    { id: 'view-topology', category: 'Navigation', title: 'Go to NOC Topology & Device Graph (Pillar 1)', icon: '🗺️', action: () => window.renderView('topology') },
+    { id: 'view-sniffer', category: 'Navigation', title: 'Go to Live Wire Packet Sniffer & NirSoft Flow Matrix (Pillars 2 & 3)', icon: '📡', action: () => window.renderView('packet-sniffer') },
+    { id: 'view-diagnostics', category: 'Navigation', title: 'Go to 4-Pillar Host Diagnostics & AI Brain (Pillar 4)', icon: '🧠', action: () => window.renderView('core-diagnostics') },
+    { id: 'view-scanner', category: 'Navigation', title: 'Go to Ultra IP & Fleet Scanner (Pillar 6)', icon: '🔍', action: () => window.renderView('ultra-ip-scanner') },
+    { id: 'view-automation', category: 'Navigation', title: 'Go to Local PC Automation & Safe BAT Execution (Pillar 7)', icon: '⚙️', action: () => window.renderView('pc-automation') },
 
-    // Operational Actions
-    { id: 'act-control-loop', category: 'Action', title: 'Run 13-Stage Autonomous Control Loop Cycle', icon: '🔄', action: async () => {
+    // Real Operational Actions
+    { id: 'act-discover-topology', category: 'Action', title: 'Run L2/L3 Network Topology Auto-Discovery', icon: '🔄', action: async () => {
       try {
-        const res = await window.api('/api/control-loop/cycle', { method: 'POST', body: JSON.stringify({}) });
-        alert(`Control Loop executed: ${res.finalState} in ${res.totalDurationMs}ms (Stages: ${Object.keys(res.stages).length})`);
-        if (window.state && window.state.currentView === 'eoc') window.renderView('eoc');
-      } catch (e) { alert('Control Loop failed: ' + e.message); }
+        const res = await window.api('/api/network/topology/discover', { method: 'POST' });
+        alert(`Discovery initiated: Found ${res.discoveredCount || (res.topology && res.topology.nodes ? res.topology.nodes.length : 0)} active network devices.`);
+        if (window.renderView) window.renderView('topology');
+      } catch (e) { alert('Topology discovery failed: ' + e.message); }
     }},
-    { id: 'act-sla-eval', category: 'Action', title: 'Trigger Real-Time SLA Breach Evaluation', icon: '⏱️', action: async () => {
+    { id: 'act-host-audit', category: 'Action', title: 'Execute 4-Pillar Host Diagnostics System Audit', icon: '📊', action: async () => {
       try {
-        const res = await window.api('/api/itsm/sla-metrics');
-        alert(`SLA Evaluation Complete: ${res.recentBreaches.breachedCount} new breaches found. Total Compliance: ${res.metrics.complianceRatePercent}%`);
-        if (window.state && window.state.currentView === 'itsm') window.renderView('itsm');
-      } catch (e) { alert('SLA Eval failed: ' + e.message); }
+        const res = await window.api('/api/diagnostics/host/audit');
+        alert(`Host Audit Complete!\nOverall Status: ${res.overallStatus || 'OK'}\nNetwork: ${res.pillars?.network?.status || 'HEALTHY'}\nStorage: ${res.pillars?.storage?.status || 'HEALTHY'}\nResource: ${res.pillars?.resource?.status || 'HEALTHY'}`);
+        if (window.renderView) window.renderView('core-diagnostics');
+      } catch (e) { alert('Host audit failed: ' + e.message); }
     }},
-    { id: 'act-audit-verify', category: 'Action', title: 'Verify Cryptographic HMAC Audit Chain', icon: '🔐', action: async () => {
+    { id: 'act-audit-verify', category: 'Action', title: 'Verify Cryptographic Remediation & Audit Chain', icon: '🔐', action: async () => {
       try {
-        const res = await window.api('/api/admin/audit-verify');
-        alert(`HMAC Audit Integrity: ${res.valid ? 'VALID ✓' : 'BROKEN ⚠️'}\n${res.message}`);
+        const res = await window.api('/api/diagnostics/remediation/audit-verify');
+        alert(`Audit Integrity: ${res.valid ? 'VALID ✓' : 'BROKEN ⚠️'}\n${res.message || 'Chain intact.'}`);
       } catch (e) { alert('Audit verification failed: ' + e.message); }
     }},
-    { id: 'act-dissect-sample', category: 'Action', title: 'Dissect Sample TCP/IP Frame in NOC', icon: '🔬', action: () => {
-      window.renderView('noc');
+    { id: 'act-wire-diagnostics', category: 'Action', title: 'Open Isolated Wire Diagnostics Hub (Zero Elevation)', icon: '🛠️', action: () => {
+      if (typeof window.openWireDiagnosticsModal === 'function') window.openWireDiagnosticsModal();
+    }},
+    { id: 'act-dissect-sample', category: 'Action', title: 'Dissect Live TCP/IP Packet in Sniffer', icon: '🔬', action: () => {
+      window.renderView('packet-sniffer');
       setTimeout(() => { if (typeof window.runPacketDissection === 'function') window.runPacketDissection(); }, 200);
     }},
-    { id: 'act-incident-standard', category: 'Operational Guide', title: 'Open Incident Reporting Standard & Live Probe (mail.taxes.gov.az)', icon: '📢', action: () => {
-      window.toggleJuniorAdminCheatSheet();
-      window.switchManualTab('standard');
-    }},
-    { id: 'act-new-taxes-ticket', category: 'Action', title: 'Create Diagnostic Ticket for mail.taxes.gov.az', icon: '🎫', action: () => {
-      window.renderView('itsm');
-      setTimeout(() => {
-        window.openNewTicketModal();
-        setTimeout(() => window.fillTicketTaxesPreset(), 50);
-      }, 200);
+    { id: 'act-incident-standard', category: 'Operational Guide', title: 'Open Incident Reporting Standard (mail.taxes.gov.az)', icon: '📢', action: () => {
+      if (typeof window.toggleJuniorAdminCheatSheet === 'function') {
+        window.toggleJuniorAdminCheatSheet();
+        if (typeof window.switchManualTab === 'function') window.switchManualTab('standard');
+      }
     }}
   ];
 

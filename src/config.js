@@ -52,6 +52,8 @@ const AUTOMATION_TIERS = {
   }
 };
 
+const IS_EVALUATION_MODE = process.env.NODE_ENV !== 'production' || process.env.EJII_EVALUATION_MODE === 'true';
+
 module.exports = {
   PORT,
   HOST,
@@ -61,6 +63,7 @@ module.exports = {
   JWT_SECRET,
   PROTECTED_SYSTEM_PROCESSES,
   AUTOMATION_TIERS,
+  IS_EVALUATION_MODE,
   IS_WINDOWS: os.platform() === 'win32',
   IS_LINUX: os.platform() === 'linux',
   PLATFORM: os.platform()

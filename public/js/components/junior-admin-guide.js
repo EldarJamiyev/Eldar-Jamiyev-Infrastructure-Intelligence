@@ -620,23 +620,13 @@ Bu dəqiq məlumatların operativ araşdırılmasına köməklik göstərməyini
 • Ətraflı Vəziyyət: ${ctx}`;
 
     try {
-      const res = await window.api('/api/itsm/tickets', {
-        method: 'POST',
-        body: JSON.stringify({
-          title,
-          description,
-          category: 'incident',
-          priority: 'P2_HIGH',
-          requesterName: 'Helpdesk Operator',
-          assignedTeam: 'netops'
-        })
-      });
-
-      alert(`✅ Rəsmi İnsident Bilet #${res.ticket.ticket_number} uğurla yaradıldı!\nStatus: ${res.ticket.status.toUpperCase()} | Komanda: NetOps`);
-      window.toggleJuniorAdminCheatSheet();
-      if (window.renderView) window.renderView('itsm');
+      const fullReport = `${title}\n\n${description}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fullReport);
+      }
+      alert(`✅ Rəsmi İnsident Bildirişi kopyalandı!\n\n${fullReport}\n\nHesabat mübadilə buferinə (clipboard) köçürüldü. NetOps komandasına və ya insident sisteminə göndərə bilərsiniz.`);
     } catch (e) {
-      alert('İnsident yaradılarkən xəta: ' + e.message);
+      alert(`Hesabat:\n\n${title}\n\n${description}`);
     }
   };
 

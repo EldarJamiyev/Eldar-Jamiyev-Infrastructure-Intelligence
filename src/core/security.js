@@ -11,17 +11,28 @@ const { JWT_SECRET } = require('../config');
 // Explicit Distinct NOC Roles
 const ROLES = {
   ADMIN: 'ADMIN',
+  APP_OWNER: 'APP_OWNER',
   SYSADMIN: 'SYSADMIN',
   NETWORK_ADMIN: 'NETWORK_ADMIN',
   ANALYST: 'ANALYST',
   OPERATOR: 'OPERATOR',
   NOC_OPERATOR: 'NOC_OPERATOR',
+  HELPDESK: 'HELPDESK',
   READONLY: 'READONLY'
 };
 
 // Granular Capability Mapping per Role
 const ROLE_CAPABILITIES = {
   ADMIN: [
+    'system.config.manage',
+    'users.roles.manage',
+    'host.remediation.execute',
+    'host.remediation.preview',
+    'network.capture.execute',
+    'network.diagnostics.execute',
+    'telemetry.read'
+  ],
+  APP_OWNER: [
     'system.config.manage',
     'users.roles.manage',
     'host.remediation.execute',
@@ -53,6 +64,11 @@ const ROLE_CAPABILITIES = {
     'telemetry.read'
   ],
   NOC_OPERATOR: [
+    'network.diagnostics.execute',
+    'host.remediation.preview',
+    'telemetry.read'
+  ],
+  HELPDESK: [
     'network.diagnostics.execute',
     'host.remediation.preview',
     'telemetry.read'
@@ -196,6 +212,21 @@ function hasPermission(role, permission) {
 
   // Map legacy diag:* scoped permissions to network.diagnostics.execute
   if (permission.startsWith('diag:') && permissions.includes('network.diagnostics.execute')) {
+    return true;
+  }
+
+  // Map legacy network:* scoped permissions
+  if (permission.startsWith('network:') && (permissions.includes('network.capture.execute') || permissions.includes('network.diagnostics.execute'))) {
+    return true;
+  }
+
+  // Map legacy system:* scoped permissions
+  if (permission.startsWith('system:') && (permissions.includes('host.remediation.execute') || permissions.includes('host.remediation.preview'))) {
+    return true;
+  }
+
+  // Map legacy admin:* scoped permissions
+  if (permission.startsWith('admin:') && (permissions.includes('system.config.manage') || permissions.includes('users.roles.manage'))) {
     return true;
   }
 

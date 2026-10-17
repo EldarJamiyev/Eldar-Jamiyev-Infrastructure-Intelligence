@@ -25,10 +25,10 @@ function setSessionCookie(res, token) {
  * POST /api/auth/login
  */
 router.post('/login', (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body || {};
 
-  if (!username) {
-    return res.status(400).json({ error: 'Username is required.' });
+  if (!username || typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
   }
 
   // Find user in database
@@ -38,8 +38,8 @@ router.post('/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
-  // If password provided, verify it (or allow default password)
-  if (password && !verifyPassword(password, user.password_hash, user.salt)) {
+  // Cryptographically verify password against stored PBKDF2 hash & salt
+  if (!verifyPassword(password, user.password_hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
@@ -73,6 +73,11 @@ router.post('/login', (req, res) => {
  * 1-click single-operator unprivileged NOC workstation sign-in
  */
 router.post('/quick-noc', (req, res) => {
+  const { IS_EVALUATION_MODE } = require('../config');
+  if (!IS_EVALUATION_MODE) {
+    return res.status(403).json({ error: 'Quick NOC login is disabled in production environments.' });
+  }
+
   const requestedTarget = (req.body && (req.body.role || req.body.username)) ? String(req.body.role || req.body.username).trim() : null;
   let user = null;
 

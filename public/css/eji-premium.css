@@ -792,7 +792,7 @@ canvas, svg { max-width: 100%; }
 }
 
 .login-brand-svg {
-  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.3));
+  display: block;
 }
 
 .login-brand-title {
@@ -903,7 +903,6 @@ canvas, svg { max-width: 100%; }
 
 .cta-bolt {
   color: #FDE047;
-  filter: drop-shadow(0 0 4px rgba(253, 224, 71, 0.8));
   flex-shrink: 0;
 }
 

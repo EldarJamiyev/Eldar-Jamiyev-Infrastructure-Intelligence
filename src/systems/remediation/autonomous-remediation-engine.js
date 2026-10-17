@@ -61,21 +61,52 @@ class AutonomousRemediationEngine {
   _loadConsumedTokens() {
     this._ensureSecurityDir();
     const map = new Map();
-    if (!fs.existsSync(CONSUMED_TOKENS_FILE)) return map;
+    const now = Date.now();
+
+    // 1. Load from persistent SQLite table (primary ACID ledger)
     try {
-      const data = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
-      const now = Date.now();
-      for (const [id, expiresAt] of Object.entries(data)) {
-        if (expiresAt > now) {
-          map.set(id, expiresAt);
-        }
+      const { db } = require('../../db/database');
+      try {
+        db.prepare('DELETE FROM consumed_action_tokens WHERE expires_at <= ?').run(now);
+      } catch (e) {}
+      const rows = db.prepare('SELECT token_id, expires_at FROM consumed_action_tokens WHERE expires_at > ?').all(now);
+      for (const row of rows) {
+        map.set(row.token_id, row.expires_at);
       }
     } catch (e) {}
+
+    // 2. Also load from consumed_tokens.json for cross-compatibility
+    if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
+        for (const [id, expiresAt] of Object.entries(data)) {
+          if (expiresAt > now) {
+            map.set(id, expiresAt);
+          }
+        }
+      } catch (e) {}
+    }
     return map;
   }
 
-  _saveConsumedToken(tokenId, expiresAt) {
+  _saveConsumedToken(tokenId, expiresAt, userId = 'operator', recipeId = 'remediation') {
     this._ensureSecurityDir();
+    const now = Date.now();
+
+    // 1. Atomic insertion into SQLite table (throws on duplicate primary key)
+    try {
+      const { db } = require('../../db/database');
+      db.prepare(`
+        INSERT INTO consumed_action_tokens (token_id, user_id, recipe_id, expires_at, consumed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(tokenId, userId, recipeId, expiresAt, new Date().toISOString());
+    } catch (e) {
+      if (e.message && (e.message.includes('UNIQUE constraint') || e.message.includes('PRIMARY KEY'))) {
+        throw new Error('REPLAY_DETECTED: This remediation action token has already been executed. Previews are single-use.');
+      }
+    }
+
+    // 2. Persist to disk file with atomic rename
     try {
       let existing = {};
       if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
@@ -83,7 +114,6 @@ class AutonomousRemediationEngine {
           existing = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8')) || {};
         } catch (e) {}
       }
-      const now = Date.now();
       const updated = {};
       for (const [id, exp] of Object.entries(existing)) {
         if (exp > now) {
@@ -91,7 +121,10 @@ class AutonomousRemediationEngine {
         }
       }
       updated[tokenId] = expiresAt;
-      fs.writeFileSync(CONSUMED_TOKENS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+
+      const tmpFile = `${CONSUMED_TOKENS_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tmpFile, JSON.stringify(updated, null, 2), 'utf8');
+      fs.renameSync(tmpFile, CONSUMED_TOKENS_FILE);
     } catch (e) {
       console.error('[Remediation Engine]: Failed to persist consumed token to disk:', e.message);
     }
@@ -99,6 +132,18 @@ class AutonomousRemediationEngine {
 
   _isTokenConsumed(tokenId) {
     if (this.usedActionTokens.has(tokenId)) return true;
+
+    // Check SQLite ledger
+    try {
+      const { db } = require('../../db/database');
+      const row = db.prepare('SELECT 1 FROM consumed_action_tokens WHERE token_id = ? AND expires_at > ?').get(tokenId, Date.now());
+      if (row) {
+        this.usedActionTokens.set(tokenId, Date.now() + 300000);
+        return true;
+      }
+    } catch (e) {}
+
+    // Check disk ledger
     if (fs.existsSync(CONSUMED_TOKENS_FILE)) {
       try {
         const diskData = JSON.parse(fs.readFileSync(CONSUMED_TOKENS_FILE, 'utf8'));
@@ -193,7 +238,7 @@ class AutonomousRemediationEngine {
         description: 'Lowers process priority class from High/Normal to BelowNormal/Idle without terminating the process.',
         requiresElevation: true,
         riskLevel: 'LOW',
-        command: '(Get-Process -Id $TargetPid).PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal',
+        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system)$') { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } else { throw 'PROTECTED_PROCESS' }",
         expectedOutcome: 'Stops runaway CPU monopolization while allowing application to complete in background.'
       },
       {

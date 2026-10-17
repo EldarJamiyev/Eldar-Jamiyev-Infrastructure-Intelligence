@@ -930,7 +930,16 @@
       return `<tr><td colspan="9" style="text-align: center; color: var(--text-dim); padding: 30px;">Awaiting live wire frames from Npcap/Socket interceptor...</td></tr>`;
     }
 
-    return filtered.slice(-60).reverse().map(f => {
+    let displaySlice = filtered.slice(-60);
+    // Pin active selectedFrame in the rendered slice so packet inspection is never interrupted by incoming frames
+    if (selectedFrame && !displaySlice.some(f => f.frameNumber === selectedFrame.frameNumber)) {
+      const found = filtered.find(f => f.frameNumber === selectedFrame.frameNumber);
+      if (found) {
+        displaySlice = [found, ...displaySlice.slice(1)];
+      }
+    }
+
+    return displaySlice.reverse().map(f => {
       const isSelected = selectedFrame && selectedFrame.frameNumber === f.frameNumber;
       const timeStr = window.formatLocalTime ? window.formatLocalTime(f.timestamp) : f.timestamp;
 
@@ -1394,37 +1403,36 @@
     if (!activeDisplayFilter) {
       window.compiledDisplayFilter = null;
     } else {
-      window.compiledDisplayFilter = function(f) {
+      if (typeof window.compileFilter === 'function') {
+        try {
+          window.compiledDisplayFilter = window.compileFilter(activeDisplayFilter);
+        } catch (err) {
+          console.warn('[AST Display Filter Compile Error]:', err.message);
+          window.compiledDisplayFilter = null;
+        }
+      } else {
+        // Fallback resilient evaluator
         const str = activeDisplayFilter.toLowerCase();
-        // Check ip.addr
-        const ipMatch = str.match(/ip\.addr\s*==\s*([0-9.]+)/);
-        if (ipMatch) {
-          const target = ipMatch[1];
-          if (f.srcIp !== target && f.dstIp !== target) return false;
-        }
-        // Check tcp.port
-        const portMatch = str.match(/tcp\.port\s*==\s*(\d+)/);
-        if (portMatch) {
-          const p = parseInt(portMatch[1], 10);
-          if (f.srcPort !== p && f.dstPort !== p) return false;
-        }
-        // Check protocol presence
-        if (str === 'tcp' && f.protocol !== 'TCP') return false;
-        if (str === 'udp' && f.protocol !== 'UDP') return false;
-        if (str === 'dns' && f.protocol !== 'DNS' && f.dstPort !== 53 && f.srcPort !== 53) return false;
-        if (str === 'http' && f.protocol !== 'HTTP') return false;
-        if (str === 'tls' && f.protocol !== 'TLS' && f.dstPort !== 443 && f.srcPort !== 443) return false;
-        if (str === 'icmp' && !f.protocol?.includes('ICMP')) return false;
-        if (str === 'arp' && f.protocol !== 'ARP') return false;
-
-        // Check contains
-        if (str.includes('contains')) {
-          const q = str.split('contains')[1].replace(/["']/g, '').trim();
-          const targetText = `${f.srcIp} ${f.dstIp} ${f.summary || ''} ${f.urlIntelligence?.value || ''}`.toLowerCase();
-          if (!targetText.includes(q)) return false;
-        }
-        return true;
-      };
+        window.compiledDisplayFilter = function(f) {
+          const ipMatch = str.match(/ip\.addr\s*==\s*([0-9.]+)/);
+          if (ipMatch && f.srcIp !== ipMatch[1] && f.dstIp !== ipMatch[1]) return false;
+          const portMatch = str.match(/tcp\.port\s*==\s*(\d+)/);
+          if (portMatch && f.srcPort !== parseInt(portMatch[1], 10) && f.dstPort !== parseInt(portMatch[1], 10)) return false;
+          if (str === 'tcp' && f.protocol !== 'TCP') return false;
+          if (str === 'udp' && f.protocol !== 'UDP') return false;
+          if (str === 'dns' && f.protocol !== 'DNS' && f.dstPort !== 53 && f.srcPort !== 53) return false;
+          if (str === 'http' && f.protocol !== 'HTTP') return false;
+          if (str === 'tls' && f.protocol !== 'TLS' && f.dstPort !== 443 && f.srcPort !== 443) return false;
+          if (str === 'icmp' && !f.protocol?.includes('ICMP')) return false;
+          if (str === 'arp' && f.protocol !== 'ARP') return false;
+          if (str.includes('contains')) {
+            const q = str.split('contains')[1].replace(/["']/g, '').trim();
+            const targetText = `${f.srcIp} ${f.dstIp} ${f.summary || ''} ${f.urlIntelligence?.value || ''}`.toLowerCase();
+            if (!targetText.includes(q)) return false;
+          }
+          return true;
+        };
+      }
     }
 
     const tbody = document.getElementById('livePacketTableBody');

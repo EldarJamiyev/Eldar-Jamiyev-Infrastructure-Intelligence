@@ -783,12 +783,24 @@ function evaluateFilter(filterString, frame) {
   return filterFn(frame);
 }
 
-module.exports = {
-  compileFilter,
-  validateFilter,
-  evaluateFilter,
-  FilterTokenizer,
-  FilterParser,
-  FilterEvaluator,
-  FilterSyntaxError
-};
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    compileFilter,
+    validateFilter,
+    evaluateFilter,
+    FilterTokenizer,
+    FilterParser,
+    FilterEvaluator,
+    FilterSyntaxError
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window.FilterTokenizer = FilterTokenizer;
+  window.FilterParser = FilterParser;
+  window.FilterEvaluator = FilterEvaluator;
+  window.FilterSyntaxError = FilterSyntaxError;
+  window.compileFilter = compileFilter;
+  window.validateFilter = validateFilter;
+  window.evaluateFilter = evaluateFilter;
+}

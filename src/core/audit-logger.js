@@ -151,6 +151,30 @@ function logAction({ userId, username, role, action, resource, details }) {
     throw new Error(fatalMsg);
   }
 
+  // Also persist to SQLite audit_logs table for dual-layer durability
+  try {
+    const { db } = require('../db/database');
+    const lastEntry = db.prepare('SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1').get();
+    const dbPrevHash = lastEntry ? lastEntry.hash : GENESIS_HASH;
+    const detailStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
+    const dbHash = computeRecordHash(dbPrevHash, timestamp, userId, action, resource, details);
+    db.prepare(`
+      INSERT INTO audit_logs (timestamp, user_id, username, role, action, resource, details, ip_address, prev_hash, hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      timestamp,
+      userId || 'system',
+      username || 'system',
+      (role || 'OPERATOR').toUpperCase(),
+      action,
+      resource || 'host',
+      detailStr,
+      '127.0.0.1',
+      dbPrevHash,
+      dbHash
+    );
+  } catch (e) {}
+
   return {
     success: true,
     id: record.id,
@@ -319,9 +343,69 @@ function getAuditLogs(limit = 50) {
   }
 }
 
+/**
+ * Verify cryptographic integrity of SQLite-based audit logs (for dual verification)
+ */
+function verifyChainIntegrity() {
+  const { db } = require('../db/database');
+  try {
+    const records = db.prepare('SELECT * FROM audit_logs ORDER BY id ASC').all();
+    if (!records || records.length === 0) {
+      return { valid: true, totalRecords: 0, brokenAtId: null, message: 'Audit log is empty.' };
+    }
+
+    let expectedPrevHash = GENESIS_HASH;
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i];
+      if (rec.prev_hash !== expectedPrevHash) {
+        return {
+          valid: false,
+          totalRecords: records.length,
+          brokenAtId: rec.id,
+          message: `Broken chain link at Record ID ${rec.id}. Expected prev_hash '${expectedPrevHash}', but found '${rec.prev_hash}'. Possible record deletion or reordering.`
+        };
+      }
+
+      // Check recomputed hash
+      let detailObj = rec.details;
+      try {
+        if (typeof detailObj === 'string' && (detailObj.startsWith('{') || detailObj.startsWith('['))) {
+          detailObj = JSON.parse(detailObj);
+        }
+      } catch (e) {}
+
+      const recomputed = computeRecordHash(rec.prev_hash, rec.timestamp, rec.user_id, rec.action, rec.resource, detailObj);
+      const altRecomputed = crypto.createHmac('sha256', HMAC_SECRET)
+        .update(`${rec.prev_hash}|${rec.timestamp}|${rec.user_id}|${rec.role}|${rec.action}|${rec.resource}|${typeof rec.details === 'object' ? JSON.stringify(rec.details) : (rec.details || '')}`)
+        .digest('hex');
+
+      if (rec.hash !== recomputed && rec.hash !== altRecomputed) {
+        return {
+          valid: false,
+          totalRecords: records.length,
+          brokenAtId: rec.id,
+          message: `Tampered record detected at Record ID ${rec.id}. Hash mismatch: stored '${rec.hash}', calculated '${recomputed}'. Record content was altered.`
+        };
+      }
+      expectedPrevHash = rec.hash;
+    }
+
+    return {
+      valid: true,
+      totalRecords: records.length,
+      brokenAtId: null,
+      message: `All ${records.length} audit records verified cryptographically. Chain integrity intact.`
+    };
+  } catch (e) {
+    return { valid: false, totalRecords: 0, brokenAtId: -1, message: e.message };
+  }
+}
+
 module.exports = {
   logAction,
   verifyAuditLogIntegrity,
+  verifyChainIntegrity,
+  computeRecordHash,
   getAuditLogs,
   AUDIT_FILE,
   CHAIN_HEAD_FILE,

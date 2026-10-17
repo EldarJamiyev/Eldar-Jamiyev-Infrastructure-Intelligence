@@ -72,7 +72,6 @@
       color: #000000 !important;
       font-weight: 800 !important;
       border-radius: 2px;
-      box-shadow: 0 0 6px rgba(56, 189, 248, 0.9);
     }
     .protocol-tree-field:hover, .protocol-layer-header:hover {
       background: rgba(56, 189, 248, 0.15);
@@ -85,28 +84,22 @@
     /* Link Congestion Colors */
     .link-smooth-green {
       stroke: #10B981 !important;
-      filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.4));
     }
     .link-amber {
       stroke: #F59E0B !important;
-      filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.6));
     }
     .link-flashing-red {
       stroke: #EF4444 !important;
       animation: linkFlash 0.8s ease-in-out infinite alternate;
-      filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9));
     }
     @keyframes linkFlash {
       from { stroke-opacity: 0.4; stroke-width: 2px; }
       to { stroke-opacity: 1; stroke-width: 4.5px; }
     }
-    /* Node Anomaly Pulsing Alert */
+    /* Node Anomaly Alert */
     .node-anomaly-pulse {
-      animation: nodePulse 0.9s infinite alternate;
-    }
-    @keyframes nodePulse {
-      from { filter: drop-shadow(0 0 4px #F59E0B); }
-      to { filter: drop-shadow(0 0 16px #EF4444); stroke: #EF4444; }
+      stroke: #EF4444 !important;
+      stroke-width: 2px !important;
     }
     /* Blast Radius Highlighting */
     .node-severed {
@@ -180,7 +173,7 @@
             <line x1="2" y1="32" x2="9" y2="32" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
             <line x1="55" y1="32" x2="62" y2="32" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
             <path d="M22 26L32 18L42 26L38 38L26 38Z" stroke="#0EA5E9" stroke-width="1.5" fill="rgba(14, 165, 233, 0.15)"/>
-            <circle cx="32" cy="18" r="2.5" fill="#38BDF8" filter="drop-shadow(0 0 4px #38BDF8)"/>
+            <circle cx="32" cy="18" r="2.5" fill="#38BDF8"/>
             <circle cx="22" cy="26" r="2" fill="#34D399"/>
             <circle cx="42" cy="26" r="2" fill="#34D399"/>
             <circle cx="26" cy="38" r="2" fill="#A78BFA"/>
@@ -427,6 +420,7 @@
   <div id="modalContainer" style="display: none;"></div>
 
   <!-- Core Scripts -->
+  <script src="/js/components/filter-compiler.js"></script>
   <script src="/js/components/command-palette.js"></script>
   <script src="/js/components/junior-admin-guide.js"></script>
   <script src="/js/components/ai-brain-drawer.js"></script>
