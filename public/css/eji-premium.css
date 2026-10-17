@@ -475,7 +475,6 @@ input[type="checkbox"], input[type="radio"] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  box-shadow: 0 0 9px currentColor;
 }
 
 .severity-chip.severity-critical,
@@ -1064,9 +1063,9 @@ canvas, svg { max-width: 100%; }
   height: 5px;
   border-radius: 50%;
 }
-.dot-green { background: #10B981; box-shadow: 0 0 4px #10B981; }
-.dot-cyan { background: #38BDF8; box-shadow: 0 0 4px #38BDF8; }
-.dot-purple { background: #A78BFA; box-shadow: 0 0 4px #A78BFA; }
+.dot-green { background: #10B981; }
+.dot-cyan { background: #38BDF8; }
+.dot-purple { background: #A78BFA; }
 
 .login-footer-meta {
   font-family: var(--font-mono);
@@ -1236,7 +1235,6 @@ canvas, svg { max-width: 100%; }
   background: linear-gradient(135deg, rgba(234, 88, 12, 0.35) 0%, rgba(220, 38, 38, 0.35) 100%);
   border-color: #FB923C;
   color: #FFF;
-  box-shadow: 0 0 10px rgba(249, 115, 22, 0.3);
 }
 
 .ai-brain-bar-wrapper {

@@ -46,6 +46,8 @@
       loadProcesses();
     } else if (tabName === 'sockets' && socketTableData.length === 0) {
       loadSockets();
+    } else if (tabName === 'brainGovernance') {
+      window.loadBrainGovernance();
     }
   };
 
@@ -79,6 +81,133 @@
       console.error('Failed to load sockets:', e);
     }
   }
+
+  window.loadBrainGovernance = async function() {
+    try {
+      const data = await window.api('/api/rca/brain/self-update-status');
+      if (data && data.success) {
+        renderBrainGovernanceUI(data.status, data.schemaBounds);
+      }
+    } catch (e) {
+      console.error('Failed to load brain governance status:', e);
+      logConsole(`❌ Brain governance query failed: ${e.message}`);
+    }
+  };
+
+  function renderBrainGovernanceUI(status, bounds) {
+    if (!status) return;
+    const cfg = status.currentConfig || {};
+
+    const elWatchdog = document.getElementById('brainWatchdogStatus');
+    if (elWatchdog) {
+      if (status.circuitBreakerTripped) {
+        elWatchdog.innerHTML = '<span style="color: #EF4444; font-weight: 800;">TRIPPED (CIRCUIT BREAKER OPEN)</span>';
+      } else if (status.watchdogActive) {
+        elWatchdog.innerHTML = '<span style="color: #10B981; font-weight: 800;">ARMED (MONITORING)</span>';
+      } else {
+        elWatchdog.innerHTML = '<span style="color: #38BDF8; font-weight: 800;">STANDBY (HEALTHY)</span>';
+      }
+    }
+
+    const elTick = document.getElementById('brainTickInterval');
+    if (elTick) elTick.textContent = `${(cfg.brainTickIntervalMs || 5000).toLocaleString()} ms`;
+
+    const elMult = document.getElementById('brainLatencyMultiplier');
+    if (elMult) elMult.textContent = `${Number(cfg.adaptiveLatencyMultiplier || 3).toFixed(2)}x`;
+
+    const elFloor = document.getElementById('brainLatencyFloor');
+    if (elFloor) elFloor.textContent = `${cfg.minimumLatencyFloorMs || 100} ms`;
+
+    const elEvents = document.getElementById('brainMaxEvents');
+    if (elEvents) elEvents.textContent = `${(cfg.maxEvents || 500).toLocaleString()}`;
+
+    const elDrift = document.getElementById('brainDriftRatio');
+    if (elDrift) elDrift.textContent = `${((cfg.anomalyDriftTriggerRatio || 0.15) * 100).toFixed(1)}%`;
+
+    const elHash = document.getElementById('brainActiveHash');
+    if (elHash) elHash.textContent = status.currentConfigHash || '--';
+
+    const tbody = document.getElementById('diagBrainHistoryTableBody');
+    if (tbody) {
+      const history = status.history || [];
+      if (history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 14px;">No self-modification events recorded.</td></tr>';
+      } else {
+        tbody.innerHTML = history.map(item => {
+          const isRollback = item.status === 'ROLLED_BACK';
+          const badge = isRollback
+            ? '<span style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 9px;">ROLLED BACK</span>'
+            : '<span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 9px;">VERIFIED &amp; APPLIED</span>';
+          const hashShort = (item.newHash || item.restoredHash || '--').slice(0, 12);
+          const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '--';
+          const diffSummary = item.rationale || item.reason || 'Parameter optimization verified via child-process sandbox.';
+          return `
+            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+              <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--accent);">${item.updateId || '--'}</td>
+              <td style="padding: 6px 8px; color: var(--text-muted); font-size: 10px;">${time}</td>
+              <td style="padding: 6px 8px; font-size: 10px;">${item.triggerSource || 'AUTONOMOUS'}</td>
+              <td style="padding: 6px 8px;">${badge}</td>
+              <td style="padding: 6px 8px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${diffSummary}">${diffSummary}</td>
+              <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">${hashShort}...</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+  }
+
+  window.triggerBrainOptimization = async function() {
+    logConsole('[AI Brain] Triggering autonomous parameter optimization cycle...');
+    const btn = document.getElementById('btnRunBrainOptimization');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⚡ Optimizing & Verifying...';
+    }
+    try {
+      const res = await window.api('/api/rca/brain/self-update/optimize', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      if (res && res.success) {
+        logConsole(`✓ [SUCCESS] Brain optimization applied: ${res.updateRecord?.updateId} (Hash: ${(res.updateRecord?.newHash || '').slice(0, 8)}...)`);
+        alert(`AI Brain Parameter Optimization Applied & Verified:\n\nUpdate ID: ${res.updateRecord?.updateId}\nOptimizer: ${res.updateRecord?.optimizerSource}\nRationale: ${res.updateRecord?.rationale}`);
+      } else {
+        logConsole(`❌ [REJECTED] Brain optimization failed: ${res.error || res.message}`);
+        alert(`Optimization Failed:\n\n${res.error || res.message}`);
+      }
+      await window.loadBrainGovernance();
+    } catch (err) {
+      logConsole(`❌ Optimization request error: ${err.message}`);
+      alert(`Optimization request error: ${err.message}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⚡ Run Self-Optimization Cycle';
+      }
+    }
+  };
+
+  window.triggerBrainRollback = async function() {
+    if (!confirm('Roll back AI Brain configuration to last known stable baseline?')) return;
+    logConsole('[AI Brain] Executing emergency rollback to stable configuration...');
+    try {
+      const res = await window.api('/api/rca/brain/self-update/rollback', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      if (res && res.success) {
+        logConsole(`✓ [RESTORED] Configuration rolled back: ${res.rollbackRecord?.updateId}`);
+        alert(`AI Brain Configuration Rolled Back:\n\nUpdate ID: ${res.rollbackRecord?.updateId}\nReason: ${res.rollbackRecord?.reason}`);
+      } else {
+        logConsole(`❌ Rollback failed: ${res.error || 'Unknown error'}`);
+        alert(`Rollback failed: ${res.error || 'Unknown error'}`);
+      }
+      await window.loadBrainGovernance();
+    } catch (err) {
+      logConsole(`❌ Rollback request error: ${err.message}`);
+      alert(`Rollback request error: ${err.message}`);
+    }
+  };
 
   window.runDeepSystemAudit = async function() {
     if (isAuditing) return;
@@ -491,6 +620,7 @@
           <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px;">
             <button class="btn btn-secondary diag-tab-btn active" data-tab="processes" onclick="window.switchDiagTab('processes')" style="font-size: 11px; font-weight: 700;">⚙️ Process Explorer</button>
             <button class="btn btn-secondary diag-tab-btn" data-tab="sockets" onclick="window.switchDiagTab('sockets')" style="font-size: 11px; font-weight: 700;">📡 Network Sockets</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="brainGovernance" onclick="window.switchDiagTab('brainGovernance')" style="font-size: 11px; font-weight: 700;">🤖 AI Brain Self-Tuning &amp; Governance</button>
           </div>
 
           <!-- Tab Content: Process Explorer -->
@@ -532,6 +662,75 @@
                   <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 14px;">Loading sockets...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- Tab Content: AI Brain Governance -->
+          <div id="tabContent_brainGovernance" class="diag-tab-content" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <!-- Telemetry & Thresholds Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">WATCHDOG CIRCUIT BREAKER</div>
+                  <div id="brainWatchdogStatus" style="font-size: 12px; font-weight: 800; color: var(--accent); margin-top: 2px;">--</div>
+                </div>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">TICK INTERVAL</div>
+                  <div id="brainTickInterval" style="font-size: 13px; font-weight: 800; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); margin-top: 2px;">--</div>
+                </div>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">LATENCY MULTIPLIER</div>
+                  <div id="brainLatencyMultiplier" style="font-size: 13px; font-weight: 800; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); margin-top: 2px;">--</div>
+                </div>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">LATENCY FLOOR</div>
+                  <div id="brainLatencyFloor" style="font-size: 13px; font-weight: 800; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); margin-top: 2px;">--</div>
+                </div>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">EVENT BUFFER CAPACITY</div>
+                  <div id="brainMaxEvents" style="font-size: 13px; font-weight: 800; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); margin-top: 2px;">--</div>
+                </div>
+                <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px;">
+                  <div style="font-size: 9px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">DRIFT TRIGGER RATIO</div>
+                  <div id="brainDriftRatio" style="font-size: 13px; font-weight: 800; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); margin-top: 2px;">--</div>
+                </div>
+              </div>
+
+              <!-- Active Hash & Governance Controls -->
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.04); border: 1px solid rgba(56, 189, 248, 0.15); border-radius: 4px; padding: 10px 14px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 10px; font-weight: 700; color: var(--text-muted);">ACTIVE CONFIG SHA-256:</span>
+                  <code id="brainActiveHash" style="font-family: var(--font-mono); font-size: 11px; color: #38BDF8; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 3px; font-variant-numeric: tabular-nums;">--</code>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button id="btnRunBrainOptimization" class="btn btn-primary" onclick="window.triggerBrainOptimization()" style="font-size: 11px; font-weight: 700; padding: 6px 12px;">⚡ Run Self-Optimization Cycle</button>
+                  <button id="btnRollbackBrain" class="btn btn-secondary" onclick="window.triggerBrainRollback()" style="font-size: 11px; font-weight: 700; padding: 6px 12px;">↩️ Rollback to Stable Baseline</button>
+                </div>
+              </div>
+
+              <!-- Self-Update & Sandbox Gate Ledger Table -->
+              <div>
+                <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
+                  Recent Self-Modification &amp; Sandbox Gate Ledger
+                </div>
+                <div style="max-height: 280px; overflow-y: auto; scrollbar-gutter: stable;">
+                  <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; font-variant-numeric: tabular-nums;">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 10px;">
+                        <th style="padding: 6px 8px;">UPDATE ID</th>
+                        <th style="padding: 6px 8px;">TIMESTAMP</th>
+                        <th style="padding: 6px 8px;">TRIGGER SOURCE</th>
+                        <th style="padding: 6px 8px;">SANDBOX GATE VERDICT</th>
+                        <th style="padding: 6px 8px;">DIFF SUMMARY</th>
+                        <th style="padding: 6px 8px; font-family: var(--font-mono);">CONFIG HASH</th>
+                      </tr>
+                    </thead>
+                    <tbody id="diagBrainHistoryTableBody">
+                      <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 14px;">Loading self-update ledger...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>

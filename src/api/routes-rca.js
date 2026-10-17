@@ -12,6 +12,8 @@ const { aiBrain } = require('../core/ai-brain');
 const { diagnosticReasoningEngine } = require('../core/rca-engine');
 const { incidentBriefingProvider } = require('../core/llm-provider');
 const { toolSandbox } = require('../core/tool-sandbox');
+const { authenticate, requirePermission, requireRole } = require('./middleware');
+const { SCHEMA_BOUNDS } = require('../core/brain-config-schema');
 
 /**
  * POST /api/rca/generate
@@ -193,6 +195,63 @@ router.post('/probe', async (req, res) => {
       success: false,
       error: `Probe execution failed: ${err.message}`
     });
+  }
+});
+
+/**
+ * GET /api/rca/brain/self-update-status
+ * Returns live AI Brain dynamic configuration, drift telemetry, and circuit breaker status.
+ */
+router.get('/brain/self-update-status', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const status = aiBrain.getSelfUpdateStatus();
+    res.json({
+      success: true,
+      status,
+      schemaBounds: SCHEMA_BOUNDS
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/brain/self-update/optimize
+ * Triggers an autonomous or operator-overridden AI Brain self-optimization cycle through the sandbox gate.
+ */
+router.post('/brain/self-update/optimize', authenticate, requirePermission('system.config.manage'), async (req, res) => {
+  try {
+    const { proposedConfigOverride, forceResetCircuitBreaker } = req.body || {};
+    const result = await aiBrain.optimizeBrainParameters({
+      triggerSource: `OPERATOR_API:${req.user?.username || 'admin'}`,
+      proposedConfigOverride,
+      forceResetCircuitBreaker: Boolean(forceResetCircuitBreaker)
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      status: 'OPTIMIZATION_REJECTED',
+      error: err.message
+    });
+  }
+});
+
+/**
+ * POST /api/rca/brain/self-update/rollback
+ * Restores the prior stable AI Brain configuration in memory and on disk.
+ */
+router.post('/brain/self-update/rollback', authenticate, requirePermission('system.config.manage'), (req, res) => {
+  try {
+    const result = aiBrain.rollbackToStable(null, `Operator manual rollback by ${req.user?.username || 'admin'}`);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

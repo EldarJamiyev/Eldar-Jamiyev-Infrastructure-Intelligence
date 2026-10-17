@@ -1,38 +1,84 @@
 /**
- * EJII Continuous Adaptive AI Brain Engine
+ * EJII Continuous Adaptive & Self-Updating AI Brain Engine
  * Orchestrates real-time telemetry ingestion, continuous Bayesian reasoning,
- * adaptive baseline learning, and persistent diagnostic memory.
- *
- * Core Principles:
- * - Continuous Background Operation: Ingests wire frames and link anomalies in real time.
- * - Bayesian Evidentiary Reasoning: Dispatches telemetry to reasoningEngine.
- * - Memory Persistence: Persists learned baselines and incident signatures to data/brain_memory.json.
- * - Zero Simulation: Strictly grounds conclusions in physical wire measurements.
- * - Idempotent Incident Deduplication: Deterministic SHA-256 keys prevent runaway duplicates.
+ * adaptive Welford baseline learning, persistent diagnostic memory, and
+ * a sandboxed, schema-validated Self-Updating Configuration Harness with
+ * automatic circuit-breaker rollback.
  */
+
+'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const net = require('net');
-const { exec } = require('child_process');
+const { execFile, spawnSync } = require('child_process');
 const { reasoningEngine } = require('./reasoning-engine');
 const { incidentBriefingProvider } = require('./llm-provider');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
 const { DATA_DIR } = require('../config');
+const {
+  DEFAULT_BRAIN_CONFIG,
+  parseBrainConfig,
+  safeParseBrainConfig,
+  hashBrainConfig
+} = require('./brain-config-schema');
+const { generateOptimizedBrainConfig } = require('./brain-optimizer-agent');
+
+let auditLogger = null;
+try {
+  auditLogger = require('./audit-logger');
+} catch (_) {}
+
+/**
+ * Crash-atomic file write via temporary sibling file + rename.
+ */
+function writeFileAtomicSync(targetPath, content) {
+  const dir = path.dirname(targetPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = `${targetPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  fs.writeFileSync(tmpPath, content, { encoding: 'utf8', flag: 'w' });
+  fs.renameSync(tmpPath, targetPath);
+}
+
+/**
+ * Validates that a probe target is a safe IPv4/IPv6 address or RFC-1123 hostname
+ * (Strictly blocks command injection metacharacters).
+ */
+function isSafeNetworkTarget(target) {
+  if (typeof target !== 'string' || target.length === 0 || target.length > 253) return false;
+  if (/[;&|`$><\n\r\0\\'"]/.test(target)) return false;
+  if (net.isIP(target) !== 0) return true;
+  return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(target);
+}
 
 class AIBrain {
   constructor(options = {}) {
-    const isTestEnv = process.env.NODE_ENV === 'test';
+    const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(options.isSimulationEnv);
     const defaultFilename = isTestEnv ? 'brain_memory.test.json' : 'brain_memory.json';
-    this.memoryFilePath = options.memoryFilePath || path.join(DATA_DIR, defaultFilename);
+    const activeDataDir = process.env.EJII_DATA_DIR || DATA_DIR;
+
+    this.dataDir = options.dataDir || activeDataDir;
+    this.memoryFilePath = options.memoryFilePath || path.join(this.dataDir, defaultFilename);
+    this.configFilePath = options.configFilePath || path.join(
+      this.dataDir,
+      isTestEnv ? 'brain-config.test.json' : 'brain-config.json'
+    );
+    this.isSimulationEnv = Boolean(options.isSimulationEnv);
+
+    // Load and validate dynamic configuration
+    this.dynamicConfig = { ...DEFAULT_BRAIN_CONFIG };
+    this.loadDynamicConfig(options.initialConfig);
+
     this.isRunning = false;
     this.activeIncidents = new Map();
     this.recentEventsBuffer = [];
-    this.maxEvents = 500;
-    this.baselineMetrics = new Map(); // target -> { minRtt, avgRtt, maxRtt, sampleCount, lastObserved }
+    this.maxEvents = this.dynamicConfig.maxEvents;
+    this.baselineMetrics = new Map();
     this.incidentHistory = [];
-    this.maxHistory = 100;
+    this.maxHistory = this.dynamicConfig.maxHistory;
     this.brainTickInterval = null;
     this.broadcastHandler = null;
     this.currentSubnet = null;
@@ -40,11 +86,62 @@ class AIBrain {
     this.lastLearningUpdate = new Date().toISOString();
     this._saveTimeout = null;
 
-    // Load existing persisted memory from disk
+    // Self-Updating Harness State & Circuit Breaker Tracking
+    this.selfUpdateHistory = [];
+    this.lastStableConfig = { ...this.dynamicConfig };
+    this.lastSelfUpdateAt = 0;
+    this.isSelfUpdating = false;
+    this.consecutiveRollbacks = 0;
+    this.circuitBreakerTripped = false;
+    this.runtimeErrorCount = 0;
+    this._watchdogTimer = null;
+
+    // Load persisted memory from disk
     this._loadMemory();
 
-    // Start continuous autonomous brain cycle
-    this.startContinuousReasoning();
+    // Start continuous autonomous reasoning cycle (unless disabled for isolated sandbox check)
+    if (options.autoStart !== false) {
+      this.startContinuousReasoning();
+    }
+  }
+
+  /**
+   * Loads and validates dynamic parameters from brain-config.json (or falls back safely to defaults).
+   */
+  loadDynamicConfig(overrideConfig = null) {
+    try {
+      if (overrideConfig && typeof overrideConfig === 'object') {
+        this.dynamicConfig = parseBrainConfig(overrideConfig);
+      } else if (fs.existsSync(this.configFilePath)) {
+        const raw = fs.readFileSync(this.configFilePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        this.dynamicConfig = parseBrainConfig(parsed);
+      } else {
+        this.dynamicConfig = { ...DEFAULT_BRAIN_CONFIG };
+        if (!this.isSimulationEnv) {
+          writeFileAtomicSync(this.configFilePath, JSON.stringify(this.dynamicConfig, null, 2));
+        }
+      }
+    } catch (_) {
+      this.dynamicConfig = { ...DEFAULT_BRAIN_CONFIG };
+    }
+    this.maxEvents = this.dynamicConfig.maxEvents;
+    this.maxHistory = this.dynamicConfig.maxHistory;
+    return this.dynamicConfig;
+  }
+
+  /**
+   * Returns current validated dynamic config and its SHA-256 fingerprint.
+   */
+  getDynamicConfig() {
+    return {
+      config: { ...this.dynamicConfig },
+      configHash: hashBrainConfig(this.dynamicConfig),
+      circuitBreakerTripped: this.circuitBreakerTripped,
+      consecutiveRollbacks: this.consecutiveRollbacks,
+      lastSelfUpdateAt: this.lastSelfUpdateAt ? new Date(this.lastSelfUpdateAt).toISOString() : null,
+      historyCount: this.selfUpdateHistory.length
+    };
   }
 
   /**
@@ -73,7 +170,7 @@ class AIBrain {
     if (typeof this.broadcastHandler === 'function') {
       try {
         this.broadcastHandler('AI_BRAIN_DIAGNOSTIC_UPDATE', payload);
-      } catch (e) {}
+      } catch (_) {}
     }
   }
 
@@ -96,14 +193,16 @@ class AIBrain {
         if (data.subnetProfiles) {
           this.subnetProfiles = data.subnetProfiles;
         }
+        if (Array.isArray(data.selfUpdateHistory)) {
+          this.selfUpdateHistory = data.selfUpdateHistory.slice(-50);
+        }
         if (data.lastUpdated) {
           this.lastLearningUpdate = data.lastUpdated;
         }
       } else {
         this._saveMemory();
       }
-    } catch (e) {
-      // Create empty memory structure
+    } catch (_) {
       this._saveMemory();
     }
   }
@@ -123,53 +222,51 @@ class AIBrain {
   }
 
   /**
-   * Persist brain memory to data/brain_memory.json
+   * Persist brain memory atomically to data/brain_memory.json
    */
   _saveMemory() {
+    if (this.isSimulationEnv) return;
     try {
-      const dir = path.dirname(this.memoryFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
       const serializableBaselines = {};
       for (const [k, v] of this.baselineMetrics.entries()) {
         serializableBaselines[k] = v;
       }
 
       const payload = {
-        version: '2.1.0',
+        version: '2.2.0',
         lastUpdated: new Date().toISOString(),
+        configHash: hashBrainConfig(this.dynamicConfig),
         baselinesCount: this.baselineMetrics.size,
         incidentsRecorded: this.incidentHistory.length,
         currentSubnet: this.currentSubnet,
         subnetProfiles: this.subnetProfiles,
         baselineMetrics: serializableBaselines,
-        incidentHistory: this.incidentHistory.slice(-50)
+        incidentHistory: this.incidentHistory.slice(-this.maxHistory),
+        selfUpdateHistory: this.selfUpdateHistory.slice(-25)
       };
 
-      fs.writeFileSync(this.memoryFilePath, JSON.stringify(payload, null, 2), 'utf8');
-    } catch (e) {}
+      writeFileAtomicSync(this.memoryFilePath, JSON.stringify(payload, null, 2));
+    } catch (_) {}
   }
 
   /**
-   * Start continuous autonomous reasoning loop
+   * Start continuous autonomous reasoning loop using dynamic brainTickIntervalMs
    */
   startContinuousReasoning() {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    // Autonomous background tick every 5 seconds (unref so process exits cleanly)
+    const intervalMs = this.dynamicConfig.brainTickIntervalMs || 5000;
     this.brainTickInterval = setInterval(() => {
       this._continuousTick();
-    }, 5000);
+    }, intervalMs);
     if (this.brainTickInterval && typeof this.brainTickInterval.unref === 'function') {
       this.brainTickInterval.unref();
     }
   }
 
   /**
-   * Stop continuous reasoning loop
+   * Stop continuous reasoning loop and clear pending timers
    */
   stopContinuousReasoning() {
     this.isRunning = false;
@@ -181,32 +278,430 @@ class AIBrain {
       clearTimeout(this._saveTimeout);
       this._saveTimeout = null;
     }
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
     this._saveMemory();
   }
 
   /**
-   * Internal autonomous background maintenance tick
+   * Internal autonomous background maintenance & self-modification check tick
    */
   _continuousTick() {
     const now = Date.now();
-    // Prune stale active incidents older than 5 minutes
+    const pruneTimeoutMs = this.dynamicConfig.incidentPruneTimeoutMs || 300000;
+
     for (const [key, incident] of this.activeIncidents.entries()) {
-      if (now - new Date(incident.updatedAt).getTime() > 300000) {
+      if (now - new Date(incident.updatedAt).getTime() > pruneTimeoutMs) {
         this.activeIncidents.delete(key);
       }
+    }
+
+    // Evaluate whether unclassified drift or anomaly density warrants self-optimization
+    if (!this.isSimulationEnv) {
+      this.triggerSelfModificationCheck().catch(() => {});
     }
   }
 
   /**
+   * Monitors live unclassified anomalies and drift ratios to determine if the
+   * AI Brain should autonomously run a self-optimization cycle.
+   */
+  async triggerSelfModificationCheck() {
+    if (this.isSelfUpdating || this.circuitBreakerTripped) {
+      return { triggered: false, reason: this.circuitBreakerTripped ? 'CIRCUIT_BREAKER_TRIPPED' : 'UPDATE_IN_PROGRESS' };
+    }
+
+    const now = Date.now();
+    if (now - this.lastSelfUpdateAt < this.dynamicConfig.selfUpdateCooldownMs) {
+      return { triggered: false, reason: 'COOLDOWN_ACTIVE' };
+    }
+
+    if (this.recentEventsBuffer.length < this.dynamicConfig.minEventsForSelfUpdate) {
+      return { triggered: false, reason: 'INSUFFICIENT_EVENT_SAMPLES' };
+    }
+
+    let driftCount = 0;
+    for (const evt of this.recentEventsBuffer) {
+      if (evt.isAnomaly || evt.isRetransmission || evt.isRst) {
+        driftCount++;
+      }
+    }
+
+    for (const inc of this.activeIncidents.values()) {
+      if (inc.topHypothesis?.category === 'UNKNOWN' || (inc.topHypothesis?.confidence || 0) < 40) {
+        driftCount += 2;
+      }
+    }
+
+    const driftRatio = driftCount / Math.max(1, this.recentEventsBuffer.length);
+    if (driftRatio >= this.dynamicConfig.anomalyDriftTriggerRatio) {
+      return await this.optimizeBrainParameters({ triggerSource: 'AUTONOMOUS_DRIFT_DETECTOR', driftRatio });
+    }
+
+    return { triggered: false, reason: 'DRIFT_BELOW_THRESHOLD', driftRatio: Number(driftRatio.toFixed(4)) };
+  }
+
+  /**
+   * Runs the Optimizer Agent to synthesize a new configuration from live telemetry
+   * and routes it through the deterministic sandbox gatekeeper.
+   */
+  async optimizeBrainParameters(options = {}) {
+    if (this.isSelfUpdating) {
+      return { success: false, status: 'BUSY', message: 'Self-optimization cycle already in progress.' };
+    }
+    if (this.circuitBreakerTripped && !options.forceResetCircuitBreaker) {
+      return {
+        success: false,
+        status: 'CIRCUIT_BREAKER_OPEN',
+        message: 'Circuit breaker is open due to repeated rollbacks. Manual reset required.'
+      };
+    }
+
+    if (options.forceResetCircuitBreaker) {
+      this.circuitBreakerTripped = false;
+      this.consecutiveRollbacks = 0;
+    }
+
+    this.isSelfUpdating = true;
+    try {
+      const optimization = await generateOptimizedBrainConfig({
+        currentConfig: this.dynamicConfig,
+        recentEvents: this.recentEventsBuffer,
+        baselinesMap: this.baselineMetrics,
+        activeIncidentsMap: this.activeIncidents,
+        incidentHistory: this.incidentHistory,
+        llmProvider: incidentBriefingProvider
+      });
+
+      const targetConfig = options.proposedConfigOverride || optimization.proposedConfig;
+      const result = await this.testAndApplyNewConfig(targetConfig, {
+        triggerSource: options.triggerSource || 'MANUAL_OR_API',
+        rationale: optimization.rationale,
+        optimizerSource: optimization.source,
+        telemetrySnapshot: optimization.telemetrySnapshot
+      });
+
+      return result;
+    } catch (err) {
+      return {
+        success: false,
+        status: 'OPTIMIZATION_FAILED',
+        error: err.message
+      };
+    } finally {
+      this.isSelfUpdating = false;
+    }
+  }
+
+  /**
+   * Deterministic Gatekeeper:
+   * 1. Validates schema via parseBrainConfig().
+   * 2. Writes candidate to isolated brain-config.sandbox.json.
+   * 3. Spawns an isolated child process to verify AIBrain operational invariants under load.
+   * 4. Atomically writes brain-config.json and hot-swaps memory & intervals.
+   * 5. Arms a post-deployment Watchdog Circuit Breaker.
+   */
+  async testAndApplyNewConfig(candidateConfig, metadata = {}) {
+    const previousConfig = { ...this.dynamicConfig };
+    const previousHash = hashBrainConfig(previousConfig);
+
+    // Step 1: Strict Schema Validation
+    const validatedConfig = parseBrainConfig(candidateConfig);
+    const candidateHash = hashBrainConfig(validatedConfig);
+
+    // Step 2: Write to isolated sandbox file (never overwrite production config before testing!)
+    const sandboxConfigPath = path.join(this.dataDir, `brain-config.sandbox.${process.pid}.${Date.now()}.json`);
+    writeFileAtomicSync(sandboxConfigPath, JSON.stringify(validatedConfig, null, 2));
+
+    try {
+      // Step 3: Execute isolated child-process verification gate using forward slashes for Windows safety
+      const cleanFilename = __filename.replace(/\\/g, '/');
+      const cleanSandboxPath = sandboxConfigPath.replace(/\\/g, '/');
+
+      const verificationScript = [
+        "const assert = require('assert');",
+        "const fs = require('fs');",
+        `const { AIBrain } = require(${JSON.stringify(cleanFilename)});`,
+        `const sandboxCfg = JSON.parse(fs.readFileSync(${JSON.stringify(cleanSandboxPath)}, 'utf8'));`,
+        "const simBrain = new AIBrain({",
+        "  isSimulationEnv: true,",
+        "  autoStart: false,",
+        "  initialConfig: sandboxCfg",
+        "});",
+        "for (let i = 0; i < 10; i++) {",
+        "  simBrain.ingestWireFrame({",
+        "    srcIp: '192.168.31.89',",
+        "    dstIp: '192.168.31.1',",
+        "    dstPort: 443,",
+        "    tcpAnalysis: { handshakeRttMs: 12 + (i % 4) }",
+        "  });",
+        "}",
+        "simBrain.ingestWireFrame({",
+        "  srcIp: '192.168.31.89',",
+        "  dstIp: '192.168.31.1',",
+        "  dstPort: 443,",
+        "  tcpAnalysis: { handshakeRttMs: 650, isRetransmission: true },",
+        "  tcp: { flags: { rst: true } }",
+        "});",
+        "const status = simBrain.getStatus();",
+        "assert.strictEqual(status.status, 'OPERATIONAL', 'Sandbox brain must remain OPERATIONAL');",
+        "assert.ok(status.activeIncidentsCount >= 1, 'Sandbox brain must detect synthetic wire anomaly');",
+        "const live = simBrain.getLiveState();",
+        "assert.ok(Array.isArray(live.rankedHypotheses) && live.rankedHypotheses.length > 0, 'Must rank hypotheses');",
+        "const totalProb = live.rankedHypotheses.reduce((acc, h) => acc + (h.confidence || 0), 0);",
+        "assert.ok(Math.abs(totalProb - 100) <= 1.5, 'Bayesian probabilities must normalize to ~100%');",
+        "console.log('SANDBOX_VERIFICATION_PASSED');"
+      ].join('\n');
+
+      const childRes = spawnSync(process.execPath, ['-e', verificationScript], {
+        cwd: path.resolve(__dirname, '../..'),
+        env: { ...process.env, NODE_ENV: 'test', EJII_DATA_DIR: this.dataDir },
+        timeout: 10000,
+        encoding: 'utf8',
+        windowsHide: true
+      });
+
+      if (childRes.status !== 0 || !(childRes.stdout || '').includes('SANDBOX_VERIFICATION_PASSED')) {
+        throw new Error(
+          `Sandbox verification gate rejected config: ${(childRes.stderr || childRes.stdout || 'Unknown error').trim()}`
+        );
+      }
+
+      // Clean up temporary sandbox file
+      if (fs.existsSync(sandboxConfigPath)) {
+        try { fs.unlinkSync(sandboxConfigPath); } catch (_) {}
+      }
+
+      // Step 4: Atomic production persistence & live hot-swap
+      this.lastStableConfig = previousConfig;
+      if (!this.isSimulationEnv) {
+        writeFileAtomicSync(this.configFilePath, JSON.stringify(validatedConfig, null, 2));
+      }
+
+      this.dynamicConfig = validatedConfig;
+      this.maxEvents = validatedConfig.maxEvents;
+      this.maxHistory = validatedConfig.maxHistory;
+      this.lastSelfUpdateAt = Date.now();
+      this.runtimeErrorCount = 0;
+
+      // Trim buffers if max bounds were reduced
+      if (this.recentEventsBuffer.length > this.maxEvents) {
+        this.recentEventsBuffer = this.recentEventsBuffer.slice(-this.maxEvents);
+      }
+      if (this.incidentHistory.length > this.maxHistory) {
+        this.incidentHistory = this.incidentHistory.slice(-this.maxHistory);
+      }
+
+      // Hot-swap continuous tick timer if interval changed
+      if (this.isRunning && previousConfig.brainTickIntervalMs !== validatedConfig.brainTickIntervalMs) {
+        if (this.brainTickInterval) clearInterval(this.brainTickInterval);
+        this.brainTickInterval = setInterval(() => {
+          this._continuousTick();
+        }, validatedConfig.brainTickIntervalMs);
+        if (this.brainTickInterval && typeof this.brainTickInterval.unref === 'function') {
+          this.brainTickInterval.unref();
+        }
+      }
+
+      const updateRecord = {
+        updateId: `UPD-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+        timestamp: new Date().toISOString(),
+        status: 'APPLIED_AND_VERIFIED',
+        triggerSource: metadata.triggerSource || 'MANUAL',
+        optimizerSource: metadata.optimizerSource || 'DIRECT',
+        rationale: metadata.rationale || 'Configuration validated and applied via sandbox gate.',
+        previousHash,
+        newHash: candidateHash,
+        previousConfig,
+        appliedConfig: validatedConfig
+      };
+
+      this.selfUpdateHistory.push(updateRecord);
+      if (this.selfUpdateHistory.length > 50) this.selfUpdateHistory.shift();
+      this._debouncedSaveMemory();
+
+      if (auditLogger && typeof auditLogger.logAction === 'function' && !this.isSimulationEnv) {
+        try {
+          auditLogger.logAction({
+            userId: 'AI_BRAIN_AUTONOMOUS_HARNESS',
+            action: 'BRAIN_SELF_MODIFICATION_COMMITTED',
+            resource: 'src/core/ai-brain.js',
+            details: {
+              updateId: updateRecord.updateId,
+              previousHash,
+              newHash: candidateHash,
+              triggerSource: updateRecord.triggerSource,
+              rationale: updateRecord.rationale
+            }
+          });
+        } catch (_) {}
+      }
+
+      this._notifyDiagnosticUpdate({
+        type: 'BRAIN_CONFIG_HOT_SWAPPED',
+        updateRecord
+      });
+
+      // Step 5: Arm Post-Deployment Watchdog Circuit Breaker
+      this._armWatchdogCircuitBreaker(previousConfig, updateRecord.updateId);
+
+      return {
+        success: true,
+        status: 'APPLIED_AND_VERIFIED',
+        updateRecord
+      };
+    } catch (error) {
+      if (fs.existsSync(sandboxConfigPath)) {
+        try { fs.unlinkSync(sandboxConfigPath); } catch (_) {}
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Alias for commitSelfModification to support direct programmatic callers.
+   */
+  async commitSelfModification(newConfig, metadata = {}) {
+    return this.testAndApplyNewConfig(newConfig, metadata);
+  }
+
+  /**
+   * Arms a post-deployment watchdog timer that monitors runtime stability
+   * and automatically rolls back to the prior stable config if exceptions spike.
+   */
+  _armWatchdogCircuitBreaker(backupConfig, updateId) {
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+    }
+    const windowMs = this.dynamicConfig.watchdogWindowMs || 30000;
+    this._watchdogTimer = setTimeout(() => {
+      this._watchdogTimer = null;
+      if (this.runtimeErrorCount > 0) {
+        this.rollbackToStable(backupConfig, `Watchdog detected ${this.runtimeErrorCount} runtime error(s) after ${updateId}`);
+      } else {
+        this.consecutiveRollbacks = 0;
+      }
+    }, windowMs);
+    if (this._watchdogTimer && typeof this._watchdogTimer.unref === 'function') {
+      this._watchdogTimer.unref();
+    }
+  }
+
+  /**
+   * Emergency Circuit Breaker Rollback Routine:
+   * Immediately restores the last known-good configuration in memory and on disk.
+   */
+  rollbackToStable(stableConfig = null, reason = 'Manual or watchdog rollback triggered') {
+    const targetRestore = safeParseBrainConfig(stableConfig || this.lastStableConfig || DEFAULT_BRAIN_CONFIG).success
+      ? parseBrainConfig(stableConfig || this.lastStableConfig || DEFAULT_BRAIN_CONFIG)
+      : { ...DEFAULT_BRAIN_CONFIG };
+
+    const failedConfig = { ...this.dynamicConfig };
+    this.dynamicConfig = targetRestore;
+    this.maxEvents = targetRestore.maxEvents;
+    this.maxHistory = targetRestore.maxHistory;
+    this.runtimeErrorCount = 0;
+    this.consecutiveRollbacks++;
+
+    if (this.consecutiveRollbacks >= (targetRestore.maxConsecutiveRollbacks || 3)) {
+      this.circuitBreakerTripped = true;
+    }
+
+    if (!this.isSimulationEnv) {
+      try {
+        writeFileAtomicSync(this.configFilePath, JSON.stringify(targetRestore, null, 2));
+      } catch (_) {}
+    }
+
+    if (this.isRunning) {
+      if (this.brainTickInterval) clearInterval(this.brainTickInterval);
+      this.brainTickInterval = setInterval(() => {
+        this._continuousTick();
+      }, targetRestore.brainTickIntervalMs);
+      if (this.brainTickInterval && typeof this.brainTickInterval.unref === 'function') {
+        this.brainTickInterval.unref();
+      }
+    }
+
+    const rollbackRecord = {
+      updateId: `RBK-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+      timestamp: new Date().toISOString(),
+      status: 'ROLLED_BACK',
+      reason,
+      restoredHash: hashBrainConfig(targetRestore),
+      failedConfig,
+      restoredConfig: targetRestore,
+      circuitBreakerTripped: this.circuitBreakerTripped
+    };
+
+    this.selfUpdateHistory.push(rollbackRecord);
+    this._debouncedSaveMemory();
+
+    if (auditLogger && typeof auditLogger.logAction === 'function' && !this.isSimulationEnv) {
+      try {
+        auditLogger.logAction({
+          userId: 'AI_BRAIN_WATCHDOG',
+          action: 'BRAIN_SELF_MODIFICATION_ROLLBACK',
+          resource: 'src/core/ai-brain.js',
+          details: rollbackRecord
+        });
+      } catch (_) {}
+    }
+
+    this._notifyDiagnosticUpdate({
+      type: 'BRAIN_CONFIG_ROLLED_BACK',
+      rollbackRecord
+    });
+
+    return {
+      success: true,
+      status: 'ROLLED_BACK',
+      rollbackRecord
+    };
+  }
+
+  /**
+   * Reports an internal runtime fault to the watchdog circuit breaker.
+   * If a watchdog window is active, immediately triggers rollbackToStable().
+   */
+  recordRuntimeFault(errorMessage = 'Unspecified runtime fault') {
+    this.runtimeErrorCount++;
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+      return this.rollbackToStable(this.lastStableConfig, `Immediate watchdog trip: ${errorMessage}`);
+    }
+    return { faultRecorded: true, runtimeErrorCount: this.runtimeErrorCount };
+  }
+
+  /**
+   * Returns full self-updating harness telemetry for API & UI inspection.
+   */
+  getSelfUpdateStatus() {
+    return {
+      enabled: true,
+      isSelfUpdating: this.isSelfUpdating,
+      circuitBreakerTripped: this.circuitBreakerTripped,
+      consecutiveRollbacks: this.consecutiveRollbacks,
+      watchdogActive: Boolean(this._watchdogTimer),
+      currentConfig: { ...this.dynamicConfig },
+      currentConfigHash: hashBrainConfig(this.dynamicConfig),
+      lastStableConfigHash: hashBrainConfig(this.lastStableConfig),
+      lastSelfUpdateAt: this.lastSelfUpdateAt ? new Date(this.lastSelfUpdateAt).toISOString() : null,
+      history: this.selfUpdateHistory.slice(-20).reverse()
+    };
+  }
+
+  /**
    * Ingest a live wire frame from Npcap packet streamer or socket telemetry.
-   * Updates empirical RTT baselines, detects anomalous latency jumps, and handles RST/Retransmissions.
    */
   ingestWireFrame(frame) {
     if (!frame) return;
 
-    // Subnet adaptability check
     const netInfo = getPhysicalNetworkInfo();
-    const activeGateway = netInfo?.gatewayIp || '10.168.195.1';
+    const activeGateway = netInfo?.gatewayIp || '192.168.31.1';
     if (!this.currentSubnet) {
       this.currentSubnet = activeGateway;
     } else if (this.currentSubnet !== activeGateway) {
@@ -216,7 +711,6 @@ class AIBrain {
     const targetIp = frame.dstIp || frame.srcIp;
     let latencyMs = null;
 
-    // Defect 3: Reject streaming inter-packet deltas (tcpDeltaMs); only accept genuine wire RTTs
     if (frame.tcpAnalysis && typeof frame.tcpAnalysis.handshakeRttMs === 'number' && frame.tcpAnalysis.handshakeRttMs > 0) {
       latencyMs = frame.tcpAnalysis.handshakeRttMs;
     } else if (frame.tcpAnalysis && typeof frame.tcpAnalysis.rttMs === 'number' && frame.tcpAnalysis.rttMs > 0) {
@@ -230,9 +724,12 @@ class AIBrain {
     if (targetIp && latencyMs !== null && latencyMs > 0) {
       this._updateBaseline(targetIp, latencyMs);
 
-      // Check for >3x baseline latency jump (adaptive trigger)
       const base = this.baselineMetrics.get(targetIp);
-      if (base && base.sampleCount >= 3 && latencyMs > base.avgRtt * 3 && latencyMs > 100) {
+      const minSamples = this.dynamicConfig.minBaselineSamples || 3;
+      const multiplier = this.dynamicConfig.adaptiveLatencyMultiplier || 3.0;
+      const floorMs = this.dynamicConfig.minimumLatencyFloorMs || 100;
+
+      if (base && base.sampleCount >= minSamples && latencyMs > base.avgRtt * multiplier && latencyMs > floorMs) {
         this.ingestTelemetry({
           target: targetIp,
           destIp: targetIp,
@@ -246,7 +743,6 @@ class AIBrain {
       }
     }
 
-    // Check for TCP RST / Retransmissions
     const isRst = Boolean(frame.tcp && frame.tcp.flags && frame.tcp.flags.rst);
     const isRetrans = Boolean(frame.tcpAnalysis && frame.tcpAnalysis.isRetransmission);
     if (isRst || isRetrans) {
@@ -284,8 +780,7 @@ class AIBrain {
   }
 
   /**
-   * Continuous Telemetry Ingestion: Feeds wire frame anomalies, packet resets,
-   * latency measurements, or TCP retransmissions directly into the AI Brain.
+   * Continuous Telemetry Ingestion
    */
   ingestTelemetry(event = {}) {
     const timestamp = new Date().toISOString();
@@ -295,18 +790,15 @@ class AIBrain {
       eventId: `EVT-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
     };
 
-    // Store in circular buffer
     this.recentEventsBuffer.push(enrichedEvent);
     if (this.recentEventsBuffer.length > this.maxEvents) {
       this.recentEventsBuffer.shift();
     }
 
-    // Update target RTT baseline if measured latency is provided
     if (event.target && typeof event.rttMs === 'number' && event.rttMs > 0) {
       this._updateBaseline(event.target, event.rttMs);
     }
 
-    // If event indicates an active failure or anomaly, evaluate Bayesian hypothesis
     if (event.isAnomaly || event.incidentType || event.isRetransmission || event.isRst) {
       return this._handleAnomalyEvent(enrichedEvent);
     }
@@ -315,7 +807,7 @@ class AIBrain {
   }
 
   /**
-   * Update learned target latency baseline in memory
+   * Update learned target latency baseline in memory using Welford's algorithm
    */
   _updateBaseline(target, rttMs) {
     const current = this.baselineMetrics.get(target) || {
@@ -335,7 +827,6 @@ class AIBrain {
     current.maxRtt = Math.max(current.maxRtt, rttMs);
     current.sampleCount++;
 
-    // Welford's algorithm for numerically stable running mean and variance
     const delta = rttMs - current.avgRtt;
     current.avgRtt = Number((current.avgRtt + delta / current.sampleCount).toFixed(2));
     const delta2 = rttMs - current.avgRtt;
@@ -349,7 +840,8 @@ class AIBrain {
       current.stddev = 0;
     }
 
-    current.status = current.sampleCount < 5 ? 'PROVISIONAL_INSUFFICIENT_SAMPLES' : 'ESTABLISHED';
+    const establishedThreshold = this.dynamicConfig.establishedSampleThreshold || 5;
+    current.status = current.sampleCount < establishedThreshold ? 'PROVISIONAL_INSUFFICIENT_SAMPLES' : 'ESTABLISHED';
     current.lastObserved = new Date().toISOString();
 
     this.baselineMetrics.set(target, current);
@@ -364,13 +856,11 @@ class AIBrain {
     const rawTarget = (event.target || event.destIp || 'unknown').toLowerCase().trim();
     const rawPort = parseInt(event.destPort, 10) || 0;
     const rawType = (event.incidentType || (event.isRst ? 'TCP_RST_REJECT' : 'TCP_SYN_TIMEOUT')).toUpperCase();
-    
-    // Day-bucketed deterministic SHA-256 key to guarantee test run idempotency & prevent memory drift
+
     const dayBucket = new Date().toISOString().slice(0, 10);
     const shaKey = crypto.createHash('sha256').update(`${dayBucket}:${rawTarget}:${rawPort}:${rawType}`).digest('hex').substring(0, 16);
     const incidentKey = `INC-${shaKey}`;
-    
-    // Evaluate Bayesian probabilities
+
     const evaluation = reasoningEngine.evaluateIncident({
       incidentType: rawType,
       destIp: rawTarget,
@@ -383,21 +873,23 @@ class AIBrain {
       tlsAlertCode: event.tlsAlertCode
     });
 
-    // Check if incident already active; if so, revise beliefs dynamically
     let revisedEvaluation = evaluation;
     if (this.activeIncidents.has(incidentKey)) {
       const priorIncident = this.activeIncidents.get(incidentKey);
       revisedEvaluation = reasoningEngine.reviseBeliefs(priorIncident.evaluation, event);
     }
 
-    // Synthesize dual-tier briefings
     const briefing = incidentBriefingProvider.synthesizeBriefing(revisedEvaluation, event);
 
     const activeIncident = {
+      id: incidentKey,
       incidentKey,
+      type: revisedEvaluation.incidentType,
       incidentType: revisedEvaluation.incidentType,
       target: rawTarget,
       destPort: rawPort,
+      port: rawPort,
+      status: 'INVESTIGATING',
       topHypothesis: revisedEvaluation.topHypothesis,
       rankedHypotheses: revisedEvaluation.rankedHypotheses,
       distinguishingProbes: revisedEvaluation.distinguishingProbes,
@@ -410,7 +902,6 @@ class AIBrain {
 
     this.activeIncidents.set(incidentKey, activeIncident);
 
-    // Save to historical journal with idempotent deduplication
     const existingIdx = this.incidentHistory.findIndex(h => h.incidentKey === incidentKey);
     const histRecord = {
       incidentKey,
@@ -463,6 +954,8 @@ class AIBrain {
   getLiveState() {
     const activeList = Array.from(this.activeIncidents.values());
     const topIncident = activeList.length > 0 ? activeList[activeList.length - 1] : null;
+    const netInfo = getPhysicalNetworkInfo();
+    const liveGateway = netInfo?.gatewayIp || '192.168.31.1';
 
     let evaluation;
     let recommendedProbe = null;
@@ -479,8 +972,8 @@ class AIBrain {
       recommendedProbe = {
         probeType: 'ICMP_PING_GATEWAY',
         name: 'Periodic L2 Perimeter Health Ping',
-        command: 'ping -n 1 10.168.195.1',
-        target: 'Default Gateway (10.168.195.1)',
+        command: `ping -n 1 ${liveGateway}`,
+        target: `Default Gateway (${liveGateway})`,
         expectedOutcome: 'Confirms continuous L2 switch fabric and gateway connectivity.',
         informationGain: 'High (Perimeter Health Assertion)'
       };
@@ -498,18 +991,21 @@ class AIBrain {
       learnedBaselinesCount: this.baselineMetrics.size,
       totalEventsIngested: this.recentEventsBuffer.length,
       lastLearningUpdate: this.lastLearningUpdate || new Date().toISOString(),
-      engine: 'Continuous Bayesian (Hare-Niemeyer 100.0%)'
+      engine: 'Continuous Bayesian (Hare-Niemeyer 100.0%)',
+      dynamicConfig: { ...this.dynamicConfig },
+      selfUpdateStatus: this.getSelfUpdateStatus()
     };
   }
 
   /**
-   * Executes a recommended diagnostic probe on real physical network wire,
-   * feeds results into Bayesian engine, and dynamically revises beliefs.
+   * Executes a recommended diagnostic probe on real physical network wire using safe execFile,
+   * feeds results into Bayesian engine, and dynamically revises beliefs on matching active incidents.
    */
   async executeDiagnosticProbe({ probeType, targetIp, probeId }) {
     const netInfo = getPhysicalNetworkInfo();
-    const gatewayIp = netInfo?.gatewayIp || '10.168.195.1';
-    const target = targetIp || (probeType === 'ICMP_PING_GATEWAY' ? gatewayIp : '10.22.12.204');
+    const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
+    const rawCandidate = targetIp || (probeType === 'ICMP_PING_GATEWAY' ? gatewayIp : gatewayIp);
+    const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate : gatewayIp;
 
     let probeSuccess = false;
     let latencyMs = 0;
@@ -518,14 +1014,16 @@ class AIBrain {
     const startTime = Date.now();
     try {
       if (probeType === 'ICMP_PING_GATEWAY' || probeType === 'ICMP_PING_TARGET') {
-        const pingCmd = process.platform === 'win32' ? `ping -n 1 -w 1000 ${target}` : `ping -c 1 -W 1 ${target}`;
+        const pingArgs = process.platform === 'win32'
+          ? ['-n', '1', '-w', '1000', target]
+          : ['-c', '1', '-W', '1', target];
         rawOutput = await new Promise((resolve) => {
-          exec(pingCmd, { timeout: 2000 }, (err, stdout, stderr) => {
+          execFile('ping', pingArgs, { timeout: 2500, windowsHide: true }, (err, stdout, stderr) => {
             resolve(stdout || stderr || (err ? err.message : ''));
           });
         });
         latencyMs = Date.now() - startTime;
-        probeSuccess = rawOutput.includes('TTL=') || rawOutput.includes('ttl=') || rawOutput.includes('bytes from');
+        probeSuccess = /TTL=/i.test(rawOutput) || /bytes from/i.test(rawOutput);
       } else if (probeType === 'TCP_SYN_ALTERNATE_PORT') {
         probeSuccess = await new Promise((resolve) => {
           const socket = new net.Socket();
@@ -548,44 +1046,65 @@ class AIBrain {
       rawOutput = `Probe error: ${e.message}`;
     }
 
-    // Ingest the probe evidence into the AI Brain and revise beliefs
     const revisionEvidence = {
       destIp: target,
       gatewayReachable: probeType === 'ICMP_PING_GATEWAY' ? probeSuccess : null,
       targetPingReachable: probeType === 'ICMP_PING_TARGET' ? probeSuccess : null
     };
 
-    let revisedEvaluation = null;
-    const shaKey = crypto.createHash('sha256').update(`${target.toLowerCase()}:443:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16);
-    const incidentKey = `INC-${shaKey}`;
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    const normalizedTarget = target.toLowerCase().trim();
+    const dayBucketKey = `INC-${crypto.createHash('sha256').update(`${dayBucket}:${normalizedTarget}:443:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
+    const legacyKey = `INC-${crypto.createHash('sha256').update(`${normalizedTarget}:443:TCP_SYN_TIMEOUT`).digest('hex').substring(0, 16)}`;
 
-    if (this.activeIncidents.has(incidentKey)) {
-      const prior = this.activeIncidents.get(incidentKey);
+    // Match day-bucketed key first, then legacy key, then any active incident for this target IP
+    let matchedKey = null;
+    if (this.activeIncidents.has(dayBucketKey)) {
+      matchedKey = dayBucketKey;
+    } else if (this.activeIncidents.has(legacyKey)) {
+      matchedKey = legacyKey;
+    } else {
+      for (const [k, inc] of this.activeIncidents.entries()) {
+        if ((inc.target || '').toLowerCase() === normalizedTarget) {
+          matchedKey = k;
+          break;
+        }
+      }
+    }
+
+    let revisedEvaluation = null;
+    if (matchedKey && this.activeIncidents.has(matchedKey)) {
+      const prior = this.activeIncidents.get(matchedKey);
       revisedEvaluation = reasoningEngine.reviseBeliefs(prior.evaluation, revisionEvidence);
       prior.evaluation = revisedEvaluation;
       prior.topHypothesis = revisedEvaluation.topHypothesis;
       prior.rankedHypotheses = revisedEvaluation.rankedHypotheses;
       prior.distinguishingProbes = revisedEvaluation.distinguishingProbes;
       prior.updatedAt = new Date().toISOString();
-      this.activeIncidents.set(incidentKey, prior);
+      this.activeIncidents.set(matchedKey, prior);
       this._notifyDiagnosticUpdate(prior);
     } else {
+      const incidentKey = dayBucketKey;
       revisedEvaluation = reasoningEngine.evaluateIncident({
         incidentType: 'TCP_SYN_TIMEOUT',
-        destIp: target,
+        destIp: normalizedTarget,
         gatewayReachable: revisionEvidence.gatewayReachable,
         targetPingReachable: revisionEvidence.targetPingReachable
       });
       const incident = {
         id: incidentKey,
+        incidentKey,
         type: 'TCP_SYN_TIMEOUT',
-        target,
+        incidentType: 'TCP_SYN_TIMEOUT',
+        target: normalizedTarget,
         port: 443,
+        destPort: 443,
         status: 'INVESTIGATING',
         topHypothesis: revisedEvaluation.topHypothesis,
         rankedHypotheses: revisedEvaluation.rankedHypotheses,
         distinguishingProbes: revisedEvaluation.distinguishingProbes,
         evaluation: revisedEvaluation,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       this.activeIncidents.set(incidentKey, incident);
@@ -604,6 +1123,13 @@ class AIBrain {
   }
 
   /**
+   * Alias for executeDiagnosticProbe to support distinguishing probe callers.
+   */
+  async executeDistinguishingProbe(probeType, targetIp, params = {}) {
+    return this.executeDiagnosticProbe({ probeType, targetIp, ...params });
+  }
+
+  /**
    * Get operational status and health metrics of the AI Brain
    */
   getStatus() {
@@ -616,10 +1142,12 @@ class AIBrain {
       learnedBaselinesCount: this.baselineMetrics.size,
       totalEventsIngested: this.recentEventsBuffer.length,
       historyLength: this.incidentHistory.length,
+      dynamicConfig: { ...this.dynamicConfig },
+      selfUpdateStatus: this.getSelfUpdateStatus(),
       hostEnvironment: {
-        hostIp: netInfo?.hostIp || '10.168.195.33',
-        gatewayIp: netInfo?.gatewayIp || '10.168.195.1',
-        adapter: netInfo?.adapterName || 'Ethernet'
+        hostIp: netInfo?.hostIp || '192.168.31.89',
+        gatewayIp: netInfo?.gatewayIp || '192.168.31.1',
+        adapter: netInfo?.adapterName || 'Wi-Fi'
       },
       lastMemorySync: this.lastLearningUpdate || new Date().toISOString()
     };
@@ -669,7 +1197,7 @@ class AIBrain {
         criticalIssuesCount: 0,
         warningIssuesCount: 0,
         recommendedAction: 'No remediation necessary.',
-        plainEnglishReport: `All hardware subsystems (CPU, memory, storage volumes, network interfaces, and drivers) are functioning within normal operational baselines.`
+        plainEnglishReport: 'All hardware subsystems (CPU, memory, storage volumes, network interfaces, and drivers) are functioning within normal operational baselines.'
       };
     }
 
@@ -699,5 +1227,6 @@ const defaultAIBrain = new AIBrain();
 
 module.exports = {
   AIBrain,
-  aiBrain: defaultAIBrain
+  aiBrain: defaultAIBrain,
+  isSafeNetworkTarget
 };

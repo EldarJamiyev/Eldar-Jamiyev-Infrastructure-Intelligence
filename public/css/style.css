@@ -1000,14 +1000,14 @@ body {
   background: #0284c7 !important;
   color: #ffffff !important;
   font-weight: 800;
-  box-shadow: 0 0 4px rgba(2, 132, 199, 0.8);
+  outline: 1px solid #38bdf8;
 }
 
 .ascii-char-active {
   background: #0284c7 !important;
   color: #ffffff !important;
   font-weight: 800;
-  box-shadow: 0 0 4px rgba(2, 132, 199, 0.8);
+  outline: 1px solid #38bdf8;
 }
 
 .protocol-tree-field:hover {

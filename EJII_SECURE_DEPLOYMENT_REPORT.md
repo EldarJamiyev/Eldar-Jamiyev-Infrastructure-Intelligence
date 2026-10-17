@@ -126,11 +126,18 @@ On first boot against an empty data directory, `seedDatabase()` records sequence
 * **Multi-Condition Natural Language AST Compiler:** `PacketExplainEngine.translateNaturalLanguageToFilter` processes multi-field queries combining TCP flags (`SYN`, `ACK`, `RST`, `FIN`, `PSH`), protocols (`TCP`, `UDP`, `ICMP`, `ARP`, `DNS`, `TLS`, `HTTP`, `QUIC`), anomalies (`retransmission`, `zero window`, `dup ack`), source/destination IP addresses, ports, latency thresholds (`rtt > X`), and wire length thresholds (`frame.len > X`).
 * **Explicit Cleartext vs TLS 1.3 Payload Boundary:** `PacketExplainEngine.explain` / `explainPacket` generates exhaustive OSI layer citations and explicitly demarcates observable cleartext wire headers (L2 MACs, L3 IPs, L4 Ports/Seq/Ack/Window/Flags, L7 TLS record headers and SNI) from cryptographically opaque AEAD TLS 1.3 inner ciphertext (RFC 8446).
 
+### 3.7 Closed-Loop Self-Updating AI Brain Architecture & Watchdog Circuit Breaker (Suite 31)
+* **Zero-Dependency Schema Contract:** `src/core/brain-config-schema.js` enforces strict numeric bounds, type validations, and SHA-256 canonical hashing over dynamic operational thresholds (`brainTickIntervalMs`, `adaptiveLatencyMultiplier`, `minimumLatencyFloorMs`, `maxEvents`, `anomalyDriftTriggerRatio`).
+* **Empirical Welford & LLM Parameter Optimizer:** `src/core/brain-optimizer-agent.js` computes exact continuous variance and telemetry drift from live wire buffers, synthesizing mathematically optimal threshold proposals with complete explanatory diff rationales.
+* **Isolated Child-Process Sandbox Verification Gate:** Before promoting any proposed configuration to production `brain-config.json`, the AI Brain writes to a temporary sandbox file and spawns an isolated Node.js child process that validates Bayesian invariants under representative traffic. Promotion occurs atomically only on exit code 0.
+* **Watchdog Circuit Breaker & Automatic Rollback:** A post-deployment watchdog monitors runtime stability. Any runtime fault or telemetry stall triggers an immediate zero-downtime rollback to the prior known-good configuration and logs to the cryptographic HMAC audit trail.
+* **Operator Governance REST API & UI Panel:** Exposed authenticated endpoints (`/api/rca/brain/self-update-status`, `/api/rca/brain/self-update/optimize`, `/api/rca/brain/self-update/rollback`) paired with a high-density, `tabular-nums` governance interface in the Core Diagnostics & Autonomous Remediation view.
+
 ---
 
-## 4. Test Suite 30 & Master Suite Verification Results
+## 4. Test Suite 30, 31 & Master Suite Verification Results
 
-All 30 test suites were executed by `tests/run-all-tests.js` with 100% pass rate:
+All 31 test suites were executed by `tests/run-all-tests.js` with 100% pass rate:
 
 | Test Case | Description | Result |
 | :--- | :--- | :--- |
@@ -147,6 +154,11 @@ All 30 test suites were executed by `tests/run-all-tests.js` with 100% pass rate
 | **30.5b** | Adversarial modification to audit-trail.jsonl detected as broken chain | **PASS** |
 | **30.6**  | Production mode first-run credential generation & `FIRST_RUN_ADMIN_CREDENTIALS.txt` | **PASS** |
 | **28.9**  | Frame selection highlight, details pane & auto-scroll pause preserved across batch flush | **PASS** |
+| **31.1**  | BrainConfigSchema rejects out-of-bounds, floats, unknown keys & prototype pollution | **PASS** |
+| **31.2**  | Diagnostic probe target sanitizer strictly blocks shell injection metacharacters | **PASS** |
+| **31.3**  | `executeDiagnosticProbe` revises existing day-bucketed SHA-256 incident in place | **PASS** |
+| **31.4**  | Autonomous drift detection, child-process sandbox verification gate & live hot-swap | **PASS** |
+| **31.5**  | Watchdog Circuit Breaker immediately rolls back to stable baseline on runtime fault | **PASS** |
 
 ---
 
@@ -194,8 +206,8 @@ When deploying on Windows:
 | :--- | :--- |
 | **Branch** | `master` |
 | **Status** | Clean Working Tree (Audited Baseline) |
-| **Test Suites Passing** | **30 / 30 (100% Pass Rate, 0 Failures)** |
-| **Total Test Execution Duration** | ~82 seconds |
-| **Security Status** | Fail-Closed in Production; Single Atomic PowerShell TOCTOU Defense; Replay Protected |
+| **Test Suites Passing** | **31 / 31 (100% Pass Rate, 0 Failures)** |
+| **Total Test Execution Duration** | ~68 seconds |
+| **Security Status** | Fail-Closed in Production; Single Atomic PowerShell TOCTOU Defense; Replay Protected; Closed-Loop Sandboxed Self-Updating AI Brain |
 | **Historical Audits** | 22 legacy markdown reports archived into `docs/audits/` |
-| **Final Recommendation** | **APPROVED FOR PRODUCTION DEPLOYMENT** |
+| **Final Recommendation** | **APPROVED FOR PRODUCTION DEPLOYMENT (GOLD MASTER VERIFIED)** |

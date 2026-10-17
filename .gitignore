@@ -15,6 +15,7 @@ data/*.sqlite-wal
 data/audit/
 data/security/
 data/brain_memory*.json
+data/brain-config*.json
 
 # OS files
 .DS_Store
