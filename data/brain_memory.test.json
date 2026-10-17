@@ -1,6 +1,6 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-16T21:21:02.305Z",
+  "lastUpdated": "2026-10-17T10:35:46.633Z",
   "baselinesCount": 234,
   "incidentsRecorded": 50,
   "currentSubnet": "192.168.31.1",
@@ -10,13 +10,13 @@
       "minRtt": 0.1,
       "maxRtt": 19884009,
       "avgRtt": 6308.65,
-      "variance": 45210430404.85,
-      "stddev": 212627.45,
-      "m2": 82909283429220080,
-      "sampleCount": 1833854,
+      "variance": 45210307247.46,
+      "stddev": 212627.16,
+      "m2": 82909283628209120,
+      "sampleCount": 1833859,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:31:24.438Z",
-      "lastObserved": "2026-10-16T21:21:01.038Z"
+      "lastObserved": "2026-10-17T10:35:45.130Z"
     },
     "192.178.24.174": {
       "minRtt": 46,
@@ -34,13 +34,13 @@
       "minRtt": 1,
       "maxRtt": 3.1,
       "avgRtt": 1.36,
-      "variance": 0.29,
-      "stddev": 0.54,
-      "m2": 127.68299999999972,
-      "sampleCount": 449,
+      "variance": 0.32,
+      "stddev": 0.57,
+      "m2": 148.2289999999998,
+      "sampleCount": 459,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:11.150Z",
-      "lastObserved": "2026-10-16T21:21:02.259Z"
+      "lastObserved": "2026-10-17T10:35:46.325Z"
     },
     "10.22.10.11": {
       "minRtt": 1,
@@ -1088,15 +1088,15 @@
     },
     "142.251.142.110": {
       "minRtt": 34,
-      "maxRtt": 124,
-      "avgRtt": 47.09,
-      "variance": 40.06,
-      "stddev": 6.33,
-      "m2": 57846.78690000001,
-      "sampleCount": 1445,
+      "maxRtt": 3672,
+      "avgRtt": 116.14,
+      "variance": 150378.99,
+      "stddev": 387.79,
+      "m2": 229027201.6167,
+      "sampleCount": 1524,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:58:16.093Z",
-      "lastObserved": "2026-10-16T21:21:00.810Z"
+      "lastObserved": "2026-10-17T10:35:40.678Z"
     },
     "142.251.127.84": {
       "minRtt": 70,
@@ -2780,15 +2780,15 @@
     },
     "192.168.31.89": {
       "minRtt": 2,
-      "maxRtt": 124,
-      "avgRtt": 39.68,
-      "variance": 753.56,
-      "stddev": 27.45,
-      "m2": 79877.72399999999,
-      "sampleCount": 107,
+      "maxRtt": 3672,
+      "avgRtt": 507.92,
+      "variance": 928858.47,
+      "stddev": 963.77,
+      "m2": 153261648.01679996,
+      "sampleCount": 166,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:24:36.484Z",
-      "lastObserved": "2026-10-16T21:21:00.810Z"
+      "lastObserved": "2026-10-17T10:35:40.678Z"
     },
     "192.168.31.1": {
       "minRtt": 2,
@@ -2811,92 +2811,11 @@
       "m2": 20.797999999999995,
       "sampleCount": 5,
       "status": "ESTABLISHED",
-      "firstObserved": "2026-10-16T21:21:02.254Z",
-      "lastObserved": "2026-10-16T21:21:02.255Z"
+      "firstObserved": "2026-10-17T10:35:46.321Z",
+      "lastObserved": "2026-10-17T10:35:46.322Z"
     }
   },
   "incidentHistory": [
-    {
-      "incidentKey": "INC-4c3c2793cec9710a",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "104.18.32.47",
-      "destPort": 443,
-      "timestamp": "2026-10-16T18:52:43.176Z"
-    },
-    {
-      "incidentKey": "INC-8d2b1d90eb93d850",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "172.67.200.138",
-      "destPort": 443,
-      "timestamp": "2026-10-16T18:52:43.517Z"
-    },
-    {
-      "incidentKey": "INC-357bc3ba70c9c0b2",
-      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
-      "topHypothesis": "Application Server Backend Processing Bottleneck",
-      "confidence": 67,
-      "target": "10.168.195.33",
-      "destPort": 59059,
-      "timestamp": "2026-10-16T18:51:59.128Z"
-    },
-    {
-      "incidentKey": "INC-c377f458515d0f96",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59059,
-      "timestamp": "2026-10-16T18:51:59.128Z"
-    },
-    {
-      "incidentKey": "INC-a5c349bc8d579e00",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59060,
-      "timestamp": "2026-10-16T18:51:59.134Z"
-    },
-    {
-      "incidentKey": "INC-598e57e5d4ae56d2",
-      "incidentType": "TCP_SYN_TIMEOUT",
-      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
-      "confidence": 52,
-      "target": "172.217.118.4",
-      "destPort": 443,
-      "timestamp": "2026-10-16T18:53:11.494Z"
-    },
-    {
-      "incidentKey": "INC-dc705af4c7802568",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59096,
-      "timestamp": "2026-10-16T18:52:06.622Z"
-    },
-    {
-      "incidentKey": "INC-5e76419e773baa85",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59101,
-      "timestamp": "2026-10-16T18:52:06.851Z"
-    },
-    {
-      "incidentKey": "INC-94c64d2ce1f52f50",
-      "incidentType": "TCP_RST_REJECT",
-      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
-      "confidence": 80,
-      "target": "10.168.195.33",
-      "destPort": 59135,
-      "timestamp": "2026-10-16T18:52:15.865Z"
-    },
     {
       "incidentKey": "INC-e9656ba54cbf8a1b",
       "incidentType": "TCP_RST_REJECT",
@@ -3265,6 +3184,87 @@
       "target": "51.132.193.111",
       "destPort": 443,
       "timestamp": "2026-10-16T21:09:20.720Z"
+    },
+    {
+      "incidentKey": "INC-b9f6a5a32819fd77",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "10.22.12.204",
+      "destPort": 443,
+      "timestamp": "2026-10-17T10:35:24.696Z"
+    },
+    {
+      "incidentKey": "INC-ab8772bab46a2985",
+      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
+      "topHypothesis": "Application Server Backend Processing Bottleneck",
+      "confidence": 67,
+      "target": "192.168.31.89",
+      "destPort": 58345,
+      "timestamp": "2026-10-17T09:58:00.524Z"
+    },
+    {
+      "incidentKey": "INC-6ec9093b12def347",
+      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
+      "topHypothesis": "Application Server Backend Processing Bottleneck",
+      "confidence": 67,
+      "target": "142.251.142.110",
+      "destPort": 443,
+      "timestamp": "2026-10-17T10:35:40.679Z"
+    },
+    {
+      "incidentKey": "INC-7966287e2d4a269f",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "142.251.142.110",
+      "destPort": 443,
+      "timestamp": "2026-10-17T10:30:00.376Z"
+    },
+    {
+      "incidentKey": "INC-8f1bc3f6a8c4d717",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "142.251.142.110",
+      "destPort": 443,
+      "timestamp": "2026-10-17T10:35:40.391Z"
+    },
+    {
+      "incidentKey": "INC-b2364fb76878931a",
+      "incidentType": "TCP_SYN_TIMEOUT",
+      "topHypothesis": "Stateful Firewall / Perimeter ACL Silent Packet Drop",
+      "confidence": 52,
+      "target": "85.132.27.92",
+      "destPort": 443,
+      "timestamp": "2026-10-17T10:35:46.325Z"
+    },
+    {
+      "incidentKey": "INC-2ac2dac7a7cd833b",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "192.168.31.89",
+      "destPort": 58345,
+      "timestamp": "2026-10-17T09:58:03.419Z"
+    },
+    {
+      "incidentKey": "INC-c7581797fce10b73",
+      "incidentType": "TCP_RST_REJECT",
+      "topHypothesis": "Application Service Stopped / Port Closed (TCP RST)",
+      "confidence": 93,
+      "target": "192.168.31.89",
+      "destPort": 53966,
+      "timestamp": "2026-10-17T10:34:31.154Z"
+    },
+    {
+      "incidentKey": "INC-01e86dc8fcc2944d",
+      "incidentType": "HIGH_HANDSHAKE_VS_APP_LATENCY",
+      "topHypothesis": "Application Server Backend Processing Bottleneck",
+      "confidence": 67,
+      "target": "192.168.31.89",
+      "destPort": 61620,
+      "timestamp": "2026-10-17T10:34:31.720Z"
     }
   ]
 }
