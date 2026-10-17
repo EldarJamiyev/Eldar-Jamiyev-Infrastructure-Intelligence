@@ -18,6 +18,7 @@ const path = require('path');
 const { reasoningEngine } = require('../src/core/reasoning-engine');
 const { aiBrain } = require('../src/core/ai-brain');
 const { incidentBriefingProvider } = require('../src/core/llm-provider');
+const { DEFAULT_BRAIN_CONFIG } = require('../src/core/brain-config-schema');
 
 async function runAiBrainTests() {
   console.log('========================================================================');
@@ -28,6 +29,7 @@ async function runAiBrainTests() {
   // Test 1: Baseline Learning and Continuous Telemetry Ingestion
   // --------------------------------------------------------------------------
   console.log('\n[Test 1] Testing Continuous Telemetry Ingestion & Baseline Learning...');
+  aiBrain.loadDynamicConfig(DEFAULT_BRAIN_CONFIG);
   const targetHost = 'hesabat.taxes.gov.az';
   aiBrain.baselineMetrics.delete(targetHost);
   

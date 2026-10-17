@@ -4,7 +4,12 @@ package-lock.json.bak
 
 # Logs
 *.log
+task-*.log
 npm-debug.log*
+
+# Test certificates and keys
+*.pem
+tests/fixtures/*.pem
 
 # Database & Runtime State (Keep schema and seed intact; ignore runtime mutable databases)
 data/*.sqlite

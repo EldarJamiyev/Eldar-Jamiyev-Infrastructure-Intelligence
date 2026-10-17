@@ -48,98 +48,168 @@ function writeFileAtomicSync(targetPath, content) {
 }
 
 /**
- * Validates that a probe target is a safe IPv4/IPv6 address or RFC-1123 hostname.
- * Strictly blocks command injection metacharacters, cloud link-local metadata endpoints
- * (169.254.169.254, 169.254.0.0/16, AWS IPv6 fd00:ec2::254, metadata hostnames),
- * hex/dword/octal IP obfuscations, and non-routable ranges.
- * Preserves legitimate RFC 1918 private subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
- * and loopback (127.0.0.0/8, ::1) for authentic NOC diagnostics.
+ * Helper to validate an IPv4 32-bit unsigned integer against SSRF / non-routable ranges.
+ * Preserves RFC 1918 (10/8, 172.16/12, 192.168/16) and Loopback (127/8) for NOC diagnostics.
  */
-function isSafeNetworkTarget(target) {
-  if (typeof target !== 'string') return false;
-  let normalized = target.trim();
-  if (normalized.length === 0 || normalized.length > 253) return false;
+function isAllowedIPv4Int(ipInt) {
+  const unsigned = ipInt >>> 0;
+  const b1 = (unsigned >>> 24) & 0xff;
+  const b2 = (unsigned >>> 16) & 0xff;
 
-  // Unwrap bracketed IPv6: e.g. [::1] -> ::1
-  if (normalized.startsWith('[') && normalized.endsWith(']')) {
-    const inner = normalized.slice(1, -1);
-    if (net.isIPv6(inner)) {
-      normalized = inner;
-    } else {
-      return false;
-    }
+  // Block 0.0.0.0/8 ("this" network)
+  if (b1 === 0) return false;
+  // Block 169.254.0.0/16 (RFC 3927 Link-Local & Cloud Metadata 169.254.169.254)
+  if (b1 === 169 && b2 === 254) return false;
+  // Block 224.0.0.0/4 (Multicast) and 240.0.0.0/4 (Reserved / Broadcast 255.255.255.255)
+  if (b1 >= 224) return false;
+
+  return true;
+}
+
+/**
+ * Parses standard dotted-quad IPv4 string into a 32-bit unsigned integer, or returns null.
+ * Rejects leading-zero octal octets (e.g., 0251.0372.0251.0372).
+ */
+function parseStrictIPv4ToInt(ipv4Str) {
+  const parts = ipv4Str.split('.');
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null;
+    if (part.length > 1 && part.startsWith('0')) return null; // Reject octal notation
+    const num = Number(part);
+    if (!Number.isInteger(num) || num < 0 || num > 255) return null;
+    result = ((result << 8) | num) >>> 0;
   }
+  return result >>> 0;
+}
 
-  // Strictly block shell metacharacters, control chars, spaces, and path traversals
-  if (/[;&|`$><\n\r\0\\'"(){}[\]\s]|\.\./.test(normalized)) {
+/**
+ * Rigorous Target Canonicalization & Cloud Metadata SSRF Defense.
+ * Blocks command injection, decimal dword IPs, hex/octal IPs, cloud metadata hostnames,
+ * IPv4 link-local (169.254.0.0/16), IPv6 link-local (fe80::/10), AWS IPv6 metadata (fd00:ec2::254),
+ * and IPv4-mapped/compatible IPv6 addresses (::ffff:169.254.169.254, ::ffff:a9fe:a9fe).
+ * Strictly preserves RFC 1918 private subnets and loopback (127.0.0.1, ::1).
+ */
+function isSafeNetworkTarget(rawTarget) {
+  if (typeof rawTarget !== 'string') return false;
+  const trimmed = rawTarget.trim();
+  if (trimmed.length === 0 || trimmed.length > 253) return false;
+
+  // 1. Block shell metacharacters, whitespace, path traversal, and control chars
+  if (/[;&|`$><\n\r\0\\'"(){}\s]|\.\./.test(trimmed)) return false;
+
+  // Strip optional IPv6 brackets for inspection
+  const unbracketed = trimmed.startsWith('[') && trimmed.endsWith(']')
+    ? trimmed.slice(1, -1)
+    : trimmed;
+  if (unbracketed.includes('[') || unbracketed.includes(']')) return false;
+
+  const lower = unbracketed.toLowerCase();
+
+  // 2. Block pure integer / dword IPs (e.g. 2852039166) and hex literals (e.g. 0xa9fea9fe)
+  if (/^\d+$/.test(lower) || /^0x[0-9a-f]+$/i.test(lower)) return false;
+
+  // 3. Block cloud metadata hostnames
+  const blockedHostnames = new Set([
+    'metadata',
+    'instance-data',
+    'metadata.google.internal',
+    'metadata.goog',
+    '169.254.169.254.nip.io',
+    '169.254.169.254.xip.io'
+  ]);
+  if (blockedHostnames.has(lower) || lower.endsWith('.metadata.google.internal') || lower.endsWith('.internal.cloudapp.net')) {
     return false;
   }
 
-  // Canonicalize Dword integer format: e.g. 2852039166 -> 169.254.169.254
-  if (/^\d+$/.test(normalized)) {
-    const dword = parseInt(normalized, 10);
-    if (dword >= 0 && dword <= 4294967295) {
-      const b0 = (dword >>> 24) & 255;
-      const b1 = (dword >>> 16) & 255;
-      if (b0 === 169 && b1 === 254) return false; // Cloud metadata
-    }
-    return false; // Plain raw integers without dots are not valid hostnames
+  // 4. If it looks like a dotted-quad (all segments numeric/hex/octal), validate strictly as IPv4
+  if (/^[0-9a-fx.]+$/i.test(lower) && lower.includes('.')) {
+    const ipInt = parseStrictIPv4ToInt(lower);
+    if (ipInt === null) return false;
+    return isAllowedIPv4Int(ipInt);
   }
 
-  // Canonicalize Hex integer format: e.g. 0xa9fea9fe
-  if (/^0x[0-9a-fA-F]+$/i.test(normalized)) {
-    const hexNum = parseInt(normalized, 16);
-    if (hexNum >= 0 && hexNum <= 4294967295) {
-      const b0 = (hexNum >>> 24) & 255;
-      const b1 = (hexNum >>> 16) & 255;
-      if (b0 === 169 && b1 === 254) return false;
-    }
-    return false;
+  // 5. Check IPv6 addresses (including IPv4-mapped and IPv4-compatible IPv6)
+  const ipVersion = net.isIP(unbracketed);
+  if (ipVersion === 4) {
+    const ipInt = parseStrictIPv4ToInt(unbracketed);
+    return ipInt !== null && isAllowedIPv4Int(ipInt);
   }
 
-  // Check 4-part IP representations (including octal/hex segments)
-  const parts = normalized.split('.');
-  if (parts.length === 4 && parts.every(p => /^(0x[0-9a-fA-F]+|0[0-7]+|\d+)$/i.test(p))) {
-    const octets = parts.map(p => {
-      if (/^0x/i.test(p)) return parseInt(p, 16);
-      if (/^0[0-7]+$/.test(p)) return parseInt(p, 8);
-      return parseInt(p, 10);
-    });
-    if (octets.some(o => isNaN(o) || o < 0 || o > 255)) return false;
+  if (ipVersion === 6) {
+    // Allow IPv6 loopback ::1
+    if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true;
+    // Block unspecified ::
+    if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return false;
+    // Block AWS IPv6 IMDS (fd00:ec2::254)
+    if (lower.startsWith('fd00:ec2:') || lower === 'fd00:ec2::254') return false;
+    // Block IPv6 link-local (fe80::/10 -> fe80..febf) and multicast (ff00::/8)
+    if (/^fe[89ab][0-9a-f]:/.test(lower) || lower.startsWith('fe80:') || lower.startsWith('ff')) return false;
 
-    // Check link-local / cloud metadata range 169.254.0.0/16
-    if (octets[0] === 169 && octets[1] === 254) return false;
-
-    // Check 0.0.0.0/8, multicast 224.0.0.0/4, broadcast 255.255.255.255
-    if (octets[0] === 0 || octets[0] >= 224) return false;
-
-    // Must be valid canonical decimal IPv4
-    if (net.isIPv4(normalized)) {
-      return true;
+    // Extract embedded IPv4 from ::ffff:w.x.y.z or ::w.x.y.z
+    const lastColonIdx = lower.lastIndexOf(':');
+    const tail = lower.slice(lastColonIdx + 1);
+    if (tail.includes('.')) {
+      const embeddedInt = parseStrictIPv4ToInt(tail);
+      if (embeddedInt === null || !isAllowedIPv4Int(embeddedInt)) return false;
     }
-    // Non-standard decimal/octal/hex notation is rejected as evasion attempt
-    return false;
-  }
 
-  // Check IPv6
-  if (net.isIPv6(normalized)) {
-    const lower = normalized.toLowerCase();
-    // Block AWS metadata IPv6 fd00:ec2::254
-    if (lower === 'fd00:ec2::254' || lower.startsWith('fd00:ec2:')) return false;
-    // Block IPv6 link-local fe80::/10
-    if (lower.startsWith('fe80:')) return false;
+    // Extract hex-encoded IPv4 from ::ffff:a9fe:a9fe or 0:0:0:0:0:ffff:a9fe:a9fe
+    const hexMappedMatch = lower.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMappedMatch) {
+      const high16 = parseInt(hexMappedMatch[1], 16);
+      const low16 = parseInt(hexMappedMatch[2], 16);
+      const mappedInt = (((high16 << 16) | low16) >>> 0);
+      if (!isAllowedIPv4Int(mappedInt)) return false;
+    }
+
     return true;
   }
 
-  // Check Cloud Metadata Hostnames
-  const lowerHost = normalized.toLowerCase();
-  const blockedHostnames = ['metadata.google.internal', 'metadata', 'instance-data'];
-  if (blockedHostnames.includes(lowerHost) || lowerHost.endsWith('.metadata.google.internal')) {
-    return false;
+  // 6. Validate as strict RFC-1123 hostname
+  if (unbracketed.includes(':')) return false;
+  const labels = lower.split('.');
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) return false;
+  }
+  // Reject if TLD is purely numeric (prevents partial IPv4 shorthand like 169.254.43518)
+  if (/^\d+$/.test(labels[labels.length - 1])) return false;
+
+  return true;
+}
+
+/**
+ * Resolves a target hostname or IP and verifies that all resolved IPv4/IPv6 addresses
+ * pass isSafeNetworkTarget(), defeating DNS Rebinding attacks against 169.254.169.254.
+ */
+async function resolveAndValidateTarget(rawTarget) {
+  if (!isSafeNetworkTarget(rawTarget)) {
+    throw new Error(`SECURITY_VIOLATION: Target "${rawTarget}" rejected by SSRF defense policy.`);
+  }
+  const clean = rawTarget.trim().replace(/^\[|\]$/g, '');
+  if (net.isIP(clean) !== 0) {
+    return { safeTarget: clean, resolvedIps: [clean], isIpLiteral: true };
   }
 
-  // Standard RFC 1123 Hostname Validation
-  return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(normalized);
+  const dnsPromises = dns.promises;
+  const resolvedIps = [];
+  try {
+    const v4 = await dnsPromises.resolve4(clean).catch(() => []);
+    const v6 = await dnsPromises.resolve6(clean).catch(() => []);
+    resolvedIps.push(...v4, ...v6);
+  } catch (_) {}
+
+  for (const ip of resolvedIps) {
+    if (!isSafeNetworkTarget(ip)) {
+      throw new Error(
+        `SECURITY_VIOLATION: Hostname "${clean}" resolved to forbidden address "${ip}" (DNS Rebinding SSRF blocked).`
+      );
+    }
+  }
+
+  return { safeTarget: clean, resolvedIps, isIpLiteral: false };
 }
 
 class AIBrain {
@@ -183,6 +253,10 @@ class AIBrain {
     this.circuitBreakerTripped = false;
     this.runtimeErrorCount = 0;
     this._watchdogTimer = null;
+
+    // Operator Feedback & Bounded Calibration Weights
+    this.hypothesisCalibration = {};
+    this.feedbackHistory = [];
 
     // Load persisted memory from disk
     this._loadMemory();
@@ -240,6 +314,8 @@ class AIBrain {
       this.memoryFilePath = customPath;
       this.baselineMetrics.clear();
       this.incidentHistory = [];
+      this.hypothesisCalibration = {};
+      this.feedbackHistory = [];
       this._loadMemory();
     }
   }
@@ -283,6 +359,12 @@ class AIBrain {
         }
         if (Array.isArray(data.selfUpdateHistory)) {
           this.selfUpdateHistory = data.selfUpdateHistory.slice(-50);
+        }
+        if (data.hypothesisCalibration && typeof data.hypothesisCalibration === 'object') {
+          this.hypothesisCalibration = data.hypothesisCalibration;
+        }
+        if (Array.isArray(data.feedbackHistory)) {
+          this.feedbackHistory = data.feedbackHistory.slice(-100);
         }
         if (data.lastUpdated) {
           this.lastLearningUpdate = data.lastUpdated;
@@ -330,7 +412,9 @@ class AIBrain {
         subnetProfiles: this.subnetProfiles,
         baselineMetrics: serializableBaselines,
         incidentHistory: this.incidentHistory.slice(-this.maxHistory),
-        selfUpdateHistory: this.selfUpdateHistory.slice(-25)
+        selfUpdateHistory: this.selfUpdateHistory.slice(-25),
+        hypothesisCalibration: this.hypothesisCalibration,
+        feedbackHistory: this.feedbackHistory.slice(-100)
       };
 
       writeFileAtomicSync(this.memoryFilePath, JSON.stringify(payload, null, 2));
@@ -783,6 +867,109 @@ class AIBrain {
   }
 
   /**
+   * Records explicit operator feedback on an incident root cause hypothesis.
+   * Adjusts empirical calibration weights within strict bounds [0.50, 2.00]
+   * and re-evaluates the incident via the Bayesian Reasoning Engine.
+   */
+  recordOperatorFeedback({ incidentKey, verdict, confirmedHypothesisId, operatorNotes = '', userId = 'operator' } = {}) {
+    if (!incidentKey || typeof incidentKey !== 'string') {
+      throw new Error('Invalid parameter: incidentKey is required.');
+    }
+    const cleanVerdict = String(verdict || '').toUpperCase().trim();
+    if (cleanVerdict !== 'CONFIRMED' && cleanVerdict !== 'REJECTED') {
+      throw new Error("Invalid parameter: verdict must be 'CONFIRMED' or 'REJECTED'.");
+    }
+    if (!confirmedHypothesisId || typeof confirmedHypothesisId !== 'string') {
+      throw new Error('Invalid parameter: confirmedHypothesisId is required.');
+    }
+
+    // Lookup incident in activeIncidents or incidentHistory
+    let incident = this.activeIncidents.get(incidentKey);
+    if (!incident) {
+      incident = this.incidentHistory.find(i => i.id === incidentKey || i.incidentKey === incidentKey);
+    }
+
+    const incidentType = incident?.type || incident?.incidentType || incident?.evaluation?.telemetry?.incidentType || 'TCP_SYN_TIMEOUT';
+    if (!this.hypothesisCalibration[incidentType]) {
+      this.hypothesisCalibration[incidentType] = {};
+    }
+
+    const prevMultiplier = Number(this.hypothesisCalibration[incidentType][confirmedHypothesisId]) || 1.0;
+    const factor = cleanVerdict === 'CONFIRMED' ? 1.12 : 0.88;
+    const newMultiplier = Math.min(2.0, Math.max(0.5, Number((prevMultiplier * factor).toFixed(4))));
+    this.hypothesisCalibration[incidentType][confirmedHypothesisId] = newMultiplier;
+
+    // Prior telemetry for re-evaluation
+    const telemetry = incident?.evaluation?.telemetry || incident?.telemetry || {
+      incidentType,
+      destIp: incident?.target || incident?.destIp || '127.0.0.1',
+      destPort: incident?.port || incident?.destPort || 443
+    };
+
+    const revisedEvaluation = reasoningEngine.evaluateIncident({
+      ...telemetry,
+      calibrationWeights: this.hypothesisCalibration[incidentType]
+    });
+
+    if (incident) {
+      incident.evaluation = revisedEvaluation;
+      incident.updatedAt = new Date().toISOString();
+    }
+
+    const feedbackRecord = {
+      feedbackId: `FBK-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+      timestamp: new Date().toISOString(),
+      incidentKey,
+      incidentType,
+      userId,
+      verdict: cleanVerdict,
+      confirmedHypothesisId,
+      previousWeight: prevMultiplier,
+      newWeight: newMultiplier,
+      operatorNotes: String(operatorNotes || '').trim().slice(0, 500)
+    };
+
+    this.feedbackHistory.push(feedbackRecord);
+    if (this.feedbackHistory.length > 100) this.feedbackHistory.shift();
+
+    this._saveMemory();
+
+    if (auditLogger && typeof auditLogger.logAction === 'function' && !this.isSimulationEnv) {
+      try {
+        auditLogger.logAction({
+          userId,
+          action: 'OPERATOR_HYPOTHESIS_FEEDBACK_RECORDED',
+          resource: 'src/core/ai-brain.js',
+          details: {
+            feedbackId: feedbackRecord.feedbackId,
+            incidentKey,
+            verdict: cleanVerdict,
+            confirmedHypothesisId,
+            previousWeight: prevMultiplier,
+            newWeight: newMultiplier
+          }
+        });
+      } catch (_) {}
+    }
+
+    this._notifyDiagnosticUpdate({
+      type: 'OPERATOR_FEEDBACK_PROCESSED',
+      feedbackRecord,
+      revisedEvaluation
+    });
+
+    return {
+      success: true,
+      incidentKey,
+      verdict: cleanVerdict,
+      confirmedHypothesisId,
+      calibrationWeight: newMultiplier,
+      revisedEvaluation,
+      feedbackRecord
+    };
+  }
+
+  /**
    * Ingest a live wire frame from Npcap packet streamer or socket telemetry.
    */
   ingestWireFrame(frame) {
@@ -1096,13 +1283,16 @@ class AIBrain {
     const netInfo = getPhysicalNetworkInfo();
     const gatewayIp = netInfo?.gatewayIp || '192.168.31.1';
 
-    // Target safety and SSRF validation
+    // Target safety and SSRF validation (including DNS rebinding defense)
     let target = null;
     if (probeType === 'ICMP_PING_GATEWAY') {
       target = isSafeNetworkTarget(targetIp) ? targetIp.trim() : gatewayIp;
     } else {
       if (targetIp) {
-        if (!isSafeNetworkTarget(targetIp)) {
+        try {
+          const validated = await resolveAndValidateTarget(targetIp);
+          target = validated.safeTarget;
+        } catch (secErr) {
           return {
             success: false,
             probeType,
@@ -1110,12 +1300,11 @@ class AIBrain {
             probeSuccess: false,
             latencyMs: 0,
             errorCode: 'SECURITY_TARGET_REJECTED',
-            rawOutput: `Security rejection: Target '${targetIp}' is invalid or blocked by SSRF defense policy (RFC 3927 link-local / cloud metadata / command injection).`,
+            rawOutput: `Security rejection: Target '${targetIp}' is invalid or blocked by SSRF defense policy (${secErr.message}).`,
             error: 'SECURITY_TARGET_REJECTED',
             revisedEvaluation: null
           };
         }
-        target = targetIp.trim();
       } else {
         target = gatewayIp;
       }
@@ -1408,20 +1597,24 @@ class AIBrain {
     const investigationId = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const startTime = Date.now();
 
-    if (targetIp && !isSafeNetworkTarget(targetIp)) {
-      return {
-        success: false,
-        investigationId,
-        target: targetIp,
-        targetPort: port,
-        stepsExecuted: 0,
-        maxSteps: boundedSteps,
-        conclusive: false,
-        durationMs: 0,
-        stoppingReason: 'SECURITY_TARGET_REJECTED',
-        error: `Target '${targetIp}' is rejected by security and SSRF protection policy.`,
-        steps: []
-      };
+    if (targetIp) {
+      try {
+        await resolveAndValidateTarget(targetIp);
+      } catch (secErr) {
+        return {
+          success: false,
+          investigationId,
+          target: targetIp,
+          targetPort: port,
+          stepsExecuted: 0,
+          maxSteps: boundedSteps,
+          conclusive: false,
+          durationMs: 0,
+          stoppingReason: 'SECURITY_TARGET_REJECTED',
+          error: `Target '${targetIp}' is rejected by security and SSRF protection policy: ${secErr.message}`,
+          steps: []
+        };
+      }
     }
 
     const target = isSafeNetworkTarget(rawCandidate) ? rawCandidate.trim() : gatewayIp;
@@ -1434,7 +1627,8 @@ class AIBrain {
     let currentEvaluation = currentIncident?.evaluation || reasoningEngine.evaluateIncident({
       incidentType: 'TCP_SYN_TIMEOUT',
       destIp: target,
-      destPort: port
+      destPort: port,
+      calibrationWeights: this.hypothesisCalibration['TCP_SYN_TIMEOUT'] || {}
     });
 
     const initialTopHypothesis = currentEvaluation.topHypothesis;
@@ -1624,5 +1818,6 @@ const defaultAIBrain = new AIBrain();
 module.exports = {
   AIBrain,
   aiBrain: defaultAIBrain,
-  isSafeNetworkTarget
+  isSafeNetworkTarget,
+  resolveAndValidateTarget
 };

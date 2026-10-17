@@ -8,7 +8,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { aiBrain, isSafeNetworkTarget } = require('../core/ai-brain');
+const { aiBrain, isSafeNetworkTarget, resolveAndValidateTarget } = require('../core/ai-brain');
 const { diagnosticReasoningEngine } = require('../core/rca-engine');
 const { incidentBriefingProvider } = require('../core/llm-provider');
 const { toolSandbox } = require('../core/tool-sandbox');
@@ -273,10 +273,12 @@ router.post('/brain/investigate', authenticate, requirePermission('network.diagn
     const candidatePort = parseInt(targetPort || port || 443, 10);
     const steps = parseInt(maxSteps || 4, 10);
 
-    if (!isSafeNetworkTarget(candidateIp)) {
+    try {
+      await resolveAndValidateTarget(candidateIp);
+    } catch (secErr) {
       return res.status(400).json({
         success: false,
-        error: `Security rejection: Target '${candidateIp}' is invalid or blocked by SSRF defense policy.`
+        error: `Security rejection: Target '${candidateIp}' is invalid or blocked by SSRF defense policy (${secErr.message}).`
       });
     }
 
@@ -293,6 +295,37 @@ router.post('/brain/investigate', authenticate, requirePermission('network.diagn
     res.json(outcome);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/brain/feedback
+ * Records explicit operator feedback on an incident root cause hypothesis and updates calibration weights.
+ */
+router.post('/brain/feedback', authenticate, requirePermission('network.diagnostics.execute'), (req, res) => {
+  try {
+    const { incidentKey, verdict, confirmedHypothesisId, operatorNotes } = req.body || {};
+    if (!incidentKey || !verdict || !confirmedHypothesisId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required parameters: 'incidentKey', 'verdict', and 'confirmedHypothesisId' are required."
+      });
+    }
+
+    const outcome = aiBrain.recordOperatorFeedback({
+      incidentKey,
+      verdict,
+      confirmedHypothesisId,
+      operatorNotes,
+      userId: req.user?.username || 'operator'
+    });
+
+    res.json(outcome);
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      error: `Feedback processing failed: ${err.message}`
+    });
   }
 });
 

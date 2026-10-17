@@ -159,9 +159,23 @@ async function runWireProbeAndAiBrainTruthTests() {
     assert.ok(dnsErrProbe.rawOutput.includes('c-ares resolver'));
 
     // D. TLS Probe: Negotiated Protocol Version & Cipher Extraction
-    // Spin up an authentic local TLS server to guarantee 100% deterministic, wire-level TLS handshake verification
-    const tlsCert = fs.readFileSync(path.join(__dirname, 'fixtures', 'tls-cert.pem'));
-    const tlsKey = fs.readFileSync(path.join(__dirname, 'fixtures', 'tls-key.pem'));
+    // Generate self-signed certificate and key ephemerally in tmpDir to guarantee 100% deterministic, wire-level TLS handshake verification
+    const ephemeralKeyPath = path.join(tmpDir, 'ephemeral-key.pem');
+    const ephemeralCertPath = path.join(tmpDir, 'ephemeral-cert.pem');
+    const opensslBin = fs.existsSync('C:\\Program Files\\Git\\usr\\bin\\openssl.exe')
+      ? 'C:\\Program Files\\Git\\usr\\bin\\openssl.exe'
+      : 'openssl';
+    const { execFileSync } = require('child_process');
+    execFileSync(opensslBin, [
+      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+      '-subj', '/CN=localhost',
+      '-keyout', ephemeralKeyPath,
+      '-out', ephemeralCertPath,
+      '-days', '1'
+    ], { stdio: 'pipe', windowsHide: true });
+
+    const tlsCert = fs.readFileSync(ephemeralCertPath);
+    const tlsKey = fs.readFileSync(ephemeralKeyPath);
     const localTlsServer = tls.createServer({ key: tlsKey, cert: tlsCert }, (socket) => {
       socket.end();
     });

@@ -175,10 +175,18 @@ class BayesianReasoningEngine {
     }
 
     // Apply Bayes' Rule: P(Hi | E) = P(E | Hi) * P(Hi) / sum(P(E | Hj) * P(Hj))
+    const calibrationWeights = (safeTelemetry && typeof safeTelemetry.calibrationWeights === 'object' && safeTelemetry.calibrationWeights !== null)
+      ? safeTelemetry.calibrationWeights
+      : {};
+
     const posteriors = {};
     let totalEvidenceWeight = 0;
     for (const hId of activeHypotheses) {
-      const weight = likelihoods[hId] * priors[hId];
+      let weight = likelihoods[hId] * priors[hId];
+      if (!contradictedMap.has(hId) && calibrationWeights[hId] !== undefined) {
+        const cal = Math.min(2.0, Math.max(0.5, Number(calibrationWeights[hId]) || 1.0));
+        weight *= cal;
+      }
       posteriors[hId] = weight;
       totalEvidenceWeight += weight;
     }
@@ -226,6 +234,9 @@ class BayesianReasoningEngine {
       const confidencePct = integerParts[idx];
       const contradiction = contradictedMap.get(hId) || null;
       const isContradicted = Boolean(contradiction);
+      const appliedCal = calibrationWeights[hId] !== undefined
+        ? Math.min(2.0, Math.max(0.5, Number(calibrationWeights[hId]) || 1.0))
+        : 1.0;
 
       rankedHypotheses.push({
         id: hId,
@@ -236,6 +247,7 @@ class BayesianReasoningEngine {
         confidence: confidencePct,
         likelihoodScore: Number((likelihoods[hId] || 0.1).toFixed(3)),
         priorScore: Number((priors[hId] || 0.1).toFixed(3)),
+        calibrationWeight: Number(appliedCal.toFixed(2)),
         status: isContradicted ? 'CONTRADICTED' : (confidencePct >= 60 ? 'PROMOTED' : (confidencePct <= 10 ? 'ELIMINATED' : 'CONSIDERED')),
         isContradicted,
         contradictionRule: contradiction?.rule || null,

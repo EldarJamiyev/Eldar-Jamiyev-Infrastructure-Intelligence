@@ -231,6 +231,190 @@
     }
   };
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderInvestigationResults(res) {
+    const container = document.getElementById('diagInvestigationResults');
+    if (!container) return;
+    if (!res) {
+      container.style.display = 'none';
+      return;
+    }
+    container.style.display = 'block';
+
+    const stoppingReasonColors = {
+      CONFIDENCE_THRESHOLD_REACHED: '#10B981',
+      ALL_HYPOTHESES_CONTRADICTED: '#F59E0B',
+      PROBE_SPACE_EXHAUSTED: '#38BDF8',
+      MAX_STEPS_REACHED: '#FB923C',
+      SECURITY_TARGET_REJECTED: '#EF4444'
+    };
+    const stopColor = stoppingReasonColors[res.stoppingReason] || '#94A3B8';
+    const isInconclusive = res.finalEvaluation?.diagnosticState === 'INCONCLUSIVE_ALL_HYPOTHESES_CONTRADICTED' ||
+      res.stoppingReason === 'ALL_HYPOTHESES_CONTRADICTED';
+
+    const stepsHtml = (res.steps || []).map(s => {
+      const isSuccess = Boolean(s.probeSuccess);
+      const badgeStyle = isSuccess
+        ? 'background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3);'
+        : 'background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3);';
+
+      // Extract kernel error code or protocol details
+      let detailText = s.errorCode || '';
+      if (s.errorCode === 'ECONNREFUSED') detailText = 'ECONNREFUSED [TCP RST]';
+      else if (s.errorCode === 'ETIMEDOUT') detailText = 'ETIMEDOUT [SILENT DROP]';
+      else if (s.errorCode === 'EHOSTUNREACH' || s.errorCode === 'ENETUNREACH') detailText = `${s.errorCode} [ROUTING FAIL]`;
+      else if (s.negotiatedProtocol) detailText = `${s.negotiatedProtocol} / ${s.cipher || 'TLS'}`;
+      else if (s.rawOutput && s.rawOutput.includes('c-ares')) detailText = 'RFC 1035 (c-ares)';
+      else if (!detailText) detailText = isSuccess ? 'HANDSHAKE OK' : 'FAIL';
+
+      return `
+        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+          <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 700;">#${s.stepNumber}</td>
+          <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--text-main);">${escapeHtml(s.probeType)}</td>
+          <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">${escapeHtml(res.target)}:${res.targetPort || 443}</td>
+          <td style="padding: 6px 8px;">
+            <span style="${badgeStyle} padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 800;">
+              ${isSuccess ? 'OPEN / OK' : 'FAILED'}
+            </span>
+          </td>
+          <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: ${s.errorCode ? '#F87171' : 'var(--text-main)'};">
+            ${escapeHtml(detailText)}
+          </td>
+          <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; text-align: right; color: var(--text-muted);">${s.latencyMs || 0} ms</td>
+          <td style="padding: 6px 8px; font-size: 10px; color: var(--text-main);">
+            <span style="font-weight: 700; color: #38BDF8;">${escapeHtml(s.newTopHypothesis || '--')}</span>
+            <span style="font-family: var(--font-mono); color: var(--text-muted); margin-left: 4px;">(${s.confidence || 0}%)</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const topHypothesis = res.finalTopHypothesis || {};
+    const topId = topHypothesis.id || topHypothesis.label || 'UNKNOWN';
+
+    container.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 10px; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 12px; font-weight: 800; color: var(--accent);">INVESTIGATION DOSSIER:</span>
+          <code style="font-family: var(--font-mono); font-size: 11px; color: var(--text-main); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">${escapeHtml(res.investigationId)}</code>
+          <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(res.target)}:${res.targetPort} &bull; ${res.stepsExecuted} step(s) in ${res.durationMs}ms</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 10px; font-weight: 700; color: var(--text-muted);">STOPPING REASON:</span>
+          <span style="font-size: 9px; font-weight: 800; font-family: var(--font-mono); color: ${stopColor}; border: 1px solid ${stopColor}; padding: 2px 8px; border-radius: 3px; background: rgba(0,0,0,0.2);">
+            ${escapeHtml(res.stoppingReason || 'MAX_STEPS_REACHED')}
+          </span>
+        </div>
+      </div>
+
+      ${isInconclusive ? `
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid #F59E0B; border-radius: 4px; padding: 10px 14px; margin-bottom: 12px; color: #FCD34D;">
+          <div style="font-weight: 800; font-size: 11px; display: flex; align-items: center; gap: 6px;">
+            <span>⚠️</span> INCONCLUSIVE TELEMETRY CONFLICT (ALL HYPOTHESES CONTRADICTED)
+          </div>
+          <div style="font-size: 11px; margin-top: 4px; color: var(--text-main); line-height: 1.4;">
+            Observed wire telemetry contradicts all active hypotheses. RFC disproof rules eliminate candidate causes without valid posterior disambiguation. Further manual inspection or deep wire capture is required.
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Investigation Step Timeline Table -->
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
+          Physical Wire Probe Execution Timeline
+        </div>
+        <div style="max-height: 220px; overflow-y: auto; scrollbar-gutter: stable;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; font-variant-numeric: tabular-nums;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 10px;">
+                <th style="padding: 6px 8px;">STEP</th>
+                <th style="padding: 6px 8px;">CANONICAL PROBE TYPE</th>
+                <th style="padding: 6px 8px;">TARGET</th>
+                <th style="padding: 6px 8px;">WIRE RESULT</th>
+                <th style="padding: 6px 8px;">KERNEL ERROR / PROTOCOL DETAIL</th>
+                <th style="padding: 6px 8px; text-align: right;">LATENCY</th>
+                <th style="padding: 6px 8px;">TOP HYPOTHESIS &amp; CONFIDENCE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${stepsHtml || '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 10px;">No probe steps executed.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Top Root Cause Card & Operator Feedback Controls -->
+      <div style="background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 2px;">FINAL ROOT CAUSE EVALUATION</div>
+          <div style="font-size: 13px; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <span id="investigationTopHypothesis_${escapeHtml(res.investigationId)}">${escapeHtml(topHypothesis.label || 'None')} (${topHypothesis.confidence || 0}%)</span>
+            <span style="font-size: 9px; font-weight: 700; color: var(--text-muted); border: 1px solid var(--border-color); padding: 1px 5px; border-radius: 3px;">${escapeHtml(topHypothesis.category || 'NOC')}</span>
+            ${topHypothesis.rfc ? `<span style="font-size: 9px; font-family: var(--font-mono); color: var(--accent);">${escapeHtml(topHypothesis.rfc)}</span>` : ''}
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-secondary" onclick="window.submitHypothesisFeedback('${escapeHtml(res.investigationId)}', 'CONFIRMED', '${escapeHtml(topId)}')" style="font-size: 11px; font-weight: 700; color: #10B981; border-color: rgba(16, 185, 129, 0.4); padding: 4px 10px;">
+            ✓ Confirm Root Cause
+          </button>
+          <button class="btn btn-secondary" onclick="window.submitHypothesisFeedback('${escapeHtml(res.investigationId)}', 'REJECTED', '${escapeHtml(topId)}')" style="font-size: 11px; font-weight: 700; color: #EF4444; border-color: rgba(239, 68, 68, 0.4); padding: 4px 10px;">
+            ✗ Reject Hypothesis
+          </button>
+          <span id="feedbackCalibrationBadge_${escapeHtml(res.investigationId)}" style="font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); padding: 3px 8px; background: rgba(0,0,0,0.3); border-radius: 3px; font-variant-numeric: tabular-nums;">
+            Calibration Multiplier: 1.00x
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  window.submitHypothesisFeedback = async function(incidentKey, verdict, hypothesisId) {
+    try {
+      logConsole(`[Feedback] Submitting operator ${verdict} verdict on ${hypothesisId} for incident ${incidentKey}...`);
+      const res = await window.api('/api/rca/brain/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          incidentKey,
+          verdict,
+          confirmedHypothesisId: hypothesisId,
+          operatorNotes: `Operator feedback submitted from UI (${verdict})`
+        })
+      });
+      if (res && res.success) {
+        logConsole(`✓ [FEEDBACK RECORDED] ${verdict} on ${hypothesisId}. New weight: ${res.calibrationWeight}x`);
+        const badge = document.getElementById(`feedbackCalibrationBadge_${incidentKey}`);
+        if (badge) {
+          badge.textContent = `Calibration Multiplier: ${res.calibrationWeight}x`;
+          badge.style.color = verdict === 'CONFIRMED' ? '#10B981' : '#EF4444';
+          badge.style.borderColor = verdict === 'CONFIRMED' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+        }
+        if (res.revisedEvaluation && res.revisedEvaluation.topHypothesis) {
+          const topEl = document.getElementById(`investigationTopHypothesis_${incidentKey}`);
+          if (topEl) {
+            topEl.textContent = `${res.revisedEvaluation.topHypothesis.label} (${res.revisedEvaluation.topHypothesis.confidence}%)`;
+          }
+        }
+      } else {
+        const msg = res?.error || 'Feedback submission rejected';
+        logConsole(`❌ [FEEDBACK FAILED] ${msg}`);
+        alert(`Feedback Error: ${msg}`);
+      }
+    } catch (err) {
+      logConsole(`❌ Feedback submission error: ${err.message}`);
+      alert(`Feedback submission error: ${err.message}`);
+    }
+  };
+
   window.triggerAutonomousInvestigation = async function(targetIpOverride = null, targetPortOverride = null) {
     const inputIp = targetIpOverride || document.getElementById('investigateTargetIp')?.value || '127.0.0.1';
     const inputPort = targetPortOverride || parseInt(document.getElementById('investigateTargetPort')?.value || 443, 10);
@@ -256,7 +440,7 @@
             logConsole(`   Step ${s.stepNumber} [${s.probeType}]: ${s.probeSuccess ? 'SUCCESS' : 'FAILED'} (${s.latencyMs}ms) → ${s.rawOutput}`);
           }
         }
-        alert(`Autonomous Investigation Completed:\n\nInvestigation ID: ${res.investigationId}\nTarget: ${res.target}:${res.targetPort}\nTop Root Cause: ${res.finalTopHypothesis?.label} (${res.finalTopHypothesis?.confidence}% confidence)\nSteps Executed: ${res.stepsExecuted}\nConclusive: ${res.conclusive ? 'YES' : 'NO'}`);
+        renderInvestigationResults(res);
       } else {
         const errMsg = res.error || res.message || 'Investigation failed';
         if (res.status === 403 || /forbidden|permission/i.test(errMsg)) {
@@ -266,6 +450,7 @@
           logConsole(`❌ [FAILED] Investigation failed: ${errMsg}`);
           alert(`Investigation Failed: ${errMsg}`);
         }
+        renderInvestigationResults(null);
       }
     } catch (err) {
       if (/403/i.test(err.message)) {
@@ -275,6 +460,7 @@
         logConsole(`❌ [ERROR] Investigation request error: ${err.message}`);
         alert(`Investigation request error: ${err.message}`);
       }
+      renderInvestigationResults(null);
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -792,6 +978,10 @@
                 <div>
                   <button id="btnRunAutonomousInvestigation" class="btn btn-secondary" onclick="window.triggerAutonomousInvestigation()" style="font-size: 11px; font-weight: 700; padding: 6px 12px; border-color: rgba(16, 185, 129, 0.4); color: var(--success);">🔎 Run Multi-Protocol Probe Sweep</button>
                 </div>
+              </div>
+
+              <!-- Autonomous Multi-Protocol Wire Investigation Dossier & Step Timeline -->
+              <div id="diagInvestigationResults" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;">
               </div>
 
               <!-- Self-Update & Sandbox Gate Ledger Table -->
