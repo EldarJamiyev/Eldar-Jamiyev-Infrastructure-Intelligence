@@ -406,6 +406,7 @@ module.exports = {
   verifyAuditLogIntegrity,
   verifyChainIntegrity,
   computeRecordHash,
+  getLastRecordHash,
   getAuditLogs,
   AUDIT_FILE,
   CHAIN_HEAD_FILE,

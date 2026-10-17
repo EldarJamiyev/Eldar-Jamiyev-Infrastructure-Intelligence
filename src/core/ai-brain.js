@@ -19,12 +19,13 @@ const { exec } = require('child_process');
 const { reasoningEngine } = require('./reasoning-engine');
 const { incidentBriefingProvider } = require('./llm-provider');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+const { DATA_DIR } = require('../config');
 
 class AIBrain {
   constructor(options = {}) {
     const isTestEnv = process.env.NODE_ENV === 'test';
     const defaultFilename = isTestEnv ? 'brain_memory.test.json' : 'brain_memory.json';
-    this.memoryFilePath = options.memoryFilePath || path.join(__dirname, '../../data', defaultFilename);
+    this.memoryFilePath = options.memoryFilePath || path.join(DATA_DIR, defaultFilename);
     this.isRunning = false;
     this.activeIncidents = new Map();
     this.recentEventsBuffer = [];

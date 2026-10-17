@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const { exec, spawn } = require('child_process');
 const { performance } = require('perf_hooks');
+const { DATA_DIR } = require('../config');
 
 const DEFAULT_SCRIPTS_DIR = process.env.EJII_SCRIPTS_DIR || 'e:\\Scripts';
 
@@ -173,7 +174,7 @@ function ensureScriptsDir(scriptsDir = DEFAULT_SCRIPTS_DIR) {
   if (fs.existsSync(baseDir)) return baseDir;
 
   if (process.platform === 'win32' && baseDir.toLowerCase().startsWith('e:\\')) {
-    const localMount = path.resolve(__dirname, '../../data/scripts_mount');
+    const localMount = path.resolve(DATA_DIR, 'scripts_mount');
     if (fs.existsSync(localMount)) {
       try {
         require('child_process').execSync(`subst E: "${localMount}"`, { stdio: 'ignore' });

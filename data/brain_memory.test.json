@@ -1,8 +1,8 @@
 {
   "version": "2.1.0",
-  "lastUpdated": "2026-10-17T13:09:58.066Z",
+  "lastUpdated": "2026-10-17T15:10:21.967Z",
   "baselinesCount": 234,
-  "incidentsRecorded": 52,
+  "incidentsRecorded": 50,
   "currentSubnet": "192.168.31.1",
   "subnetProfiles": {},
   "baselineMetrics": {
@@ -10,13 +10,13 @@
       "minRtt": 0.1,
       "maxRtt": 19884009,
       "avgRtt": 6308.65,
-      "variance": 45210184090.74,
-      "stddev": 212626.87,
-      "m2": 82909283827198160,
-      "sampleCount": 1833864,
+      "variance": 45210134828.24,
+      "stddev": 212626.75,
+      "m2": 82909283906793780,
+      "sampleCount": 1833866,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:31:24.438Z",
-      "lastObserved": "2026-10-17T13:09:56.742Z"
+      "lastObserved": "2026-10-17T15:10:20.456Z"
     },
     "192.178.24.174": {
       "minRtt": 46,
@@ -34,13 +34,13 @@
       "minRtt": 1,
       "maxRtt": 3.1,
       "avgRtt": 1.36,
-      "variance": 0.36,
-      "stddev": 0.6,
-      "m2": 168.77499999999986,
-      "sampleCount": 469,
+      "variance": 0.37,
+      "stddev": 0.61,
+      "m2": 176.9933999999999,
+      "sampleCount": 473,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:32:11.150Z",
-      "lastObserved": "2026-10-17T13:09:57.725Z"
+      "lastObserved": "2026-10-17T15:10:21.296Z"
     },
     "10.22.10.11": {
       "minRtt": 1,
@@ -1089,14 +1089,14 @@
     "142.251.142.110": {
       "minRtt": 34,
       "maxRtt": 3672,
-      "avgRtt": 150.76,
-      "variance": 176957.92,
-      "stddev": 420.66,
-      "m2": 286317916.1482,
-      "sampleCount": 1619,
+      "avgRtt": 154.9,
+      "variance": 176567.71,
+      "stddev": 420.2,
+      "m2": 289924179.16800004,
+      "sampleCount": 1643,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T12:58:16.093Z",
-      "lastObserved": "2026-10-17T13:09:56.582Z"
+      "lastObserved": "2026-10-17T15:10:17.632Z"
     },
     "142.251.127.84": {
       "minRtt": 70,
@@ -2781,14 +2781,14 @@
     "192.168.31.89": {
       "minRtt": 2,
       "maxRtt": 3672,
-      "avgRtt": 522.66,
-      "variance": 734507.35,
-      "stddev": 857.03,
-      "m2": 174078242.30659997,
-      "sampleCount": 238,
+      "avgRtt": 509.1,
+      "variance": 693389.51,
+      "stddev": 832.7,
+      "m2": 176120936.09619996,
+      "sampleCount": 255,
       "status": "ESTABLISHED",
       "firstObserved": "2026-10-16T19:24:36.484Z",
-      "lastObserved": "2026-10-17T13:09:56.585Z"
+      "lastObserved": "2026-10-17T15:10:17.631Z"
     },
     "192.168.31.1": {
       "minRtt": 2,
@@ -2811,8 +2811,8 @@
       "m2": 20.797999999999995,
       "sampleCount": 5,
       "status": "ESTABLISHED",
-      "firstObserved": "2026-10-17T13:09:57.722Z",
-      "lastObserved": "2026-10-17T13:09:57.722Z"
+      "firstObserved": "2026-10-17T15:10:21.287Z",
+      "lastObserved": "2026-10-17T15:10:21.289Z"
     }
   },
   "incidentHistory": [
@@ -3129,7 +3129,7 @@
       "confidence": 52,
       "target": "10.22.12.204",
       "destPort": 443,
-      "timestamp": "2026-10-17T13:09:42.765Z"
+      "timestamp": "2026-10-17T15:10:05.668Z"
     },
     {
       "incidentKey": "INC-ab8772bab46a2985",
@@ -3147,7 +3147,7 @@
       "confidence": 67,
       "target": "142.251.142.110",
       "destPort": 443,
-      "timestamp": "2026-10-17T12:09:36.838Z"
+      "timestamp": "2026-10-17T15:10:17.632Z"
     },
     {
       "incidentKey": "INC-7966287e2d4a269f",
@@ -3174,7 +3174,7 @@
       "confidence": 52,
       "target": "85.132.27.92",
       "destPort": 443,
-      "timestamp": "2026-10-17T13:09:57.726Z"
+      "timestamp": "2026-10-17T15:10:21.298Z"
     },
     {
       "incidentKey": "INC-2ac2dac7a7cd833b",

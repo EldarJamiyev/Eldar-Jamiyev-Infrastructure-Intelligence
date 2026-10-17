@@ -55,24 +55,29 @@ function seedDatabase() {
     }
   ];
 
-  const checkUser = db.prepare('SELECT id FROM users WHERE username = ?');
+  const checkUser = db.prepare('SELECT id, password_hash, salt FROM users WHERE username = ?');
   const insertUser = db.prepare(`
     INSERT INTO users (id, username, password_hash, salt, full_name, role, is_active, created_at)
     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
   `);
-  const updateUser = db.prepare(`
-    UPDATE users SET role = ?, full_name = ?, password_hash = ?, salt = ?, is_active = 1 WHERE username = ?
+  const updateUserMetadata = db.prepare(`
+    UPDATE users SET role = ?, full_name = ? WHERE username = ?
   `);
 
   for (const acc of accounts) {
     const existing = checkUser.get(acc.username);
-    const { hash, salt } = hashPassword(acc.password);
     if (!existing) {
+      let initialPassword = acc.password;
+      if (acc.username === 'admin' && process.env.EJII_ADMIN_PASSWORD) {
+        initialPassword = process.env.EJII_ADMIN_PASSWORD;
+      }
+      const { hash, salt } = hashPassword(initialPassword);
       insertUser.run(acc.id, acc.username, hash, salt, acc.fullName, acc.role, new Date().toISOString());
-      console.log(`✓ Created Account: [${acc.username}] (${acc.role})`);
+      console.log(`✓ Created Initial Account: [${acc.username}] (${acc.role})`);
     } else {
-      updateUser.run(acc.role, acc.fullName, hash, salt, acc.username);
-      console.log(`✓ Synchronized Account: [${acc.username}] (${acc.role})`);
+      // Preserve existing credentials across restarts - do not overwrite password hash or salt
+      updateUserMetadata.run(acc.role, acc.fullName, acc.username);
+      console.log(`✓ Synchronized Account: [${acc.username}] (${acc.role}) [Credentials Preserved]`);
     }
   }
 
@@ -331,6 +336,24 @@ function seedDatabase() {
         now
       );
     }
+  }
+
+  // 5. Initialize Cryptographic Genesis Audit Log if uninitialized
+  try {
+    const { logAction, getLastRecordHash, GENESIS_HASH } = require('../core/audit-logger');
+    if (getLastRecordHash() === GENESIS_HASH) {
+      logAction({
+        userId: 'USR-ADMIN-01',
+        username: 'system',
+        role: 'ADMIN',
+        action: 'SYSTEM_INITIALIZATION',
+        resource: 'DATABASE',
+        details: { message: 'Database schema, baseline topology, and initial NOC accounts seeded' }
+      });
+      console.log('✓ Cryptographic Genesis Audit Log Initialized');
+    }
+  } catch (e) {
+    console.warn('[Audit Seed Warning]: Could not record genesis audit entry:', e.message);
   }
 
   console.log('--- Pure NOC Workstation Seeding Completed Successfully ---');

@@ -20,14 +20,35 @@
 
 const assert = require('assert');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const { createToken } = require('../src/core/security');
 
 const PORT = 8443;
 const HOST = '127.0.0.1';
 const token = createToken({ id: 'USR-NOC-01', username: 'noc', role: 'noc_operator' });
+
+function checkPortOpen(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(800);
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('error', () => {
+      resolve(false);
+    });
+    socket.connect(port, host);
+  });
+}
 
 function httpRequest(options, postData = null) {
   return new Promise((resolve, reject) => {
@@ -57,6 +78,39 @@ async function runE2EBrowserWorkflow() {
   console.log(`  Target: http://${HOST}:${PORT} | Protocol: REST + WebSocket + DOM Contract`);
   console.log('========================================================================\n');
 
+  let serverProcess = null;
+  const isRunning = await checkPortOpen(PORT, HOST);
+  if (!isRunning) {
+    console.log(`[Auto-Start]: Port ${PORT} not listening. Spawning local server for E2E verification...`);
+    serverProcess = spawn(process.execPath, ['src/server.js'], {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        EJII_PORT: String(PORT),
+        EJII_HOST: HOST
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    await new Promise((resolve, reject) => {
+      let ready = false;
+      serverProcess.stdout.on('data', (d) => {
+        if (d.toString().includes('Server Listening on:') || d.toString().includes(`:${PORT}`)) {
+          ready = true;
+          resolve();
+        }
+      });
+      serverProcess.on('exit', (code) => {
+        if (!ready) reject(new Error(`Server exited prematurely with code ${code}`));
+      });
+      setTimeout(() => {
+        if (!ready) reject(new Error('Timed out waiting for E2E server to boot'));
+      }, 15000);
+    });
+    console.log(`✓ E2E local server booted successfully on http://${HOST}:${PORT}\n`);
+  }
+
+  try {
   // --------------------------------------------------------------------------
   // PART 1: REST API VERIFICATION
   // --------------------------------------------------------------------------
@@ -236,6 +290,11 @@ async function runE2EBrowserWorkflow() {
   console.log('\n========================================================================');
   console.log('  ✓ BROWSER-LEVEL E2E WORKFLOW: 100% VERIFIED (ZERO CONTRACT DEFECTS)     ');
   console.log('========================================================================\n');
+  } finally {
+    if (serverProcess) {
+      serverProcess.kill('SIGINT');
+    }
+  }
 }
 
 if (require.main === module) {
