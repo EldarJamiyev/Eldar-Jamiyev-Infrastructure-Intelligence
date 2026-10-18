@@ -13,6 +13,7 @@ const { processSocketCorrelator } = require('../network/process-socket-correlato
 const { packetStreamer, troubleshootEndpoint } = require('../network/packet-streaming/packet-streamer');
 const { topologyEngine } = require('../network/topology/topology-engine');
 const { hostDiagnosticsEngine } = require('../systems/diagnostics/host-diagnostics-engine');
+const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
 
 class UnifiedInvestigationEngine {
   constructor() {
@@ -267,6 +268,12 @@ class UnifiedInvestigationEngine {
       const oldest = this.investigations.keys().next().value;
       this.investigations.delete(oldest);
     }
+
+    try {
+      if (brainPersistenceRepository) {
+        brainPersistenceRepository.saveInvestigation(record);
+      }
+    } catch (_) {}
 
     return record;
   }

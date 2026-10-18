@@ -35,6 +35,8 @@ try {
   auditLogger = require('./audit-logger');
 } catch (_) {}
 
+const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+
 /**
  * Crash-atomic file write via temporary sibling file + rename.
  */
@@ -497,6 +499,17 @@ class AIBrain {
       };
 
       writeFileAtomicSync(this.memoryFilePath, JSON.stringify(payload, null, 2));
+
+      if (brainPersistenceRepository) {
+        for (const [k, v] of this.baselineMetrics.entries()) {
+          brainPersistenceRepository.saveBaseline(k, v, this.currentSubnet);
+        }
+        for (const incType of Object.keys(this.hypothesisCalibration || {})) {
+          for (const hypId of Object.keys(this.hypothesisCalibration[incType] || {})) {
+            brainPersistenceRepository.saveCalibration(incType, hypId, this.hypothesisCalibration[incType][hypId]);
+          }
+        }
+      }
     } catch (_) {}
   }
 
@@ -1013,6 +1026,12 @@ class AIBrain {
 
     this._saveMemory();
 
+    try {
+      if (brainPersistenceRepository) {
+        brainPersistenceRepository.saveCalibration(incidentType, confirmedHypothesisId, newMultiplier, feedbackRecord);
+      }
+    } catch (_) {}
+
     if (auditLogger && typeof auditLogger.logAction === 'function' && !this.isSimulationEnv) {
       try {
         auditLogger.logAction({
@@ -1215,6 +1234,13 @@ class AIBrain {
 
     this.baselineMetrics.set(target, current);
     this.lastLearningUpdate = current.lastObserved;
+
+    try {
+      if (brainPersistenceRepository) {
+        brainPersistenceRepository.saveBaseline(target, current, this.currentSubnet);
+      }
+    } catch (_) {}
+
     this._debouncedSaveMemory();
   }
 
@@ -1296,6 +1322,13 @@ class AIBrain {
     }
 
     this._notifyDiagnosticUpdate(activeIncident);
+
+    try {
+      if (brainPersistenceRepository) {
+        brainPersistenceRepository.saveIncident(activeIncident);
+      }
+    } catch (_) {}
+
     this._debouncedSaveMemory();
 
     return activeIncident;
@@ -1777,14 +1810,33 @@ class AIBrain {
     const executedProbeTypes = new Set();
     let stoppingReason = 'MAX_STEPS_REACHED';
 
-    const probeCandidates = [
-      { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
-      { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP Alternate Port 80 Connection' },
-      { probeType: 'DNS_QUERY_PROBE', label: 'RFC 1035 DNS Query' },
-      { probeType: 'HTTP_HEAD_PROBE', label: 'HTTP/HTTPS Application Layer Probe' },
-      { probeType: 'TLS_HANDSHAKE_PROBE', label: 'TLS 1.3 Cryptographic Handshake' },
-      { probeType: 'ICMP_PING_GATEWAY', label: 'ICMP Echo Perimeter Gateway Probe' }
-    ];
+    const isDbOrInfraPort = [3306, 5432, 1433, 6379, 27017, 445, 3389, 22].includes(port);
+    let probeCandidates;
+    if (isDbOrInfraPort) {
+      probeCandidates = [
+        { probeType: 'ICMP_PING_GATEWAY', label: 'ICMP Echo Perimeter Gateway Probe' },
+        { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
+        { probeType: 'TCP_CONNECT_TARGET_PORT', label: `TCP Connect on Service Port ${port}` },
+        { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP Alternate Port Connection' }
+      ];
+    } else if (port === 443 || port === 8443) {
+      probeCandidates = [
+        { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
+        { probeType: 'TLS_HANDSHAKE_PROBE', label: 'TLS 1.3 Cryptographic Handshake' },
+        { probeType: 'HTTP_HEAD_PROBE', label: 'HTTP/HTTPS Application Layer Probe' },
+        { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP Alternate Port 80 Connection' },
+        { probeType: 'DNS_QUERY_PROBE', label: 'RFC 1035 DNS Query' },
+        { probeType: 'ICMP_PING_GATEWAY', label: 'ICMP Echo Perimeter Gateway Probe' }
+      ];
+    } else {
+      probeCandidates = [
+        { probeType: 'ICMP_PING_TARGET', label: 'ICMP Echo Target L3 Reachability' },
+        { probeType: 'TCP_CONNECT_TARGET_PORT', label: `TCP Connect on Target Port ${port}` },
+        { probeType: 'TCP_SYN_ALTERNATE_PORT', label: 'TCP Alternate Port Connection' },
+        { probeType: 'DNS_QUERY_PROBE', label: 'RFC 1035 DNS Query' },
+        { probeType: 'ICMP_PING_GATEWAY', label: 'ICMP Echo Perimeter Gateway Probe' }
+      ];
+    }
 
     for (let step = 1; step <= boundedSteps; step++) {
       const top = currentEvaluation.topHypothesis;
@@ -1966,6 +2018,23 @@ class AIBrain {
     });
 
     return result;
+  }
+
+  /**
+   * Post-Remediation Verification & Telemetry Re-Calibration Hook
+   */
+  onRemediationExecuted(remediationResult, params = {}) {
+    if (params.target || params.destIp || params.pid) {
+      const target = params.target || params.destIp;
+      if (target && Array.isArray(this.anomalyHistory)) {
+        this.anomalyHistory = this.anomalyHistory.filter(a => a.destIp !== target);
+      }
+    }
+    return {
+      acknowledged: true,
+      timestamp: new Date().toISOString(),
+      recipeId: remediationResult?.recipeId
+    };
   }
 }
 

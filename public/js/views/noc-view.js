@@ -913,7 +913,7 @@ window.escapeAttr = escapeAttr;
   function updateFilterCounterBadge(displayed, captured, hidden) {
     const badge = document.getElementById('packetFilterCounterBadge');
     if (!badge) return;
-    badge.textContent = `Displayed: ${displayed} / Captured: ${captured} | Hidden: ${hidden}`;
+    badge.textContent = `Visible: ${displayed} frames | Noise/Keep-Alives Hidden: ${hidden}`;
   }
 
   function updateAutoScrollStatusUI() {
@@ -1868,7 +1868,7 @@ window.escapeAttr = escapeAttr;
       const actionBtn = canTroubleshoot
         ? `<div style="display: inline-flex; gap: 4px;">
              <button class="btn btn-primary" onclick="window.troubleshootEndpoint('${escapeAttr(e.remoteAddress)}', ${e.remotePort})" style="font-size: 10px; padding: 2px 8px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🔍 Troubleshoot ${e.remotePort}</button>
-             <button class="btn btn-secondary" onclick="window.toggleWatchAppConnections('${escapeAttr(e.processName)}', '${escapeAttr(e.remoteAddress)}')" style="font-size: 10px; padding: 2px 8px; font-weight: 600; color: #34d399;" title="Watch live packet streams for this process">👁️ Watch</button>
+             <button class="btn btn-secondary" onclick="window.toggleWatchAppConnections('${escapeAttr(e.processName)}', '${escapeAttr(e.remoteAddress)}', ${e.remotePort || 443})" style="font-size: 10px; padding: 2px 8px; font-weight: 600; color: #34d399;" title="Watch live packet streams for this process">👁️ Watch</button>
            </div>`
         : '<span style="color: var(--text-dim); font-size: 10px;">—</span>';
 
@@ -1888,7 +1888,29 @@ window.escapeAttr = escapeAttr;
     }).join('');
   };
 
-  window.toggleWatchAppConnections = function(processName, remoteAddress) {
+  window.toggleWatchAppConnections = function(processName, remoteAddress, remotePort = 443) {
+    const strips = [
+      document.getElementById('appFinderWatcherStrip'),
+      document.getElementById('appFinderSubWatcherStrip')
+    ].filter(Boolean);
+
+    strips.forEach(strip => {
+      strip.style.display = 'flex';
+      strip.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <span style="font-weight: 700; color: #38bdf8;">👁️ Watching Process:</span>
+          <span style="font-weight: 700; color: #f8fafc; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px;">${escapeHtml(processName || 'Application')}</span>
+          <span style="color: var(--text-dim);">&rarr;</span>
+          <span style="font-weight: 700; color: #34d399; font-family: var(--font-mono);">${escapeHtml(remoteAddress || 'All Remote')}${remotePort ? ':' + remotePort : ''}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="btn btn-primary" onclick="window.troubleshootEndpoint('${escapeAttr(remoteAddress || '127.0.0.1')}', ${remotePort || 443})" style="font-size: 11px; padding: 3px 12px; font-weight: 700; background: #0284c7; border: 1px solid #38bdf8;">
+            🚀 Run Full 5-Stage Guided Investigation
+          </button>
+          <button class="btn btn-secondary" onclick="this.parentElement.parentElement.style.display='none'" style="font-size: 10px; padding: 2px 6px;">✕</button>
+        </div>
+      `;
+    });
     if (remoteAddress && remoteAddress !== '0.0.0.0' && remoteAddress !== '—') {
       window.sniffNode(remoteAddress);
     } else if (processName) {

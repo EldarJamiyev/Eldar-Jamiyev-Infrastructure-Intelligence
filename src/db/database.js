@@ -43,7 +43,7 @@ function initSchema() {
     'dual_custody_actions', 'automation_actions', 'audit_trail_hmac',
     'change_requests', 'known_errors', 'service_catalog',
     'service_dependencies', 'tenants', 'monitoring_alert_rules', 'monitoring_alerts',
-    'monitoring_notifications', 'incidents'
+    'monitoring_notifications'
   ];
 
   for (const tbl of tablesToDrop) {
@@ -275,6 +275,105 @@ function initSchema() {
       INSERT INTO link_telemetry (node_id, latency_ms, timestamp)
       VALUES (NEW.node_id, NEW.value, NEW.timestamp);
     END;
+
+    -- Pillar 5 & AI Brain: SQLite WAL Persistence Tables
+    CREATE TABLE IF NOT EXISTS brain_baselines (
+      target TEXT PRIMARY KEY,
+      subnet_gateway TEXT,
+      min_rtt REAL NOT NULL,
+      max_rtt REAL NOT NULL,
+      avg_rtt REAL NOT NULL,
+      variance REAL DEFAULT 0,
+      stddev REAL DEFAULT 0,
+      m2 REAL DEFAULT 0,
+      sample_count INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'PROVISIONAL_INSUFFICIENT_SAMPLES',
+      first_observed TEXT NOT NULL,
+      last_observed TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_incidents (
+      incident_key TEXT PRIMARY KEY,
+      incident_type TEXT NOT NULL,
+      target TEXT NOT NULL,
+      dest_port INTEGER DEFAULT 0,
+      top_hypothesis_id TEXT,
+      top_hypothesis_label TEXT,
+      confidence INTEGER DEFAULT 0,
+      diagnostic_state TEXT DEFAULT 'EVALUATED',
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_calibration (
+      incident_type TEXT NOT NULL,
+      hypothesis_id TEXT NOT NULL,
+      multiplier REAL NOT NULL DEFAULT 1.0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (incident_type, hypothesis_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_feedback_ledger (
+      feedback_id TEXT PRIMARY KEY,
+      incident_key TEXT NOT NULL,
+      incident_type TEXT NOT NULL,
+      hypothesis_id TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      previous_multiplier REAL NOT NULL,
+      updated_multiplier REAL NOT NULL,
+      operator_notes TEXT,
+      user_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS unified_investigations (
+      investigation_id TEXT PRIMARY KEY,
+      symptom TEXT NOT NULL,
+      process_query TEXT,
+      target_host TEXT NOT NULL,
+      target_port INTEGER NOT NULL,
+      overall_verdict TEXT NOT NULL,
+      confidence INTEGER NOT NULL,
+      uncertainty_warning INTEGER DEFAULT 0,
+      report_json TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS connectivity_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_ip TEXT NOT NULL,
+      destination_ip TEXT NOT NULL,
+      port INTEGER NOT NULL,
+      protocol TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_code TEXT,
+      latency_ms REAL,
+      stepper_summary TEXT,
+      diagnostic_verdict TEXT,
+      is_regression INTEGER DEFAULT 0,
+      regression_notes TEXT,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_conn_hist_dest_port ON connectivity_history(destination_ip, port);
+    CREATE TABLE IF NOT EXISTS incidents (
+      id TEXT PRIMARY KEY,
+      primary_node_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL,
+      what_happened TEXT,
+      root_cause TEXT,
+      supporting_evidence TEXT,
+      remediation_plan TEXT,
+      suppressed_count INTEGER DEFAULT 0,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_incidents_node ON incidents(primary_node_id);
+    CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
   `);
 
   db.exec('PRAGMA foreign_keys = ON;');

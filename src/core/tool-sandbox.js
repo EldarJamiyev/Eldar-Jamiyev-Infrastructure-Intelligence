@@ -17,14 +17,32 @@ const SAFE_HOST_REGEX = /^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$/;
 const SAFE_IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$/;
 const DANGEROUS_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 
+const ALL_TOOLS = [
+  'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
+  'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
+  'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'bleachbit_hygiene', 'filezilla_sftp_check'
+];
+
 const ROLE_PERMISSIONS = {
-  ADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
-  NETWORK_ADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
-  SYSADMIN: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
-  ANALYST: ['ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute'],
-  OPERATOR: ['ping', 'tcp_handshake', 'dns_resolve'],
-  NOC_OPERATOR: ['ping', 'tcp_handshake', 'dns_resolve'],
-  READONLY: []
+  ADMIN: ALL_TOOLS,
+  SYSADMIN: ALL_TOOLS,
+  NETWORK_ADMIN: ALL_TOOLS.filter(t => t !== 'bleachbit_hygiene'),
+  ANALYST: [
+    'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
+    'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
+    'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+  ],
+  OPERATOR: [
+    'ping', 'tcp_handshake', 'dns_resolve',
+    'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
+    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+  ],
+  NOC_OPERATOR: [
+    'ping', 'tcp_handshake', 'dns_resolve',
+    'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
+    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+  ],
+  READONLY: ['hwinfo_sensors']
 };
 
 class ToolExecutionError extends Error {
@@ -129,6 +147,135 @@ class ToolSandbox {
             maxHops: { type: 'integer', minimum: 1, maximum: 30, default: 15 }
           }
         }
+      },
+      {
+        name: 'nmap_scan',
+        description: 'Fingerprint remote operating system and detect exposed service versions.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname', default: '127.0.0.1' },
+            scanType: { type: 'string', enum: ['os', 'service', 'quick'], default: 'os' }
+          }
+        }
+      },
+      {
+        name: 'mtr_trace',
+        description: 'Combined traceroute and ping session measuring real-time packet loss and latency across all path hops.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname', default: '127.0.0.1' },
+            maxHops: { type: 'integer', minimum: 1, maximum: 30, default: 15 },
+            packetsPerHop: { type: 'integer', minimum: 1, maximum: 10, default: 3 }
+          }
+        }
+      },
+      {
+        name: 'iperf_bandwidth',
+        description: 'Measure TCP throughput bandwidth and UDP RFC 3550 jitter/packet-loss.',
+        requiredRole: 'ANALYST',
+        parameters: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['tcp', 'udp'], default: 'tcp' },
+            durationSec: { type: 'integer', minimum: 1, maximum: 10, default: 1 }
+          }
+        }
+      },
+      {
+        name: 'wireshark_dissect',
+        description: 'Parse raw Ethernet, IPv4, TCP, and UDP packet buffers into RFC binary dissection tree.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          properties: {
+            packetHex: { type: 'string', description: 'Hex-encoded packet byte buffer' }
+          }
+        }
+      },
+      {
+        name: 'sysinternals_forensics',
+        description: 'Query Sysinternals-grade process hierarchy and live TCPView socket connections.',
+        requiredRole: 'ANALYST',
+        parameters: {
+          type: 'object',
+          properties: {
+            view: { type: 'string', enum: ['tree', 'sockets'], default: 'tree' }
+          }
+        }
+      },
+      {
+        name: 'hwinfo_sensors',
+        description: 'Query comprehensive host hardware telemetry (CPU, RAM, GPU, battery, and sensors).',
+        requiredRole: 'READONLY',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'netcat_probe',
+        description: 'Raw network socket connector for TCP stream inspection and UDP datagram probing.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          required: ['target', 'port'],
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname' },
+            port: { type: 'integer', minimum: 1, maximum: 65535 },
+            protocol: { type: 'string', enum: ['tcp', 'udp'], default: 'tcp' },
+            timeoutMs: { type: 'integer', minimum: 100, maximum: 10000, default: 1500 }
+          }
+        }
+      },
+      {
+        name: 'putty_ssh_banner',
+        description: 'Retrieve SSH/Telnet server identification banner and protocol version string.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          required: ['target'],
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname' },
+            port: { type: 'integer', minimum: 1, maximum: 65535, default: 22 }
+          }
+        }
+      },
+      {
+        name: 'packet_tracer_sim',
+        description: 'Simulate L2/L3 packet traversal and inspect routing table forwarding decision path.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          properties: {
+            target: { type: 'string', description: 'Destination IP address to route', default: '8.8.8.8' }
+          }
+        }
+      },
+      {
+        name: 'bleachbit_hygiene',
+        description: 'Audit disk hygiene, system cache, and database fragmentation (dry-run preview only).',
+        requiredRole: 'SYSADMIN',
+        parameters: {
+          type: 'object',
+          properties: {
+            dryRun: { type: 'boolean', default: true }
+          }
+        }
+      },
+      {
+        name: 'filezilla_sftp_check',
+        description: 'Verify cryptographic file integrity, SHA-256 hashes, and directory manifests.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Target file path to verify', default: 'package.json' }
+          }
+        }
       }
     ];
   }
@@ -173,6 +320,39 @@ class ToolSandbox {
           break;
         case 'traceroute':
           result = await this._execTraceroute(sanitizedParams);
+          break;
+        case 'nmap_scan':
+          result = await this._execNmapScan(sanitizedParams);
+          break;
+        case 'mtr_trace':
+          result = await this._execMtrTrace(sanitizedParams);
+          break;
+        case 'iperf_bandwidth':
+          result = await this._execIperfBandwidth(sanitizedParams);
+          break;
+        case 'wireshark_dissect':
+          result = await this._execWiresharkDissect(sanitizedParams);
+          break;
+        case 'sysinternals_forensics':
+          result = await this._execSysinternalsForensics(sanitizedParams);
+          break;
+        case 'hwinfo_sensors':
+          result = await this._execHwinfoSensors(sanitizedParams);
+          break;
+        case 'netcat_probe':
+          result = await this._execNetcatProbe(sanitizedParams);
+          break;
+        case 'putty_ssh_banner':
+          result = await this._execPuttySshBanner(sanitizedParams);
+          break;
+        case 'packet_tracer_sim':
+          result = await this._execPacketTracerSim(sanitizedParams);
+          break;
+        case 'bleachbit_hygiene':
+          result = await this._execBleachbitHygiene(sanitizedParams);
+          break;
+        case 'filezilla_sftp_check':
+          result = await this._execFilezillaSftpCheck(sanitizedParams);
           break;
         default:
           throw new ToolExecutionError(`Unknown diagnostic tool: '${toolName}'`, 404);
@@ -225,12 +405,14 @@ class ToolSandbox {
       throw new ToolExecutionError('Parameters must be a valid JSON object.');
     }
 
+    const NO_TARGET_TOOLS = ['sysinternals_forensics', 'hwinfo_sensors', 'bleachbit_hygiene', 'wireshark_dissect'];
     const target = params.target || params.ip || params.domain;
-    if (toolName !== 'arp_lookup' && !target) {
-      throw new ToolExecutionError("Parameter 'target' is required.");
-    }
+
     if (toolName === 'arp_lookup' && !params.ip) {
       throw new ToolExecutionError("Parameter 'ip' is required.");
+    }
+    if (!NO_TARGET_TOOLS.includes(toolName) && toolName !== 'arp_lookup' && toolName !== 'filezilla_sftp_check' && toolName !== 'packet_tracer_sim' && !target) {
+      throw new ToolExecutionError("Parameter 'target' is required.");
     }
 
     // Command injection and SSRF defense
@@ -252,6 +434,9 @@ class ToolSandbox {
     const sanitized = {};
 
     if (params.target) sanitized.target = validateHost(params.target);
+    else if (!NO_TARGET_TOOLS.includes(toolName) && toolName !== 'arp_lookup' && toolName !== 'filezilla_sftp_check') {
+      sanitized.target = '127.0.0.1';
+    }
     if (params.ip) sanitized.ip = validateHost(params.ip);
     if (params.domain) sanitized.domain = validateHost(params.domain);
 
@@ -304,9 +489,40 @@ class ToolSandbox {
       sanitized.recordType = rType;
     }
 
-    if (toolName === 'traceroute') {
+    if (toolName === 'traceroute' || toolName === 'mtr_trace') {
       const mh = parseInt(params.maxHops || 15, 10);
       sanitized.maxHops = Math.min(30, Math.max(1, mh));
+      sanitized.packetsPerHop = parseInt(params.packetsPerHop || 3, 10);
+    }
+
+    if (toolName === 'nmap_scan') {
+      sanitized.scanType = params.scanType || 'os';
+    }
+
+    if (toolName === 'iperf_bandwidth') {
+      sanitized.mode = params.mode || 'tcp';
+      sanitized.durationSec = parseInt(params.durationSec || 1, 10);
+    }
+
+    if (toolName === 'wireshark_dissect') {
+      sanitized.packetHex = params.packetHex || '';
+    }
+
+    if (toolName === 'sysinternals_forensics') {
+      sanitized.view = params.view || 'tree';
+    }
+
+    if (toolName === 'netcat_probe') {
+      sanitized.protocol = params.protocol || 'tcp';
+      sanitized.timeoutMs = parseInt(params.timeoutMs || 1500, 10);
+    }
+
+    if (toolName === 'bleachbit_hygiene') {
+      sanitized.dryRun = true;
+    }
+
+    if (toolName === 'filezilla_sftp_check') {
+      sanitized.filePath = params.filePath || 'package.json';
     }
 
     return sanitized;
@@ -578,6 +794,134 @@ class ToolSandbox {
         });
       });
     });
+  }
+
+  async _execNmapScan({ target = '127.0.0.1', scanType = 'os' }) {
+    const { fingerprintOperatingSystem, detectServiceVersion, runNmapScan } = require('../tools/nmap-engine');
+    if (scanType === 'quick') {
+      const res = await runNmapScan(target, [80, 443, 22, 445]);
+      return { success: true, target, scanType, ...res };
+    }
+    const osInfo = await fingerprintOperatingSystem(target);
+    let serviceInfo = null;
+    try {
+      serviceInfo = await detectServiceVersion(target, 80);
+    } catch (_) {}
+    return {
+      success: true,
+      target,
+      osGuess: osInfo.osGuess,
+      confidencePct: osInfo.confidencePct,
+      serviceInfo,
+      rawOutput: `Nmap fingerprint: ${osInfo.osGuess} (${osInfo.confidencePct}%)`
+    };
+  }
+
+  async _execMtrTrace({ target = '127.0.0.1', maxHops = 15, packetsPerHop = 3 }) {
+    const { runMtrSession } = require('../tools/mtr-engine');
+    const mtrRes = await runMtrSession(target, { maxHops, packetsPerHop });
+    return {
+      success: true,
+      target,
+      hops: mtrRes.hops || [],
+      hopCount: (mtrRes.hops || []).length,
+      rawOutput: `MTR completed ${mtrRes.hops?.length || 0} hops to ${target}`
+    };
+  }
+
+  async _execIperfBandwidth({ mode = 'tcp', durationSec = 1 }) {
+    const { benchmarkTcpLoopback, benchmarkUdpJitter } = require('../tools/iperf-engine');
+    if (mode === 'udp') {
+      const udp = await benchmarkUdpJitter(25, 512);
+      return { success: true, mode: 'udp', ...udp };
+    }
+    const tcp = await benchmarkTcpLoopback(durationSec, 32768);
+    return { success: true, mode: 'tcp', ...tcp };
+  }
+
+  async _execWiresharkDissect({ packetHex }) {
+    const { dissectPacket } = require('../tools/wireshark-engine');
+    let buf;
+    if (packetHex && typeof packetHex === 'string' && packetHex.length >= 28) {
+      buf = Buffer.from(packetHex.replace(/[^0-9a-fA-F]/g, ''), 'hex');
+    } else {
+      buf = Buffer.from([
+        0x00, 0x1A, 0x11, 0x22, 0x33, 0x44, 0x00, 0x0C, 0x29, 0xAA, 0xBB, 0xCC, 0x08, 0x00,
+        0x45, 0x00, 0x00, 0x28, 0x12, 0x34, 0x40, 0x00, 0x80, 0x06, 0x00, 0x00, 0xC0, 0xA8, 0x01, 0x32, 0xC0, 0xA8, 0x01, 0x01,
+        0xD4, 0x31, 0x00, 0x50, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x50, 0x02, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00
+      ]);
+    }
+    const dissected = dissectPacket(buf);
+    return {
+      success: true,
+      packetDissected: dissected,
+      layers: dissected.layers,
+      summary: dissected.summary || 'Dissected L2-L4 Packet Frame'
+    };
+  }
+
+  async _execSysinternalsForensics({ view = 'tree' }) {
+    const { getProcessTree, getTcpViewConnections } = require('../tools/sysinternals-forensics');
+    if (view === 'sockets') {
+      const tcpView = await getTcpViewConnections();
+      return { success: true, view: 'sockets', count: tcpView.connections?.length || 0, ...tcpView };
+    }
+    const procTree = await getProcessTree();
+    return { success: true, view: 'tree', count: procTree.totalProcesses || 0, ...procTree };
+  }
+
+  async _execHwinfoSensors() {
+    const { getHardwareTelemetry } = require('../tools/hwinfo-telemetry');
+    const telem = await getHardwareTelemetry();
+    return { success: true, ...telem };
+  }
+
+  async _execNetcatProbe({ target, port = 80, protocol = 'tcp', timeoutMs = 1500 }) {
+    const { netcatTcp, netcatUdp } = require('../tools/netcat-hub');
+    if (protocol === 'udp') {
+      return await netcatUdp({ host: target, port, timeoutMs });
+    }
+    return await netcatTcp({ host: target, port, timeoutMs });
+  }
+
+  async _execPuttySshBanner({ target, port = 22 }) {
+    const net = require('net');
+    return new Promise((resolve) => {
+      let banner = '';
+      const socket = new net.Socket();
+      socket.setTimeout(2500);
+      socket.on('data', (data) => {
+        banner += data.toString('utf8');
+        socket.destroy();
+        resolve({ success: true, target, port, banner: banner.trim(), service: 'SSH_OR_TELNET' });
+      });
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve({ success: false, target, port, error: 'TIMEOUT_WAITING_FOR_BANNER' });
+      });
+      socket.on('error', (err) => {
+        resolve({ success: false, target, port, error: err.code || err.message });
+      });
+      socket.connect(port, target);
+    });
+  }
+
+  async _execPacketTracerSim({ target = '8.8.8.8' }) {
+    const { tracePacketPath } = require('../tools/packet-tracer');
+    const pathTrace = await tracePacketPath(target);
+    return { success: true, target, ...pathTrace };
+  }
+
+  async _execBleachbitHygiene({ dryRun = true }) {
+    const { auditSystemHygiene } = require('../tools/bleachbit-hygiene');
+    const auditRes = await auditSystemHygiene();
+    return { success: true, dryRun: true, ...auditRes };
+  }
+
+  async _execFilezillaSftpCheck({ filePath = 'package.json' }) {
+    const { computeFileHash } = require('../tools/filezilla-sftp');
+    const hashInfo = await computeFileHash(filePath);
+    return { success: true, ...hashInfo };
   }
 }
 

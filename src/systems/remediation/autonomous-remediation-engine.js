@@ -724,8 +724,30 @@ class AutonomousRemediationEngine {
       }
     });
 
+    // Post-Remediation Re-Verification Hook: notify aiBrain & unifiedInvestigationEngine
+    if (finalResult.success) {
+      try {
+        if (typeof this._postRemediationHook === 'function') {
+          await this._postRemediationHook(finalResult, validatedParams, effectiveUserContext);
+        }
+        if (validatedParams.investigationId) {
+          const { unifiedInvestigationEngine } = require('../../core/unified-investigation-engine');
+          const reverifyRes = await unifiedInvestigationEngine.verifyInvestigationResolution(validatedParams.investigationId);
+          finalResult.postRemediationReverification = reverifyRes;
+        }
+        const { aiBrain } = require('../../core/ai-brain');
+        if (typeof aiBrain.onRemediationExecuted === 'function') {
+          aiBrain.onRemediationExecuted(finalResult, validatedParams);
+        }
+      } catch (_) {}
+    }
+
     this._recordRemediationLog(finalResult, effectiveUserContext, validatedParams);
     return finalResult;
+  }
+
+  setPostRemediationHook(hookFn) {
+    this._postRemediationHook = hookFn;
   }
 
   _recordRemediationLog(outcome, userContext, params) {

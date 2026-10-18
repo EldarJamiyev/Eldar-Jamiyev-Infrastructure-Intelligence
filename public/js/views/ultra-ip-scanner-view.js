@@ -12,6 +12,7 @@
   let activeFilterChip = 'all';
   let activeSearchQuery = '';
   let isScanning = false;
+  let hideNoPing = false;
 
   async function renderUltraIpScannerView() {
     const container = document.getElementById('mainContent');
@@ -118,6 +119,10 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-left: 6px;">
+                <input type="checkbox" id="hideNoPingCheckbox" onchange="window.toggleHideNoPing(this.checked)">
+                <span>Hide NO PING (Unresponsive)</span>
+              </label>
               <input type="text" id="scannerSearchInput" class="form-input" placeholder="Search IP, hostname, vendor, port..." style="width: 220px; font-size: 11px; padding: 4px 8px;" oninput="window.onScannerSearchChange(this.value)">
             </div>
           </div>
@@ -324,6 +329,11 @@
     renderScannerRows();
   };
 
+  window.toggleHideNoPing = function(checked) {
+    hideNoPing = Boolean(checked);
+    renderScannerRows();
+  };
+
   function getHostSortTier(h) {
     const st = String(h.status || '').toUpperCase();
     if (st === 'ONLINE' || st === 'ACTIVE' || st === 'RECENTLY_SEEN') return 1;
@@ -337,6 +347,14 @@
     if (!tbody) return;
 
     let filtered = currentScanResults.slice();
+
+    // Hide NO PING (Unresponsive) if checked
+    if (hideNoPing) {
+      filtered = filtered.filter(h => {
+        const st = String(h.status || h.detailedStatus || '').toUpperCase();
+        return st !== 'NO_ICMP_RESPONSE' && st !== 'UNRESPONSIVE' && st !== 'NO PING';
+      });
+    }
 
     // Filter chip logic
     if (activeFilterChip === 'online') {

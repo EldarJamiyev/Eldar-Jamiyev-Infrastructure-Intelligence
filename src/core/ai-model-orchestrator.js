@@ -588,6 +588,173 @@ class AIModelOrchestrator {
         (challenges.length > 0 ? 'Run 5-Stage Endpoint Troubleshooter to disambiguate L3/L4 vs L7' : 'Proceed with staged preview verification')
     };
   }
+
+  /**
+   * Structured Function-Calling / Tool-Use Diagnostic Agent Loop
+   * Exposes strict schema-validated registry of callable EJII diagnostic tools,
+   * enforces caller RBAC permission and SSRF validation, executes real protocol drivers,
+   * feeds empirical telemetry into VectorizedBayesianMatrix, and returns provenance-stamped trace.
+   */
+  async executeToolCallingInvestigation({
+    query = '',
+    targetHost = '192.168.31.1',
+    targetPort = 443,
+    userRole = 'ADMIN',
+    maxToolCalls = 3,
+    requestedTools = null
+  } = {}) {
+    const { hasPermission } = require('./security');
+    const { isSafeNetworkTarget, aiBrain } = require('./ai-brain');
+    const { ragKnowledgeEngine } = require('./rag-knowledge-engine');
+    const { processSocketCorrelator } = require('../network/process-socket-correlator');
+
+    // 1. RBAC Verification
+    const normalizedRole = String(userRole || 'READONLY').toUpperCase();
+    if (!hasPermission(normalizedRole, 'network.diagnostics.execute') && normalizedRole !== 'ADMIN' && normalizedRole !== 'SYSADMIN') {
+      throw new Error(`RBAC_PERMISSION_DENIED: Role '${normalizedRole}' does not possess 'network.diagnostics.execute' capability.`);
+    }
+
+    // 2. Resolve & Validate Target Host
+    const resolvedHost = String(targetHost || '192.168.31.1').trim();
+    if (!isSafeNetworkTarget(resolvedHost)) {
+      throw new Error(`SECURITY_VIOLATION: Target "${resolvedHost}" rejected by SSRF defense policy.`);
+    }
+
+    const portNum = Number(targetPort) || 443;
+    const toolExecutionTrace = [];
+    const investigationId = `TOOL-CALL-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+    // 3. Define Tool Registry
+    const toolRegistry = {
+      ping_host: {
+        description: 'ICMP Echo reachability probe',
+        execute: async (target) => {
+          return await aiBrain.executeDiagnosticProbe({ probeType: 'ICMP_PING_TARGET', targetIp: target });
+        }
+      },
+      check_tcp_port: {
+        description: 'TCP 3-way handshake on target service port',
+        execute: async (target, port) => {
+          return await aiBrain.executeDiagnosticProbe({ probeType: 'TCP_CONNECT_TARGET_PORT', targetIp: target, targetPort: port });
+        }
+      },
+      resolve_dns: {
+        description: 'RFC 1035 forward DNS lookup',
+        execute: async (target) => {
+          return await aiBrain.executeDiagnosticProbe({ probeType: 'DNS_FORWARD_LOOKUP', targetIp: target });
+        }
+      },
+      inspect_tls_cert: {
+        description: 'X.509 certificate and TLS handshake inspection',
+        execute: async (target, port) => {
+          return await aiBrain.executeDiagnosticProbe({ probeType: 'TLS_HANDSHAKE_PROBE', targetIp: target, targetPort: port || 443 });
+        }
+      },
+      probe_http_endpoint: {
+        description: 'HTTP HEAD/GET L7 probe',
+        execute: async (target, port) => {
+          return await aiBrain.executeDiagnosticProbe({ probeType: 'HTTP_HEAD_PROBE', targetIp: target, targetPort: port || 80 });
+        }
+      },
+      lookup_process_sockets: {
+        description: 'Host process socket correlation',
+        execute: async (target, port, proc) => {
+          return await processSocketCorrelator.getCorrelatedEndpoints({ processFilter: proc || target, externalOnly: false });
+        }
+      },
+      search_rag_runbooks: {
+        description: 'Retrieve Okapi BM25 authoritative engineering runbooks',
+        execute: async (target, port, proc, q) => {
+          return ragKnowledgeEngine.retrieveRelevantContext(q || `${target} ${port}`, { topK: 3 });
+        }
+      }
+    };
+
+    // 4. Determine tools to execute
+    let toolsToRun = [];
+    if (Array.isArray(requestedTools) && requestedTools.length > 0) {
+      toolsToRun = requestedTools.filter(t => toolRegistry[t]);
+    } else {
+      if (portNum === 443 || portNum === 8443) {
+        toolsToRun = ['check_tcp_port', 'inspect_tls_cert', 'search_rag_runbooks'];
+      } else if ([3306, 5432, 1433, 6379, 27017, 445, 3389, 22].includes(portNum)) {
+        toolsToRun = ['ping_host', 'check_tcp_port', 'search_rag_runbooks'];
+      } else {
+        toolsToRun = ['ping_host', 'resolve_dns', 'check_tcp_port'];
+      }
+    }
+
+    toolsToRun = toolsToRun.slice(0, Math.max(1, maxToolCalls));
+
+    // 5. Execution Loop
+    let lastProbeResult = null;
+    for (let i = 0; i < toolsToRun.length; i++) {
+      const toolName = toolsToRun[i];
+      const toolDef = toolRegistry[toolName];
+      const startMs = Date.now();
+      let status = 'SUCCESS';
+      let output = null;
+      let error = null;
+
+      try {
+        output = await toolDef.execute(resolvedHost, portNum, query, query);
+        if (output && output.probeType) {
+          lastProbeResult = output;
+        }
+      } catch (err) {
+        status = 'ERROR';
+        error = err.message;
+      }
+
+      toolExecutionTrace.push({
+        callIndex: i + 1,
+        toolName,
+        parameters: { targetHost: resolvedHost, targetPort: portNum, query },
+        executedAt: new Date().toISOString(),
+        durationMs: Date.now() - startMs,
+        status,
+        resultSummary: status === 'SUCCESS' ? (output?.verdict || output?.status || (Array.isArray(output) ? `${output.length} records retrieved` : 'Executed')) : error,
+        output
+      });
+    }
+
+    // 6. Bayesian Synthesis
+    const tcpOk = lastProbeResult ? Boolean(lastProbeResult.portReachable ?? lastProbeResult.alive ?? true) : true;
+    const rstObserved = lastProbeResult ? Boolean(lastProbeResult.tcpRstObserved || /RST|ECONNREFUSED/i.test(JSON.stringify(lastProbeResult))) : false;
+    const incidentType = rstObserved ? 'TCP_RST_REJECT' : (!tcpOk ? 'TCP_SYN_TIMEOUT' : 'NORMAL_OPERATION');
+
+    const bayesianEvaluation = aiBrain.diagnoseIncident({
+      incidentType,
+      destIp: resolvedHost,
+      destPort: portNum,
+      tcpRstObserved: rstObserved,
+      targetPortReachable: tcpOk,
+      dnsResolved: true
+    });
+
+    // 7. RAG Runbooks
+    const ragCitations = ragKnowledgeEngine.retrieveRelevantContext(
+      `${bayesianEvaluation.topHypothesis?.id || incidentType} ${resolvedHost}:${portNum}`,
+      { topK: 3 }
+    );
+
+    return {
+      investigationId,
+      query,
+      targetHost: resolvedHost,
+      targetPort: portNum,
+      userRole: normalizedRole,
+      toolExecutionTrace,
+      bayesianEvaluation,
+      ragCitations,
+      synthesis: {
+        rootCause: bayesianEvaluation.topHypothesis?.label || 'Nominal Operation',
+        confidence: bayesianEvaluation.topHypothesis?.confidence || 100,
+        recommendedRemediation: ragCitations[0]?.remediation || 'Monitor telemetry and retain baseline.'
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
 }
 
 const aiModelOrchestrator = new AIModelOrchestrator();

@@ -829,7 +829,12 @@ const defaultEngine = new TopologyEngine();
 function getDependencyTopology() {
   const topo = defaultEngine.getTopology();
   const nodeMap = new Map();
-  topo.nodes.forEach(n => nodeMap.set(n.id, n));
+  topo.nodes.forEach(n => {
+    nodeMap.set(n.id, n);
+    if (n.id === 'NODE-HOST-01') {
+      nodeMap.set('NODE-LOCAL-HOST', n);
+    }
+  });
   return { nodes: topo.nodes, edges: topo.edges, nodeMap };
 }
 

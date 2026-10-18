@@ -80,6 +80,9 @@ window.escapeAttr = escapeAttr;
                   <span class="status-dot" style="background: var(--success);"></span>
                   <span id="captureStatusLabel">STREAMING</span>
                 </span>
+                <span id="packetFilterCounterBadge" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; font-family: var(--font-mono); margin-left: 8px;">
+                  Visible: 0 frames | Noise/Keep-Alives Hidden: 0
+                </span>
               </div>
 
               <!-- Stream Controls & Hardware Interface Selector -->
@@ -205,6 +208,9 @@ window.escapeAttr = escapeAttr;
               <span id="captureErrorMessage">Npcap wire interceptor offline.</span>
             </div>
 
+            <!-- Live Application Endpoint Watcher Strip -->
+            <div id="appFinderWatcherStrip" style="display: none; background: rgba(56, 189, 248, 0.08); border-bottom: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #f8fafc; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;"></div>
+
             <!-- View 1: Live Frame Summary Table -->
             <div id="livePacketTableView" style="display: flex; flex: 1; overflow: hidden; flex-direction: column;">
               <div id="livePacketTableContainer" class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable;" onmouseenter="window.onPacketTableMouseEnter()" onmouseleave="window.onPacketTableMouseLeave()">
@@ -275,6 +281,7 @@ window.escapeAttr = escapeAttr;
                   <button class="btn btn-secondary" onclick="window.reloadAppFinder()" style="font-size: 11px; padding: 3px 8px;">↻ Refresh</button>
                 </div>
               </div>
+              <div id="appFinderSubWatcherStrip" style="display: none; background: rgba(56, 189, 248, 0.08); border-bottom: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #f8fafc; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;"></div>
               <div class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto;">
                 <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                   <thead>

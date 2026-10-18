@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
-  <link rel="stylesheet" href="/css/style.css?v=2026.10.18.2">
-  <link rel="stylesheet" href="/css/eji-premium.css?v=2026.10.18.2">
+  <link rel="stylesheet" href="/css/style.css?v=2026.10.18.3">
+  <link rel="stylesheet" href="/css/eji-premium.css?v=2026.10.18.3">
   <link rel="manifest" href="/manifest.json">
   <style>
     /* NOC Dual-Pane Workstation Layout Styles */
@@ -143,12 +143,8 @@
   <!-- Dedicated Standalone Login-First Screen -->
   <div id="loginScreen" class="login-screen-wrapper">
     <div class="login-ambient-grid"></div>
-    <div class="login-glow-sphere top-glow"></div>
-    <div class="login-glow-sphere bottom-glow"></div>
 
     <div class="login-card">
-      <div class="login-card-rim-highlight"></div>
-      
       <!-- High-Tech Aerospace Status Capsule -->
       <div class="login-status-capsule">
         <div class="login-status-indicator">
@@ -163,7 +159,6 @@
       <!-- Brand Identity Section -->
       <div class="login-card-header">
         <div class="login-brand-emblem-wrap">
-          <div class="emblem-halo"></div>
           <svg class="login-brand-svg" width="60" height="60" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="32" cy="32" r="30" stroke="rgba(56, 189, 248, 0.2)" stroke-width="1.5" stroke-dasharray="3 3"/>
             <circle cx="32" cy="32" r="23" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.5"/>
@@ -190,11 +185,11 @@
       <div id="loginTelemetryBar" class="login-telemetry-grid">
         <div class="telemetry-chip">
           <span class="telemetry-label">DEFAULT GATEWAY</span>
-          <span id="loginTelGateway" class="telemetry-value val-cyan">10.168.195.1</span>
+          <span id="loginTelGateway" class="telemetry-value val-cyan">192.168.31.1</span>
         </div>
         <div class="telemetry-chip">
           <span class="telemetry-label">LAN SCOPE</span>
-          <span id="loginTelSubnet" class="telemetry-value val-emerald">10.168.195.0/24</span>
+          <span id="loginTelSubnet" class="telemetry-value val-emerald">192.168.31.0/24</span>
         </div>
         <div class="telemetry-chip">
           <span class="telemetry-label">PACKET DRIVER</span>
@@ -202,7 +197,7 @@
         </div>
         <div class="telemetry-chip">
           <span class="telemetry-label">SYSTEM HOST</span>
-          <span id="loginTelHost" class="telemetry-value val-amber">Local System</span>
+          <span id="loginTelHost" class="telemetry-value val-amber">192.168.31.89</span>
         </div>
       </div>
 
@@ -236,7 +231,6 @@
 
       <!-- 1-Click Quick Operator Entry CTA -->
       <button type="button" class="login-quick-cta-btn" id="evaluationQuickCta" onclick="window.quickNocLogin()">
-        <span class="cta-shimmer"></span>
         <span class="cta-content">
           <svg class="cta-bolt" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span class="cta-title">Enter Eldar Jamiyev's Infrastructure Intelligence</span>
@@ -276,7 +270,7 @@
           <span class="hud-pill"><span class="hud-dot dot-cyan"></span> NPCAP WIRE DIRECT</span>
           <span class="hud-pill"><span class="hud-dot dot-purple"></span> ZERO-FICTION TELEMETRY</span>
         </div>
-        <div class="login-footer-meta">STATION: LOCALHOST:8080 &bull; RFC-793 / RFC-826 CONFORMANT &bull; EJII SECURE ENCLAVE</div>
+        <div class="login-footer-meta">STATION: 127.0.0.1:8443 &bull; RFC-793 / RFC-826 CONFORMANT &bull; ZERO-SIMULATION NOC WORKSTATION</div>
       </div>
     </div>
   </div>
@@ -420,16 +414,16 @@
   <div id="modalContainer" style="display: none;"></div>
 
   <!-- Core Scripts -->
-  <script src="/js/components/filter-compiler.js?v=2026.10.18.2"></script>
-  <script src="/js/components/command-palette.js?v=2026.10.18.2"></script>
-  <script src="/js/components/junior-admin-guide.js?v=2026.10.18.2"></script>
-  <script src="/js/components/ai-brain-drawer.js?v=2026.10.18.2"></script>
-  <script src="/js/views/noc-view.js?v=2026.10.18.2"></script>
-  <script src="/js/views/topology-view.js?v=2026.10.18.2"></script>
-  <script src="/js/views/sniffer-view.js?v=2026.10.18.2"></script>
-  <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.18.2"></script>
-  <script src="/js/views/pc-automation-view.js?v=2026.10.18.2"></script>
-  <script src="/js/views/core-diagnostics-view.js?v=2026.10.18.2"></script>
-  <script src="/js/app.js?v=2026.10.18.2"></script>
+  <script src="/js/components/filter-compiler.js?v=2026.10.18.3"></script>
+  <script src="/js/components/command-palette.js?v=2026.10.18.3"></script>
+  <script src="/js/components/junior-admin-guide.js?v=2026.10.18.3"></script>
+  <script src="/js/components/ai-brain-drawer.js?v=2026.10.18.3"></script>
+  <script src="/js/views/noc-view.js?v=2026.10.18.3"></script>
+  <script src="/js/views/topology-view.js?v=2026.10.18.3"></script>
+  <script src="/js/views/sniffer-view.js?v=2026.10.18.3"></script>
+  <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.18.3"></script>
+  <script src="/js/views/pc-automation-view.js?v=2026.10.18.3"></script>
+  <script src="/js/views/core-diagnostics-view.js?v=2026.10.18.3"></script>
+  <script src="/js/app.js?v=2026.10.18.3"></script>
 </body>
 </html>

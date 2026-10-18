@@ -99,6 +99,62 @@ class BayesianReasoningEngine {
         defaultPrior: 0.90,
         category: 'APPLICATION_PERFORMANCE_BOTTLENECK',
         rfc: 'RFC 7230 (Hypertext Transfer Protocol - Message Syntax and Routing)'
+      },
+      PATH_MTU_BLACKHOLE: {
+        id: 'PATH_MTU_BLACKHOLE',
+        label: 'Path MTU Discovery Blackhole (RFC 1191 / RFC 4821)',
+        description: 'Intermediate router dropping packets exceeding MTU because Don\'t Fragment (DF) flag is set and ICMP Type 3 Code 4 is filtered.',
+        defaultPrior: 0.20,
+        category: 'TRANSPORT_PMTU_FAILURE',
+        rfc: 'RFC 1191 (Path MTU Discovery) & RFC 4821 (Packetization Layer PMTUD)'
+      },
+      BGP_OSPF_ROUTE_FLAP: {
+        id: 'BGP_OSPF_ROUTE_FLAP',
+        label: 'Dynamic Routing Convergence Flap or Asymmetric Transit Path',
+        description: 'Upstream Autonomous System (AS) route flapping, BGP prefix withdrawal, or asymmetric return path drops.',
+        defaultPrior: 0.15,
+        category: 'ROUTING_CONVERGENCE_FLAP',
+        rfc: 'RFC 4271 (BGP-4) & RFC 2328 (OSPF v2)'
+      },
+      DNSSEC_OR_UPSTREAM_SERVFAIL: {
+        id: 'DNSSEC_OR_UPSTREAM_SERVFAIL',
+        label: 'Recursive DNS Upstream SERVFAIL or DNSSEC Validation Failure',
+        description: 'Upstream authoritative DNS server returned SERVFAIL or cryptographic DNSSEC RRSIG signature validation failed.',
+        defaultPrior: 0.25,
+        category: 'NAME_RESOLUTION_FAILURE',
+        rfc: 'RFC 4035 (DNS Security Extensions Protocol Modifications)'
+      },
+      TLS_CERT_EXPIRED_OR_MISMATCH: {
+        id: 'TLS_CERT_EXPIRED_OR_MISMATCH',
+        label: 'X.509 Certificate Expired, Untrusted Issuer, or SAN Mismatch',
+        description: 'Target server presented an expired X.509 certificate, self-signed root untrusted by local trust store, or Subject Alternative Name mismatch.',
+        defaultPrior: 0.30,
+        category: 'CRYPTOGRAPHIC_HANDSHAKE_FAILURE',
+        rfc: 'RFC 5280 (X.509 PKI Certificate and CRL Profile) & RFC 8446'
+      },
+      HTTP_GATEWAY_5XX_OVERLOAD: {
+        id: 'HTTP_GATEWAY_5XX_OVERLOAD',
+        label: 'L7 Reverse Proxy / Upstream Application Gateway 502/503/504 Timeout',
+        description: 'Edge reverse proxy or application load balancer returned HTTP 502 Bad Gateway or HTTP 504 Gateway Timeout due to backend pool exhaustion.',
+        defaultPrior: 0.35,
+        category: 'APPLICATION_GATEWAY_OVERLOAD',
+        rfc: 'RFC 9110 (HTTP Semantics, Section 15.6)'
+      },
+      ARP_CONFLICT_OR_L2_LOOP: {
+        id: 'ARP_CONFLICT_OR_L2_LOOP',
+        label: 'Layer 2 MAC/IP Address Conflict or Broadcast Storm',
+        description: 'Duplicate IP address announced via ARP Gratuitous frame or Layer 2 spanning-tree switching loop.',
+        defaultPrior: 0.10,
+        category: 'LOCAL_L2_CONFLICT',
+        rfc: 'RFC 5227 (IPv4 Address Conflict Detection) & RFC 826'
+      },
+      ENTERPRISE_DB_OR_RPC_AUTH_BLOCK: {
+        id: 'ENTERPRISE_DB_OR_RPC_AUTH_BLOCK',
+        label: 'Database / SMB / RDP / RPC Service Protocol Rejection',
+        description: 'Service port is TCP open but protocol handshake or authentication was explicitly rejected by the daemon.',
+        defaultPrior: 0.25,
+        category: 'APPLICATION_SERVICE_AUTH_REJECT',
+        rfc: 'RFC 793 (TCP) & Service Layer Specifications'
       }
     };
   }
@@ -768,7 +824,7 @@ class BayesianReasoningEngine {
       probes.push({
         probeType: 'ICMP_PING_GATEWAY',
         name: 'ICMP Echo Probe to Default Gateway',
-        command: 'Test-NetConnection -ComputerName 10.168.195.1 -InformationLevel Detailed',
+        command: 'Test-NetConnection -ComputerName 192.168.31.1 -InformationLevel Detailed',
         target: 'Default Gateway (Perimeter)',
         expectedOutcome: 'Response in <2ms confirms local L2 switch fabric and gateway health, eliminating Gateway & NIC failure.',
         informationGain: 'High (Distinguishes Local LAN from Upstream WAN)'
@@ -784,6 +840,20 @@ class BayesianReasoningEngine {
         target: telemetry.destIp || 'Remote Target Host',
         expectedOutcome: 'If host responds, eliminates Host Down and proves port-specific Firewall Drop.',
         informationGain: 'Decisive (Disambiguates Firewall Drop vs Server Offline)'
+      });
+    }
+
+    // Dynamic Database / Infrastructure Port Probing
+    const port = parseInt(telemetry.destPort, 10);
+    const isDbOrInfraPort = [3306, 5432, 1433, 6379, 27017, 445, 3389, 22].includes(port);
+    if (isDbOrInfraPort) {
+      probes.push({
+        probeType: 'TCP_CONNECT_TARGET_PORT',
+        name: `TCP Direct Socket Probe on Service Port ${port}`,
+        command: `Test-NetConnection -ComputerName ${telemetry.destIp || 'target'} -Port ${port}`,
+        target: `${telemetry.destIp || 'target'}:${port}`,
+        expectedOutcome: `Directly probes dedicated daemon on service port ${port} instead of defaulting to HTTP probe.`,
+        informationGain: 'Decisive (Isolates database/RPC service availability)'
       });
     }
 
@@ -820,6 +890,10 @@ class BayesianReasoningEngine {
     });
 
     return probes;
+  }
+
+  generateDistinguishingProbes(rankedHypotheses, telemetry = {}) {
+    return this.recommendDistinguishingTests(rankedHypotheses, telemetry);
   }
 
   /**

@@ -9,8 +9,12 @@ function escapeHtml(str) {
 function escapeAttr(str) {
   return escapeHtml(str);
 }
-window.escapeHtml = escapeHtml;
-window.escapeAttr = escapeAttr;
+window.escapeHtml = function(str) {
+  return escapeHtml(str);
+};
+window.escapeAttr = function(str) {
+  return escapeAttr(str);
+};
 
 // State Management
 const state = {
@@ -51,28 +55,8 @@ window.formatLocalDateTime = function(isoStr) {
 /**
  * Universal HTML Escape utility
  */
-window.escapeHtml = function(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-};
+// window.escapeHtml and window.escapeAttr already declared at top of file
 
-/**
- * Universal HTML Attribute Escape utility
- */
-window.escapeAttr = function(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-};
 
 /**
  * Universal Authenticated API Fetcher
