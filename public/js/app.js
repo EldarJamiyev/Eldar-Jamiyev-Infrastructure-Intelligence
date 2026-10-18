@@ -53,6 +53,19 @@ window.escapeHtml = function(str) {
 };
 
 /**
+ * Universal HTML Attribute Escape utility
+ */
+window.escapeAttr = function(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+};
+
+/**
  * Universal Authenticated API Fetcher
  */
 async function api(endpoint, options = {}) {

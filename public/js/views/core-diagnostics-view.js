@@ -718,6 +718,31 @@
     }
   }
 
+  const PROTECTED_PROCESSES = new Set([
+    'system',
+    'system idle process',
+    'secure system',
+    'registry',
+    'smss',
+    'csrss',
+    'wininit',
+    'services',
+    'lsass',
+    'svchost',
+    'dwm',
+    'explorer',
+    'msmpeng',
+    'nissrv',
+    'securityhealthservice',
+    'node',
+    'ejii',
+    'fontdrvhost',
+    'sihost',
+    'taskhostw',
+    'searchindexer',
+    'ctfmon'
+  ]);
+
   function renderProcessTable() {
     const tbody = document.getElementById('diagProcessTableBody');
     if (!tbody) return;
@@ -727,19 +752,31 @@
       return;
     }
 
-    tbody.innerHTML = processTableData.map(p => `
-      <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-        <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.pid}</td>
-        <td style="font-weight: 700; font-size: 11px; color: var(--text-main); padding: 6px 8px;">${p.name}</td>
-        <td style="font-size: 11px; color: ${p.cpu > 10 ? 'var(--warning)' : 'var(--text-main)'}; padding: 6px 8px;">${p.cpu}%</td>
-        <td style="font-size: 11px; color: var(--text-main); padding: 6px 8px;">${p.workingSetMB} MB</td>
-        <td style="font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.privateMB} MB</td>
-        <td style="font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.handles}</td>
-        <td style="padding: 6px 8px; text-align: right;">
-          <button class="btn btn-secondary" onclick="window.previewRemediation('lower_process_priority', { pid: ${p.pid}, processName: '${p.name}' })" style="font-size: 10px; padding: 2px 6px;">Throttle Priority</button>
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = processTableData.map(p => {
+      const nameClean = (p.name || '').toLowerCase().replace(/\.exe$/i, '').trim();
+      const isProtected = p.pid <= 4 || PROTECTED_PROCESSES.has(nameClean);
+
+      const actionBtn = isProtected
+        ? '<span style="font-size: 10px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px; display: inline-block;">🛡️ OS Protected</span>'
+        : `<button class="btn btn-secondary" onclick="window.previewRemediation('lower_process_priority', { pid: ${p.pid}, processName: '${window.escapeAttr ? window.escapeAttr(p.name) : p.name}' })" style="font-size: 10px; padding: 2px 6px;">Throttle Priority</button>`;
+
+      const cpuVal = typeof p.cpu === 'number' ? Math.min(100.0, Math.max(0.0, p.cpu)).toFixed(1) : '0.0';
+      const cpuTimeTitle = p.cpuTotalSeconds ? ` title="Total CPU Time: ${p.cpuTotalSeconds}s"` : '';
+
+      return `
+        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+          <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.pid}</td>
+          <td style="font-weight: 700; font-size: 11px; color: var(--text-main); padding: 6px 8px;">${p.name}</td>
+          <td style="font-size: 11px; color: ${Number(cpuVal) > 10 ? 'var(--warning)' : 'var(--text-main)'}; padding: 6px 8px;"${cpuTimeTitle}>${cpuVal}%</td>
+          <td style="font-size: 11px; color: var(--text-main); padding: 6px 8px;">${p.workingSetMB} MB</td>
+          <td style="font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.privateMB} MB</td>
+          <td style="font-size: 11px; color: var(--text-muted); padding: 6px 8px;">${p.handles}</td>
+          <td style="padding: 6px 8px; text-align: right;">
+            ${actionBtn}
+          </td>
+        </tr>
+      `;
+    }).join('');
   }
 
   function renderSocketTable() {

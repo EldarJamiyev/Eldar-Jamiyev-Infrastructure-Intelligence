@@ -318,7 +318,13 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
     console.log(`================================================================`);
   });
   server.on('error', (err) => {
-    console.error('[EJII Server Error]:', err.message);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n[EJII CRITICAL] Port ${PORT} is already in use by another process.`);
+      console.error(`Please terminate the existing process listening on port ${PORT} or launch via "setup-launcher.bat".`);
+      process.exit(1);
+    } else {
+      console.error('[EJII Server Error]:', err.message);
+    }
   });
 }
 

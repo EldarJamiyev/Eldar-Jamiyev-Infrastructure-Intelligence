@@ -34,9 +34,12 @@ class TopologyEngine {
     const storedLan = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-LAN-01'").get();
     const storedHost = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-HOST-01'").get();
 
+    const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
+    const vendorString = `${adapterHardware} / Windows Workstation`;
+
     const subnetChanged = !storedLan || storedLan.hostname_or_ip !== subnetCidr;
     const gatewayChanged = !storedGw || storedGw.hostname_or_ip !== gatewayIp;
-    const hostChanged = !storedHost || storedHost.hostname_or_ip !== hostIp;
+    const hostChanged = !storedHost || storedHost.hostname_or_ip !== hostIp || storedHost.vendor !== vendorString;
 
     if (subnetChanged || gatewayChanged || hostChanged) {
       // Archive historical snapshot of previous environment before transition
@@ -148,17 +151,28 @@ class TopologyEngine {
       );
 
       // 8. Upsert L6: Local Operator Workstation Host
+      const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
+      const macAddress = netInfo.mac || '70:15:FB:6B:F3:46';
+      const ifType = ((adapterHardware || '').toLowerCase().includes('wi-fi') || (adapterHardware || '').toLowerCase().includes('wireless')) ? 'Wi-Fi' : 'Ethernet';
+      const vendorString = `${adapterHardware} / Windows Workstation`;
+
       db.prepare(`
         INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-HOST-01', ?, ?, 'D8:43:AE:DF:5B:3A', 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, 0.1, 'Intel I219-LM / Windows Workstation', 'Ethernet', 1080, 140, ?)
+        VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, 0.1, ?, ?, 1080, 140, ?)
         ON CONFLICT(id) DO UPDATE SET 
           name = excluded.name,
           hostname_or_ip = excluded.hostname_or_ip,
+          vendor = excluded.vendor,
+          if_name = excluded.if_name,
+          mac_address = excluded.mac_address,
           last_checked = excluded.last_checked
       `).run(
         `Local Workstation Host (${hostIp})`,
         hostIp,
+        macAddress,
         now,
+        vendorString,
+        ifType,
         JSON.stringify({ role: 'NOC Analyst Workstation', os: 'Windows', evidenceClassification: 'Observed' })
       );
 

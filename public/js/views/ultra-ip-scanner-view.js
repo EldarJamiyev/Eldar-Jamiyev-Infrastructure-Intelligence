@@ -122,13 +122,16 @@
             </div>
           </div>
 
+          <!-- Visible Scan Delta Summary Banner -->
+          <div id="scannerDeltaSummaryBanner" style="display: none; background: rgba(56, 189, 248, 0.08); border-bottom: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #e2e8f0;"></div>
+
           <!-- Fleet Data Table View -->
           <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
             <div class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable;">
               <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                 <thead>
                   <tr>
-                    <th class="col-nowrap" style="width: 70px; min-width: 70px; white-space: nowrap; text-align: center;">Status</th>
+                    <th class="col-nowrap" style="width: 110px; min-width: 110px; white-space: nowrap; text-align: center;">Status</th>
                     <th style="min-width: 170px;">Device / NetBIOS Hostname</th>
                     <th class="col-ip" style="min-width: 125px; white-space: nowrap;">IPv4 Address</th>
                     <th class="col-nowrap" style="min-width: 135px; white-space: nowrap;">MAC Address</th>
@@ -274,6 +277,21 @@
           const deltaBadge = document.getElementById('progDeltaBadge');
           if (deltaWrap) deltaWrap.style.display = 'inline';
           if (deltaBadge) deltaBadge.textContent = `+${res.deltaSummary.newHostsCount || 0} new, -${res.deltaSummary.missingHostsCount || 0} lost, ${res.deltaSummary.changedMacsCount || 0} mac-chg`;
+
+          const banner = document.getElementById('scannerDeltaSummaryBanner');
+          if (banner) {
+            banner.style.display = 'flex';
+            banner.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-weight: 700; color: #38bdf8;">📡 Fleet Scan Delta:</span>
+                <span style="color: #34d399; font-weight: 700;">+${res.deltaSummary.newHostsCount || 0} New Hosts</span>
+                <span style="color: #f87171; font-weight: 700;">-${res.deltaSummary.missingHostsCount || 0} Missing</span>
+                <span style="color: #fbbf24; font-weight: 700;">${res.deltaSummary.changedMacsCount || 0} MAC Changes</span>
+                <span style="color: #38bdf8; font-weight: 700;">+${res.deltaSummary.newOpenPortsCount || 0} New Ports</span>
+                <span style="color: #94a3b8; font-weight: 700;">-${res.deltaSummary.closedPortsCount || 0} Closed Ports</span>
+              </div>
+            `;
+          }
         }
 
         if (res.hosts && res.hosts.length > 0) {
@@ -311,6 +329,25 @@
     if (!tbody) return;
 
     let filtered = currentScanResults.slice();
+
+    // 3-Tier Sorting: Tier 1 (ONLINE), Tier 2 (ARP CACHED), Tier 3 (NO PING/OFFLINE)
+    const getHostTier = (h) => {
+      const s = (h.status || '').toUpperCase();
+      if (s === 'ONLINE' || s === 'RECENTLY_SEEN') return 1;
+      if (s === 'CACHED_ARP' || s === 'ARP CACHED' || s === 'FRESH_ARP') return 2;
+      return 3;
+    };
+    const ipToNum = (ip) => {
+      if (!ip || typeof ip !== 'string') return 0;
+      const parts = ip.split('.').map(Number);
+      return (((parts[0] || 0) << 24) | ((parts[1] || 0) << 16) | ((parts[2] || 0) << 8) | (parts[3] || 0)) >>> 0;
+    };
+    filtered.sort((a, b) => {
+      const tA = getHostTier(a);
+      const tB = getHostTier(b);
+      if (tA !== tB) return tA - tB;
+      return ipToNum(a.ip) - ipToNum(b.ip);
+    });
 
     // Filter chip logic
     if (activeFilterChip === 'online') {
@@ -359,9 +396,9 @@
       } else if (h.status === 'RECENTLY_SEEN') {
         statusDot = `<span class="status-dot" style="background: #06B6D4; box-shadow: 0 0 6px #06B6D4;"></span> <span style="color: #38BDF8; font-weight: 700;">FRESH_ARP</span>`;
       } else if (h.status === 'OFFLINE' || h.detailedStatus === 'CONFIRMED_OFFLINE') {
-        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)'}">CONFIRMED_OFFLINE</span>`;
+        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)'}">OFFLINE</span>`;
       } else if (h.status === 'UNRESPONSIVE' || h.detailedStatus === 'NO_ICMP_RESPONSE') {
-        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="${h.probeLimitations || 'No response to ICMP Echo within budget; host may be off or firewall silently dropping ICMP'}">NO_ICMP_RESPONSE</span>`;
+        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="${h.probeLimitations || 'No response to ICMP Echo within budget; host may be off or firewall silently dropping ICMP'}">NO PING</span>`;
       } else if (h.status === 'CACHED_ARP') {
         statusDot = `<span class="status-dot" style="background: #64748B;"></span> <span style="color: #94A3B8;">CACHED</span>`;
       } else {

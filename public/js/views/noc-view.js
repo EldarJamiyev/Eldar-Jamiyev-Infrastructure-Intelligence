@@ -403,10 +403,13 @@
     // Default mode: Focus on Important Infrastructure, aggregate Access LAN fleet into cluster node
     if (!topoFleetExpanded) {
       if (fleetNodes.length > 0) {
+        const lanNode = rawNodes.find(n => n.id === 'NODE-LAN-01' || n.type === 'subnet' || (n.hostname_or_ip && n.hostname_or_ip.includes('/')));
+        const activeSubnetCidr = (lanNode && lanNode.hostname_or_ip) || topologyData.environmentCidr || topologyData.subnetCidr || '192.168.31.0/24';
+
         const clusterNode = {
           id: 'NODE-FLEET-CLUSTER',
           name: `Access Fleet [${fleetNodes.length} Hosts]`,
-          hostname_or_ip: `10.168.195.0/24 (${fleetNodes.length} Hosts)`,
+          hostname_or_ip: `${activeSubnetCidr} (${fleetNodes.length} Hosts)`,
           mac_address: 'Dynamic Switched Fabric',
           vendor: 'Multi-Vendor Hardware Fabric',
           last_latency_ms: 0.4,
@@ -577,7 +580,8 @@
       const badge = getNodeEvidenceBadge(n);
       const isCluster = n.id === 'NODE-FLEET-CLUSTER';
 
-      let titleName = n.name || 'Device';
+      // Clean titleName: strip redundant parenthetical IP to prevent card boundary clipping
+      let titleName = (n.name || 'Device').replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?\s*\)\s*$/, '').trim();
       let vendorStr = n.vendor || 'Discovered Host';
 
       const latencyStr = n.last_latency_ms !== null && n.last_latency_ms !== undefined
@@ -592,7 +596,7 @@
 
       nodesSvg += `
         <g id="svgNode-${n.id}" class="topology-svg-node" transform="translate(${item.x}, ${item.y})" style="cursor: pointer;" onclick="${clickHandler}" oncontextmenu="window.handleNodeContextMenu(event, '${n.id}', '${n.hostname_or_ip}')" onmouseenter="window.showTopologyTooltip(event, '${n.id}')" onmouseleave="window.hideTopologyTooltip()">
-          <rect width="${item.width}" height="${item.height}" rx="8" fill="#0F1424" stroke="${isCluster ? '#34D399' : layer.color}" stroke-width="${isCluster ? '2' : '1.6'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeGlow)"/>
+          <rect width="${item.width}" height="${item.height}" rx="8" fill="#0F1424" stroke="${isCluster ? '#34D399' : layer.color}" stroke-width="${isCluster ? '2' : '1.6'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}"/>
           <circle cx="16" cy="19" r="4.5" fill="${isHealthy ? '#34D399' : '#EF4444'}"/>
           <text x="26" y="23" font-size="11">${roleIcon}</text>
           <text x="44" y="23" font-size="11" font-weight="700" fill="#E2E8F0">${titleName}</text>
@@ -982,21 +986,90 @@
       } catch (e) {}
     }
 
+    // Background Noise Suppression Patterns for ⭐ Important Mode
+    const BACKGROUND_NOISE_PATTERNS = [
+      /(?:^|\.)googleapis\.com$/i,
+      /(?:^|\.)google\.com$/i,
+      /(?:^|\.)msedge\.net$/i,
+      /(?:^|\.)msftconnecttest\.com$/i,
+      /(?:^|\.)signalr\.net$/i,
+      /(?:^|\.)lencr\.org$/i,
+      /(?:^|\.)digicert\.com$/i,
+      /(?:^|\.)trafficmanager\.net$/i,
+      /(?:^|\.)azureedge\.net$/i,
+      /(?:^|\.)windows\.net$/i,
+      /(?:^|\.)telemetry\./i,
+      /(?:^|\.)pipe\.aria\.microsoft\.com$/i,
+      /(?:^|\.)events\.data\.microsoft\.com$/i
+    ];
+
+    function isBackgroundNoiseHost(hostStr) {
+      if (!hostStr) return false;
+      const clean = String(hostStr).toLowerCase().replace(/^\[PING\]\s*/, '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '').trim();
+      if (!clean) return false;
+      return BACKGROUND_NOISE_PATTERNS.some(pat => pat.test(clean));
+    }
+
     // Smart Triage Viewing Mode Filters
     if (currentSnifferMode === 'important') {
       filtered = filtered.filter(f => {
-        const flags = f.tcp?.flags || {};
-        const isHandshake = Boolean(flags.syn || flags.fin || flags.rst);
         const proto = (f.protocol || '').toUpperCase();
-        const isApp = proto === 'DNS' || proto === 'HTTP' || proto === 'TLS' || proto === 'ICMP' || proto === 'ARP';
-        const hasAnomaly = Boolean(f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isZeroWindow || f.tcpAnalysis?.isDupAck);
-        const hasPayload = (f.length || 0) > 80;
-        return isHandshake || isApp || hasAnomaly || (proto === 'TCP' && hasPayload);
+        const flags = f.tcp?.flags || {};
+        const isRst = Boolean(flags.rst || f.tcpAnalysis?.isRst);
+        const isIcmp = proto === 'ICMP' || f.urlResolution?.method === 'ICMP-correlated';
+
+        // Always preserve manual ICMP pings and connection resets
+        if (isIcmp || isRst) return true;
+
+        // Check host for background noise
+        const hostVal = f.urlResolution?.hostnameOrUrl ||
+          f.urlIntelligence?.value ||
+          f.tls?.handshake?.sni ||
+          f.tls?.sni ||
+          f.sni ||
+          f.dns?.query ||
+          f.dns?.qname ||
+          f.http?.host ||
+          '';
+
+        if (hostVal && isBackgroundNoiseHost(hostVal)) {
+          return false;
+        }
+
+        // Mid-stream TLS Application Data chunks suppression
+        const isTls = proto.startsWith('TLS') || Boolean(f.tls);
+        if (isTls) {
+          const isTlsClientHello = Boolean(
+            f.tls?.handshake?.type === 'ClientHello' ||
+            f.tls?.handshake?.typeNum === 1 ||
+            f.tls?.sni ||
+            f.sni ||
+            (f.summary && f.summary.includes('ClientHello')) ||
+            (f.info && f.info.includes('ClientHello'))
+          );
+          const isTlsAlert = Boolean(f.tls?.contentType === 'Alert' || f.tls?.contentTypeNum === 21);
+          return isTlsClientHello || isTlsAlert;
+        }
+
+        // Keep-alives must not trigger important mode
+        if (f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck) {
+          return false;
+        }
+
+        const isHandshake = Boolean(flags.syn || flags.fin);
+        const isApp = proto === 'DNS' || proto === 'HTTP' || proto === 'ARP';
+        const hasRealAnomaly = Boolean(f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isZeroWindow || f.tcpAnalysis?.isDupAck);
+
+        return isHandshake || isApp || hasRealAnomaly;
       });
     } else if (currentSnifferMode === 'failures') {
       filtered = filtered.filter(f => {
+        // Exclude Keep-Alives from failures mode
+        if (f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck) {
+          return false;
+        }
         const flags = f.tcp?.flags || {};
-        const isRst = Boolean(flags.rst);
+        const isRst = Boolean(flags.rst || f.tcpAnalysis?.isRst);
         const hasAnomaly = Boolean(f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isZeroWindow || f.tcpAnalysis?.isDupAck);
         const isIcmp = (f.protocol || '').toUpperCase() === 'ICMP';
         const isHttpErr = f.http && f.http.statusCode >= 400;
@@ -1036,7 +1109,9 @@
       // Retransmission & TCP Delta flags
       let tcpDeltaBadge = '<span style="color: var(--text-dim); font-size: 10px;">NORMAL</span>';
       if (f.tcpAnalysis) {
-        if (f.tcpAnalysis.isRetransmission) {
+        if (f.tcpAnalysis.isKeepAlive || f.tcpAnalysis.isKeepAliveAck) {
+          tcpDeltaBadge = '<span style="color: #64748b; font-size: 10px; font-weight: 600;">[KEEP-ALIVE]</span>';
+        } else if (f.tcpAnalysis.isRetransmission) {
           tcpDeltaBadge = '<span style="color: #ef4444; font-weight: 800; background: rgba(239,68,68,0.2); padding: 1px 4px; border-radius: 3px;">[RETRANS]</span>';
         } else if (f.tcpAnalysis.isDupAck) {
           tcpDeltaBadge = '<span style="color: #f59e0b; font-weight: 800; background: rgba(245,158,11,0.2); padding: 1px 4px; border-radius: 3px;">[DUP ACK]</span>';
@@ -1156,13 +1231,26 @@
   }
 
   function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
+
+  function escapeAttr(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  window.escapeAttr = escapeAttr;
+  window.escapeHtml = escapeHtml;
 
   function buildProtocolTreeHtml(f) {
     const layers = f.detailedLayers || (f.dissection?.detailedLayers) || (Array.isArray(f.layers) ? f.layers : null);

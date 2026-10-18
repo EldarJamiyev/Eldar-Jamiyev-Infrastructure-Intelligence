@@ -986,7 +986,8 @@ class PacketStreamer {
         seenSeqs: new Set(),
         seenAcks: new Map(), // ackNum -> count
         maxSeqClient: 0,
-        maxSeqServer: 0
+        maxSeqServer: 0,
+        lastKeepAliveProbe: null
       };
       this.streamKeyToId.set(streamKey, stream);
       this.tcpStreams.set(streamId, stream);
@@ -1000,6 +1001,33 @@ class PacketStreamer {
       stream.rttMs = Math.max(0.1, Number((nowMs - stream.synTime).toFixed(2)));
     }
 
+    // RFC 1122 Section 4.2.3.6 TCP Keep-Alive Probe & Keep-Alive ACK Disambiguation
+    // A Keep-Alive probe is an ACK packet with SEG.SEQ = SND.NXT - 1, payload length <= 1, no SYN/FIN/RST/PSH.
+    const currentMaxSeq = isClient ? stream.maxSeqClient : stream.maxSeqServer;
+    const isKeepAliveProbe = Boolean(
+      currentMaxSeq > 0 &&
+      (tcp.seq === (currentMaxSeq - 1 >>> 0) || tcp.seq === currentMaxSeq - 1) &&
+      tcp.payloadLength <= 1 &&
+      tcp.flags.ack &&
+      !tcp.flags.syn &&
+      !tcp.flags.fin &&
+      !tcp.flags.rst &&
+      !tcp.flags.psh
+    );
+
+    // Keep-Alive ACK: payloadLength === 0, ACK flag set, acknowledged opposite peer after probe
+    let isKeepAliveAck = false;
+    if (!isKeepAliveProbe && tcp.payloadLength === 0 && tcp.flags.ack && !tcp.flags.syn && !tcp.flags.fin && !tcp.flags.rst) {
+      if (stream.lastKeepAliveProbe && stream.lastKeepAliveProbe.isClient !== isClient && (nowMs - stream.lastKeepAliveProbe.time < 5000)) {
+        isKeepAliveAck = true;
+        stream.lastKeepAliveProbe = null;
+      }
+    }
+
+    if (isKeepAliveProbe) {
+      stream.lastKeepAliveProbe = { isClient, time: nowMs, seq: tcp.seq };
+    }
+
     // Retransmission & Anomaly Detection
     let isRetransmission = false;
     let isDupAck = false;
@@ -1007,7 +1035,12 @@ class PacketStreamer {
     const isZeroWindow = tcp.windowSize === 0;
     const isRst = tcp.flags.rst;
 
-    if (tcp.payloadLength > 0) {
+    if (isKeepAliveProbe || isKeepAliveAck) {
+      // RFC 1122 Keep-Alives are neither real retransmissions nor duplicate ACKs
+      isRetransmission = false;
+      isDupAck = false;
+      isOutOfOrder = false;
+    } else if (tcp.payloadLength > 0) {
       const seqKey = `${isClient ? 'C' : 'S'}:${tcp.seq}:${tcp.payloadLength}`;
       if (stream.seenSeqs.has(seqKey)) {
         isRetransmission = true;
@@ -1037,7 +1070,9 @@ class PacketStreamer {
       isDupAck,
       isOutOfOrder,
       isZeroWindow,
-      isRst
+      isRst,
+      isKeepAlive: isKeepAliveProbe,
+      isKeepAliveAck: isKeepAliveAck
     };
 
     // Follow TCP Stream: Accumulate payload bytes (up to 128KB per stream)

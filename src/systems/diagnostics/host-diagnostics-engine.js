@@ -420,11 +420,12 @@ class HostDiagnosticsEngine {
     }
 
     try {
-      const [cpuRes, memRes, diskRes, procRes] = await Promise.all([
+      const [cpuRes, memRes, diskRes, procRes, cimProcRes] = await Promise.all([
         this._runPowerShell('Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object Average'),
         this._runPowerShell('Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory'),
         this._runPowerShell('Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Where-Object { $_.Name -eq "_Total" } | Select-Object CurrentDiskQueueLength'),
-        this._runPowerShell('Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First 30 Id, ProcessName, CPU, WorkingSet64, PM, Handles')
+        this._runPowerShell('Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First 30 Id, ProcessName, CPU, WorkingSet64, PM, Handles'),
+        this._runPowerShell('Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "Idle" } | Select-Object IDProcess, PercentProcessorTime')
       ]);
 
       if (!procRes.success && !cpuRes.success) {
@@ -454,16 +455,35 @@ class HostDiagnosticsEngine {
         diskQueueLength = Number(diskRes.data.CurrentDiskQueueLength);
       }
 
+      const cores = os.cpus().length || 1;
+      const cimProcMap = new Map();
+      if (cimProcRes.success && cimProcRes.data) {
+        const rawCimList = Array.isArray(cimProcRes.data) ? cimProcRes.data : [cimProcRes.data];
+        for (const item of rawCimList) {
+          if (item && item.IDProcess != null) {
+            cimProcMap.set(item.IDProcess, item.PercentProcessorTime || 0);
+          }
+        }
+      }
+
       const procList = procRes.data;
       const procs = Array.isArray(procList) ? procList : (procList ? [procList] : []);
-      const formattedProcs = procs.map(p => ({
-        pid: p.Id,
-        name: p.ProcessName,
-        cpu: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
-        workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
-        privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,
-        handles: p.Handles || 0
-      }));
+      const formattedProcs = procs.map(p => {
+        let normalizedCpuPct = 0.0;
+        if (cimProcMap.has(p.Id)) {
+          const rawCim = cimProcMap.get(p.Id);
+          normalizedCpuPct = Math.min(100.0, Math.max(0.0, Number((rawCim / cores).toFixed(1))));
+        }
+        return {
+          pid: p.Id,
+          name: p.ProcessName,
+          cpu: normalizedCpuPct,
+          cpuTotalSeconds: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
+          workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
+          privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,
+          handles: p.Handles || 0
+        };
+      });
 
       const anomalies = [];
       const recipes = [];
@@ -781,18 +801,41 @@ class HostDiagnosticsEngine {
     if (!IS_WINDOWS) {
       return [];
     }
-    const res = await this._runPowerShell(`Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First ${limit} Id, ProcessName, CPU, WorkingSet64, PM, Handles, Path`);
-    if (!res.success || !res.data) return [];
-    const list = Array.isArray(res.data) ? res.data : [res.data];
-    return list.map(p => ({
-      pid: p.Id,
-      name: p.ProcessName,
-      cpu: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
-      workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
-      privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,
-      handles: p.Handles || 0,
-      path: p.Path || ''
-    }));
+    const [procRes, cimRes] = await Promise.all([
+      this._runPowerShell(`Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First ${limit} Id, ProcessName, CPU, WorkingSet64, PM, Handles, Path`),
+      this._runPowerShell('Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "Idle" } | Select-Object IDProcess, PercentProcessorTime')
+    ]);
+    if (!procRes.success || !procRes.data) return [];
+    const list = Array.isArray(procRes.data) ? procRes.data : [procRes.data];
+
+    const cores = os.cpus().length || 1;
+    const cimProcMap = new Map();
+    if (cimRes.success && cimRes.data) {
+      const rawCimList = Array.isArray(cimRes.data) ? cimRes.data : [cimRes.data];
+      for (const item of rawCimList) {
+        if (item && item.IDProcess != null) {
+          cimProcMap.set(item.IDProcess, item.PercentProcessorTime || 0);
+        }
+      }
+    }
+
+    return list.map(p => {
+      let normalizedCpuPct = 0.0;
+      if (cimProcMap.has(p.Id)) {
+        const rawCim = cimProcMap.get(p.Id);
+        normalizedCpuPct = Math.min(100.0, Math.max(0.0, Number((rawCim / cores).toFixed(1))));
+      }
+      return {
+        pid: p.Id,
+        name: p.ProcessName,
+        cpu: normalizedCpuPct,
+        cpuTotalSeconds: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
+        workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
+        privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,
+        handles: p.Handles || 0,
+        path: p.Path || ''
+      };
+    });
   }
 
   /**

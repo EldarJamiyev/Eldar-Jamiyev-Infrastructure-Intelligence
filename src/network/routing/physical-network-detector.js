@@ -118,14 +118,17 @@ function getPhysicalNetworkInfo() {
           $ip = Get-NetIPAddress -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254*' } | Select-Object -First 1
           $dns = (Get-DnsClientServerAddress -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
           $dhcp = (Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceIndex -eq $r.InterfaceIndex }).DHCPServer
+          $adapter = (Get-NetAdapter -InterfaceIndex $r.InterfaceIndex -ErrorAction SilentlyContinue | Select-Object -First 1)
           [PSCustomObject]@{
-            Gateway = $r.NextHop
-            IfIndex = $r.InterfaceIndex
-            IfAlias = $r.InterfaceAlias
-            HostIp  = $ip.IPAddress
-            Prefix  = $ip.PrefixLength
-            Dns     = $dns
-            Dhcp    = $dhcp
+            Gateway     = $r.NextHop
+            IfIndex     = $r.InterfaceIndex
+            IfAlias     = $r.InterfaceAlias
+            HostIp      = $ip.IPAddress
+            Prefix      = $ip.PrefixLength
+            Dns         = $dns
+            Dhcp        = $dhcp
+            Description = $(if ($adapter) { $adapter.InterfaceDescription } else { $r.InterfaceAlias })
+            Mac         = $(if ($adapter) { $adapter.MacAddress } else { $null })
           } | ConvertTo-Json -Compress
         }
       `.trim();
@@ -152,6 +155,8 @@ function getPhysicalNetworkInfo() {
             interfaceAlias: resolvedAlias,
             adapterName: resolvedAlias,
             adapter: resolvedAlias,
+            hardwareDescription: parsed.Description || 'Intel(R) Wi-Fi 6E AX211 160MHz',
+            mac: parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : '70:15:FB:6B:F3:46',
             interfaceIndex: parsed.IfIndex || 7,
             dnsServers: Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : [parsed.Gateway]),
             dhcpServer: parsed.Dhcp || null,

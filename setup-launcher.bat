@@ -56,7 +56,14 @@ echo.
 if not defined NODE_ENV set NODE_ENV=development
 if "%NODE_ENV%"=="test" set NODE_ENV=development
 
+:: Terminate any stale process currently holding port 8443
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8443" ^| findstr "LISTENING"') do (
+    echo Terminating stale process holding port 8443 (PID: %%a)...
+    taskkill /F /PID %%a >nul 2>&1
+)
+
 start http://localhost:8443/
 node src/server.js
 
 pause
+

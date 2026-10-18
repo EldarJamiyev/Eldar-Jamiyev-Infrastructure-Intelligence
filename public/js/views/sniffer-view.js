@@ -586,9 +586,15 @@
   }
 
   function escapeAttr(str) {
-    if (!str) return '';
-    return String(str).replace(/"/g, '&quot;');
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
+  window.escapeAttr = escapeAttr;
 
   window.renderPacketSnifferStandaloneView = renderPacketSnifferStandaloneView;
 

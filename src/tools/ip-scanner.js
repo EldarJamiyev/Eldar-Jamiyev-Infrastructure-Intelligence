@@ -1372,6 +1372,25 @@ class UltraIpScanner {
         }
         await Promise.all(phaseBWorkers);
 
+        // 3-Tier Sorting Invariant: Tier 1 (ONLINE), Tier 2 (ARP CACHED), Tier 3 (NO PING/OFFLINE)
+        const getHostRank = (h) => {
+          const s = (h.status || '').toUpperCase();
+          if (s === 'ONLINE' || s === 'RECENTLY_SEEN') return 1;
+          if (s === 'CACHED_ARP' || s === 'ARP CACHED' || s === 'FRESH_ARP') return 2;
+          return 3; // NO PING / OFFLINE / UNRESPONSIVE / NO_ICMP_RESPONSE / CONFIRMED_OFFLINE
+        };
+        const ipToNum = (ip) => {
+          if (!ip || typeof ip !== 'string') return 0;
+          const parts = ip.split('.').map(Number);
+          return (((parts[0] || 0) << 24) | ((parts[1] || 0) << 16) | ((parts[2] || 0) << 8) | (parts[3] || 0)) >>> 0;
+        };
+        this.hosts.sort((a, b) => {
+          const rA = getHostRank(a);
+          const rB = getHostRank(b);
+          if (rA !== rB) return rA - rB;
+          return ipToNum(a.ip) - ipToNum(b.ip);
+        });
+
         if (!this.abortController.aborted) {
           if (this.previousScanHosts && this.previousScanHosts.length > 0) {
             this.deltaSummary = this.computeScanDelta(this.previousScanHosts, this.hosts);
