@@ -40,3 +40,9 @@ EJI-Platform/
 *.backup-*
 *.bak
 *.bak.*
+
+# Ignore local SQLite databases and runtime data
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
