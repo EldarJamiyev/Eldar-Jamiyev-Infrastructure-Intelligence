@@ -4,7 +4,7 @@
  * Zero-Elevation & Zero-Simulation Mandate.
  */
 
-process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+process.env.NODE_ENV = 'test';
 
 process.on('unhandledRejection', (reason) => {
   console.error('\n❌ CRITICAL ERROR: Unhandled Promise Rejection in Test Runner:');

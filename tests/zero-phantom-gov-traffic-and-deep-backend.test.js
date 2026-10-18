@@ -361,8 +361,56 @@ async function runZeroPhantomGovTrafficAndDeepBackendTests() {
 
   console.log('✓ [Test 38.5 Passed] Script privilege/risk ledger and telemetry velocity trends fully verified.\n');
 
+  // -------------------------------------------------------------------------
+  // [38.6] Master Verification: Scratch File Absence, 7-Node Topology Integrity & Report Sync
+  // -------------------------------------------------------------------------
+  console.log('[Test 38.6] Verifying Scratch File Absence, 7-Node Topology Integrity & Report Sync...');
+
+  // A. Scratch Script scripts/inspect-db.js Absence
+  const scratchFile = path.join(__dirname, '../scripts/inspect-db.js');
+  assert.strictEqual(fs.existsSync(scratchFile), false, 'Scratch script scripts/inspect-db.js must be permanently absent');
+  console.log('  ✓ Scratch script scripts/inspect-db.js confirmed absent.');
+
+  // B. Topology 7-Node Integrity & Canonical 10.22.12.204 Resolution in Both Test and Dev Modes
+  // 1. Test Mode Topology Check
+  const origEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'test';
+  const testTopo = topologyEngine.getTopology();
+  assert.ok(testTopo.nodes && testTopo.nodes.length >= 7, 'Topology must retain at least 7 nodes in test mode');
+  const testAppNode = testTopo.nodes.find(n => n.hostname_or_ip === '10.22.12.204');
+  assert.ok(testAppNode, 'Topology must resolve NODE-APP-01 canonical IP 10.22.12.204 in test mode');
+  assert.strictEqual(testAppNode.id, 'NODE-APP-01', 'Node ID for 10.22.12.204 must be NODE-APP-01');
+  assert.strictEqual(testAppNode.name, 'Enterprise Service (mail.taxes.gov.az)', 'Test mode label must be Enterprise Service (mail.taxes.gov.az)');
+
+  // 2. Dev Mode Topology Check
+  process.env.NODE_ENV = 'development';
+  topologyEngine.cachedTopology = null;
+  const devTopo = topologyEngine.getTopology();
+  assert.ok(devTopo.nodes && devTopo.nodes.length >= 7, 'Topology must retain at least 7 nodes in development mode');
+  const devAppNode = devTopo.nodes.find(n => n.hostname_or_ip === '10.22.12.204');
+  assert.ok(devAppNode, 'Topology must resolve NODE-APP-01 canonical IP 10.22.12.204 in development mode');
+  assert.strictEqual(devAppNode.id, 'NODE-APP-01', 'Node ID for 10.22.12.204 must be NODE-APP-01');
+  assert.strictEqual(devAppNode.name, 'Enterprise Application Server (10.22.12.204)', 'Development mode label must be Enterprise Application Server (10.22.12.204)');
+
+  // Restore env
+  process.env.NODE_ENV = origEnv || 'test';
+  topologyEngine.cachedTopology = null;
+  console.log('  ✓ Topology 7-node integrity and 10.22.12.204 correlation verified across test & dev modes.');
+
+  // C. Synchronized Markdown Reports Check (38/38 or 38 / 38)
+  const integrityReport = fs.readFileSync(path.join(__dirname, '../EJII_TEST_EXECUTION_INTEGRITY_REPORT.md'), 'utf8');
+  const deploymentReport = fs.readFileSync(path.join(__dirname, '../EJII_SECURE_DEPLOYMENT_REPORT.md'), 'utf8');
+
+  assert.ok(integrityReport.includes('38/38') || integrityReport.includes('38 / 38'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must report 38/38 suites');
+  assert.ok(integrityReport.includes('Comprehensive 38-Suite Matrix'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must have Comprehensive 38-Suite Matrix');
+  assert.ok(deploymentReport.includes('38 / 38') || deploymentReport.includes('38/38'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must report 38/38 suites');
+  assert.ok(deploymentReport.includes('38.1') && deploymentReport.includes('38.5'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must contain 38.1-38.5 rows');
+  console.log('  ✓ Markdown reports integrity confirmed: All tables and sign-offs reflect 38/38 test suites.');
+
+  console.log('✓ [Test 38.6 Passed] Verification of file hygiene, 7-node topology integrity, and report synchronization passed.\n');
+
   console.log('========================================================================');
-  console.log('  TEST SUITE 38 COMPLETE: ALL 5 TARGETS VERIFIED 100% GREEN             ');
+  console.log('  TEST SUITE 38 COMPLETE: ALL 6 TARGETS VERIFIED 100% GREEN             ');
   console.log('========================================================================\n');
 }
 

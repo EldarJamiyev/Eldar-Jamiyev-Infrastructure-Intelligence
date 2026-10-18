@@ -181,6 +181,7 @@
                   <span style="font-size: 10px; color: var(--text-dim);">Quick Filters:</span>
                   <button class="btn btn-secondary" onclick="window.compileNlFilter('show all tcp resets')" style="font-size: 10px; padding: 1px 6px;">TCP Resets (RST)</button>
                   <button class="btn btn-secondary" onclick="window.compileNlFilter('retransmissions')" style="font-size: 10px; padding: 1px 6px;">Retransmissions</button>
+                  <button class="btn btn-secondary" onclick="window.compileNlFilter('keep alive packets')" style="font-size: 10px; padding: 1px 6px;">Keep-Alives (RFC 1122)</button>
                   <button class="btn btn-secondary" onclick="window.compileNlFilter('tls client hello')" style="font-size: 10px; padding: 1px 6px;">TLS Handshakes</button>
                   <button class="btn btn-secondary" onclick="window.compileNlFilter('dns queries')" style="font-size: 10px; padding: 1px 6px;">DNS Queries</button>
                   <button class="btn btn-secondary" onclick="window.compileNlFilter('http errors 400 or higher')" style="font-size: 10px; padding: 1px 6px;">HTTP Errors</button>
@@ -595,6 +596,104 @@
       .replace(/>/g, '&gt;');
   }
   window.escapeAttr = escapeAttr;
+
+  if (!window.troubleshootEndpoint) {
+    window.troubleshootEndpoint = async function(host, port = 443) {
+      window.troubleshootTarget = { host, port };
+
+      let modal = document.getElementById('troubleshootEndpointModal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'troubleshootEndpointModal';
+        modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);';
+        document.body.appendChild(modal);
+      }
+      modal.style.display = 'flex';
+      modal.innerHTML = `
+        <div style="background: #0f172a; border: 1px solid #334155; border-radius: 10px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+            <div>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #38bdf8;">🩺 Deep Endpoint Troubleshooter (5 Stages)</h3>
+              <div style="font-size: 12px; color: #94a3b8;">Target: <b>${escapeHtml(host)}</b> (Port ${port})</div>
+            </div>
+            <button onclick="document.getElementById('troubleshootEndpointModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+          </div>
+          <div id="troubleshootContentArea" style="text-align: center; padding: 30px; color: #94a3b8;">
+            <div style="margin-bottom: 12px; font-size: 24px;">⚙️</div>
+            <div>Executing 5-Stage Live Wire & OS Diagnostics...</div>
+          </div>
+        </div>
+      `;
+
+      try {
+        const res = await window.api('/api/network/troubleshoot-endpoint', {
+          method: 'POST',
+          body: JSON.stringify({ target: host, port })
+        });
+
+        const content = document.getElementById('troubleshootContentArea');
+        if (!content) return;
+
+        if (!res.success) {
+          content.innerHTML = `<div style="color: #ef4444; padding: 20px;">❌ Diagnostics Failed: ${escapeHtml(res.error || 'Unknown error')}</div>`;
+          return;
+        }
+
+        const stg = res.stages;
+        const vColor = res.overallVerdict === 'HEALTHY' ? '#10b981' : (res.overallVerdict === 'DEGRADED' ? '#f59e0b' : '#ef4444');
+
+        content.innerHTML = `
+          <div style="text-align: left;">
+            <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${vColor}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Overall Health Verdict</div>
+                <div style="font-size: 18px; font-weight: 800; color: ${vColor};">${res.overallVerdict} (Score: ${res.healthScore}/100)</div>
+                <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">${escapeHtml(res.recommendation)}</div>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-primary" onclick="if(window.sniffNode) window.sniffNode('${escapeAttr(res.resolvedIp || host)}'); document.getElementById('troubleshootEndpointModal').style.display='none';" style="font-size: 11px; padding: 6px 12px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">
+                  🎯 Scope Packet Table
+                </button>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+              <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+                <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 1: Process & Socket Mapping</div>
+                <div>Active Sockets Mapped: <b>${stg.socket?.socketsFound || 0}</b></div>
+                ${(stg.socket?.sockets && stg.socket.sockets.length > 0) ? `<div style="color: #94a3b8; font-size: 11px; margin-top: 2px;">Sockets: ${stg.socket.sockets.map(s => escapeHtml(s.name || s.pid)).join(', ')}</div>` : '<div style="color: #64748b; font-size: 11px;">No local process currently has an open socket to this host.</div>'}
+              </div>
+
+              <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+                <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 2: DNS & Reverse PTR Resolution</div>
+                <div>Resolved IP: <code style="color: #a78bfa;">${escapeHtml(stg.dns?.resolvedIp || host)}</code> | Hostname: <code style="color: #a78bfa;">${escapeHtml(stg.dns?.resolvedHostname || '—')}</code> (${stg.dns?.lookupDurationMs || 0}ms)</div>
+              </div>
+
+              <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+                <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 3: L3/L4 TCP Reachability & Kernel Check</div>
+                <div>Connection to Port ${stg.tcp?.targetPort || port}: <b style="color: ${stg.tcp?.connected ? '#10b981' : '#ef4444'};">${stg.tcp?.connected ? `CONNECTED (${stg.tcp?.latencyMs}ms)` : `FAILED (${escapeHtml(stg.tcp?.kernelError || 'Refused')})`}</b></div>
+              </div>
+
+              <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+                <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 4: L6 TLS Handshake & Certificate Inspection</div>
+                ${stg.tls?.notApplicable ? `<div style="color: #64748b;">${escapeHtml(stg.tls?.message || 'N/A')}</div>` : (
+                  stg.tls?.handshakeSuccess ? `<div>ALPN: <code style="color: #38bdf8;">${escapeHtml(stg.tls?.alpnProtocol || '—')}</code> | Subject: <b>${escapeHtml(stg.tls?.subject || '—')}</b> | Valid: <b>${stg.tls?.daysRemaining || 0} days remaining</b></div>` : `<div style="color: #ef4444;">TLS Handshake Error: ${escapeHtml(stg.tls?.error || 'Failed')}</div>`
+                )}
+              </div>
+
+              <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+                <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 5: Live Wire Capture Correlation</div>
+                <div>Correlated Captured Frames: <b>${stg.capture?.correlatedFramesCount || 0}</b> | Retransmissions: <b>${stg.capture?.retransmissionsObserved || 0}</b> | Resets (RST): <b>${stg.capture?.resetsObserved || 0}</b></div>
+              </div>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        const content = document.getElementById('troubleshootContentArea');
+        if (content) content.innerHTML = `<div style="color: #ef4444; padding: 20px;">Network request failed: ${escapeHtml(err.message)}</div>`;
+      }
+    };
+  }
 
   window.renderPacketSnifferStandaloneView = renderPacketSnifferStandaloneView;
 

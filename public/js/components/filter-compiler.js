@@ -521,6 +521,11 @@ class FilterEvaluator {
         return Boolean(layers.tcp?.flags?.psh ?? frame.tcp?.flags?.psh);
       case 'tcp.flags.urg':
         return Boolean(layers.tcp?.flags?.urg ?? frame.tcp?.flags?.urg);
+      case 'tcp.analysis.keep_alive':
+      case 'tcp.analysis.keepalive':
+      case 'tcp.keepalive':
+      case 'keepalive':
+        return Boolean(frame.isKeepAlive || frame.isKeepAliveAck || frame.tcpAnalysis?.isKeepAlive || frame.tcpAnalysis?.isKeepAliveAck || frame.tcpDeltaStatus === 'KEEP_ALIVE');
 
       // UDP (L4)
       case 'udp.port':
@@ -619,6 +624,9 @@ class FilterEvaluator {
     if (lower === 'ip' || lower === 'ipv4') return Boolean(layers.ipv4 || layers.ip || frame.srcIp);
     if (lower === 'ipv6') return Boolean(layers.ipv6);
     if (lower === 'vlan') return Boolean(frame.vlan || layers.vlan);
+    if (lower === 'keepalive' || lower === 'tcp.keepalive' || lower === 'tcp.analysis.keep_alive') {
+      return Boolean(frame.isKeepAlive || frame.isKeepAliveAck || frame.tcpAnalysis?.isKeepAlive || frame.tcpAnalysis?.isKeepAliveAck || frame.tcpDeltaStatus === 'KEEP_ALIVE');
+    }
 
     // If identifier is a field, check if non-empty
     const val = this.extractFieldValue(frame, lower);

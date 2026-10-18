@@ -40,16 +40,16 @@ echo [INFO] Running Zero-Simulation Automated Verification Test Suite...
 set PREFLIGHT_DIR=%TEMP%\ejii_preflight_%RANDOM%
 if not exist "%PREFLIGHT_DIR%" mkdir "%PREFLIGHT_DIR%" >nul 2>&1
 set EJII_DATA_DIR=%PREFLIGHT_DIR%
-node src/db/seed.js >nul 2>&1
 set NODE_ENV=test
+node src/db/seed.js >nul 2>&1
 node tests/run-all-tests.js
-set TEST_EXIT=%ERRORLEVEL%
+set TEST_EXIT_CODE=%ERRORLEVEL%
 rmdir /s /q "%PREFLIGHT_DIR%" >nul 2>&1
 set EJII_DATA_DIR=
-if %TEST_EXIT% neq 0 (
-    echo [ERROR] Test verification failed with exit code %TEST_EXIT%. Halting startup.
+if %TEST_EXIT_CODE% neq 0 (
+    echo [ERROR] Test verification failed with exit code %TEST_EXIT_CODE%. Halting startup.
     pause
-    exit /b %TEST_EXIT%
+    exit /b %TEST_EXIT_CODE%
 )
 
 :: 4. Start EJII NOC Workstation

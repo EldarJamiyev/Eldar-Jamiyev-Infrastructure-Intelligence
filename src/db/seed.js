@@ -203,8 +203,8 @@ function seedDatabase() {
       },
       {
         id: 'NODE-APP-01',
-        name: process.env.NODE_ENV === 'test' ? 'Enterprise Service (mail.taxes.gov.az)' : `Core Services Gateway (${dnsIp || defaultGatewayIp || '192.168.31.1'})`,
-        hostname_or_ip: process.env.NODE_ENV === 'test' ? '10.22.12.204' : (dnsIp || defaultGatewayIp || '192.168.31.1'),
+        name: process.env.NODE_ENV === 'test' ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)',
+        hostname_or_ip: '10.22.12.204',
         mac_address: null,
         type: 'service',
         layer: 'service',

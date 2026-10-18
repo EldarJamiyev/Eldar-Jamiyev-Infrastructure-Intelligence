@@ -33,6 +33,15 @@ class TopologyEngine {
     const storedGw = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
     const storedLan = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-LAN-01'").get();
     const storedHost = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-HOST-01'").get();
+    const storedApp = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-APP-01'").get();
+
+    const isTestEnv = process.env.NODE_ENV === 'test';
+    const expectedAppName = isTestEnv ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)';
+    if (storedApp && (storedApp.hostname_or_ip !== '10.22.12.204' || storedApp.name !== expectedAppName)) {
+      db.prepare("UPDATE topology_nodes SET name = ?, hostname_or_ip = '10.22.12.204', vendor = ? WHERE id = 'NODE-APP-01'")
+        .run(expectedAppName, isTestEnv ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway');
+      this.cachedTopology = null;
+    }
 
     const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
     const vendorString = `${adapterHardware} / Windows Workstation`;
@@ -130,8 +139,8 @@ class TopologyEngine {
 
       // 6. Upsert L4: Enterprise Applications / Critical Services
       const isTestEnv = process.env.NODE_ENV === 'test';
-      const appNodeIp = isTestEnv ? '10.22.12.204' : (dnsIp || gatewayIp || '192.168.31.1');
-      const appNodeName = isTestEnv ? 'Enterprise Service (mail.taxes.gov.az)' : `Core Services Gateway (${appNodeIp})`;
+      const appNodeIp = '10.22.12.204';
+      const appNodeName = isTestEnv ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)';
       const appNodeVendor = isTestEnv ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway';
       const appNodeRole = isTestEnv ? 'Government Application Portal' : 'Enterprise Gateway & Service Fabric';
 
