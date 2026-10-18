@@ -21,6 +21,7 @@ data/audit/
 data/security/
 data/brain_memory*.json
 data/brain-config*.json
+data/scripts_mount/**/*.html
 
 # OS files
 .DS_Store

@@ -736,6 +736,7 @@
   const PROTECTED_PROCESSES = new Set([
     'system',
     'system idle process',
+    'idle',
     'secure system',
     'registry',
     'smss',
@@ -744,6 +745,7 @@
     'services',
     'lsass',
     'svchost',
+    'fontdrvhost',
     'dwm',
     'explorer',
     'msmpeng',
@@ -751,12 +753,19 @@
     'securityhealthservice',
     'node',
     'ejii',
-    'fontdrvhost',
+    'conhost',
+    'searchhost',
+    'startmenuexperiencehost',
+    'shellexperiencehost',
+    'textinputhost',
+    'lockapp',
+    'bioiso',
     'sihost',
     'taskhostw',
     'searchindexer',
     'ctfmon'
   ]);
+  window.PROTECTED_PROCESSES = PROTECTED_PROCESSES;
 
   function renderProcessTable() {
     const tbody = document.getElementById('diagProcessTableBody');
@@ -772,7 +781,7 @@
       const isProtected = p.pid <= 4 || PROTECTED_PROCESSES.has(nameClean);
 
       const actionBtn = isProtected
-        ? '<span style="font-size: 10px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px; display: inline-block;">🛡️ OS Protected</span>'
+        ? '<span class="badge-os-protected" title="Critical Windows OS / Workstation Process — Protected by EJII Shield" style="font-size: 10px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px; display: inline-block;">🛡️ OS Protected</span>'
         : `<button class="btn btn-secondary" onclick="window.previewRemediation('lower_process_priority', { pid: ${p.pid}, processName: '${window.escapeAttr ? window.escapeAttr(p.name) : p.name}' })" style="font-size: 10px; padding: 2px 6px;">Throttle Priority</button>`;
 
       const cpuVal = typeof p.cpu === 'number' ? Math.min(100.0, Math.max(0.0, p.cpu)).toFixed(1) : '0.0';
@@ -870,6 +879,22 @@
             <button class="btn btn-primary" onclick="window.executeTroubleshootProbe()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🚀 Execute Instant Dual Probe</button>
             <button class="btn btn-secondary" onclick="window.troubleshootTarget = null; document.getElementById('activeTroubleshootTargetBanner').style.display = 'none';" style="font-size: 11px; padding: 4px 8px;">✕ Clear</button>
           </div>
+        </div>
+
+        <!-- Guided Cross-Section Incident Investigator Bar -->
+        <div id="unifiedInvestigatorBar" style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 16px;">🔬</span>
+              <span style="font-size: 13px; font-weight: 800; color: #38bdf8;">Unified Cross-Section Incident Investigator:</span>
+              <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">5-Stage End-to-End Troubleshooting Pipeline (App Finder &bull; Wire &bull; Topology &bull; RAG &bull; Re-Verification)</span>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <input type="text" id="unifiedInvestigateInput" class="form-input" placeholder="Enter process or endpoint (e.g. chrome.exe, 192.168.31.1:443)..." style="font-size: 11px; padding: 4px 10px; width: 280px;">
+              <button class="btn btn-primary" onclick="window.runUnifiedInvestigation()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: linear-gradient(135deg, #0284c7, #38bdf8); border: none;">🚀 Investigate</button>
+            </div>
+          </div>
+          <div id="unifiedInvestigationResultsArea" style="display: none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px; margin-top: 8px;"></div>
         </div>
 
         <!-- 3-PANEL COMMAND WORKBENCH -->
@@ -1143,6 +1168,106 @@
       }
     } catch (err) {
       logConsole(`❌ Probe error: ${err.message}`);
+    }
+  };
+
+  /**
+   * Run 5-stage unified cross-section guided investigation
+   */
+  window.runUnifiedInvestigation = async function(inputQuery) {
+    const inputEl = document.getElementById('unifiedInvestigateInput');
+    const val = inputQuery || (inputEl ? inputEl.value.trim() : '');
+    const resultsArea = document.getElementById('unifiedInvestigationResultsArea');
+    if (!resultsArea) return;
+
+    resultsArea.style.display = 'block';
+    resultsArea.innerHTML = '<div style="color: #38bdf8; font-size: 11px; padding: 12px; font-family: var(--font-mono);">⚡ Running 5-Stage Cross-Section Investigation across Sockets, Wire, Topology, Bayesian AI &amp; RAG Corpus...</div>';
+
+    let processQuery = '';
+    let targetHost = '';
+    let targetPort = 443;
+
+    if (val.includes(':')) {
+      const parts = val.split(':');
+      targetHost = parts[0].trim();
+      targetPort = parseInt(parts[1], 10) || 443;
+    } else if (/^\d+\.\d+\.\d+\.\d+$/.test(val)) {
+      targetHost = val;
+    } else {
+      processQuery = val;
+    }
+
+    try {
+      const res = await window.api('/api/rca/investigate-unified', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processQuery, targetHost, targetPort })
+      });
+
+      const report = res.report || res;
+      window.lastUnifiedInvestigation = report;
+
+      let stagesHtml = (report.stages || []).map(s => `
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 8px 12px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+            <span style="font-weight: 700; color: #38bdf8;">Stage ${s.stageNumber}: ${escapeHtml(s.stageId)}</span>
+            <span style="font-size: 10px; color: ${s.status === 'COMPLETED' ? '#34d399' : '#f59e0b'}; font-weight: 700;">[${s.status}]</span>
+          </div>
+          <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px;">${escapeHtml(s.summary)}</div>
+        </div>
+      `).join('');
+
+      let ragHtml = '';
+      const citations = report.diagnosis?.secondOpinion?.ragCitations || report.secondOpinion?.ragCitations || [];
+      if (citations.length > 0) {
+        ragHtml = `
+          <div style="margin-top: 8px; background: rgba(30, 41, 59, 0.5); padding: 8px 12px; border-radius: 6px;">
+            <div style="font-size: 11px; font-weight: 700; color: #a78bfa; margin-bottom: 4px;">📚 Authoritative RAG Knowledge Citations:</div>
+            ${citations.map(c => `<div style="font-size: 10px; color: #cbd5e1; margin-bottom: 3px;">&bull; <strong>${escapeHtml(c.title || c.docId)}</strong>: ${escapeHtml(c.excerpt || '')}</div>`).join('')}
+          </div>
+        `;
+      }
+
+      resultsArea.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div>
+            <span style="font-weight: 800; font-size: 13px; color: #34d399;">Investigation ${escapeHtml(report.investigationId)}: ${escapeHtml(report.overallVerdict)}</span>
+            <span style="font-size: 11px; color: var(--text-dim); margin-left: 8px;">Target: ${escapeHtml(report.targetHost)}:${report.targetPort}</span>
+          </div>
+          <button class="btn btn-primary" onclick="window.reverifyInvestigationFix('${escapeAttr(report.investigationId)}')" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: #059669; border-color: #10b981;">✓ Re-Verify Fix on Wire</button>
+        </div>
+        ${stagesHtml}
+        ${ragHtml}
+        <div id="reverificationOutputArea" style="margin-top: 8px;"></div>
+      `;
+    } catch (err) {
+      resultsArea.innerHTML = `<div style="color: #f87171; font-size: 11px; padding: 10px;">Investigation failed: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+
+  /**
+   * Post-fix closed loop verification
+   */
+  window.reverifyInvestigationFix = async function(invId) {
+    const area = document.getElementById('reverificationOutputArea');
+    if (area) {
+      area.innerHTML = '<div style="color: #38bdf8; font-size: 11px;">Re-probing endpoint on wire post-fix...</div>';
+    }
+    try {
+      const res = await window.api(`/api/rca/investigate-unified/${encodeURIComponent(invId)}/verify`, {
+        method: 'POST'
+      });
+      const v = res.verificationEntry || {};
+      if (area) {
+        area.innerHTML = `
+          <div style="background: ${v.symptomResolved ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)'}; border: 1px solid ${v.symptomResolved ? '#10b981' : '#ef4444'}; border-radius: 6px; padding: 10px 14px; font-size: 11px;">
+            <strong style="color: ${v.symptomResolved ? '#34d399' : '#f87171'};">${escapeHtml(v.verdict)}</strong>
+            <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Before: ${escapeHtml(v.beforeTcpStatus)} &bull; After: ${escapeHtml(v.afterTcpStatus)} &bull; Health Score: ${v.afterHealthScore}%</div>
+          </div>
+        `;
+      }
+    } catch (err) {
+      if (area) area.innerHTML = `<div style="color: #f87171; font-size: 11px;">Re-verification error: ${escapeHtml(err.message)}</div>`;
     }
   };
 

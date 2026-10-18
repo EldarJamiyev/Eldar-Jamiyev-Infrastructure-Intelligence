@@ -24,19 +24,23 @@
     NORMAL_OPERATION: '#34D399' // emerald
   };
 
+  let isAiBrainExpanded = false;
+
+  window.toggleAiBrainDrawerExpand = function() {
+    isAiBrainExpanded = !isAiBrainExpanded;
+    updateDrawerDom(currentBrainState);
+  };
+
   /**
    * Generates drawer HTML markup from live brain state
    */
   function renderAiBrainDrawerHtml(state) {
     if (!state) {
       return `
-        <div id="aiBrainLiveDrawer" class="ai-brain-live-drawer">
+        <div id="aiBrainLiveDrawer" class="ai-brain-live-drawer" style="height: 38px; min-height: 38px; max-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
           <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
             <span>🧠 Initializing Autonomous AI Diagnostic Brain (Continuous Bayesian Ingestion)...</span>
           </div>
-          <div id="aiBrainVerdict" style="display:none;">Initializing...</div>
-          <div id="aiBrainConfidenceBar" style="display:none;"></div>
-          <button id="aiBrainRecommendationBtn" style="display:none;"></button>
         </div>
       `;
     }
@@ -70,26 +74,39 @@
     let actionBtnHtml = '';
     if (isExecutingProbe) {
       actionBtnHtml = `
-        <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" disabled style="opacity: 0.8; cursor: wait;">
+        <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" disabled style="opacity: 0.8; cursor: wait; font-size: 10px; padding: 2px 8px;">
           <span class="status-dot dot-cyan"></span>
-          <span>Executing Probe &amp; Revising Beliefs...</span>
+          <span>Executing Probe...</span>
         </button>
       `;
     } else if (recommendedProbe) {
       const pType = recommendedProbe.probeType || 'ICMP_PING_GATEWAY';
       const pTarget = recommendedProbe.target || '';
       actionBtnHtml = `
-        <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" onclick="window.triggerAiBrainProbe('${pType}', '${pTarget}')" title="${recommendedProbe.expectedOutcome || ''}">
+        <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" onclick="window.triggerAiBrainProbe('${pType}', '${pTarget}')" title="${recommendedProbe.expectedOutcome || ''}" style="font-size: 10px; padding: 2px 8px;">
           <span>⚡</span>
-          <span>Execute Recommended: ${recommendedProbe.name || pType}</span>
+          <span>Execute: ${recommendedProbe.name || pType}</span>
         </button>
       `;
     } else {
-      actionBtnHtml = `
-        <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" disabled style="opacity: 0.6; cursor: default;">
-          <span>⚡</span>
-          <span>No Active Recommendation</span>
-        </button>
+      actionBtnHtml = '';
+    }
+
+    if (!isAiBrainExpanded) {
+      return `
+        <div id="aiBrainLiveDrawer" class="ai-brain-live-drawer" style="height: 38px; min-height: 38px; max-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; white-space: nowrap;">
+            <span style="font-size: 14px;">🧠</span>
+            <span style="font-weight: 800; font-size: 11px; color: #38bdf8; font-family: var(--font-mono);">AI BRAIN:</span>
+            <span class="ai-brain-confidence-badge ${confClass}" style="font-size: 9.5px; padding: 1px 6px;">${topH.confidence}% CONFIDENCE</span>
+            <span style="font-size: 11px; font-weight: 700; color: #f8fafc; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(topH.label)}</span>
+            <span style="font-size: 10px; color: #94a3b8;">(${escapeHtml(topH.rfc)})</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+            ${actionBtnHtml}
+            <button class="btn btn-secondary" onclick="window.toggleAiBrainDrawerExpand()" style="font-size: 10px; padding: 2px 8px; font-weight: 600; font-family: var(--font-mono); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">▾ Expand AI Brain Details</button>
+          </div>
+        </div>
       `;
     }
 
@@ -115,6 +132,7 @@
             <div class="ai-brain-meta-item">
               Engine: <strong style="color: #38BDF8;">Continuous Bayesian (100.0%)</strong>
             </div>
+            <button class="btn btn-secondary" onclick="window.toggleAiBrainDrawerExpand()" style="font-size: 10px; padding: 1px 6px; font-weight: 600; margin-left: 6px;">▴ Collapse</button>
           </div>
         </div>
 

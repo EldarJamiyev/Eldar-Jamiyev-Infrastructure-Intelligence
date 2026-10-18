@@ -476,10 +476,12 @@ class HostDiagnosticsEngine {
           const rawCim = cimProcMap.get(p.Id);
           normalizedCpuPct = Math.min(100.0, Math.max(0.0, Number((rawCim / cores).toFixed(1))));
         }
+        const finalCpu = Math.min(100.0, Math.max(0.0, Number(normalizedCpuPct || 0)));
         return {
           pid: p.Id,
           name: p.ProcessName,
-          cpu: normalizedCpuPct,
+          cpu: finalCpu,
+          cpuPercent: finalCpu,
           cpuTotalSeconds: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
           workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
           privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,
@@ -839,10 +841,12 @@ class HostDiagnosticsEngine {
         const rawCim = cimProcMap.get(p.Id);
         normalizedCpuPct = Math.min(100.0, Math.max(0.0, Number((rawCim / cores).toFixed(1))));
       }
+      const finalCpu = Math.min(100.0, Math.max(0.0, Number(normalizedCpuPct || 0)));
       return {
         pid: p.Id,
         name: p.ProcessName,
-        cpu: normalizedCpuPct,
+        cpu: finalCpu,
+        cpuPercent: finalCpu,
         cpuTotalSeconds: p.CPU ? Number(p.CPU.toFixed(1)) : 0,
         workingSetMB: p.WorkingSet64 ? Number((p.WorkingSet64 / (1024 * 1024)).toFixed(1)) : 0,
         privateMB: p.PM ? Number((p.PM / (1024 * 1024)).toFixed(1)) : 0,

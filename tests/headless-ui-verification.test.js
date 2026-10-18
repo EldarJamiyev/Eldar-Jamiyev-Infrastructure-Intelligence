@@ -209,8 +209,11 @@ async function runHeadlessUiVerificationTests() {
     topoZoom: 1.0,
     topoPanX: 0,
     topoPanY: 0,
-    nodeCoordinatesMap: new Map()
+    nodeCoordinatesMap: new Map(),
+    escapeHtml: (str) => String(str === null || str === undefined ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
+    escapeAttr: (str) => String(str === null || str === undefined ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
   };
+  sandbox.window = sandbox;
 
   // Find closing bracket of renderTopologySvg
   const blockStart = nocViewJs.indexOf('const TOPOLOGY_LAYERS = [');

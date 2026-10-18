@@ -11,9 +11,10 @@ const router = express.Router();
 const { aiBrain, isSafeNetworkTarget, resolveAndValidateTarget } = require('../core/ai-brain');
 const { diagnosticReasoningEngine } = require('../core/rca-engine');
 const { incidentBriefingProvider } = require('../core/llm-provider');
-const { toolSandbox } = require('../core/tool-sandbox');
 const { authenticate, requirePermission, requireRole } = require('./middleware');
 const { SCHEMA_BOUNDS } = require('../core/brain-config-schema');
+const { ragKnowledgeEngine } = require('../core/rag-knowledge-engine');
+const { unifiedInvestigationEngine } = require('../core/unified-investigation-engine');
 
 /**
  * POST /api/rca/generate
@@ -366,4 +367,87 @@ router.post('/brain/orchestrator-config', authenticate, requirePermission('syste
   }
 });
 
+/**
+ * POST /api/rca/investigate-unified
+ * Executes 5-stage cross-section guided investigation across all 5 EJII views
+ */
+router.post('/investigate-unified', authenticate, requirePermission('network.diagnostics.execute'), async (req, res) => {
+  try {
+    const report = await unifiedInvestigationEngine.runGuidedInvestigation(req.body || {});
+    res.json({
+      success: true,
+      investigationId: report.investigationId,
+      report,
+      ...report,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    const status = err.message && err.message.includes('SECURITY_VIOLATION') ? 403 : 500;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/investigate-unified/:id/verify
+ * Re-tests target endpoint post-fix to confirm resolution
+ */
+router.post('/investigate-unified/:id/verify', authenticate, requirePermission('network.diagnostics.execute'), async (req, res) => {
+  try {
+    const result = await unifiedInvestigationEngine.verifyInvestigationResolution(req.params.id);
+    res.json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    const status = err.message && err.message.includes('not found') ? 404 : 500;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/rag/search
+ * Queries local RAG knowledge base using BM25 ranking
+ */
+router.get('/rag/search', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const q = req.query.q || '';
+    const topK = Number(req.query.limit) || 5;
+    const results = ragKnowledgeEngine.retrieveRelevantContext(q, { topK });
+    res.json({
+      success: true,
+      query: q,
+      count: results.length,
+      results,
+      citations: results,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/brain/second-opinion
+ * Runs second-opinion verification on high-impact incident hypotheses with RAG citations
+ */
+router.post('/brain/second-opinion', authenticate, requirePermission('telemetry.read'), async (req, res) => {
+  try {
+    const secondOpinion = await aiModelOrchestrator.verifyHighImpactDiagnosis({
+      bayesianEvaluation: req.body?.evaluation || req.body?.bayesianEvaluation || {},
+      telemetryContext: req.body?.context || req.body?.telemetryContext || {},
+      ragEngine: ragKnowledgeEngine
+    });
+    res.json({
+      success: true,
+      secondOpinion,
+      ...secondOpinion,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
+

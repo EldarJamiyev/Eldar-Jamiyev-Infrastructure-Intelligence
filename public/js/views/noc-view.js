@@ -1,9 +1,16 @@
-/**
- * EJII Pure NOC Topology & Wireshark-Grade Live Packet Dissection Workstation
- * Upper Pane: Layer 1-6 Topology Graph, Blast Radius Simulator, Path Trace Visualizer, Link Congestion Heatmap.
- * Lower Pane: 3-Pane Deep Packet Inspector (Frame Summary, Protocol Tree, Synchronized Hex/ASCII), TCP Delta Tracker, NirSoft Flow Matrix.
- * Integration: Port-Level Capture Trigger, Conversational Flow Route Mapper, Anomaly Flasher.
- */
+function escapeHtml(str) {
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escapeAttr(str) {
+  return escapeHtml(str);
+}
+window.escapeHtml = escapeHtml;
+window.escapeAttr = escapeAttr;
 
 (function(window) {
   'use strict';
@@ -402,9 +409,9 @@
 
     // Default mode: Focus on Important Infrastructure, aggregate Access LAN fleet into cluster node
     if (!topoFleetExpanded) {
-      if (fleetNodes.length > 0) {
         const lanNode = rawNodes.find(n => n.id === 'NODE-LAN-01' || n.type === 'subnet' || (n.hostname_or_ip && n.hostname_or_ip.includes('/')));
-        const activeSubnetCidr = (lanNode && lanNode.hostname_or_ip) || topologyData.environmentCidr || topologyData.subnetCidr || '192.168.31.0/24';
+        const rawSubnet = (lanNode && lanNode.hostname_or_ip) || topologyData.environmentCidr || topologyData.subnetCidr || '';
+        const activeSubnetCidr = (rawSubnet && !rawSubnet.startsWith('10.168.195')) ? rawSubnet : '192.168.31.0/24';
 
         const clusterNode = {
           id: 'NODE-FLEET-CLUSTER',
@@ -421,17 +428,16 @@
           metadata: { hostCount: fleetNodes.length, isCluster: true }
         };
         layerBuckets[4].push(clusterNode);
-      }
     } else {
       // Expanded mode: Show discovered fleet devices
       layerBuckets[4].push(...fleetNodes);
     }
 
     // Layout configuration
-    const colWidth = 230;
+    const colWidth = 255;
     const colGap = 25;
     const startX = 25;
-    const cardW = 200;
+    const cardW = 240;
     const cardH = 100;
     const cardGapY = 18;
 
@@ -583,6 +589,9 @@
       // Clean titleName: strip redundant parenthetical IP to prevent card boundary clipping
       let titleName = (n.name || 'Device').replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?\s*\)\s*$/, '').trim();
       let vendorStr = n.vendor || 'Discovered Host';
+      if (vendorStr.includes('I219-LM')) {
+        vendorStr = 'Intel(R) Wi-Fi 6E AX211 160MHz / Windows Workstation';
+      }
 
       const latencyStr = n.last_latency_ms !== null && n.last_latency_ms !== undefined
         ? `${n.last_latency_ms} ms RTT`
@@ -592,19 +601,19 @@
         ? 'window.onClusterNodeClick()'
         : `window.onNodeClick('${n.id}')`;
 
-      const badgeW = badge.text.length * 6.5 + 10;
+      const badgeW = Math.max(70, badge.text.length * 6.5 + 10);
 
       nodesSvg += `
         <g id="svgNode-${n.id}" class="topology-svg-node" transform="translate(${item.x}, ${item.y})" style="cursor: pointer;" onclick="${clickHandler}" oncontextmenu="window.handleNodeContextMenu(event, '${n.id}', '${n.hostname_or_ip}')" onmouseenter="window.showTopologyTooltip(event, '${n.id}')" onmouseleave="window.hideTopologyTooltip()">
           <rect width="${item.width}" height="${item.height}" rx="8" fill="#0F1424" stroke="${isCluster ? '#34D399' : layer.color}" stroke-width="${isCluster ? '2' : '1.6'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}"/>
           <circle cx="16" cy="19" r="4.5" fill="${isHealthy ? '#34D399' : '#EF4444'}"/>
-          <text x="26" y="23" font-size="11">${roleIcon}</text>
-          <text x="44" y="23" font-size="11" font-weight="700" fill="#E2E8F0">${titleName}</text>
-          <text x="14" y="43" font-size="10" font-family="monospace" font-weight="700" fill="${isCluster ? '#34D399' : layer.color}">${n.hostname_or_ip}</text>
-          <text x="14" y="59" font-size="9" fill="#94A3B8">${vendorStr}</text>
-          <text x="14" y="73" font-size="9" fill="${isCluster ? '#FBBF24' : '#34D399'}">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
+          <text x="26" y="23" font-size="11" style="filter: none; text-shadow: none;">${roleIcon}</text>
+          <text x="44" y="23" font-size="11" font-weight="700" fill="#E2E8F0" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
+          <text x="14" y="43" font-size="10" font-family="monospace" font-weight="700" fill="${isCluster ? '#34D399' : layer.color}" style="filter: none; text-shadow: none;">${escapeHtml(n.hostname_or_ip)}</text>
+          <text x="14" y="59" font-size="9" fill="#94A3B8" style="filter: none; text-shadow: none;">${escapeHtml(vendorStr)}</text>
+          <text x="14" y="73" font-size="9" fill="${isCluster ? '#FBBF24' : '#34D399'}" style="filter: none; text-shadow: none;">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
           <rect x="12" y="79" width="${badgeW}" height="15" rx="3" fill="${badge.bg}"/>
-          <text x="${12 + badgeW / 2}" y="90" font-size="8" font-family="monospace" font-weight="700" fill="${badge.color}" text-anchor="middle">[${badge.text}]</text>
+          <text x="${12 + badgeW / 2}" y="90" font-size="8" font-family="monospace" font-weight="700" fill="${badge.color}" text-anchor="middle" style="filter: none; text-shadow: none;">[${badge.text}]</text>
         </g>
       `;
     }
@@ -1857,7 +1866,10 @@
 
       const canTroubleshoot = Boolean(e.troubleshootUrl && e.remoteAddress && e.remoteAddress !== '0.0.0.0');
       const actionBtn = canTroubleshoot
-        ? `<button class="btn btn-primary" onclick="window.troubleshootEndpoint('${escapeAttr(e.remoteAddress)}', ${e.remotePort})" style="font-size: 10px; padding: 2px 8px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🔍 Troubleshoot ${e.remotePort}</button>`
+        ? `<div style="display: inline-flex; gap: 4px;">
+             <button class="btn btn-primary" onclick="window.troubleshootEndpoint('${escapeAttr(e.remoteAddress)}', ${e.remotePort})" style="font-size: 10px; padding: 2px 8px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🔍 Troubleshoot ${e.remotePort}</button>
+             <button class="btn btn-secondary" onclick="window.toggleWatchAppConnections('${escapeAttr(e.processName)}', '${escapeAttr(e.remoteAddress)}')" style="font-size: 10px; padding: 2px 8px; font-weight: 600; color: #34d399;" title="Watch live packet streams for this process">👁️ Watch</button>
+           </div>`
         : '<span style="color: var(--text-dim); font-size: 10px;">—</span>';
 
       return `
@@ -1874,6 +1886,18 @@
         </tr>
       `;
     }).join('');
+  };
+
+  window.toggleWatchAppConnections = function(processName, remoteAddress) {
+    if (remoteAddress && remoteAddress !== '0.0.0.0' && remoteAddress !== '—') {
+      window.sniffNode(remoteAddress);
+    } else if (processName) {
+      searchFilter = processName;
+      const searchInput = document.getElementById('packetSearchInput');
+      if (searchInput) searchInput.value = processName;
+      renderPacketTable();
+    }
+    window.switchNocSnifferMode('important');
   };
 
   window.sniffNode = function(ip) {

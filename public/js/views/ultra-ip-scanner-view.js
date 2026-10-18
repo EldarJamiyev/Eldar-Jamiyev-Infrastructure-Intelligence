@@ -324,30 +324,19 @@
     renderScannerRows();
   };
 
+  function getHostSortTier(h) {
+    const st = String(h.status || '').toUpperCase();
+    if (st === 'ONLINE' || st === 'ACTIVE' || st === 'RECENTLY_SEEN') return 1;
+    if (st.includes('CACHED') || st.includes('ARP') || (h.macAddress && h.macAddress !== 'Unknown' && h.macAddress !== 'N/A' && h.macAddress !== '00:00:00:00:00:00' && h.macAddress !== '— (No MAC Observed)')) return 2;
+    return 3; // NO_ICMP_RESPONSE, UNRESPONSIVE, CONFIRMED_OFFLINE
+  }
+  window.getHostSortTier = getHostSortTier;
+
   function renderScannerRows() {
     const tbody = document.getElementById('scannerFleetTableBody');
     if (!tbody) return;
 
     let filtered = currentScanResults.slice();
-
-    // 3-Tier Sorting: Tier 1 (ONLINE), Tier 2 (ARP CACHED), Tier 3 (NO PING/OFFLINE)
-    const getHostTier = (h) => {
-      const s = (h.status || '').toUpperCase();
-      if (s === 'ONLINE' || s === 'RECENTLY_SEEN') return 1;
-      if (s === 'CACHED_ARP' || s === 'ARP CACHED' || s === 'FRESH_ARP') return 2;
-      return 3;
-    };
-    const ipToNum = (ip) => {
-      if (!ip || typeof ip !== 'string') return 0;
-      const parts = ip.split('.').map(Number);
-      return (((parts[0] || 0) << 24) | ((parts[1] || 0) << 16) | ((parts[2] || 0) << 8) | (parts[3] || 0)) >>> 0;
-    };
-    filtered.sort((a, b) => {
-      const tA = getHostTier(a);
-      const tB = getHostTier(b);
-      if (tA !== tB) return tA - tB;
-      return ipToNum(a.ip) - ipToNum(b.ip);
-    });
 
     // Filter chip logic
     if (activeFilterChip === 'online') {
@@ -372,6 +361,21 @@
       );
     }
 
+    // Deterministic 3-Tier Sorting immediately before render
+    filtered.sort((a, b) => {
+      const tierDiff = getHostSortTier(a) - getHostSortTier(b);
+      if (tierDiff !== 0) return tierDiff;
+      const portsA = Array.isArray(a.openServices) ? a.openServices.length : 0;
+      const portsB = Array.isArray(b.openServices) ? b.openServices.length : 0;
+      if (portsB !== portsA) return portsB - portsA;
+      const ipA = String(a.ip || '').split('.').map(Number);
+      const ipB = String(b.ip || '').split('.').map(Number);
+      for (let i = 0; i < 4; i++) {
+        if ((ipA[i] || 0) !== (ipB[i] || 0)) return (ipA[i] || 0) - (ipB[i] || 0);
+      }
+      return 0;
+    });
+
     // Update counts
     const countAll = document.getElementById('chipCountAll');
     const countOnline = document.getElementById('chipCountOnline');
@@ -391,18 +395,19 @@
 
     tbody.innerHTML = filtered.map(h => {
       let statusDot = '';
-      if (h.status === 'ONLINE') {
-        statusDot = `<span class="status-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span> <span style="color: #34D399; font-weight: 700;">ONLINE</span>`;
-      } else if (h.status === 'RECENTLY_SEEN') {
+      const st = String(h.status || h.detailedStatus || '').toUpperCase();
+      if (st === 'ONLINE' || st === 'ACTIVE') {
+        statusDot = `<span class="status-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span> <span style="color: #34D399; font-weight: 700;">● ONLINE</span>`;
+      } else if (st === 'RECENTLY_SEEN' || st === 'FRESH_ARP') {
         statusDot = `<span class="status-dot" style="background: #06B6D4; box-shadow: 0 0 6px #06B6D4;"></span> <span style="color: #38BDF8; font-weight: 700;">FRESH_ARP</span>`;
-      } else if (h.status === 'OFFLINE' || h.detailedStatus === 'CONFIRMED_OFFLINE') {
-        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)'}">OFFLINE</span>`;
-      } else if (h.status === 'UNRESPONSIVE' || h.detailedStatus === 'NO_ICMP_RESPONSE') {
-        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="${h.probeLimitations || 'No response to ICMP Echo within budget; host may be off or firewall silently dropping ICMP'}">NO PING</span>`;
-      } else if (h.status === 'CACHED_ARP') {
-        statusDot = `<span class="status-dot" style="background: #64748B;"></span> <span style="color: #94A3B8;">CACHED</span>`;
+      } else if (st === 'CONFIRMED_OFFLINE' || st === 'OFFLINE') {
+        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${escapeAttr(h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)')}">OFFLINE</span>`;
+      } else if (st === 'NO_ICMP_RESPONSE' || st === 'UNRESPONSIVE' || st === 'NO PING') {
+        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="No ICMP Echo reply within timeout; host is either unallocated, offline, or dropping ping">NO PING</span>`;
+      } else if (st.includes('CACHED') || st.includes('ARP')) {
+        statusDot = `<span class="status-dot" style="background: #64748B;"></span> <span style="color: #94A3B8;">ARP CACHED</span>`;
       } else {
-        statusDot = `<span class="status-dot" style="background: #475569;"></span> <span style="color: #64748B;">${h.status || 'UNKNOWN'}</span>`;
+        statusDot = `<span class="status-dot" style="background: #475569;"></span> <span style="color: #64748B;">${escapeHtml(h.status || 'UNKNOWN')}</span>`;
       }
 
       // Quick connect badges
@@ -430,17 +435,22 @@
         ? `<div style="color: #34D399; font-weight: 600;">${h.latencyMs} ms</div>${h.latencySource ? `<div style="font-size: 9px; color: #64748B;">[${h.latencySource}]</div>` : ''}`
         : (h.status === 'UNRESPONSIVE' ? `<span style="color: #64748B; font-size: 10px;">timed out</span>` : `<span style="color: var(--text-dim);">&lt;1 ms</span>`);
 
+      const hasMac = Boolean(h.macAddress && h.macAddress !== 'Unknown' && h.macAddress !== 'N/A' && h.macAddress !== '00:00:00:00:00:00' && h.macAddress !== '— (No MAC Observed)');
+      const macDisplay = hasMac ? escapeHtml(h.macAddress) : '—';
+      const vendorDisplay = hasMac ? escapeHtml(h.vendor || h.manufacturer || 'Standard Network Device') : '— (No MAC Observed)';
+      const categoryDisplay = escapeHtml(h.category || (h.status === 'ONLINE' ? 'Network Endpoint' : 'Unoccupied / Silent IP'));
+
       return `
         <tr>
           <td class="col-nowrap" style="text-align: center; white-space: nowrap;">${statusDot}</td>
           <td>
-            <div style="font-weight: 700; color: #E2E8F0;">${h.hostname || h.ip}</div>
-            ${h.computerName ? `<div style="font-size: 9.5px; color: #38BDF8;">[${h.nameSource || (h.reverseDns ? 'PTR' : 'NetBIOS')}: ${h.computerName}]</div>` : ''}
+            <div style="font-weight: 700; color: #E2E8F0;">${escapeHtml(h.hostname || h.ip)}</div>
+            ${h.computerName ? `<div style="font-size: 9.5px; color: #38BDF8;">[${escapeHtml(h.nameSource || (h.reverseDns ? 'PTR' : 'NetBIOS'))}: ${escapeHtml(h.computerName)}]</div>` : ''}
           </td>
-          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent);">${h.ip}</td>
-          <td class="col-nowrap" style="white-space: nowrap; color: #94A3B8;">${h.macAddress || 'Unknown'}</td>
-          <td style="color: #CBD5E1;">${h.vendor || 'Unknown Hardware'}</td>
-          <td class="col-nowrap" style="white-space: nowrap;">${h.category || 'Network Host'}</td>
+          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent);">${escapeHtml(h.ip)}</td>
+          <td class="col-nowrap" style="white-space: nowrap; color: #94A3B8;">${macDisplay}</td>
+          <td style="color: #CBD5E1;">${vendorDisplay}</td>
+          <td class="col-nowrap" style="white-space: nowrap;">${categoryDisplay}</td>
           <td>${serviceBadges}</td>
           <td class="col-nowrap" style="white-space: nowrap;">${latencyDisplay}</td>
           <td class="col-nowrap" style="white-space: nowrap;">

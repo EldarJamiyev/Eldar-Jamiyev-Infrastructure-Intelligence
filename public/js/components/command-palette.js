@@ -46,6 +46,16 @@
       window.renderView('packet-sniffer');
       setTimeout(() => { if (typeof window.runPacketDissection === 'function') window.runPacketDissection(); }, 200);
     }},
+    { id: 'act-unified-investigator', category: 'Action', title: 'Launch Guided Cross-Section Incident Investigator (5-Stage Pipeline)', icon: '🔬', action: () => {
+      window.renderView('core-diagnostics');
+      setTimeout(() => {
+        const input = document.getElementById('unifiedInvestigateInput');
+        if (input) {
+          input.focus();
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
+    }},
     { id: 'act-incident-standard', category: 'Operational Guide', title: 'Open Incident Reporting Standard (mail.taxes.gov.az)', icon: '📢', action: () => {
       if (typeof window.toggleJuniorAdminCheatSheet === 'function') {
         window.toggleJuniorAdminCheatSheet();

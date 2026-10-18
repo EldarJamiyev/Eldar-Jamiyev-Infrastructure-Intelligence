@@ -191,9 +191,11 @@ const OUI_DATABASE = {
  * @param {string} mac 
  */
 function resolveOuiVendor(mac) {
-  if (!mac) return 'Unknown Vendor';
-  const cleanMac = mac.replace(/[:-]/g, '').toUpperCase();
-  if (cleanMac.length < 6) return 'Invalid MAC';
+  if (!mac || mac === 'Unknown' || mac === 'N/A' || mac === '00:00:00:00:00:00' || mac === '— (No MAC Observed)') {
+    return '— (No MAC Observed)';
+  }
+  const cleanMac = String(mac).replace(/[:-]/g, '').toUpperCase();
+  if (cleanMac.length < 6) return '— (No MAC Observed)';
 
   const prefix = `${cleanMac.slice(0, 2)}:${cleanMac.slice(2, 4)}:${cleanMac.slice(4, 6)}`;
   if (OUI_DATABASE[prefix]) {
@@ -1609,7 +1611,7 @@ async function inspectSingleHostDeep(ip) {
   } else if (arpTable instanceof Map) {
     mac = arpTable.get(cleanIp) || 'Unknown';
   }
-  const vendor = mac !== 'Unknown' ? resolveOuiVendor(mac) : 'Unknown Vendor';
+  const vendor = (mac && mac !== 'Unknown' && mac !== 'N/A' && mac !== '00:00:00:00:00:00') ? resolveOuiVendor(mac) : '— (No MAC Observed)';
 
   // 4. Ping Latency Jitter & Packet Loss (4 rounds)
   const livenessProbes = [];

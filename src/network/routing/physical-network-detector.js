@@ -96,16 +96,17 @@ function getPhysicalNetworkInfo() {
   }
 
   let info = {
-    hostIp: '10.168.195.33',
-    gatewayIp: '10.168.195.1',
-    subnetCidr: '10.168.195.0/24',
+    hostIp: '192.168.31.89',
+    gatewayIp: '192.168.31.1',
+    subnetCidr: '192.168.31.0/24',
     subnetMask: '255.255.255.0',
-    interfaceAlias: 'Ethernet',
-    adapterName: 'Ethernet',
-    adapter: 'Ethernet',
+    interfaceAlias: 'Wi-Fi',
+    adapterName: 'Intel(R) Wi-Fi 6E AX211 160MHz',
+    adapter: 'Intel(R) Wi-Fi 6E AX211 160MHz',
+    hardwareDescription: 'Intel(R) Wi-Fi 6E AX211 160MHz',
     interfaceIndex: 7,
-    dnsServers: ['10.22.10.11', '10.22.10.12'],
-    dhcpServer: null,
+    dnsServers: ['192.168.31.1', '1.1.1.1'],
+    dhcpServer: '192.168.31.1',
     isDetected: false
   };
 

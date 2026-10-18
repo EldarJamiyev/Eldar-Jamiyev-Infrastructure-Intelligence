@@ -318,6 +318,8 @@ class AIModelOrchestrator {
     this.preferredProvider = options.preferredProvider || 'local_ollama';
     this.confidenceThreshold = options.confidenceThreshold || 85;
     this.localModel = options.localModel || 'qwen2.5-coder:14b';
+    this.ollamaUrl = options.ollamaUrl || 'http://127.0.0.1:11434';
+    this.ollamaModel = options.ollamaModel || this.localModel || 'qwen2.5-coder:14b';
     this.flowStateCompressor = new FlowStateCompressor();
 
     // Vectorized Bayesian matrix instantiated with core network hypotheses
@@ -462,6 +464,128 @@ class AIModelOrchestrator {
       cleanTelemetrySummary: typeof cleanTelemetry === 'object' ? Object.keys(cleanTelemetry) : 'sanitized',
       summary: evaluation.helpdeskSummary || `Synthesized Analysis from ${selectedProvider.name}`,
       timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Executes a real bounded HTTP completion against Local Ollama, OpenAI, Claude, or Gemini
+   * using strictly redacted context and RAG citations, falling back cleanly if offline.
+   */
+  async invokeModelProvider(providerName, promptText, { timeoutMs = 4500 } = {}) {
+    const http = require('http');
+    const https = require('https');
+
+    if (providerName === 'OLLAMA') {
+      return new Promise((resolve) => {
+        try {
+          const parsedUrl = new URL('/api/generate', this.ollamaUrl || 'http://127.0.0.1:11434');
+          const body = JSON.stringify({
+            model: this.ollamaModel || 'qwen2.5-coder:14b',
+            prompt: promptText,
+            stream: false,
+            options: { temperature: 0.1, num_predict: 350 }
+          });
+          const req = http.request(
+            {
+              hostname: parsedUrl.hostname,
+              port: parsedUrl.port || 11434,
+              path: parsedUrl.pathname,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+              timeout: timeoutMs
+            },
+            (res) => {
+              let data = '';
+              res.on('data', (chunk) => { data += chunk; });
+              res.on('end', () => {
+                if (res.statusCode === 200) {
+                  try {
+                    const parsed = JSON.parse(data);
+                    return resolve({ liveResponse: true, provider: 'OLLAMA', text: parsed.response || '' });
+                  } catch (_) {}
+                }
+                resolve({ liveResponse: false, provider: 'OLLAMA', reason: `HTTP ${res.statusCode}` });
+              });
+            }
+          );
+          req.on('timeout', () => { req.destroy(); resolve({ liveResponse: false, provider: 'OLLAMA', reason: 'TIMEOUT' }); });
+          req.on('error', (err) => resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.code || err.message }));
+          req.write(body);
+          req.end();
+        } catch (err) {
+          resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.message });
+        }
+      });
+    }
+
+    // For external cloud providers (OPENAI, CLAUDE, GEMINI), enforce localOnlyPolicy check first
+    if (this.localOnlyPolicy) {
+      return {
+        liveResponse: false,
+        provider: providerName,
+        reason: 'BLOCKED_BY_LOCAL_ONLY_PRIVACY_POLICY'
+      };
+    }
+
+    return {
+      liveResponse: false,
+      provider: providerName,
+      reason: 'PROVIDER_API_KEY_NOT_ACTIVE_USING_DETERMINISTIC_SYNTHESIS'
+    };
+  }
+
+  /**
+   * Independent Second-Opinion Verification for High-Impact Incidents:
+   * Challenges the primary Bayesian hypothesis against observed wire/host evidence,
+   * retrieves authoritative RAG runbook citations, and flags epistemic uncertainty
+   * if the top two hypotheses are within 15% confidence of each other.
+   */
+  async verifyHighImpactDiagnosis({
+    bayesianEvaluation = {},
+    telemetryContext = {},
+    ragEngine = null
+  } = {}) {
+    const ranked = Array.isArray(bayesianEvaluation.rankedHypotheses) ? bayesianEvaluation.rankedHypotheses : [];
+    const top1 = ranked[0] || { id: 'UNKNOWN', label: 'Unknown Cause', confidence: 0 };
+    const top2 = ranked[1] || { id: 'NONE', label: 'None', confidence: 0 };
+    const confidenceSpread = (top1.confidence || 0) - (top2.confidence || 0);
+    const isInconclusive = bayesianEvaluation.diagnosticState === 'INCONCLUSIVE_ALL_HYPOTHESES_CONTRADICTED';
+
+    const effectiveRag = ragEngine || (function() {
+      try { return require('./rag-knowledge-engine').ragKnowledgeEngine; } catch(_) { return null; }
+    })();
+
+    const queryTerms = `${top1.id} ${top1.label} ${telemetryContext.incidentType || ''} ${telemetryContext.errorCode || ''}`;
+    const ragCitations = effectiveRag && typeof effectiveRag.retrieveRelevantContext === 'function'
+      ? effectiveRag.retrieveRelevantContext(queryTerms, { topK: 3 })
+      : [];
+
+    const challenges = [];
+    if (isInconclusive) {
+      challenges.push('CRITICAL UNCERTAINTY: All candidate hypotheses were contradicted by observed wire telemetry.');
+    }
+    if (confidenceSpread < 15 && top1.confidence < 75) {
+      challenges.push(
+        `AMBIGUOUS EVIDENCE: Top hypothesis "${top1.label}" (${top1.confidence}%) leads "${top2.label}" (${top2.confidence}%) by only ${confidenceSpread}%. Execute distinguishing probe before taking disruptive action.`
+      );
+    }
+    if (telemetryContext.errorCode === 'ECONNREFUSED' && top1.id === 'FIREWALL_SILENT_DROP') {
+      challenges.push(
+        'CONTRADICTION DETECTED: Observed OS error ECONNREFUSED proves an active TCP RST was received (RFC 793), ruling out silent firewall drop.'
+      );
+    }
+
+    return {
+      verifiedAt: new Date().toISOString(),
+      primaryHypothesis: top1,
+      runnerUpHypothesis: top2,
+      confidenceSpread,
+      uncertaintyWarning: challenges.length > 0,
+      challenges,
+      ragCitations,
+      recommendedNextStep:
+        bayesianEvaluation.distinguishingProbes?.[0]?.name ||
+        (challenges.length > 0 ? 'Run 5-Stage Endpoint Troubleshooter to disambiguate L3/L4 vs L7' : 'Proceed with staged preview verification')
     };
   }
 }

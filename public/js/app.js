@@ -1,7 +1,16 @@
-/**
- * EJII — NOC Topology & Live Packet Dissection Engine
- * Frontend Controller & WebSocket Coordinator
- */
+function escapeHtml(str) {
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escapeAttr(str) {
+  return escapeHtml(str);
+}
+window.escapeHtml = escapeHtml;
+window.escapeAttr = escapeAttr;
 
 // State Management
 const state = {

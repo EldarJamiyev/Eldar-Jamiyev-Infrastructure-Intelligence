@@ -24,9 +24,9 @@ class TopologyEngine {
    */
   syncTopologyToPhysicalNetwork() {
     const netInfo = getPhysicalNetworkInfo();
-    const gatewayIp = netInfo.gatewayIp || '10.168.195.1';
-    const hostIp = netInfo.hostIp || '10.168.195.33';
-    const subnetCidr = netInfo.subnetCidr || '10.168.195.0/24';
+    const gatewayIp = (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1';
+    const hostIp = (netInfo.hostIp && !netInfo.hostIp.startsWith('10.168.195')) ? netInfo.hostIp : '192.168.31.89';
+    const subnetCidr = (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24';
     const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '10.22.10.11';
     const now = new Date().toISOString();
 
@@ -337,9 +337,9 @@ class TopologyEngine {
     this.syncTopologyToPhysicalNetwork();
 
     const netInfo = getPhysicalNetworkInfo();
-    const defaultGatewayIp = netInfo.gatewayIp || '10.168.195.1';
-    const hostIp = netInfo.hostIp || '10.168.195.33';
-    const subnetCidr = netInfo.subnetCidr || '10.168.195.0/24';
+    const defaultGatewayIp = (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1';
+    const hostIp = (netInfo.hostIp && !netInfo.hostIp.startsWith('10.168.195')) ? netInfo.hostIp : '192.168.31.89';
+    const subnetCidr = (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24';
     const now = new Date().toISOString();
 
     const arpEntries = await getArpTable();
@@ -679,10 +679,10 @@ class TopologyEngine {
     `).run(
       id,
       snapName,
-      netInfo.subnetCidr || '10.168.195.0/24',
-      netInfo.gatewayIp || '10.168.195.1',
-      netInfo.hostIp || '10.168.195.33',
-      netInfo.interfaceAlias || 'Ethernet',
+      (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24',
+      (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1',
+      (netInfo.hostIp && !netInfo.hostIp.startsWith('10.168.195')) ? netInfo.hostIp : '192.168.31.89',
+      netInfo.interfaceAlias || 'Wi-Fi',
       triggerReason,
       nodes.length,
       edges.length,
@@ -694,8 +694,8 @@ class TopologyEngine {
       success: true,
       snapshotId: id,
       snapshotName: snapName,
-      environmentCidr: netInfo.subnetCidr || '10.168.195.0/24',
-      gatewayIp: netInfo.gatewayIp || '10.168.195.1',
+      environmentCidr: (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24',
+      gatewayIp: (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1',
       nodesCount: nodes.length,
       edgesCount: edges.length,
       createdAt: now

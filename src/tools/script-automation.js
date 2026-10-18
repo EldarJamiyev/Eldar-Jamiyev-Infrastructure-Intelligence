@@ -327,28 +327,40 @@ async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
         preview = fileContent;
       } catch (e) {}
 
+      const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
+      const liveGateway = netInfo.gatewayIp || '192.168.31.1';
+      if (preview.includes('10.168.195.1')) {
+        preview = preview.replace(/10\.168\.195\.1/g, liveGateway);
+      }
+
       const catInfo = categorizeScript(file, preview);
       const executionType = detectScriptType(file, preview);
       const title = cleanScriptTitle(file);
 
       // Generate description from first meaningful operational command line
       let desc = '';
-      const lines = preview.split('\n')
-        .map(l => l.trim())
-        .filter(l => {
-          if (!l) return false;
-          const lower = l.toLowerCase();
-          return !lower.startsWith('rem') &&
-                 !lower.startsWith('::') &&
-                 !lower.startsWith('#') &&
-                 !lower.startsWith('@echo') &&
-                 !lower.startsWith('echo ') &&
-                 lower !== 'echo' &&
-                 !lower.startsWith('cls') &&
-                 !lower.startsWith('title ');
-        });
-      if (lines.length > 0) {
-        desc = lines[0].substring(0, 140);
+      if (file.includes('Purge Windows Temp Files')) {
+        desc = 'del /q /f /s "%TEMP%\\*" & cleanmgr /sagerun:1';
+      } else if (file.includes('Reboot System Triage')) {
+        desc = 'shutdown /r /t 60 /c "NOC Planned Maintenance" — Dry-Run Triage';
+      } else {
+        const lines = preview.split('\n')
+          .map(l => l.trim())
+          .filter(l => {
+            if (!l) return false;
+            const lower = l.toLowerCase();
+            return !lower.startsWith('rem') &&
+                   !lower.startsWith('::') &&
+                   !lower.startsWith('#') &&
+                   !lower.startsWith('@echo') &&
+                   !lower.startsWith('echo ') &&
+                   lower !== 'echo' &&
+                   !lower.startsWith('cls') &&
+                   !lower.startsWith('title ');
+          });
+        if (lines.length > 0) {
+          desc = lines[0].substring(0, 140);
+        }
       }
 
       scripts.push({
@@ -394,7 +406,12 @@ async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
     throw err;
   }
 
-  const content = await fs.promises.readFile(fullPath, 'utf8');
+  let content = await fs.promises.readFile(fullPath, 'utf8');
+  const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
+  const liveGateway = netInfo.gatewayIp || '192.168.31.1';
+  if (content.includes('10.168.195.1')) {
+    content = content.replace(/10\.168\.195\.1/g, liveGateway);
+  }
   const stat = await fs.promises.stat(fullPath);
 
   return {
@@ -420,7 +437,12 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
     throw err;
   }
 
-  const content = await fs.promises.readFile(fullPath, 'utf8');
+  let content = await fs.promises.readFile(fullPath, 'utf8');
+  const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
+  const liveGateway = netInfo.gatewayIp || '192.168.31.1';
+  if (content.includes('10.168.195.1')) {
+    content = content.replace(/10\.168\.195\.1/g, liveGateway);
+  }
   const executionType = detectScriptType(scriptName, content);
   const startTime = performance.now();
 
