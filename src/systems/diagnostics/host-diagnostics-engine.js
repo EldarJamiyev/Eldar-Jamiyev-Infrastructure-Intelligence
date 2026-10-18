@@ -18,6 +18,7 @@
 const os = require('os');
 const { exec } = require('child_process');
 const { IS_WINDOWS } = require('../../config');
+const hostMetrics = require('../../protocols/host-metrics');
 
 class HostDiagnosticsEngine {
   constructor() {

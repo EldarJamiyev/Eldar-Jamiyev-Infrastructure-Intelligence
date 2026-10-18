@@ -81,6 +81,31 @@ async function main() {
       console.log(JSON.stringify(audit, null, 2));
       break;
 
+    case '--json':
+    case 'json': {
+      const { getPhysicalNetworkInfo } = require('../src/network/routing/physical-network-detector');
+      const { hostDiagnosticsEngine } = require('../src/systems/diagnostics/host-diagnostics-engine');
+      const { aiBrain } = require('../src/core/ai-brain');
+
+      const netInfo = getPhysicalNetworkInfo ? getPhysicalNetworkInfo() : null;
+      let hostAudit = null;
+      try {
+        hostAudit = await hostDiagnosticsEngine.collectFullAudit(false);
+      } catch (e) {
+        hostAudit = { error: e.message };
+      }
+      const brainState = aiBrain.getLiveState ? aiBrain.getLiveState() : null;
+
+      const summary = {
+        timestamp: new Date().toISOString(),
+        network: netInfo,
+        host: hostAudit,
+        aiBrain: brainState
+      };
+      console.log(JSON.stringify(summary, null, 2));
+      break;
+    }
+
     default:
       console.log('Commands:');
       console.log('  ping <host>            Run real ICMP ping with RTT and jitter');

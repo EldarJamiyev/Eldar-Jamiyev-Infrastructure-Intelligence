@@ -87,6 +87,22 @@ class PacketStreamer {
   }
 
   /**
+   * Bounded LRU eviction helper enforcing MAX_ENTRIES = 2500 cap
+   */
+  _pruneMapIfNeeded(mapInstance, maxEntries = 2500) {
+    if (!mapInstance || !(mapInstance instanceof Map)) return;
+    if (mapInstance.size > maxEntries) {
+      const excess = mapInstance.size - maxEntries;
+      const iter = mapInstance.keys();
+      for (let i = 0; i < excess; i++) {
+        const nextKey = iter.next();
+        if (nextKey.done) break;
+        mapInstance.delete(nextKey.value);
+      }
+    }
+  }
+
+  /**
    * Determine if an IP belongs to shared Anycast, CDN, or multi-tenant gateway infrastructure
    */
   isSharedAnycastIp(ip) {

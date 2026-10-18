@@ -20,7 +20,8 @@ const DANGEROUS_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 const ALL_TOOLS = [
   'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
   'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
-  'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'bleachbit_hygiene', 'filezilla_sftp_check'
+  'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'bleachbit_hygiene', 'filezilla_sftp_check',
+  'snmp_probe', 'dual_probe', 'winrm_collect'
 ];
 
 const ROLE_PERMISSIONS = {
@@ -30,17 +31,20 @@ const ROLE_PERMISSIONS = {
   ANALYST: [
     'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
     'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
-    'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+    'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
+    'snmp_probe', 'dual_probe'
   ],
   OPERATOR: [
     'ping', 'tcp_handshake', 'dns_resolve',
     'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
-    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
+    'snmp_probe', 'dual_probe'
   ],
   NOC_OPERATOR: [
     'ping', 'tcp_handshake', 'dns_resolve',
     'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
-    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check'
+    'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
+    'snmp_probe', 'dual_probe'
   ],
   READONLY: ['hwinfo_sensors']
 };
@@ -276,6 +280,46 @@ class ToolSandbox {
             filePath: { type: 'string', description: 'Target file path to verify', default: 'package.json' }
           }
         }
+      },
+      {
+        name: 'snmp_probe',
+        description: 'Query SNMP v1/v2c/v3 standard system MIBs and interface octets.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          required: ['target'],
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname' },
+            community: { type: 'string', default: 'public' },
+            port: { type: 'integer', minimum: 1, maximum: 65535, default: 161 },
+            timeout: { type: 'integer', minimum: 100, maximum: 10000, default: 2500 }
+          }
+        }
+      },
+      {
+        name: 'dual_probe',
+        description: 'Simultaneous ICMP + TCP dual-stack prober preventing false alarms when ICMP is firewalled.',
+        requiredRole: 'OPERATOR',
+        parameters: {
+          type: 'object',
+          required: ['target'],
+          properties: {
+            target: { type: 'string', description: 'Destination IP address or hostname' },
+            port: { type: 'integer', minimum: 1, maximum: 65535, default: 443 }
+          }
+        }
+      },
+      {
+        name: 'winrm_collect',
+        description: 'Collect remote or local Windows telemetry via CIM/WinRM cmdlets.',
+        requiredRole: 'SYSADMIN',
+        parameters: {
+          type: 'object',
+          properties: {
+            target: { type: 'string', description: 'Target hostname or IP (defaults to localhost)', default: 'localhost' },
+            timeout: { type: 'integer', minimum: 1000, maximum: 30000, default: 10000 }
+          }
+        }
       }
     ];
   }
@@ -354,6 +398,15 @@ class ToolSandbox {
         case 'filezilla_sftp_check':
           result = await this._execFilezillaSftpCheck(sanitizedParams);
           break;
+        case 'snmp_probe':
+          result = await this._execSnmpProbe(sanitizedParams);
+          break;
+        case 'dual_probe':
+          result = await this._execDualProbe(sanitizedParams);
+          break;
+        case 'winrm_collect':
+          result = await this._execWinrmCollect(sanitizedParams);
+          break;
         default:
           throw new ToolExecutionError(`Unknown diagnostic tool: '${toolName}'`, 404);
       }
@@ -405,7 +458,7 @@ class ToolSandbox {
       throw new ToolExecutionError('Parameters must be a valid JSON object.');
     }
 
-    const NO_TARGET_TOOLS = ['sysinternals_forensics', 'hwinfo_sensors', 'bleachbit_hygiene', 'wireshark_dissect'];
+    const NO_TARGET_TOOLS = ['sysinternals_forensics', 'hwinfo_sensors', 'bleachbit_hygiene', 'wireshark_dissect', 'winrm_collect'];
     const target = params.target || params.ip || params.domain;
 
     if (toolName === 'arp_lookup' && !params.ip) {
@@ -434,7 +487,9 @@ class ToolSandbox {
     const sanitized = {};
 
     if (params.target) sanitized.target = validateHost(params.target);
-    else if (!NO_TARGET_TOOLS.includes(toolName) && toolName !== 'arp_lookup' && toolName !== 'filezilla_sftp_check') {
+    else if (toolName === 'winrm_collect') {
+      sanitized.target = 'localhost';
+    } else if (!NO_TARGET_TOOLS.includes(toolName) && toolName !== 'arp_lookup' && toolName !== 'filezilla_sftp_check') {
       sanitized.target = '127.0.0.1';
     }
     if (params.ip) sanitized.ip = validateHost(params.ip);
@@ -886,6 +941,7 @@ class ToolSandbox {
 
   async _execPuttySshBanner({ target, port = 22 }) {
     const net = require('net');
+    const { launchNativeTool } = require('../tools/putty-bridge');
     return new Promise((resolve) => {
       let banner = '';
       const socket = new net.Socket();
@@ -893,14 +949,14 @@ class ToolSandbox {
       socket.on('data', (data) => {
         banner += data.toString('utf8');
         socket.destroy();
-        resolve({ success: true, target, port, banner: banner.trim(), service: 'SSH_OR_TELNET' });
+        resolve({ success: true, target, port, banner: banner.trim(), service: 'SSH_OR_TELNET', bridgeAvailable: typeof launchNativeTool === 'function' });
       });
       socket.on('timeout', () => {
         socket.destroy();
-        resolve({ success: false, target, port, error: 'TIMEOUT_WAITING_FOR_BANNER' });
+        resolve({ success: false, target, port, error: 'TIMEOUT_WAITING_FOR_BANNER', bridgeAvailable: typeof launchNativeTool === 'function' });
       });
       socket.on('error', (err) => {
-        resolve({ success: false, target, port, error: err.code || err.message });
+        resolve({ success: false, target, port, error: err.code || err.message, bridgeAvailable: typeof launchNativeTool === 'function' });
       });
       socket.connect(port, target);
     });
@@ -922,6 +978,21 @@ class ToolSandbox {
     const { computeFileHash } = require('../tools/filezilla-sftp');
     const hashInfo = await computeFileHash(filePath);
     return { success: true, ...hashInfo };
+  }
+
+  async _execSnmpProbe({ target, community = 'public', port = 161, timeout = 2500 }) {
+    const snmpEngine = require('../protocols/snmp-engine');
+    return await snmpEngine.getSystemInfo(target, community, port, timeout);
+  }
+
+  async _execDualProbe({ target, port = 443 }) {
+    const { probeNodeDual } = require('../protocols/dual-prober');
+    return await probeNodeDual({ id: target, hostname_or_ip: target, name: target, port });
+  }
+
+  async _execWinrmCollect({ target = 'localhost', timeout = 10000 }) {
+    const { collectWindowsMetrics } = require('../integrations/windows-management/winrm-collector');
+    return await collectWindowsMetrics(target, { timeoutMs: timeout });
   }
 }
 

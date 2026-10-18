@@ -535,6 +535,45 @@ class AIModelOrchestrator {
   }
 
   /**
+   * Probe local Ollama daemon status
+   */
+  async probeLocalOllamaStatus(timeoutMs = 1500) {
+    const http = require('http');
+    return new Promise((resolve) => {
+      try {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port: 11434,
+          path: '/api/tags',
+          method: 'GET',
+          timeout: timeoutMs
+        }, (res) => {
+          if (res.statusCode === 200) {
+            this.providers.local_ollama.available = true;
+            resolve({ online: true, status: 'ONLINE (Ready)', port: 11434, model: this.localModel });
+          } else {
+            this.providers.local_ollama.available = false;
+            resolve({ online: false, status: 'STANDBY (Deterministic Bayesian Core Active)', code: res.statusCode });
+          }
+        });
+        req.on('timeout', () => {
+          req.destroy();
+          this.providers.local_ollama.available = false;
+          resolve({ online: false, status: 'STANDBY (Deterministic Bayesian Core Active)', reason: 'TIMEOUT' });
+        });
+        req.on('error', (err) => {
+          this.providers.local_ollama.available = false;
+          resolve({ online: false, status: 'STANDBY (Deterministic Bayesian Core Active)', reason: err.code || err.message });
+        });
+        req.end();
+      } catch (err) {
+        this.providers.local_ollama.available = false;
+        resolve({ online: false, status: 'STANDBY (Deterministic Bayesian Core Active)', reason: err.message });
+      }
+    });
+  }
+
+  /**
    * Independent Second-Opinion Verification for High-Impact Incidents:
    * Challenges the primary Bayesian hypothesis against observed wire/host evidence,
    * retrieves authoritative RAG runbook citations, and flags epistemic uncertainty

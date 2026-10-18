@@ -46,3 +46,9 @@ data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+

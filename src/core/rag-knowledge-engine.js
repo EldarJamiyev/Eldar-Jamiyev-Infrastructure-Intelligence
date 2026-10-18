@@ -123,6 +123,39 @@ class RAGKnowledgeEngine {
       } catch (_) {}
     }
 
+    // Index autonomous remediation recipes
+    try {
+      const { autonomousRemediationEngine } = require('../systems/remediation/autonomous-remediation-engine');
+      if (autonomousRemediationEngine && typeof autonomousRemediationEngine.getRecipeCatalog === 'function') {
+        const recipes = autonomousRemediationEngine.getRecipeCatalog();
+        for (const recipe of recipes) {
+          this._addDocumentToCorpus({
+            docId: `RECIPE:${recipe.id}`,
+            title: `Remediation Recipe: ${recipe.name || recipe.title || recipe.id}`,
+            source: 'src/systems/remediation/autonomous-remediation-engine.js',
+            category: 'REMEDIATION_RECIPE',
+            content: `${recipe.description || ''} Parameters: ${JSON.stringify(recipe.parameters || {})} Risk: ${recipe.riskLevel || 'TIER_1'} RequiredRole: ${recipe.requiredRole || 'OPERATOR'}`
+          });
+        }
+      }
+    } catch (_) {}
+
+    // Index local PC automation scripts
+    try {
+      const { SCRIPT_CATALOG } = require('../tools/script-automation');
+      if (Array.isArray(SCRIPT_CATALOG)) {
+        for (const script of SCRIPT_CATALOG) {
+          this._addDocumentToCorpus({
+            docId: `SCRIPT:${script.filename}`,
+            title: `Host Automation Script: ${script.name || script.filename}`,
+            source: `scripts/${script.filename}`,
+            category: 'HOST_AUTOMATION_SCRIPT',
+            content: `${script.description || ''} Category: ${script.category || 'General'} Risk: ${script.risk || 'LOW'} Impact: ${script.impact || ''}`
+          });
+        }
+      }
+    } catch (_) {}
+
     if (Array.isArray(extraDocuments)) {
       for (const doc of extraDocuments) {
         if (doc && doc.docId && doc.content) {
@@ -144,7 +177,7 @@ class RAGKnowledgeEngine {
   }
 
   _addDocumentToCorpus(doc) {
-    const tokens = tokenizeText(`${doc.title || ''} ${doc.category || ''} ${doc.content || ''}`);
+    const tokens = tokenizeText(`${doc.docId || ''} ${doc.source || ''} ${doc.title || ''} ${doc.category || ''} ${doc.content || ''}`);
     const termFreq = new Map();
     for (const tok of tokens) {
       termFreq.set(tok, (termFreq.get(tok) || 0) + 1);

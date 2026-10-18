@@ -3,6 +3,16 @@
  * On-Call IT Operations, Rapid Diagnostics & Touch Dual-Custody Approvals
  */
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 const mState = {
   token: localStorage.getItem('ejii_token') || null,
   activeTab: 'incidents',
@@ -94,18 +104,18 @@ async function renderMobileIncidents() {
     <div class="m-card" style="border-left: 4px solid ${inc.severity === 'critical' ? 'var(--danger)' : 'var(--warning)'};">
       <div class="m-card-header">
         <div>
-          <span class="m-badge m-badge-${inc.severity}">${inc.severity}</span>
+          <span class="m-badge m-badge-${escapeHtml(inc.severity)}">${escapeHtml(inc.severity)}</span>
           <span style="font-size: 11px; color: var(--text-dim); margin-left: 6px;">${new Date(inc.created_at).toLocaleTimeString()}</span>
         </div>
-        <span style="font-size: 10px; font-family: monospace; color: var(--text-dim);">${inc.id}</span>
+        <span style="font-size: 10px; font-family: monospace; color: var(--text-dim);">${escapeHtml(inc.id)}</span>
       </div>
-      <div class="m-title" style="margin-bottom: 6px;">${inc.title}</div>
+      <div class="m-title" style="margin-bottom: 6px;">${escapeHtml(inc.title)}</div>
       <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
-        <strong>Root Cause:</strong> ${inc.root_cause || 'Investigating'}
+        <strong>Root Cause:</strong> ${escapeHtml(inc.root_cause || 'Investigating')}
       </div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-        <span style="font-size: 11px; color: #fbbf24;">⚡ ${inc.suppressed_count || 0} symptoms suppressed</span>
-        <button class="m-btn" style="width: auto; padding: 6px 14px; font-size: 12px; background: #059669;" onclick="resolveMobileIncident('${inc.id}')">
+        <span style="font-size: 11px; color: #fbbf24;">⚡ ${Number(inc.suppressed_count) || 0} symptoms suppressed</span>
+        <button class="m-btn" style="width: auto; padding: 6px 14px; font-size: 12px; background: #059669;" onclick="resolveMobileIncident('${escapeHtml(inc.id)}')">
           Resolve
         </button>
       </div>
@@ -151,20 +161,20 @@ async function renderMobileApprovals() {
       <div class="m-card" style="border-left: 4px solid var(--warning);">
         <div class="m-card-header">
           <span class="m-badge m-badge-warning">Tier 3 Remediation</span>
-          <span style="font-size: 10px; font-family: monospace; color: var(--text-dim);">${act.id}</span>
+          <span style="font-size: 10px; font-family: monospace; color: var(--text-dim);">${escapeHtml(act.id)}</span>
         </div>
-        <div class="m-title">${act.action_type}</div>
+        <div class="m-title">${escapeHtml(act.action_type)}</div>
         <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-          Target: <code style="color: #7dd3fc;">${act.target_resource}</code>
+          Target: <code style="color: #7dd3fc;">${escapeHtml(act.target_resource)}</code>
         </div>
         <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">
-          Requested by: <strong>${act.requester_username}</strong>
+          Requested by: <strong>${escapeHtml(act.requester_username)}</strong>
         </div>
 
         <!-- Interactive Swipe to Approve -->
-        <div class="swipe-container" id="swipeTrack-${act.id}" data-action-id="${act.id}">
+        <div class="swipe-container" id="swipeTrack-${escapeHtml(act.id)}" data-action-id="${escapeHtml(act.id)}">
           <span class="swipe-label">Slide to Authorize Remediation →</span>
-          <div class="swipe-thumb" id="swipeThumb-${act.id}">➔</div>
+          <div class="swipe-thumb" id="swipeThumb-${escapeHtml(act.id)}">➔</div>
         </div>
       </div>
     `).join('');

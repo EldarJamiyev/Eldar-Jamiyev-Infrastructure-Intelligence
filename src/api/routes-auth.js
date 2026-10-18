@@ -8,6 +8,8 @@ const router = express.Router();
 const { db } = require('../db/database');
 const { verifyPassword, createToken, verifyToken, revokeToken, ROLES } = require('../core/security');
 const { authenticate, parseCookies } = require('./middleware');
+const { loginRateLimiter, recordLoginAttempt } = require('./rate-limiter');
+const { generateSecret, verifyTOTP, getOtpAuthUrl } = require('../core/totp');
 
 /**
  * Set session cookie
@@ -24,10 +26,11 @@ function setSessionCookie(res, token) {
 /**
  * POST /api/auth/login
  */
-router.post('/login', (req, res) => {
+router.post('/login', loginRateLimiter, (req, res) => {
   const { username, password } = req.body || {};
 
   if (!username || typeof password !== 'string' || !password) {
+    recordLoginAttempt(req, false);
     return res.status(400).json({ error: 'Username and password are required.' });
   }
 
@@ -35,17 +38,22 @@ router.post('/login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim());
 
   if (!user) {
+    recordLoginAttempt(req, false);
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
   // Cryptographically verify password against stored PBKDF2 hash & salt
   if (!verifyPassword(password, user.password_hash, user.salt)) {
+    recordLoginAttempt(req, false);
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
   if (user.is_active !== 1) {
+    recordLoginAttempt(req, false);
     return res.status(403).json({ error: 'This user account is currently deactivated.' });
   }
+
+  recordLoginAttempt(req, true);
 
   const token = createToken({
     id: user.id,
@@ -140,6 +148,49 @@ router.get('/me', authenticate, (req, res) => {
   res.json({
     authenticated: true,
     user: req.user
+  });
+});
+
+/**
+ * GET /api/auth/mfa/status
+ * Check MFA setup status for the authenticated user
+ */
+router.get('/mfa/status', authenticate, (req, res) => {
+  res.json({
+    mfaEnabled: false,
+    method: 'TOTP_RFC6238',
+    user: req.user.username
+  });
+});
+
+/**
+ * GET /api/auth/totp/setup
+ * Generate TOTP secret and provisioning URI for the user
+ */
+router.get('/totp/setup', authenticate, (req, res) => {
+  const secret = generateSecret(20);
+  const otpauthUrl = getOtpAuthUrl('EJII', req.user.username, secret);
+  res.json({
+    success: true,
+    secret,
+    otpauthUrl
+  });
+});
+
+/**
+ * POST /api/auth/mfa/verify-totp
+ * Verify an RFC 6238 TOTP token
+ */
+router.post('/mfa/verify-totp', authenticate, (req, res) => {
+  const { secret, token } = req.body || {};
+  if (!secret || !token) {
+    return res.status(400).json({ error: 'Secret and token are required.' });
+  }
+  const valid = verifyTOTP(secret, token);
+  res.json({
+    success: valid,
+    verified: valid,
+    timestamp: new Date().toISOString()
   });
 });
 

@@ -36,6 +36,7 @@ try {
 } catch (_) {}
 
 const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+const notificationDispatcher = require('../integrations/notifications/notification-dispatcher');
 
 /**
  * Crash-atomic file write via temporary sibling file + rename.
@@ -275,6 +276,7 @@ class AIBrain {
     this.circuitBreakerTripped = false;
     this.runtimeErrorCount = 0;
     this._watchdogTimer = null;
+    this.dispatchedNotifications = [];
 
     // Operator Feedback & Bounded Calibration Weights
     this.hypothesisCalibration = {};
@@ -2024,17 +2026,55 @@ class AIBrain {
    * Post-Remediation Verification & Telemetry Re-Calibration Hook
    */
   onRemediationExecuted(remediationResult, params = {}) {
-    if (params.target || params.destIp || params.pid) {
-      const target = params.target || params.destIp;
+    const target = params.target || params.destIp;
+    if (target || params.pid) {
       if (target && Array.isArray(this.anomalyHistory)) {
         this.anomalyHistory = this.anomalyHistory.filter(a => a.destIp !== target);
       }
+      // Re-evaluate any active incident matching the remediated subsystem/target
+      if (this.activeIncidents) {
+        for (const [key, incident] of this.activeIncidents.entries()) {
+          if ((target && (key.includes(target) || incident.destIp === target)) ||
+              (params.recipeId && incident.recipeId === params.recipeId)) {
+            incident.status = 'REMEDIATED_PENDING_WIRE_CONFIRMATION';
+            if (!Array.isArray(incident.remediationHistory)) {
+              incident.remediationHistory = [];
+            }
+            incident.remediationHistory.push({
+              recipeId: remediationResult?.recipeId,
+              executedAt: new Date().toISOString(),
+              verificationProof: remediationResult?.proof || remediationResult?.result || 'Remediation completed; awaiting wire verification',
+              success: remediationResult?.success !== false
+            });
+            if (brainPersistenceRepository && typeof brainPersistenceRepository.saveIncident === 'function') {
+              try { brainPersistenceRepository.saveIncident(incident); } catch (_) {}
+            }
+          }
+        }
+      }
     }
+
+    if (this.dispatchedNotifications && notificationDispatcher) {
+      this.dispatchedNotifications.push({
+        type: 'REMEDIATION_EXECUTED',
+        recipeId: remediationResult?.recipeId,
+        target,
+        timestamp: new Date().toISOString(),
+        success: remediationResult?.success !== false
+      });
+      if (this.dispatchedNotifications.length > 100) this.dispatchedNotifications.shift();
+    }
+
     return {
       acknowledged: true,
       timestamp: new Date().toISOString(),
-      recipeId: remediationResult?.recipeId
+      recipeId: remediationResult?.recipeId,
+      status: 'REMEDIATED_PENDING_WIRE_CONFIRMATION'
     };
+  }
+
+  getDispatchedNotifications(limit = 50) {
+    return (this.dispatchedNotifications || []).slice(-limit).reverse();
   }
 }
 

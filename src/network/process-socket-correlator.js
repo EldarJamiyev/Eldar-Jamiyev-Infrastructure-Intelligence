@@ -161,7 +161,7 @@ class ProcessSocketCorrelator {
       });
     }
 
-    this.endpoints = correlated;
+    this.endpoints = correlated.length > 2500 ? correlated.slice(-2500) : correlated;
     this.lastRefreshedAt = now;
     return this.endpoints;
   }

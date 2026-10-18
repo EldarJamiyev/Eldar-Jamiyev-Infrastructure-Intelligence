@@ -20,6 +20,7 @@ const { exec } = require('child_process');
 const { IS_WINDOWS, HMAC_SECRET, DATA_DIR } = require('../../config');
 const { hasPermission } = require('../../core/security');
 const { logAction } = require('../../core/audit-logger');
+const executionEngine = require('../../automation/execution-engine');
 
 const DANGEROUS_SHELL_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 

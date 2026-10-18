@@ -59,9 +59,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(ellipse at 68% -18%, rgba(24, 104, 148, .12), transparent 48%),
-    var(--bg-app) !important;
+  background: var(--bg-app) !important;
   color: var(--text-main) !important;
   font-family: var(--font-sans) !important;
   font-size: 13px;
@@ -383,15 +381,16 @@ td code, td pre { font-family: var(--font-mono); }
 .btn:active, .button:active, button.btn:active { transform: translateY(0); }
 
 .btn-primary, .button-primary, button.btn-primary {
-  color: #051521 !important;
-  background: linear-gradient(135deg, #79dfff, #39bfe9) !important;
-  border-color: #62d5ff !important;
-  box-shadow: 0 3px 14px rgba(35, 184, 237, .13);
+  color: #FFFFFF !important;
+  background: #0284C7 !important;
+  border-color: #38BDF8 !important;
+  box-shadow: none !important;
 }
 
 .btn-primary:hover, .button-primary:hover {
-  background: #a0eaff !important;
-  box-shadow: 0 5px 18px rgba(35, 184, 237, .2);
+  background: #0369A1 !important;
+  border-color: #7DD3FC !important;
+  box-shadow: none !important;
 }
 
 .btn-secondary, .button-secondary, button.btn-secondary {

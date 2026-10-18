@@ -67,6 +67,7 @@ const { runServiceVerifierMatrixTests } = require('./service-verifier-matrix.tes
 const { runSystemTests } = require('./system-probes.test');
 const { runToolsTestSuite } = require('./tools-engines.test');
 const { runLiveServerVerification } = require('./verify-live-server.e2e');
+const { runFullRepositoryCohesionAndProductionTruthTests } = require('./full-repository-cohesion-and-production-truth.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -133,7 +134,8 @@ async function runAllTests() {
     { name: '46. Enterprise Web & Mail Verifier, 5-Layer Stepper & Connectivity Matrix', fn: runServiceVerifierMatrixTests },
     { name: '47. Real Host & Bare-Metal System Metrics, Services & Process DAG Audit', fn: runSystemTests },
     { name: '48. 14-Tool Diagnostic Subsystems (Wireshark, Nmap, Sysinternals, iPerf, Netcat, BleachBit)', fn: runToolsTestSuite },
-    { name: '49. Live Running Server Socket, HTTP & WebSocket Telemetry E2E Verification', fn: runLiveServerVerification }
+    { name: '49. Live Running Server Socket, HTTP & WebSocket Telemetry E2E Verification', fn: runLiveServerVerification },
+    { name: '50. Full-Repository Cohesion, 100% Reachability, Physical RAG Runbooks/Policies, 20-Tool Sandbox & CLI/Desktop/Mobile Truth', fn: runFullRepositoryCohesionAndProductionTruthTests }
   ];
 
   for (const s of suites) {

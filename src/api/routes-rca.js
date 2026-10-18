@@ -449,5 +449,26 @@ router.post('/brain/second-opinion', authenticate, requirePermission('telemetry.
   }
 });
 
+/**
+ * GET /api/rca/notifications
+ * Returns recent dispatched notifications from AI Brain & system events
+ */
+router.get('/notifications', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const notifications = typeof aiBrain.getDispatchedNotifications === 'function'
+      ? aiBrain.getDispatchedNotifications()
+      : [];
+    res.json({
+      success: true,
+      count: notifications.length,
+      notifications,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
+
 
