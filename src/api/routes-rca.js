@@ -329,4 +329,41 @@ router.post('/brain/feedback', authenticate, requirePermission('network.diagnost
   }
 });
 
+const { aiModelOrchestrator } = require('../core/ai-model-orchestrator');
+
+/**
+ * GET /api/rca/brain/orchestrator-status
+ * Multi-Model AI Orchestrator status, conditional gate config, and localOnlyPolicy state
+ */
+router.get('/brain/orchestrator-status', authenticate, (req, res) => {
+  try {
+    const status = aiModelOrchestrator.getStatus();
+    res.json({
+      success: true,
+      status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/brain/orchestrator-config
+ * Updates Multi-Model AI Orchestrator settings (localOnlyPolicy, confidenceThreshold, preferredProvider)
+ */
+router.post('/brain/orchestrator-config', authenticate, requirePermission('system.config.manage'), (req, res) => {
+  try {
+    const updated = aiModelOrchestrator.updateConfig(req.body || {});
+    res.json({
+      success: true,
+      message: 'AI Model Orchestrator configuration updated.',
+      status: updated,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -792,6 +792,34 @@
           </div>
         </div>
 
+        <!-- Multi-Model AI Orchestrator & Air-Gapped Privacy Policy Bar -->
+        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 18px;">🧠</span>
+            <div>
+              <span style="font-size: 12px; font-weight: 800; color: #38bdf8;">Multi-Model AI Brain Orchestrator:</span>
+              <span style="font-size: 11px; font-weight: 700; color: #34d399; margin-left: 6px;">[ Local Ollama / Qwen2.5-Coder:14b ]</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 10px; font-family: var(--font-mono); color: #94a3b8; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px;">🛡️ localOnlyPolicy: ACTIVE (Air-Gapped &bull; Zero Cloud Egress)</span>
+            <span style="font-size: 10px; font-family: var(--font-mono); color: #a78bfa; background: rgba(167, 139, 250, 0.1); border: 1px solid rgba(167, 139, 250, 0.3); padding: 2px 8px; border-radius: 12px;">⚡ Gate: Deterministic Bayesian Bypass (&ge;85%)</span>
+          </div>
+        </div>
+
+        <!-- Correlated Target Troubleshooting Banner (Prefilled from App Finder) -->
+        <div id="activeTroubleshootTargetBanner" style="${window.troubleshootTarget ? 'display: flex;' : 'display: none;'} background: rgba(2, 132, 199, 0.15); border: 1px solid #0284c7; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 16px;">🎯</span>
+            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">Correlated Endpoint from App Finder:</span>
+            <span id="troubleshootTargetBadge" style="font-family: var(--font-mono); font-size: 12px; font-weight: 800; color: #f8fafc; background: #0369a1; padding: 2px 8px; border-radius: 4px;">${window.troubleshootTarget ? `${window.troubleshootTarget.host}:${window.troubleshootTarget.port}` : ''}</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-primary" onclick="window.executeTroubleshootProbe()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🚀 Execute Instant Dual Probe</button>
+            <button class="btn btn-secondary" onclick="window.troubleshootTarget = null; document.getElementById('activeTroubleshootTargetBanner').style.display = 'none';" style="font-size: 11px; padding: 4px 8px;">✕ Clear</button>
+          </div>
+        </div>
+
         <!-- 3-PANEL COMMAND WORKBENCH -->
         <div style="display: grid; grid-template-columns: 280px 1fr 300px; gap: 14px;">
           
@@ -1038,6 +1066,27 @@
   window.handleAiBrainLiveUpdate = function(update) {
     if (typeof window.handleAiBrainDiagnosticUpdate === 'function') {
       window.handleAiBrainDiagnosticUpdate(update);
+    }
+  };
+
+  /**
+   * Execute instant dual probe against prefilled correlated endpoint
+   */
+  window.executeTroubleshootProbe = async function() {
+    if (!window.troubleshootTarget) return;
+    const { host, port } = window.troubleshootTarget;
+    logConsole(`[Diagnostic Probe] Dispatching dual-mode probe to ${host}:${port}...`);
+    try {
+      const res = await window.api('/api/network/ai-brain/trigger-probe', {
+        method: 'POST',
+        body: JSON.stringify({ target: host, destPort: port, incidentType: 'TCP_SYN_TIMEOUT' })
+      });
+      logConsole(`✓ Probe completed in ${res.latencyMs || 0}ms. Status: ${res.success ? 'SUCCESS' : 'FAILED'}. Top Hypothesis: ${res.revisedEvaluation?.topHypothesis?.id || 'NORMAL'}`);
+      if (res.revisedEvaluation && typeof window.renderDiagnosisFeed === 'function') {
+        window.renderDiagnosisFeed(res.revisedEvaluation);
+      }
+    } catch (err) {
+      logConsole(`❌ Probe error: ${err.message}`);
     }
   };
 

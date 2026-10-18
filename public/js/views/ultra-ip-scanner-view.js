@@ -94,6 +94,7 @@
                 <span>Phase: <b id="progPhase" style="color: #38BDF8;">Idle</b></span>
                 <span>Scanning: <b id="progScannedCount" style="color: var(--accent);">0</b> / <span id="progTotalCount">254</span> hosts</span>
                 <span>Online / Fresh: <b id="progOnlineCount" style="color: var(--success);">0</b></span>
+                <span id="progDeltaWrap" style="display: none;">Delta: <b id="progDeltaBadge" style="color: #38BDF8; font-weight: 700;">0 Changes</b></span>
                 <span>Probes: <b id="progProbesSent" style="color: #F59E0B;">0</b></span>
                 <span>Bytes: <b id="progBytesTransferred" style="color: #A78BFA;">0 KB</b></span>
                 <span>Speed: <b id="progScanRate" style="color: #38BDF8;">0</b> hosts/sec</span>
@@ -268,6 +269,13 @@
         if (progPercent) progPercent.textContent = `${res.percent}%`;
         if (barInner) barInner.style.width = `${res.percent}%`;
 
+        if (res.deltaSummary && res.deltaSummary.events && res.deltaSummary.events.length > 0) {
+          const deltaWrap = document.getElementById('progDeltaWrap');
+          const deltaBadge = document.getElementById('progDeltaBadge');
+          if (deltaWrap) deltaWrap.style.display = 'inline';
+          if (deltaBadge) deltaBadge.textContent = `+${res.deltaSummary.newHostsCount || 0} new, -${res.deltaSummary.missingHostsCount || 0} lost, ${res.deltaSummary.changedMacsCount || 0} mac-chg`;
+        }
+
         if (res.hosts && res.hosts.length > 0) {
           currentScanResults = res.hosts;
           renderScannerRows();
@@ -350,8 +358,10 @@
         statusDot = `<span class="status-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span> <span style="color: #34D399; font-weight: 700;">ONLINE</span>`;
       } else if (h.status === 'RECENTLY_SEEN') {
         statusDot = `<span class="status-dot" style="background: #06B6D4; box-shadow: 0 0 6px #06B6D4;"></span> <span style="color: #38BDF8; font-weight: 700;">FRESH_ARP</span>`;
-      } else if (h.status === 'UNRESPONSIVE') {
-        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="${h.probeLimitations || 'No response to ICMP Echo within budget; host may be off or dropping ICMP'}">UNRESPONSIVE</span>`;
+      } else if (h.status === 'OFFLINE' || h.detailedStatus === 'CONFIRMED_OFFLINE') {
+        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)'}">CONFIRMED_OFFLINE</span>`;
+      } else if (h.status === 'UNRESPONSIVE' || h.detailedStatus === 'NO_ICMP_RESPONSE') {
+        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="${h.probeLimitations || 'No response to ICMP Echo within budget; host may be off or firewall silently dropping ICMP'}">NO_ICMP_RESPONSE</span>`;
       } else if (h.status === 'CACHED_ARP') {
         statusDot = `<span class="status-dot" style="background: #64748B;"></span> <span style="color: #94A3B8;">CACHED</span>`;
       } else {

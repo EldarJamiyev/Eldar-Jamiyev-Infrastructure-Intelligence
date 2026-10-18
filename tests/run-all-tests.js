@@ -53,6 +53,7 @@ const { runWireProbeAndAiBrainTruthTests } = require('./wire-probe-and-ai-brain-
 const { runFullSystemE2eAndFeedbackLoopTests } = require('./full-system-e2e-and-feedback-loop.test');
 const { runUtf8IntrospectionIpPinningAndIsolationTests } = require('./utf8-introspection-ip-pinning-and-isolation.test');
 const { runCrossLayerRcaWsSyncAndToolSsrfTests } = require('./cross-layer-rca-ws-sync-and-tool-ssrf.test');
+const { runSignalTriageAndOrchestratorTests } = require('./signal-triage-endpoint-discovery-and-orchestrator.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -105,7 +106,8 @@ async function runAllTests() {
     { name: '32. AI Brain, Wire Probe Semantics, Kernel Socket Error Codes & SSRF Truth Audit', fn: runWireProbeAndAiBrainTruthTests },
     { name: '33. Full System E2E, SSRF Defense, Feedback Calibration & Architecture Integrity', fn: runFullSystemE2eAndFeedbackLoopTests },
     { name: '34. UTF-8 Adapter Introspection, DNS-Rebinding IP Pinning, Singleton Isolation & Launcher Gate', fn: runUtf8IntrospectionIpPinningAndIsolationTests },
-    { name: '35. Cross-Layer Host+Wire Causal RCA, Universal Protocol Driver & Redirect SSRF Guard, WS Brain Sync, and Graceful WAL Shutdown', fn: runCrossLayerRcaWsSyncAndToolSsrfTests }
+    { name: '35. Cross-Layer Host+Wire Causal RCA, Universal Protocol Driver & Redirect SSRF Guard, WS Brain Sync, and Graceful WAL Shutdown', fn: runCrossLayerRcaWsSyncAndToolSsrfTests },
+    { name: '36. Signal Triage, Process-to-Server Port Finder, Vectorized Bayesian Matrix & Multi-Model AI Brain Orchestrator', fn: runSignalTriageAndOrchestratorTests }
   ];
 
   for (const s of suites) {

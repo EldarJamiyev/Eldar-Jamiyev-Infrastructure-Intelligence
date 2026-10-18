@@ -982,6 +982,29 @@
       } catch (e) {}
     }
 
+    // Smart Triage Viewing Mode Filters
+    if (currentSnifferMode === 'important') {
+      filtered = filtered.filter(f => {
+        const flags = f.tcp?.flags || {};
+        const isHandshake = Boolean(flags.syn || flags.fin || flags.rst);
+        const proto = (f.protocol || '').toUpperCase();
+        const isApp = proto === 'DNS' || proto === 'HTTP' || proto === 'TLS' || proto === 'ICMP' || proto === 'ARP';
+        const hasAnomaly = Boolean(f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isZeroWindow || f.tcpAnalysis?.isDupAck);
+        const hasPayload = (f.length || 0) > 80;
+        return isHandshake || isApp || hasAnomaly || (proto === 'TCP' && hasPayload);
+      });
+    } else if (currentSnifferMode === 'failures') {
+      filtered = filtered.filter(f => {
+        const flags = f.tcp?.flags || {};
+        const isRst = Boolean(flags.rst);
+        const hasAnomaly = Boolean(f.tcpAnalysis?.isRetransmission || f.tcpAnalysis?.isZeroWindow || f.tcpAnalysis?.isDupAck);
+        const isIcmp = (f.protocol || '').toUpperCase() === 'ICMP';
+        const isHttpErr = f.http && f.http.statusCode >= 400;
+        const isDnsErr = f.dns && (f.dns.rcode === 'NXDOMAIN' || f.dns.rcode === 'SERVFAIL');
+        return isRst || hasAnomaly || isIcmp || isHttpErr || isDnsErr;
+      });
+    }
+
     const totalCaptured = liveFrames.length;
     const totalMatching = filtered.length;
     const displayedCount = Math.min(totalMatching, 60);
@@ -1652,17 +1675,118 @@
     }
   };
 
+  let appFinderEndpoints = [];
+
   window.switchNocSnifferMode = function(mode) {
     currentSnifferMode = mode;
-    const btnP = document.getElementById('viewModePacketsBtn');
+    const btnImp = document.getElementById('viewModeImportantBtn');
     const btnF = document.getElementById('viewModeFlowsBtn');
+    const btnFind = document.getElementById('viewModeFinderBtn');
+    const btnFail = document.getElementById('viewModeFailuresBtn');
+    const btnP = document.getElementById('viewModePacketsBtn');
+
     const viewP = document.getElementById('livePacketTableView');
     const viewF = document.getElementById('nirsoftFlowMatrixView');
+    const viewFind = document.getElementById('appServerFinderView');
 
-    if (btnP) btnP.className = mode === 'packets' ? 'btn btn-primary' : 'btn btn-secondary';
+    if (btnImp) btnImp.className = mode === 'important' ? 'btn btn-primary' : 'btn btn-secondary';
     if (btnF) btnF.className = mode === 'flows' ? 'btn btn-primary' : 'btn btn-secondary';
-    if (viewP) viewP.style.display = mode === 'packets' ? 'flex' : 'none';
+    if (btnFind) btnFind.className = mode === 'finder' ? 'btn btn-primary' : 'btn btn-secondary';
+    if (btnFail) btnFail.className = mode === 'failures' ? 'btn btn-primary' : 'btn btn-secondary';
+    if (btnP) btnP.className = mode === 'packets' ? 'btn btn-primary' : 'btn btn-secondary';
+
+    if (viewP) viewP.style.display = (mode === 'packets' || mode === 'important' || mode === 'failures') ? 'flex' : 'none';
     if (viewF) viewF.style.display = mode === 'flows' ? 'flex' : 'none';
+    if (viewFind) viewFind.style.display = mode === 'finder' ? 'flex' : 'none';
+
+    if (mode === 'finder') {
+      window.reloadAppFinder();
+    } else if (mode === 'packets' || mode === 'important' || mode === 'failures') {
+      const tbody = document.getElementById('livePacketTableBody');
+      if (tbody) tbody.innerHTML = renderPacketRows();
+    }
+  };
+
+  window.reloadAppFinder = async function() {
+    const tbody = document.getElementById('appServerFinderTableBody');
+    const badge = document.getElementById('finderEndpointCountBadge');
+    const extOnly = document.getElementById('finderExternalOnlyCheckbox')?.checked ?? true;
+
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 25px; color: var(--text-muted);">Correlating active process sockets with wire endpoints...</td></tr>';
+    }
+
+    try {
+      const res = await window.api(`/api/network/process-endpoints?externalOnly=${extOnly ? 'true' : 'false'}`);
+      appFinderEndpoints = res.endpoints || [];
+      if (badge) badge.textContent = `${appFinderEndpoints.length} Endpoints`;
+      window.renderAppFinderRows(appFinderEndpoints);
+    } catch (e) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 25px; color: #f87171;">Failed to load endpoints: ${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+  };
+
+  window.filterAppFinder = function(query) {
+    if (!query) {
+      return window.renderAppFinderRows(appFinderEndpoints);
+    }
+    const q = query.toLowerCase();
+    const filtered = appFinderEndpoints.filter(e =>
+      (e.processName && e.processName.toLowerCase().includes(q)) ||
+      String(e.pid).includes(q) ||
+      (e.remoteAddress && e.remoteAddress.toLowerCase().includes(q)) ||
+      String(e.remotePort).includes(q) ||
+      (e.domain && e.domain.toLowerCase().includes(q)) ||
+      (e.serviceHint && e.serviceHint.toLowerCase().includes(q))
+    );
+    window.renderAppFinderRows(filtered);
+  };
+
+  window.renderAppFinderRows = function(endpoints) {
+    const tbody = document.getElementById('appServerFinderTableBody');
+    if (!tbody) return;
+
+    if (!endpoints || endpoints.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 25px; color: var(--text-dim);">No matching process sockets found. Open an application or adjust filter.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = endpoints.map(e => {
+      const isEst = e.state === 'ESTABLISHED';
+      const stateBadge = isEst
+        ? '<span style="color: var(--success); font-weight: 700;">ESTABLISHED</span>'
+        : (e.state.includes('WAIT') || e.state.includes('SYN')
+            ? `<span style="color: #f59e0b; font-weight: 700;">${e.state}</span>`
+            : `<span style="color: var(--text-dim);">${e.state}</span>`);
+
+      const canTroubleshoot = Boolean(e.troubleshootUrl && e.remoteAddress && e.remoteAddress !== '0.0.0.0');
+      const actionBtn = canTroubleshoot
+        ? `<button class="btn btn-primary" onclick="window.troubleshootEndpoint('${escapeAttr(e.remoteAddress)}', ${e.remotePort})" style="font-size: 10px; padding: 2px 8px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🔍 Troubleshoot ${e.remotePort}</button>`
+        : '<span style="color: var(--text-dim); font-size: 10px;">—</span>';
+
+      return `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+          <td style="color: var(--text-dim); font-weight: 600;">${e.pid}</td>
+          <td style="color: #38bdf8; font-weight: 700;">${escapeHtml(e.processName)}</td>
+          <td style="color: var(--text-muted);">${e.localPort || '—'}</td>
+          <td style="font-weight: 700; color: #f8fafc;">${escapeHtml(e.remoteAddress || '—')}</td>
+          <td style="color: #a78bfa; font-weight: 700;">${e.remotePort || '—'}</td>
+          <td style="color: #34d399; font-weight: 600;">${escapeHtml(e.domain || e.sni || '—')}</td>
+          <td style="color: #fbbf24;">${escapeHtml(e.serviceHint || '—')}</td>
+          <td>${stateBadge}</td>
+          <td style="text-align: center;">${actionBtn}</td>
+        </tr>
+      `;
+    }).join('');
+  };
+
+  window.troubleshootEndpoint = function(host, port) {
+    window.troubleshootTarget = { host, port };
+    if (typeof window.renderView === 'function') {
+      window.renderView('core-diagnostics');
+    }
   };
 
   window.switchNocTopologyMode = function(mode) {

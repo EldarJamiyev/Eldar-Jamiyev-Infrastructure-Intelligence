@@ -97,10 +97,10 @@ async function runLiveServerVerification() {
 
   // Step 3: WebSocket Subscription & Real-Time Event Reception
   console.log('\n[Step 3] Testing WebSocket Connection and AI Brain Telemetry Stream...');
-  const wsUrl = `ws://${HOST}:${PORT}/ws?token=${token}`;
+  const wsUrl = `ws://${HOST}:${PORT}/ws`;
   
   await new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, ['token', token]);
     const timeout = setTimeout(() => {
       ws.terminate();
       resolve(); // Do not fail if no immediate frame arrives within 3 seconds

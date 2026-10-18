@@ -85,9 +85,12 @@
                   </select>
                 </div>
 
-                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
-                  <button id="viewModePacketsBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 4px 10px; font-weight: 600;">📋 Live Frames</button>
-                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 4px 10px; font-weight: 600;">📊 Flow Matrix (35 Cols)</button>
+                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color); flex-wrap: wrap;">
+                  <button id="viewModeImportantBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('important')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="Handshakes, HTTP, DNS, TLS SNI, Anomaly Frames">⭐ Important</button>
+                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="Bi-directional Conversations & Flow Matrix">💬 Conversations</button>
+                  <button id="viewModeFinderBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('finder')" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #38bdf8;" title="App Server & Port Finder (Correlate Process to Remote Server)">🖥️ App Finder</button>
+                  <button id="viewModeFailuresBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('failures')" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #f87171;" title="TCP RST, Retransmissions, Zero-Window, ICMP Unreachable">⚠️ Failures Only</button>
+                  <button id="viewModePacketsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="All Unfiltered Raw Packets">📜 All Packets</button>
                 </div>
 
                 <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px;" onchange="window.onPacketProtocolFilterChange(this.value)">
@@ -243,6 +246,44 @@
                   </thead>
                   <tbody id="nirsoftFlowTableBody">
                     ${window.renderFlowRows ? window.renderFlowRows() : ''}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- View 3: App Server & Port Finder View -->
+            <div id="appServerFinderView" style="display: none; flex: 1; overflow: hidden; flex-direction: column;">
+              <div style="background: rgba(15, 23, 42, 0.7); border-bottom: 1px solid var(--border-color); padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 700; font-size: 12px; color: #38bdf8; font-family: var(--font-mono);">🖥️ Process Sockets &amp; Remote Server Endpoints</span>
+                  <span id="finderEndpointCountBadge" style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 10px; background: rgba(56, 189, 248, 0.2); color: #38bdf8;">0 Endpoints</span>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" id="finderSearchInput" class="form-input" placeholder="Filter process (e.g. chrome, node, sql)..." style="font-size: 11px; padding: 3px 8px; width: 220px;" oninput="window.filterAppFinder(this.value)">
+                  <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="finderExternalOnlyCheckbox" checked onchange="window.reloadAppFinder()">
+                    <span>External Only</span>
+                  </label>
+                  <button class="btn btn-secondary" onclick="window.reloadAppFinder()" style="font-size: 11px; padding: 3px 8px;">↻ Refresh</button>
+                </div>
+              </div>
+              <div class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto;">
+                <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
+                  <thead>
+                    <tr>
+                      <th style="width: 70px;">PID</th>
+                      <th style="min-width: 140px;">Process Name</th>
+                      <th style="width: 80px;">Local Port</th>
+                      <th style="min-width: 140px;">Remote Server IP</th>
+                      <th style="width: 90px;">Remote Port</th>
+                      <th style="min-width: 160px;">Domain / TLS SNI</th>
+                      <th style="min-width: 140px;">Detected Service</th>
+                      <th style="width: 110px;">TCP State</th>
+                      <th style="min-width: 160px; text-align: center;">1-Click Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="appServerFinderTableBody">
+                    <tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--text-muted);">Querying active process sockets...</td></tr>
                   </tbody>
                 </table>
               </div>

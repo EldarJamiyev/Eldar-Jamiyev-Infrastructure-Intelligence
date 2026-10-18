@@ -57,13 +57,13 @@ async function runNetworkTests() {
   console.log(`✓ Real TLS Audit passed: Protocol=${tlsRes.protocol}, Cipher=${tlsRes.cipher.name}, DaysLeft=${tlsRes.certificate.daysRemaining}`);
 
   // Test 6: Real HTTP Synthetic Probe
-  console.log('Testing Real HTTP Synthetic Probe (https://google.com)...');
-  let httpRes = await probeHttp('https://google.com', 'GET', 10000);
+  let httpRes = await probeHttp('https://google.com', 'GET', 12000);
   if (!httpRes.success) {
-    // Retry once in case of transient Wi-Fi/WAN route latency
-    httpRes = await probeHttp('https://google.com', 'GET', 10000);
+    // Retry once with pacing delay in case of transient Wi-Fi/WAN route latency
+    await new Promise(r => setTimeout(r, 800));
+    httpRes = await probeHttp('https://google.com', 'GET', 12000);
   }
-  assert.strictEqual(httpRes.success, true, 'HTTP probe must succeed');
+  assert.strictEqual(httpRes.success, true, `HTTP probe must succeed (error: ${httpRes.error})`);
   assert.ok(httpRes.statusCode >= 200 && httpRes.statusCode < 400, 'Status code must be 2xx or 3xx');
   assert.ok(httpRes.waterfall.totalMs > 0, 'Waterfall total duration must be measured');
   console.log(`✓ Real HTTP Probe passed: Code=${httpRes.statusCode}, Total=${httpRes.waterfall.totalMs}ms, TTFB=${httpRes.waterfall.ttfbMs}ms`);

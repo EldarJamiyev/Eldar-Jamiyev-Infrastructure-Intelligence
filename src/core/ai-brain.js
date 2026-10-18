@@ -19,6 +19,7 @@ const https = require('https');
 const { execFile, spawnSync } = require('child_process');
 const { reasoningEngine } = require('./reasoning-engine');
 const { incidentBriefingProvider } = require('./llm-provider');
+const { aiModelOrchestrator, FlowStateCompressor } = require('./ai-model-orchestrator');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
 const { DATA_DIR } = require('../config');
 const {
@@ -279,6 +280,10 @@ class AIBrain {
 
     // Cross-Layer Host Telemetry Context Snapshot
     this.lastHostHealthSnapshot = null;
+
+    // Multi-Model AI Orchestrator & Flow State Compressor
+    this.aiModelOrchestrator = aiModelOrchestrator;
+    this.flowStateCompressor = aiModelOrchestrator.flowStateCompressor;
 
     // Load persisted memory from disk
     this._loadMemory();
@@ -1049,6 +1054,21 @@ class AIBrain {
   ingestWireFrame(frame) {
     if (!frame) return;
 
+    // Track flow state and suppress redundant monotonous frames
+    if (this.flowStateCompressor) {
+      this.flowStateCompressor.ingestPacket({
+        srcIp: frame.srcIp,
+        srcPort: frame.srcPort,
+        dstIp: frame.dstIp,
+        dstPort: frame.dstPort,
+        protocol: frame.protocol || 'TCP',
+        flags: frame.tcp?.flags ? Object.keys(frame.tcp.flags).filter(k => frame.tcp.flags[k]).join('|') : '',
+        length: frame.length || 0,
+        isRetrans: Boolean(frame.tcpAnalysis?.isRetransmission),
+        isZeroWindow: Boolean(frame.tcpAnalysis?.isZeroWindow)
+      });
+    }
+
     const netInfo = getPhysicalNetworkInfo();
     const activeGateway = netInfo?.gatewayIp || '192.168.31.1';
     if (!this.currentSubnet) {
@@ -1292,12 +1312,20 @@ class AIBrain {
     const evaluation = reasoningEngine.evaluateIncident(enrichedParams);
     const briefing = incidentBriefingProvider.synthesizeBriefing(evaluation, enrichedParams);
 
+    let orchestratorDecision = null;
+    if (this.aiModelOrchestrator) {
+      try {
+        orchestratorDecision = this.aiModelOrchestrator.orchestrateDiagnosis(evaluation, enrichedParams);
+      } catch (_) {}
+    }
+
     return {
       incidentType: evaluation.incidentType,
       failureCategory: evaluation.topHypothesis?.category || 'UNKNOWN',
       topHypothesis: evaluation.topHypothesis,
       rankedHypotheses: evaluation.rankedHypotheses,
       distinguishingProbes: evaluation.distinguishingProbes,
+      orchestrator: orchestratorDecision,
       simpleOperatorMode: briefing.simpleOperatorMode,
       expertDiagnosticMode: briefing.expertDiagnosticMode,
       baselineContext: params.destIp ? this.baselineMetrics.get(params.destIp) || null : null,

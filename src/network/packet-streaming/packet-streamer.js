@@ -85,8 +85,10 @@ class PacketStreamer {
     this.domainToIpCache = new Map(); // Domain -> Set<IP>
     this.targetRosterInterval = null;
 
-    // Resolve target domains immediately in background
-    this._resolveTargetRoster().catch(() => {});
+    // Resolve target domains immediately in background only if explicitly requested
+    if (process.env.EJII_ACTIVE_ROSTER_RESOLVE === 'true') {
+      this._resolveTargetRoster().catch(() => {});
+    }
   }
 
   /**
@@ -120,10 +122,12 @@ class PacketStreamer {
       this._refreshWindowsDnsCache();
     }, 8000);
 
-    // Periodic Target Roster DNS refresher
-    this.targetRosterInterval = setInterval(() => {
-      this._resolveTargetRoster().catch(() => {});
-    }, 15000);
+    // Periodic Target Roster DNS refresher (opt-in only for pure passive capture)
+    if (process.env.EJII_ACTIVE_ROSTER_RESOLVE === 'true') {
+      this.targetRosterInterval = setInterval(() => {
+        this._resolveTargetRoster().catch(() => {});
+      }, 15000);
+    }
 
     // Periodic Flow Matrix broadcaster (emit active flows every 1000ms while streaming)
     this.flowBroadcastInterval = setInterval(() => {

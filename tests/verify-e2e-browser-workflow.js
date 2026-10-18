@@ -188,10 +188,10 @@ async function runE2EBrowserWorkflow() {
   // PART 2: WEBSOCKET STREAMING & REAL-TIME PROBE UPDATE
   // --------------------------------------------------------------------------
   console.log('\n[Phase 2] Verifying WebSocket Subscription & Diagnostic Event Delivery...');
-  const wsUrl = `ws://${HOST}:${PORT}/ws?token=${token}`;
+  const wsUrl = `ws://${HOST}:${PORT}/ws`;
 
   await new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, ['token', token]);
     let receivedUpdate = false;
 
     const timeout = setTimeout(() => {

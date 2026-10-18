@@ -295,28 +295,37 @@ async function pollRegisteredNodes() {
   }
 }
 
-// Run polling loop every 30 seconds
-const pollingInterval = setInterval(pollRegisteredNodes, 30000);
+// Run polling loop every 30 seconds (opt-in only to guarantee zero unsolicited pings)
+const pollingInterval = process.env.EJII_AUTO_POLL === 'true'
+  ? setInterval(pollRegisteredNodes, 30000)
+  : null;
 
-// Run initial poll 3 seconds after boot
-const initialPollTimeout = setTimeout(pollRegisteredNodes, 3000);
+// Run initial poll 3 seconds after boot (opt-in only)
+const initialPollTimeout = process.env.EJII_AUTO_POLL === 'true'
+  ? setTimeout(pollRegisteredNodes, 3000)
+  : null;
 
 // Start server
-server.listen(PORT, HOST, () => {
-  console.log(`================================================================`);
-  console.log(`  EJII — NOC Network Topology & Packet Dissection Workstation   `);
-  console.log(`  Unprivileged Wire-Level Network Engineering Station           `);
-  console.log(`================================================================`);
-  console.log(`  Server Listening on: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`  Access Mode: Unprivileged NOC Operator                        `);
-  console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
-  console.log(`================================================================`);
-});
+if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
+  server.listen(PORT, HOST, () => {
+    console.log(`================================================================`);
+    console.log(`  EJII — NOC Network Topology & Packet Dissection Workstation   `);
+    console.log(`  Unprivileged Wire-Level Network Engineering Station           `);
+    console.log(`================================================================`);
+    console.log(`  Server Listening on: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(`  Access Mode: Unprivileged NOC Operator                        `);
+    console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
+    console.log(`================================================================`);
+  });
+  server.on('error', (err) => {
+    console.error('[EJII Server Error]:', err.message);
+  });
+}
 
 // Graceful termination & WAL Checkpoint
 async function gracefulShutdown(signal = 'SIGTERM') {
   console.log(`\n[EJII] Gracefully shutting down (${signal})...`);
-  clearInterval(pollingInterval);
+  if (pollingInterval) clearInterval(pollingInterval);
   if (initialPollTimeout) clearTimeout(initialPollTimeout);
   try {
     aiBrain.stopContinuousReasoning();

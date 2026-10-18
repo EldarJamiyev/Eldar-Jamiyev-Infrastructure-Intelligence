@@ -981,15 +981,19 @@ function probeHostLiveness(ip, timeoutMs = 700) {
         });
       } else {
         const isHostUnreachable = /destination host unreachable/i.test(out);
+        const detailedStatus = isHostUnreachable ? 'CONFIRMED_OFFLINE' : 'NO_ICMP_RESPONSE';
         resolve({
           isOnline: false,
           status: isHostUnreachable ? 'OFFLINE' : 'UNRESPONSIVE',
+          detailedStatus,
+          isConfirmedOffline: isHostUnreachable,
+          isNoIcmpResponse: !isHostUnreachable,
           latencyMs: null,
           latencySource: null,
-          discoveryMethod: 'ICMP Echo Probe (No Reply)',
+          discoveryMethod: isHostUnreachable ? 'ICMP Destination Host Unreachable' : 'ICMP Echo Probe (No Reply / Timeout)',
           probeLimitations: isHostUnreachable
-            ? 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1).'
-            : 'Unresponsive to ICMP Echo within timeout; host may be powered off or firewall discarding ICMP.'
+            ? 'Gateway or local stack explicitly returned ICMP Type 3 Code 1 (Destination Host Unreachable).'
+            : 'Unresponsive to ICMP Echo within bounded timeout; host may be powered off or firewall silently dropping ICMP.'
         });
       }
     });
@@ -1020,6 +1024,15 @@ class UltraIpScanner {
     this.abortController = null;
     this.startTime = 0;
     this.scanId = 0;
+    this.previousScanHosts = [];
+    this.deltaSummary = {
+      newHostsCount: 0,
+      missingHostsCount: 0,
+      changedMacsCount: 0,
+      newOpenPortsCount: 0,
+      closedPortsCount: 0,
+      events: []
+    };
   }
 
   getScanStatus() {
@@ -1043,6 +1056,7 @@ class UltraIpScanner {
       bytesTransferred: this.bytesTransferred,
       profile: this.activeProfile,
       profilePolicy: this.activePolicy,
+      deltaSummary: this.deltaSummary,
       hosts: this.hosts
     };
   }
@@ -1141,10 +1155,17 @@ class UltraIpScanner {
             let discoveryMethod = 'None';
             let probeLimitations = '';
 
+            let hostDetailedStatus = 'NO_ICMP_RESPONSE';
+            let isConfirmedOffline = false;
+            let isNoIcmpResponse = true;
+
             // Check if present in OS neighbor cache
             if (arp) {
               const isFresh = arp.state === 'Reachable' || arp.state === 'Permanent' || arp.type === 'dynamic';
               hostStatus = isFresh ? 'ONLINE' : 'RECENTLY_SEEN';
+              hostDetailedStatus = hostStatus;
+              isConfirmedOffline = false;
+              isNoIcmpResponse = false;
               latencyMs = 0.5;
               latencySource = 'ARP Cache';
               discoveryMethod = isFresh ? 'OS Neighbor Cache (Reachable)' : 'OS Neighbor Cache (Recent)';
@@ -1157,12 +1178,18 @@ class UltraIpScanner {
               const probe = await probeHostLiveness(ip, Math.min(policy.timeoutMs, 800));
               if (probe.isOnline) {
                 hostStatus = 'ONLINE';
+                hostDetailedStatus = 'ONLINE';
+                isConfirmedOffline = false;
+                isNoIcmpResponse = false;
                 latencyMs = probe.latencyMs;
                 latencySource = 'ICMP Echo';
                 discoveryMethod = probe.discoveryMethod;
                 probeLimitations = probe.probeLimitations;
               } else {
                 hostStatus = probe.status || 'UNRESPONSIVE';
+                hostDetailedStatus = probe.detailedStatus || (hostStatus === 'OFFLINE' ? 'CONFIRMED_OFFLINE' : 'NO_ICMP_RESPONSE');
+                isConfirmedOffline = Boolean(probe.isConfirmedOffline);
+                isNoIcmpResponse = Boolean(probe.isNoIcmpResponse);
                 discoveryMethod = probe.discoveryMethod;
                 probeLimitations = probe.probeLimitations;
               }
@@ -1171,6 +1198,9 @@ class UltraIpScanner {
             discoveredMap.set(ip, {
               ip,
               status: hostStatus,
+              detailedStatus: hostDetailedStatus,
+              isConfirmedOffline,
+              isNoIcmpResponse,
               latencyMs,
               latencySource,
               discoveryMethod,
@@ -1217,6 +1247,9 @@ class UltraIpScanner {
             this.hosts.push({
               ip,
               status: hostInfo.status,
+              detailedStatus: hostInfo.detailedStatus || (hostInfo.status === 'OFFLINE' ? 'CONFIRMED_OFFLINE' : 'NO_ICMP_RESPONSE'),
+              isConfirmedOffline: Boolean(hostInfo.isConfirmedOffline),
+              isNoIcmpResponse: Boolean(hostInfo.isNoIcmpResponse),
               hostname: hostInfo.status === 'OFFLINE' ? 'Host Offline' : 'Unresponsive Target',
               computerName: null,
               workgroup: null,
@@ -1309,6 +1342,9 @@ class UltraIpScanner {
             const hostData = {
               ip,
               status: h.status,
+              detailedStatus: 'ONLINE',
+              isConfirmedOffline: false,
+              isNoIcmpResponse: false,
               hostname: computerName || 'Unknown Host',
               computerName: computerName || null,
               workgroup: (netbios && netbios.workgroup) ? netbios.workgroup : (smbInfo ? smbInfo.workgroup : null),
@@ -1336,6 +1372,13 @@ class UltraIpScanner {
         }
         await Promise.all(phaseBWorkers);
 
+        if (!this.abortController.aborted) {
+          if (this.previousScanHosts && this.previousScanHosts.length > 0) {
+            this.deltaSummary = this.computeScanDelta(this.previousScanHosts, this.hosts);
+          }
+          this.previousScanHosts = JSON.parse(JSON.stringify(this.hosts));
+        }
+
         this.status = this.abortController.aborted ? 'stopped' : 'completed';
         this.currentPhase = this.abortController.aborted ? 'stopped' : 'Completed (Two-Phase Verified)';
         this.durationMs = Date.now() - this.startTime;
@@ -1347,6 +1390,119 @@ class UltraIpScanner {
     })();
 
     return this.getScanStatus();
+  }
+
+  /**
+   * Compute delta changes between two fleet scans
+   * @param {Array<Object>} previousHosts
+   * @param {Array<Object>} currentHosts
+   * @returns {Object}
+   */
+  computeScanDelta(previousHosts = [], currentHosts = []) {
+    const prevMap = new Map();
+    for (const h of previousHosts) {
+      if (h && h.ip) prevMap.set(h.ip, h);
+    }
+
+    const currMap = new Map();
+    for (const h of currentHosts) {
+      if (h && h.ip) currMap.set(h.ip, h);
+    }
+
+    const events = [];
+    const newHosts = [];
+    const missingHosts = [];
+    const changedMacs = [];
+    const newOpenPorts = [];
+    const closedPorts = [];
+
+    // Find new hosts and changes
+    for (const [ip, curr] of currMap.entries()) {
+      const prev = prevMap.get(ip);
+      if (!prev) {
+        if (curr.status === 'ONLINE' || curr.status === 'RECENTLY_SEEN') {
+          newHosts.push(curr);
+          events.push({
+            type: 'NEW_HOST',
+            ip,
+            mac: curr.macAddress,
+            hostname: curr.hostname,
+            timestamp: Date.now()
+          });
+        }
+      } else {
+        // Check MAC change
+        if (curr.macAddress && prev.macAddress &&
+            curr.macAddress !== 'Unknown' && prev.macAddress !== 'Unknown' &&
+            curr.macAddress.toUpperCase() !== prev.macAddress.toUpperCase()) {
+          changedMacs.push({ ip, oldMac: prev.macAddress, newMac: curr.macAddress });
+          events.push({
+            type: 'CHANGED_MAC',
+            ip,
+            oldMac: prev.macAddress,
+            newMac: curr.macAddress,
+            timestamp: Date.now()
+          });
+        }
+
+        // Check new open ports
+        const prevPorts = new Set((prev.openServices || []).map(s => s.port));
+        const currPorts = new Set((curr.openServices || []).map(s => s.port));
+
+        for (const p of currPorts) {
+          if (!prevPorts.has(p)) {
+            newOpenPorts.push({ ip, port: p });
+            events.push({
+              type: 'NEW_OPEN_PORT',
+              ip,
+              port: p,
+              timestamp: Date.now()
+            });
+          }
+        }
+
+        for (const p of prevPorts) {
+          if (!currPorts.has(p)) {
+            closedPorts.push({ ip, port: p });
+            events.push({
+              type: 'CLOSED_PORT',
+              ip,
+              port: p,
+              timestamp: Date.now()
+            });
+          }
+        }
+      }
+    }
+
+    // Find missing hosts
+    for (const [ip, prev] of prevMap.entries()) {
+      const curr = currMap.get(ip);
+      if (prev.status === 'ONLINE' && (!curr || (curr.status !== 'ONLINE' && curr.status !== 'RECENTLY_SEEN'))) {
+        missingHosts.push(prev);
+        events.push({
+          type: 'MISSING_HOST',
+          ip,
+          hostname: prev.hostname,
+          mac: prev.macAddress,
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    return {
+      newHostsCount: newHosts.length,
+      missingHostsCount: missingHosts.length,
+      changedMacsCount: changedMacs.length,
+      newOpenPortsCount: newOpenPorts.length,
+      closedPortsCount: closedPorts.length,
+      newHosts,
+      missingHosts,
+      changedMacs,
+      newOpenPorts,
+      closedPorts,
+      events
+    };
   }
 
   async waitForCompletion(timeoutMs = 30000) {

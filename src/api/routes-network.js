@@ -14,6 +14,8 @@ const { authenticate, requireRole, requirePermission } = require('./middleware')
 const { db } = require('../db/database');
 const { topologyEngine } = require('../network/topology/topology-engine');
 const { packetStreamer } = require('../network/packet-streaming/packet-streamer');
+const { processSocketCorrelator } = require('../network/process-socket-correlator');
+processSocketCorrelator.setPacketStreamer(packetStreamer);
 const { wireDiagnostics } = require('../network/diagnostics/wire-diagnostics');
 const { PacketDecoder } = require('../network/packet-decoding/packet-decoder');
 const { scanPorts } = require('../protocols/tcp-port');
@@ -314,6 +316,44 @@ router.get('/capture/flows', (req, res) => {
   const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 100), 500);
   const flows = packetStreamer.getFlows(limit);
   res.json({ success: true, count: flows.length, flows });
+});
+
+/**
+ * GET /api/network/process-endpoints
+ * Real-time correlation between OS processes, local sockets, remote server IPs, and ports.
+ * Supports filtering by process, remoteHost, port, state, externalOnly.
+ */
+router.get('/process-endpoints', async (req, res) => {
+  try {
+    const endpoints = await processSocketCorrelator.getCorrelatedEndpoints(req.query);
+    res.json({
+      success: true,
+      count: endpoints.length,
+      endpoints,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve process endpoints: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/network/conversations
+ * Bi-directional conversations aggregated across OS sockets and wire flows.
+ */
+router.get('/conversations', async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 100), 500);
+    const conversations = await processSocketCorrelator.getConversations(limit);
+    res.json({
+      success: true,
+      count: conversations.length,
+      conversations,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve conversations: ' + err.message });
+  }
 });
 
 router.post('/capture/clear', (req, res) => {

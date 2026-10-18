@@ -198,7 +198,8 @@ async function runFrontendRebuildVerification() {
   // Verify switchNocSnifferMode in noc-view.js ensures mutual exclusivity
   assert.ok(
     nocViewJs.includes("viewP.style.display = mode === 'packets' ? 'flex' : 'none';") ||
-    nocViewJs.includes("viewP.style.display = mode === 'packets' ? 'block' : 'none';"),
+    nocViewJs.includes("viewP.style.display = mode === 'packets' ? 'block' : 'none';") ||
+    nocViewJs.includes("viewP.style.display = (mode === 'packets' || mode === 'important' || mode === 'failures') ? 'flex' : 'none';"),
     'switchNocSnifferMode must toggle livePacketTableView visibility'
   );
   assert.ok(
