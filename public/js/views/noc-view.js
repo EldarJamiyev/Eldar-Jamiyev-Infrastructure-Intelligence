@@ -7,13 +7,22 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 function escapeAttr(str) {
-  return escapeHtml(str);
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 window.escapeHtml = escapeHtml;
 window.escapeAttr = escapeAttr;
 
 (function(window) {
   'use strict';
+
+  let isRenderingPacketRows = false;
+  let isRenderingFlowRows = false;
+  let isFlushingBatch = false;
 
   let liveFrames = [];
   let liveFlows = [];
@@ -963,7 +972,10 @@ window.escapeAttr = escapeAttr;
    * Packet Rendering (Lower Pane)
    */
   function renderPacketRows() {
-    let filtered = liveFrames;
+    if (isRenderingPacketRows) return '';
+    isRenderingPacketRows = true;
+    try {
+      let filtered = liveFrames;
 
     if (hideInternalEji) {
       filtered = filtered.filter(f => {
@@ -1201,11 +1213,17 @@ window.escapeAttr = escapeAttr;
         </tr>
       `;
     }).join('');
+    } finally {
+      isRenderingPacketRows = false;
+    }
   }
 
   function renderFlowRows() {
-    let filtered = liveFlows;
-    if (hideInternalEji) {
+    if (isRenderingFlowRows) return '';
+    isRenderingFlowRows = true;
+    try {
+      let filtered = liveFlows;
+      if (hideInternalEji) {
       filtered = filtered.filter(f => {
         const sPort = parseInt(f.sourcePort || f.src_port, 10);
         const dPort = parseInt(f.destinationPort || f.dst_port, 10);
@@ -1243,29 +1261,10 @@ window.escapeAttr = escapeAttr;
       </tr>
     `;
     }).join('');
+    } finally {
+      isRenderingFlowRows = false;
+    }
   }
-
-  function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function escapeAttr(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-  window.escapeAttr = escapeAttr;
-  window.escapeHtml = escapeHtml;
 
   function buildProtocolTreeHtml(f) {
     const layers = f.detailedLayers || (f.dissection?.detailedLayers) || (Array.isArray(f.layers) ? f.layers : null);
@@ -1669,27 +1668,33 @@ window.escapeAttr = escapeAttr;
   };
 
   function flushPacketBatch() {
-    if (frameBatchQueue.length > 0) {
-      const existingFrameIds = new Set(liveFrames.map(f => f.frameNumber));
-      while (frameBatchQueue.length > 0) {
-        const nextFrame = frameBatchQueue.shift();
-        if (nextFrame && !existingFrameIds.has(nextFrame.frameNumber)) {
-          liveFrames.push(nextFrame);
-          existingFrameIds.add(nextFrame.frameNumber);
+    if (isFlushingBatch) return;
+    isFlushingBatch = true;
+    try {
+      if (frameBatchQueue.length > 0) {
+        const existingFrameIds = new Set(liveFrames.map(f => f.frameNumber));
+        while (frameBatchQueue.length > 0) {
+          const nextFrame = frameBatchQueue.shift();
+          if (nextFrame && !existingFrameIds.has(nextFrame.frameNumber)) {
+            liveFrames.push(nextFrame);
+            existingFrameIds.add(nextFrame.frameNumber);
+          }
+        }
+        if (liveFrames.length > 5000) liveFrames.splice(0, liveFrames.length - 5000);
+      }
+      if (isDisplayFrozen || isTableHovered || currentSnifferMode !== 'packets') return;
+
+      const container = document.getElementById('livePacketTableContainer');
+      const tbody = document.getElementById('livePacketTableBody');
+      if (tbody) {
+        const prevScroll = container ? container.scrollTop : 0;
+        tbody.innerHTML = renderPacketRows();
+        if (container && (selectedFrame || !autoScrollFrames)) {
+          container.scrollTop = prevScroll;
         }
       }
-      if (liveFrames.length > 5000) liveFrames.splice(0, liveFrames.length - 5000);
-    }
-    if (isDisplayFrozen || isTableHovered || currentSnifferMode !== 'packets') return;
-
-    const container = document.getElementById('livePacketTableContainer');
-    const tbody = document.getElementById('livePacketTableBody');
-    if (tbody) {
-      const prevScroll = container ? container.scrollTop : 0;
-      tbody.innerHTML = renderPacketRows();
-      if (container && (selectedFrame || !autoScrollFrames)) {
-        container.scrollTop = prevScroll;
-      }
+    } finally {
+      isFlushingBatch = false;
     }
   }
 

@@ -572,6 +572,11 @@ class PacketExplainEngine {
       explanations.push('TCP duplicate acknowledgments');
     }
 
+    if (lower.includes('keep alive') || lower.includes('keepalive') || lower.includes('keep-alive')) {
+      conditions.push('tcp.analysis.keep_alive || (tcp.flags.ack == 1 && tcp.len == 0)');
+      explanations.push('TCP Keep-Alive probes and zero-length acknowledgments (RFC 1122)');
+    }
+
     // 3. Application Protocols & Specific Handshakes
     if (lower.includes('tls handshake') || lower.includes('client hello') || lower.includes('clienthello')) {
       conditions.push('tls.handshake.type == 1');

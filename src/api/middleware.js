@@ -135,10 +135,72 @@ function requirePermission(permission) {
   };
 }
 
+const crypto = require('crypto');
+const { performance } = require('perf_hooks');
+
+const apiTelemetryBuffer = [];
+let totalApiRequests = 0;
+let totalApiErrors = 0;
+let totalApiDurationMs = 0;
+
+function requestCorrelationAndTelemetryMiddleware(req, res, next) {
+  const reqId = req.headers['x-request-id'] || `REQ-${crypto.randomBytes(6).toString('hex')}`;
+  req.id = reqId;
+  res.setHeader('X-Request-Id', reqId);
+
+  const startMs = performance.now();
+  totalApiRequests++;
+
+  res.on('finish', () => {
+    const durationMs = Number((performance.now() - startMs).toFixed(2));
+    totalApiDurationMs += durationMs;
+    if (res.statusCode >= 400) {
+      totalApiErrors++;
+    }
+
+    const record = {
+      id: reqId,
+      method: req.method,
+      path: req.originalUrl || req.url,
+      statusCode: res.statusCode,
+      durationMs,
+      timestamp: new Date().toISOString()
+    };
+
+    apiTelemetryBuffer.push(record);
+    if (apiTelemetryBuffer.length > 500) {
+      apiTelemetryBuffer.shift();
+    }
+  });
+
+  next();
+}
+
+function getApiTelemetry() {
+  const recent = [...apiTelemetryBuffer];
+  const count = recent.length;
+  const durations = recent.map(r => r.durationMs).sort((a, b) => a - b);
+  const p95 = durations.length > 0 ? durations[Math.floor(durations.length * 0.95)] : 0;
+  const avg = count > 0 ? Number((durations.reduce((a, b) => a + b, 0) / count).toFixed(2)) : 0;
+
+  return {
+    totalRequests: totalApiRequests,
+    totalErrors: totalApiErrors,
+    errorRate: totalApiRequests > 0 ? Number(((totalApiErrors / totalApiRequests) * 100).toFixed(2)) : 0,
+    bufferCount: count,
+    avgLatencyMs: avg,
+    p95LatencyMs: p95 || 0,
+    recentRequests: recent.slice(-50).reverse(),
+    capturedAt: new Date().toISOString()
+  };
+}
+
 module.exports = {
   authenticate,
   requireRole,
   requirePermission,
   parseCookies,
+  requestCorrelationAndTelemetryMiddleware,
+  getApiTelemetry,
   ROLE_HIERARCHY
 };

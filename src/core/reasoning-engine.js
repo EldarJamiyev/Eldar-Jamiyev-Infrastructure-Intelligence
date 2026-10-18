@@ -404,7 +404,42 @@ class BayesianReasoningEngine {
       hostContext,
       crossLayerCorrelation: crossLayerActive,
       crossLayerNotes,
+      epistemicMetrics: this.computeEpistemicMetrics(rankedHypotheses),
       evaluatedAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Compute Shannon Entropy and Normalized Epistemic Metrics for hypothesis distributions
+   * H(X) = -sum(p * log2(p)), normalized against H_max = log2(N)
+   */
+  computeEpistemicMetrics(hypotheses = []) {
+    if (!Array.isArray(hypotheses) || hypotheses.length === 0) {
+      return {
+        shannonEntropyBits: 0,
+        maxEntropyBits: 0,
+        normalizedEntropyRatio: 0,
+        epistemicCertaintyRatio: 1.0,
+        activeHypothesesCount: 0
+      };
+    }
+    const n = hypotheses.length;
+    const maxEntropyBits = n > 1 ? Math.log2(n) : 1;
+    let entropy = 0;
+    for (const h of hypotheses) {
+      const conf = h.confidence !== undefined ? h.confidence : (h.probability !== undefined ? h.probability * 100 : 0);
+      const p = conf / 100;
+      if (p > 1e-9) {
+        entropy -= p * Math.log2(p);
+      }
+    }
+    const normalized = maxEntropyBits > 0 ? Math.min(1.0, Math.max(0.0, entropy / maxEntropyBits)) : 0;
+    return {
+      shannonEntropyBits: Number(entropy.toFixed(4)),
+      maxEntropyBits: Number(maxEntropyBits.toFixed(4)),
+      normalizedEntropyRatio: Number(normalized.toFixed(4)),
+      epistemicCertaintyRatio: Number((1.0 - normalized).toFixed(4)),
+      activeHypothesesCount: n
     };
   }
 

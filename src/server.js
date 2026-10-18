@@ -22,6 +22,7 @@ const hostRemediationRoutes = require('./api/routes-diagnostics-remediation');
 const networkRoutes = require('./api/routes-network');
 const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
+const { requestCorrelationAndTelemetryMiddleware } = require('./api/middleware');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -38,6 +39,9 @@ const wss = new WebSocketServer({
     return false;
   }
 });
+
+// Request correlation and API latency telemetry
+app.use(requestCorrelationAndTelemetryMiddleware);
 
 // Security Headers Middleware
 app.use((req, res, next) => {

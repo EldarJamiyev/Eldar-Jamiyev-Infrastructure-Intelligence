@@ -7,7 +7,12 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 function escapeAttr(str) {
-  return escapeHtml(str);
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 window.escapeHtml = escapeHtml;
 window.escapeAttr = escapeAttr;
@@ -43,9 +48,6 @@ window.escapeAttr = escapeAttr;
       }
       if (flowsRes?.flows && typeof window.setNocLiveFlows === 'function') {
         window.setNocLiveFlows(flowsRes.flows);
-      }
-      if (typeof window.startNocBatchFlusher === 'function') {
-        window.startNocBatchFlusher();
       }
 
       currentInterfaces = ifaceRes?.interfaces || [];
@@ -370,7 +372,8 @@ window.escapeAttr = escapeAttr;
         }
       }, 150);
     } catch (err) {
-      container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Live Packet Sniffer: ${err.message}</div>`;
+      console.error('[SNIFFER-VIEW-LOAD-ERROR]', err);
+      container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Live Packet Sniffer: ${escapeHtml(err.message)}<pre style="margin-top: 10px; font-size: 11px; color: var(--text-muted); white-space: pre-wrap;">${escapeHtml(err.stack || '')}</pre></div>`;
     }
   }
 
@@ -590,26 +593,6 @@ window.escapeAttr = escapeAttr;
     const isHidden = (pane.style.display === 'none' || !pane.style.display);
     pane.style.display = isHidden ? 'flex' : 'none';
   };
-
-  function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function escapeAttr(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-  window.escapeAttr = escapeAttr;
 
   if (!window.troubleshootEndpoint) {
     window.troubleshootEndpoint = async function(host, port = 443) {

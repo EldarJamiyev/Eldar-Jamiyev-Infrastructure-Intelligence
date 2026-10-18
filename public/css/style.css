@@ -465,7 +465,7 @@ body {
 
 /* Plain English Explanation Box */
 .explanation-card {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(56, 189, 248, 0.05));
+  background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(56, 189, 248, 0.3);
   border-radius: 8px;
   padding: 18px;

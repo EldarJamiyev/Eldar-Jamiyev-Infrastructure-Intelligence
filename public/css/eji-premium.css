@@ -1048,7 +1048,7 @@ canvas, svg { max-width: 100%; }
   left: 0;
   width: 3px;
   height: 100%;
-  background: linear-gradient(180deg, #38BDF8 0%, #818CF8 50%, #A855F7 100%);
+  background: #38BDF8;
 }
 
 .ai-brain-topline {
@@ -1168,7 +1168,7 @@ canvas, svg { max-width: 100%; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(220, 38, 38, 0.2) 100%);
+  background: rgba(234, 88, 12, 0.2);
   border: 1px solid rgba(249, 115, 22, 0.5);
   color: #FB923C;
   font-family: var(--font-mono);
@@ -1181,7 +1181,7 @@ canvas, svg { max-width: 100%; }
 }
 
 .btn-trigger-probe:hover {
-  background: linear-gradient(135deg, rgba(234, 88, 12, 0.35) 0%, rgba(220, 38, 38, 0.35) 100%);
+  background: rgba(234, 88, 12, 0.35);
   border-color: #FB923C;
   color: #FFF;
 }

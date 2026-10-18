@@ -432,4 +432,22 @@ router.post('/run-distinguishing-test', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/diagnostics/api-telemetry
+ * Returns API request correlation and latency telemetry
+ */
+router.get('/api-telemetry', authenticate, (req, res) => {
+  try {
+    const { getApiTelemetry } = require('./middleware');
+    const telemetry = getApiTelemetry();
+    res.json({
+      success: true,
+      telemetry,
+      ...telemetry
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

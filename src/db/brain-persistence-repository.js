@@ -264,6 +264,96 @@ class BrainPersistenceRepository {
       return [];
     }
   }
+
+  /**
+   * Execute atomic batch transaction across baselines, incidents, calibrations, and investigations
+   */
+  saveSnapshotTransaction(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') return { success: false, error: 'Invalid snapshot' };
+    const { baselines = [], incidents = [], calibrations = {}, investigations = [] } = snapshot;
+
+    try {
+      db.exec('BEGIN TRANSACTION;');
+
+      // 1. Baselines
+      for (const b of baselines) {
+        if (b && b.target) {
+          this.saveBaseline(b.target, b);
+        }
+      }
+
+      // 2. Incidents
+      for (const inc of incidents) {
+        if (inc && inc.key) {
+          this.saveIncident(inc.key, inc);
+        }
+      }
+
+      // 3. Calibrations
+      for (const [incType, hypMap] of Object.entries(calibrations)) {
+        if (typeof hypMap === 'object' && hypMap !== null) {
+          for (const [hId, mult] of Object.entries(hypMap)) {
+            this.saveCalibration(incType, hId, mult);
+          }
+        }
+      }
+
+      // 4. Investigations
+      for (const inv of investigations) {
+        if (inv && inv.investigationId) {
+          this.saveInvestigation(inv);
+        }
+      }
+
+      db.exec('COMMIT;');
+      return {
+        success: true,
+        itemsCommitted: baselines.length + incidents.length + Object.keys(calibrations).length + investigations.length,
+        timestamp: new Date().toISOString()
+      };
+    } catch (err) {
+      try { db.exec('ROLLBACK;'); } catch (_) {}
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Diagnostic integrity check for SQLite WAL database
+   */
+  getDatabaseIntegrityDiagnostics() {
+    try {
+      const integrityCheck = db.prepare('PRAGMA integrity_check;').all();
+      const walQuickCheck = db.prepare('PRAGMA quick_check;').all();
+      const journalMode = db.prepare('PRAGMA journal_mode;').all();
+      const synchronous = db.prepare('PRAGMA synchronous;').all();
+      const busyTimeout = db.prepare('PRAGMA busy_timeout;').all();
+
+      const baselinesCount = db.prepare('SELECT COUNT(*) as c FROM brain_baselines;').get()?.c || 0;
+      const incidentsCount = db.prepare('SELECT COUNT(*) as c FROM brain_incidents;').get()?.c || 0;
+      const investigationsCount = db.prepare('SELECT COUNT(*) as c FROM unified_investigations;').get()?.c || 0;
+
+      return {
+        healthy: integrityCheck?.[0]?.integrity_check === 'ok',
+        journalMode: journalMode?.[0]?.journal_mode || 'wal',
+        synchronous: synchronous?.[0]?.synchronous ?? 1,
+        busyTimeoutMs: busyTimeout?.[0]?.timeout ?? 8000,
+        integrityResult: integrityCheck?.[0]?.integrity_check || 'ok',
+        quickCheckResult: walQuickCheck?.[0]?.quick_check || 'ok',
+        records: {
+          baselines: baselinesCount,
+          incidents: incidentsCount,
+          investigations: investigationsCount
+        },
+        checkedAt: new Date().toISOString()
+      };
+    } catch (err) {
+      return {
+        healthy: false,
+        error: err.message,
+        checkedAt: new Date().toISOString()
+      };
+    }
+  }
 }
 
 const brainPersistenceRepository = new BrainPersistenceRepository();

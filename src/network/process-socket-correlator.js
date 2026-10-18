@@ -64,6 +64,7 @@ class ProcessSocketCorrelator {
     this.packetStreamer = options.packetStreamer || null;
     this.processMap = new Map(); // pid -> processName
     this.endpoints = []; // Array of correlated endpoint objects
+    this.endpointTimelineMap = new Map(); // rolling process endpoint history
     this.lastRefreshedAt = null;
     this.cacheTtlMs = options.cacheTtlMs || 2500;
   }
@@ -161,6 +162,22 @@ class ProcessSocketCorrelator {
       });
     }
 
+    for (const ep of correlated) {
+      const key = `${ep.processName}[PID:${ep.pid}]->${ep.remoteAddress}:${ep.remotePort}`;
+      if (!this.endpointTimelineMap.has(key)) {
+        this.endpointTimelineMap.set(key, []);
+      }
+      const ring = this.endpointTimelineMap.get(key);
+      ring.push({
+        state: ep.state,
+        domain: ep.domain,
+        sni: ep.sni,
+        serviceHint: ep.serviceHint,
+        timestamp: ep.timestamp
+      });
+      if (ring.length > 50) ring.shift();
+    }
+
     this.endpoints = correlated.length > 2500 ? correlated.slice(-2500) : correlated;
     this.lastRefreshedAt = now;
     return this.endpoints;
@@ -215,6 +232,26 @@ class ProcessSocketCorrelator {
     }
 
     return results;
+  }
+
+  /**
+   * Get rolling timeline history of watched process endpoints
+   */
+  getWatchedProcessHistory(procFilter = '') {
+    const q = (procFilter || '').toLowerCase().trim();
+    const history = [];
+    for (const [key, entries] of this.endpointTimelineMap.entries()) {
+      if (!q || key.toLowerCase().includes(q)) {
+        history.push({
+          targetKey: key,
+          snapshotsCount: entries.length,
+          firstSeen: entries[0]?.timestamp || null,
+          lastSeen: entries[entries.length - 1]?.timestamp || null,
+          snapshots: entries.slice(-20)
+        });
+      }
+    }
+    return history;
   }
 
   /**

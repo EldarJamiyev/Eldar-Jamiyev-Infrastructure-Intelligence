@@ -469,6 +469,24 @@ router.get('/notifications', authenticate, requirePermission('telemetry.read'), 
   }
 });
 
+/**
+ * GET /api/rca/brain/providers-health
+ * Returns multi-model provider health matrix and deterministic routing status
+ */
+router.get('/brain/providers-health', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const { aiModelOrchestrator } = require('../core/ai-model-orchestrator');
+    const matrix = aiModelOrchestrator.getProviderHealthMatrix();
+    res.json({
+      success: true,
+      matrix,
+      ...matrix
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 

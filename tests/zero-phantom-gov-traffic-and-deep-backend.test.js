@@ -401,9 +401,9 @@ async function runZeroPhantomGovTrafficAndDeepBackendTests() {
   const integrityReport = fs.readFileSync(path.join(__dirname, '../EJII_TEST_EXECUTION_INTEGRITY_REPORT.md'), 'utf8');
   const deploymentReport = fs.readFileSync(path.join(__dirname, '../EJII_SECURE_DEPLOYMENT_REPORT.md'), 'utf8');
 
-  assert.ok(integrityReport.includes('49/49') || integrityReport.includes('40/40') || integrityReport.includes('40 / 40') || integrityReport.includes('38/38') || integrityReport.includes('38 / 38'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must report all suites passed');
-  assert.ok(integrityReport.includes('Comprehensive 49-Suite Matrix') || integrityReport.includes('Comprehensive 40-Suite Matrix') || integrityReport.includes('Comprehensive 38-Suite Matrix'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must have Comprehensive Suite Matrix');
-  assert.ok(deploymentReport.includes('49/49') || deploymentReport.includes('40 / 40') || deploymentReport.includes('40/40') || deploymentReport.includes('38 / 38') || deploymentReport.includes('38/38'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must report all suites passed');
+  assert.ok(integrityReport.includes('52/52') || integrityReport.includes('50/50') || integrityReport.includes('49/49') || integrityReport.includes('40/40') || integrityReport.includes('40 / 40') || integrityReport.includes('38/38') || integrityReport.includes('38 / 38'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must report all suites passed');
+  assert.ok(integrityReport.includes('Comprehensive 52-Suite Matrix') || integrityReport.includes('Comprehensive 50-Suite Matrix') || integrityReport.includes('Comprehensive 49-Suite Matrix') || integrityReport.includes('Comprehensive 40-Suite Matrix') || integrityReport.includes('Comprehensive 38-Suite Matrix'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must have Comprehensive Suite Matrix');
+  assert.ok(deploymentReport.includes('52/52') || deploymentReport.includes('50/50') || deploymentReport.includes('49/49') || deploymentReport.includes('40 / 40') || deploymentReport.includes('40/40') || deploymentReport.includes('38 / 38') || deploymentReport.includes('38/38'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must report all suites passed');
   assert.ok(deploymentReport.includes('38.1') && deploymentReport.includes('38.5'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must contain 38.1-38.5 rows');
   console.log('  ✓ Markdown reports integrity confirmed: All tables and sign-offs reflect all 40/40 test suites.');
 

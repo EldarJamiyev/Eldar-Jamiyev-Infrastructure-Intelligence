@@ -1,20 +1,21 @@
-function escapeHtml(str) {
+window.escapeHtml = function(str) {
   return String(str === null || str === undefined ? '' : str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-function escapeAttr(str) {
-  return escapeHtml(str);
-}
-window.escapeHtml = function(str) {
-  return escapeHtml(str);
 };
 window.escapeAttr = function(str) {
-  return escapeAttr(str);
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 };
+var escapeHtml = window.escapeHtml;
+var escapeAttr = window.escapeAttr;
 
 // State Management
 const state = {

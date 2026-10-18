@@ -389,6 +389,24 @@ router.get('/process-endpoints', async (req, res) => {
 });
 
 /**
+ * GET /api/network/process-endpoints/history
+ * Returns rolling timeline history of watched process endpoints and state transitions
+ */
+router.get('/process-endpoints/history', async (req, res) => {
+  try {
+    const history = processSocketCorrelator.getWatchedProcessHistory(req.query.process);
+    res.json({
+      success: true,
+      count: history.length,
+      history,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve endpoint history: ' + err.message });
+  }
+});
+
+/**
  * GET /api/network/conversations
  * Bi-directional conversations aggregated across OS sockets and wire flows.
  */

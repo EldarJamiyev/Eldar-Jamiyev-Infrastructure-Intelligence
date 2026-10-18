@@ -1895,6 +1895,58 @@ class AIBrain {
     const finalSecond = currentEvaluation.rankedHypotheses?.[1];
     const conclusive = Boolean(finalTop && (finalTop.confidence >= 70 || (finalSecond && (finalTop.confidence - finalSecond.confidence) >= 30)));
 
+    const initialEpistemic = reasoningEngine.computeEpistemicMetrics(initialTopHypothesis ? [initialTopHypothesis] : []);
+    const finalEpistemic = reasoningEngine.computeEpistemicMetrics(currentEvaluation.rankedHypotheses || []);
+    const initialEntropy = initialEpistemic.shannonEntropyBits;
+    const finalEntropy = finalEpistemic.shannonEntropyBits;
+    const informationGainBits = Math.max(0, Number((initialEntropy - finalEntropy).toFixed(4)));
+    const entropyReductionRatio = initialEntropy > 0 ? Number((informationGainBits / initialEntropy).toFixed(4)) : 0;
+
+    // Causal DAG Construction with Backtracking Detection
+    const dagNodes = [{ id: 'NODE-START', label: `Target: ${target}:${port}`, type: 'INIT' }];
+    const dagEdges = [];
+    let prevNodeId = 'NODE-START';
+    let backtrackingOccurred = false;
+
+    steps.forEach((s) => {
+      const nodeId = `STEP-${s.stepNumber}`;
+      dagNodes.push({
+        id: nodeId,
+        label: `${s.probeType} (${s.probeSuccess ? 'PASS' : 'FAIL'})`,
+        type: 'PROBE',
+        probeType: s.probeType,
+        success: s.probeSuccess,
+        topHypothesis: s.newTopHypothesis,
+        confidence: s.confidence
+      });
+      dagEdges.push({
+        from: prevNodeId,
+        to: nodeId,
+        relation: s.probeSuccess ? 'EVIDENTIARY_PASS' : 'EVIDENTIARY_FAIL'
+      });
+      if (s.priorTopHypothesis && s.newTopHypothesis && s.priorTopHypothesis !== s.newTopHypothesis) {
+        backtrackingOccurred = true;
+      }
+      prevNodeId = nodeId;
+    });
+
+    dagNodes.push({
+      id: 'NODE-VERDICT',
+      label: finalTop?.label || 'Inconclusive',
+      type: 'VERDICT',
+      confidence: finalTop?.confidence || 0
+    });
+    dagEdges.push({ from: prevNodeId, to: 'NODE-VERDICT', relation: 'CAUSAL_INFERENCE' });
+
+    const dagSummary = {
+      nodesCount: dagNodes.length,
+      edgesCount: dagEdges.length,
+      isAcyclic: true,
+      backtrackingOccurred,
+      dagNodes,
+      dagEdges
+    };
+
     return {
       success: true,
       investigationId,
@@ -1909,6 +1961,15 @@ class AIBrain {
       finalTopHypothesis: finalTop,
       rankedHypotheses: currentEvaluation.rankedHypotheses || [],
       contradictoryEvidence: currentEvaluation.contradictoryEvidence || [],
+      epistemicProgress: {
+        initialEntropyBits: initialEntropy,
+        finalEntropyBits: finalEntropy,
+        informationGainBits,
+        entropyReductionRatio,
+        initialCertainty: initialEpistemic.epistemicCertaintyRatio,
+        finalCertainty: finalEpistemic.epistemicCertaintyRatio
+      },
+      dagSummary,
       steps,
       evaluation: currentEvaluation
     };
