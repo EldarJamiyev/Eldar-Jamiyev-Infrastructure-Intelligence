@@ -1533,6 +1533,166 @@ class UltraIpScanner {
     }
     return this.getScanStatus();
   }
+
+  async inspectSingleHostDeep(ip) {
+    return inspectSingleHostDeep(ip);
+  }
+}
+
+/**
+ * Deep Single Host Inspection Engine
+ * High-precision on-demand intelligence: enterprise port sweep, reverse PTR, NetBIOS/SMB,
+ * hardware OUI, OS fingerprinting, and latency jitter telemetry.
+ */
+async function inspectSingleHostDeep(ip) {
+  if (!ip || typeof ip !== 'string') {
+    throw new Error('Valid IP address required for deep host inspection.');
+  }
+  const cleanIp = ip.trim();
+  const startTime = Date.now();
+
+  // 1. Resolve hostnames (Reverse DNS, NetBIOS, SMB, mDNS) in parallel
+  const [revDns, netbios, smb, mdns] = await Promise.all([
+    queryReverseDns(cleanIp).catch(() => null),
+    queryNetBiosName(cleanIp, 500).catch(() => null),
+    querySmbName(cleanIp, 600).catch(() => null),
+    queryMdnsName(cleanIp, 500).catch(() => null)
+  ]);
+
+  const resolvedHostname = netbios || smb || mdns || revDns || cleanIp;
+
+  // 2. Comprehensive Port Sweep across enterprise ports
+  const targetPorts = [21, 22, 23, 25, 53, 80, 135, 139, 443, 445, 1433, 3306, 3389, 5432, 8080, 8443];
+  const portServiceMap = {
+    21: 'FTP',
+    22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP',
+    53: 'DNS',
+    80: 'HTTP',
+    135: 'MS-RPC',
+    139: 'NetBIOS-SSN',
+    443: 'HTTPS',
+    445: 'SMB/CIFS',
+    1433: 'MS-SQL',
+    3306: 'MySQL',
+    3389: 'RDP',
+    5432: 'PostgreSQL',
+    8080: 'HTTP-Proxy/Alt',
+    8443: 'HTTPS-Alt'
+  };
+
+  const portProbes = await Promise.all(
+    targetPorts.map(async (port) => {
+      try {
+        const res = await checkPort(cleanIp, port, 400);
+        return {
+          port,
+          service: portServiceMap[port] || 'Unknown',
+          status: res.status || (res.open ? 'OPEN' : 'CLOSED'),
+          latencyMs: res.latencyMs || null
+        };
+      } catch (e) {
+        return { port, service: portServiceMap[port] || 'Unknown', status: 'CLOSED', latencyMs: null };
+      }
+    })
+  );
+
+  const openPorts = portProbes.filter(p => p.status === 'OPEN');
+
+  // 3. ARP & Hardware Vendor Resolution
+  const arpTable = await getArpTable().catch(() => []);
+  let mac = 'Unknown';
+  if (Array.isArray(arpTable)) {
+    const entry = arpTable.find(e => e.ip === cleanIp);
+    if (entry && entry.mac) mac = entry.mac;
+  } else if (arpTable instanceof Map) {
+    mac = arpTable.get(cleanIp) || 'Unknown';
+  }
+  const vendor = mac !== 'Unknown' ? resolveOuiVendor(mac) : 'Unknown Vendor';
+
+  // 4. Ping Latency Jitter & Packet Loss (4 rounds)
+  const livenessProbes = [];
+  for (let i = 0; i < 4; i++) {
+    const probe = await probeHostLiveness(cleanIp, 400);
+    if (probe.online && typeof probe.latencyMs === 'number') {
+      livenessProbes.push(probe.latencyMs);
+    }
+  }
+
+  const pingStats = {
+    probesSent: 4,
+    probesReceived: livenessProbes.length,
+    packetLossPct: Math.round(((4 - livenessProbes.length) / 4) * 100),
+    minLatencyMs: livenessProbes.length ? Math.min(...livenessProbes) : null,
+    maxLatencyMs: livenessProbes.length ? Math.max(...livenessProbes) : null,
+    avgLatencyMs: livenessProbes.length ? Number((livenessProbes.reduce((a, b) => a + b, 0) / livenessProbes.length).toFixed(1)) : null,
+    jitterMs: livenessProbes.length >= 2 ? Number((Math.max(...livenessProbes) - Math.min(...livenessProbes)).toFixed(1)) : 0
+  };
+
+  // 5. OS Fingerprinting
+  let estimatedOs = 'Unknown';
+  let confidence = 'LOW';
+  const openPortNumbers = openPorts.map(p => p.port);
+  if (openPortNumbers.includes(135) || openPortNumbers.includes(445) || openPortNumbers.includes(3389)) {
+    estimatedOs = 'Microsoft Windows';
+    confidence = 'HIGH';
+  } else if (openPortNumbers.includes(22)) {
+    estimatedOs = 'Linux / Unix';
+    confidence = openPortNumbers.includes(80) || openPortNumbers.includes(443) ? 'HIGH' : 'MEDIUM';
+  } else if (openPortNumbers.includes(80) || openPortNumbers.includes(443) || openPortNumbers.includes(8080)) {
+    estimatedOs = 'Embedded Network Appliance / Web Server';
+    confidence = 'MEDIUM';
+  }
+
+  const classification = classifyDevice({
+    ip: cleanIp,
+    hostname: resolvedHostname,
+    macAddress: mac,
+    vendor,
+    openPorts: openPortNumbers
+  });
+
+  return {
+    success: true,
+    ip: cleanIp,
+    hostname: resolvedHostname,
+    resolvedNames: { reverseDns: revDns, netbios, smb, mdns },
+    macAddress: mac,
+    vendor,
+    osEstimate: {
+      os: estimatedOs,
+      confidence,
+      openPorts: openPortNumbers
+    },
+    openServices: openPorts,
+    allProbedPorts: portProbes,
+    probedPorts: portProbes,
+    pingStats,
+    latencyMetrics: {
+      samplesCount: pingStats.probesSent,
+      receivedCount: pingStats.probesReceived,
+      packetLossPct: pingStats.packetLossPct,
+      minLatencyMs: pingStats.minLatencyMs,
+      maxLatencyMs: pingStats.maxLatencyMs,
+      avgLatencyMs: pingStats.avgLatencyMs,
+      jitterMs: pingStats.jitterMs
+    },
+    vendor,
+    vendorOUI: vendor,
+    osEstimate: {
+      os: estimatedOs,
+      confidence,
+      openPorts: openPortNumbers
+    },
+    recommendations: [
+      `Host ${cleanIp} is active with ${openPorts.length} responsive enterprise port(s).`,
+      `Device classified as ${classification.deviceType || 'Network Device'} (${classification.role || 'General Host'}).`
+    ],
+    classification,
+    durationMs: Date.now() - startTime,
+    scannedAt: new Date().toISOString()
+  };
 }
 
 const ultraIpScanner = new UltraIpScanner();
@@ -1551,6 +1711,7 @@ module.exports = {
   auditHostPorts,
   classifyDevice,
   probeHostLiveness,
+  inspectSingleHostDeep,
   SCAN_PROFILES,
   ultraIpScanner,
   UltraIpScanner

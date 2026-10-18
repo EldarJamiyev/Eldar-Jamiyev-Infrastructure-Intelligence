@@ -14,11 +14,67 @@ const { DATA_DIR } = require('../config');
 const DEFAULT_SCRIPTS_DIR = process.env.EJII_SCRIPTS_DIR || 'e:\\Scripts';
 
 /**
- * Categorize a script based on filename and content
+ * Categorize a script based on filename and content, analyzing administrative privileges and risk.
  */
 function categorizeScript(filename, content = '') {
   const fLower = filename.toLowerCase();
   const cLower = content.toLowerCase();
+
+  // Privilege analysis
+  const requiresElevation = Boolean(
+    fLower.includes('admin') ||
+    fLower.includes('elevat') ||
+    fLower.includes('sfc') ||
+    fLower.includes('dism') ||
+    fLower.includes('password') ||
+    fLower.includes('spooler') ||
+    cLower.includes('net localgroup administrators') ||
+    cLower.includes('sfc /scannow') ||
+    cLower.includes('dism') ||
+    cLower.includes('remove-appxpackage') ||
+    cLower.includes('stop-service') ||
+    cLower.includes('net stop') ||
+    cLower.includes('restart-service') ||
+    cLower.includes('set-itemproperty') ||
+    cLower.includes('hklm:') ||
+    cLower.includes('reg add') ||
+    cLower.includes('net user') ||
+    cLower.includes('set-netipaddress') ||
+    cLower.includes('route add') ||
+    cLower.includes('chkdsk /f')
+  );
+
+  const privilegeRequirement = requiresElevation ? 'Administrator' : 'Standard User';
+
+  // Risk Level analysis: CRITICAL, HIGH, MEDIUM, LOW
+  let riskLevel = 'LOW';
+  if (
+    cLower.includes('net user') && (cLower.includes('*') || cLower.includes('password')) ||
+    cLower.includes('format ') ||
+    cLower.includes('diskpart') ||
+    cLower.includes('shutdown') ||
+    cLower.includes('restart-computer') ||
+    (cLower.includes('reg add') && cLower.includes('hklm'))
+  ) {
+    riskLevel = 'CRITICAL';
+  } else if (
+    requiresElevation ||
+    cLower.includes('stop-service') ||
+    cLower.includes('net stop') ||
+    cLower.includes('remove-appxpackage') ||
+    cLower.includes('taskkill') ||
+    cLower.includes('netsh advfirewall')
+  ) {
+    riskLevel = 'HIGH';
+  } else if (
+    cLower.includes('flushdns') ||
+    cLower.includes('release') ||
+    cLower.includes('renew') ||
+    cLower.includes('del /') ||
+    cLower.includes('remove-item')
+  ) {
+    riskLevel = 'MEDIUM';
+  }
 
   // 1. Security & Access
   if (
@@ -34,7 +90,10 @@ function categorizeScript(filename, content = '') {
       category: 'Security & Access',
       badge: '🛡️ Security & Access',
       icon: '🛡️',
-      color: '#EF4444'
+      color: '#EF4444',
+      requiresElevation,
+      privilegeRequirement,
+      riskLevel
     };
   }
 
@@ -57,7 +116,10 @@ function categorizeScript(filename, content = '') {
       category: 'Network & DNS Stack',
       badge: '🌐 Network & DNS Stack',
       icon: '🌐',
-      color: '#38BDF8'
+      color: '#38BDF8',
+      requiresElevation,
+      privilegeRequirement,
+      riskLevel
     };
   }
 
@@ -80,7 +142,10 @@ function categorizeScript(filename, content = '') {
       category: 'System Diagnostics & Health',
       badge: '🩺 System Diagnostics & Health',
       icon: '🩺',
-      color: '#10B981'
+      color: '#10B981',
+      requiresElevation,
+      privilegeRequirement,
+      riskLevel
     };
   }
 
@@ -100,7 +165,10 @@ function categorizeScript(filename, content = '') {
       category: 'Cleanup & Bloatware',
       badge: '🧹 Cleanup & Bloatware',
       icon: '🧹',
-      color: '#F59E0B'
+      color: '#F59E0B',
+      requiresElevation,
+      privilegeRequirement,
+      riskLevel
     };
   }
 
@@ -118,7 +186,10 @@ function categorizeScript(filename, content = '') {
       category: 'Hardware Inventory',
       badge: '🖥️ Hardware Inventory',
       icon: '🖥️',
-      color: '#8B5CF6'
+      color: '#8B5CF6',
+      requiresElevation,
+      privilegeRequirement,
+      riskLevel
     };
   }
 
@@ -127,7 +198,10 @@ function categorizeScript(filename, content = '') {
     category: 'Performance & Process Triage',
     badge: '⚡ Performance & Process Triage',
     icon: '⚡',
-    color: '#EC4899'
+    color: '#EC4899',
+    requiresElevation,
+    privilegeRequirement,
+    riskLevel
   };
 }
 
@@ -286,6 +360,9 @@ async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
         categoryBadge: catInfo.badge,
         categoryColor: catInfo.color,
         categoryIcon: catInfo.icon,
+        requiresElevation: catInfo.requiresElevation,
+        privilegeRequirement: catInfo.privilegeRequirement,
+        riskLevel: catInfo.riskLevel,
         executionType,
         sizeBytes: stat.size,
         lastModified: stat.mtime.toISOString(),
@@ -441,18 +518,52 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
 
     child.on('close', (code) => {
       const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
-      cleanupAndResolve({
-        success: code === 0,
-        exitCode: code !== null ? code : 0,
+      const exitCode = code !== null ? code : 0;
+      const success = exitCode === 0;
+      let elevationAdvisory = null;
+      if (exitCode === 5 || stderr.toLowerCase().includes('access is denied') || stderr.toLowerCase().includes('requires elevation') || stderr.toLowerCase().includes('run as administrator')) {
+        elevationAdvisory = 'This script failed due to insufficient Windows administrative privileges (Access Denied). Run EJII as Administrator or use elevated PowerShell.';
+      }
+      const record = {
+        executionId: 'EXEC-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        scriptName,
+        timestamp: new Date().toISOString(),
+        exitCode,
+        durationMs,
+        success,
+        executionType,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
-        durationMs,
-        executionType,
-        scriptName
-      });
+        elevationAdvisory
+      };
+      executionLedger.push(record);
+      if (executionLedger.length > MAX_LEDGER_ENTRIES) {
+        executionLedger.shift();
+      }
+
+      cleanupAndResolve(record);
     });
   });
 }
+
+const executionLedger = [];
+const MAX_LEDGER_ENTRIES = 50;
+
+function getExecutionHistory(limit = 50) {
+  return executionLedger.slice(-limit).reverse();
+}
+
+const scriptAutomation = {
+  DEFAULT_SCRIPTS_DIR,
+  categorizeScript,
+  detectScriptType,
+  cleanScriptTitle,
+  resolveScriptPath,
+  listAutomationScripts,
+  getScriptContent,
+  executeScript,
+  getExecutionHistory
+};
 
 module.exports = {
   DEFAULT_SCRIPTS_DIR,
@@ -462,5 +573,7 @@ module.exports = {
   resolveScriptPath,
   listAutomationScripts,
   getScriptContent,
-  executeScript
+  executeScript,
+  getExecutionHistory,
+  scriptAutomation
 };

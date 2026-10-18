@@ -21,8 +21,8 @@ const { PacketDecoder } = require('../network/packet-decoding/packet-decoder');
 const { scanPorts } = require('../protocols/tcp-port');
 const { auditTls } = require('../protocols/tls-audit');
 const { getSystemInfo, walkOid, STANDARD_OIDS } = require('../protocols/snmp-engine');
-const { getArpTable, ultraIpScanner, sendWakeOnLan, generateWolPacket, SCAN_PROFILES } = require('../tools/ip-scanner');
-const { listAutomationScripts, getScriptContent, executeScript } = require('../tools/script-automation');
+const { getArpTable, ultraIpScanner, sendWakeOnLan, generateWolPacket, SCAN_PROFILES, inspectSingleHostDeep } = require('../tools/ip-scanner');
+const { listAutomationScripts, getScriptContent, executeScript, getExecutionHistory } = require('../tools/script-automation');
 const { probeNodeDual } = require('../protocols/dual-prober');
 const { isSafeNetworkTarget } = require('../core/ai-brain');
 
@@ -234,6 +234,57 @@ router.post('/probe/:id', async (req, res) => {
     res.json({ success: true, node: { ...node, status, last_latency_ms: latency, last_checked: now }, probe: probeRes });
   } catch (err) {
     res.status(500).json({ error: 'Probe failed: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/network/topology/node-telemetry/:nodeId
+ * Section 1: Deep node telemetry endpoint with socket mapping, process attribution, and reachability.
+ */
+router.get('/topology/node-telemetry/:nodeId', async (req, res) => {
+  try {
+    const node = db.prepare('SELECT * FROM topology_nodes WHERE id = ?').get(req.params.nodeId);
+    if (!node) {
+      return res.status(404).json({ success: false, error: 'Topology node not found.' });
+    }
+
+    const ip = node.hostname_or_ip;
+    const probeRes = await probeNodeDual(node);
+
+    // Correlate active sockets from packetStreamer / system
+    const activeSockets = [];
+    const activeProcesses = new Set();
+    if (packetStreamer && packetStreamer.socketProcessMap) {
+      for (const [key, proc] of packetStreamer.socketProcessMap.entries()) {
+        if (key.includes(ip)) {
+          activeSockets.push({ socket: key, ...proc });
+          if (proc.name) activeProcesses.add(proc.name);
+        }
+      }
+    }
+
+    const latencyMs = probeRes.latencyMs !== undefined ? probeRes.latencyMs : (node.last_latency_ms || 1.2);
+    const packetLossPercent = probeRes.packetLossPct !== undefined ? probeRes.packetLossPct : (probeRes.success ? 0 : 100);
+    const reachabilityStatus = (probeRes.success && packetLossPercent === 0) ? 'REACHABLE' : (packetLossPercent < 100 ? 'DEGRADED' : 'UNREACHABLE');
+
+    res.json({
+      success: true,
+      nodeId: node.id,
+      name: node.name,
+      ip,
+      type: node.type || node.layer,
+      layerLevel: node.layer_level,
+      vendor: node.vendor,
+      latencyMs,
+      packetLossPercent,
+      socketCount: activeSockets.length,
+      activeProcesses: Array.from(activeProcesses),
+      reachabilityStatus,
+      status: node.status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve node telemetry: ' + err.message });
   }
 });
 
@@ -450,6 +501,30 @@ router.post('/packet-dissect', (req, res) => {
     res.json({ success: true, dissected, rawHex: buf.toString('hex') });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Packet dissection failed: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/network/troubleshoot-endpoint
+ * Section 2: Deep 5-stage endpoint troubleshooter
+ * Stage 1: Local socket & active process mapping
+ * Stage 2: DNS & Reverse PTR Resolution
+ * Stage 3: L3/L4 TCP Reachability & Kernel Error Code Check
+ * Stage 4: L6 TLS Handshake & Certificate Inspection
+ * Stage 5: Packet Capture Correlation & AI Health Verdict
+ */
+router.post('/troubleshoot-endpoint', async (req, res) => {
+  try {
+    const { target, port = 443 } = req.body || {};
+    if (!target) {
+      return res.status(400).json({ success: false, error: 'Target IP or hostname is required.' });
+    }
+
+    const { troubleshootEndpoint } = require('../network/packet-streaming/packet-streamer');
+    const result = await troubleshootEndpoint(target, port);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Endpoint troubleshooting failed: ' + err.message });
   }
 });
 
@@ -746,6 +821,24 @@ router.post('/scanner/wol', async (req, res) => {
 });
 
 /**
+ * POST /api/network/scanner/inspect-host
+ * Section 3: Deep single host inspection with enterprise port sweep, reverse PTR, NetBIOS/SMB,
+ * hardware OUI, OS fingerprinting, and latency jitter telemetry.
+ */
+router.post('/scanner/inspect-host', async (req, res) => {
+  try {
+    const { ip } = req.body || {};
+    if (!ip) {
+      return res.status(400).json({ success: false, error: 'Host IP is required.' });
+    }
+    const result = await inspectSingleHostDeep(ip);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Deep host inspection failed: ' + err.message });
+  }
+});
+
+/**
  * POST /api/network/scanner/add-to-topology
  * Registers discovered host into dynamic topology
  */
@@ -857,6 +950,42 @@ router.post('/automation/execute', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADM
       return res.status(404).json({ error: err.message });
     }
     res.status(500).json({ error: 'Failed to execute script: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/network/scripts/history (and /automation/history)
+ * Section 4: Returns bounded execution ledger of the last 50 automation script runs with elevation advisory.
+ */
+router.get(['/scripts/history', '/automation/history'], (req, res) => {
+  try {
+    const limit = Math.min(50, parseInt(req.query.limit || 50, 10));
+    const history = getExecutionHistory(limit);
+    res.json({
+      success: true,
+      count: history.length,
+      history
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve script execution history: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/network/diagnostics/trends
+ * Section 5: Returns rolling telemetry history and trend delta for host diagnostics.
+ */
+router.get('/diagnostics/trends', (req, res) => {
+  try {
+    const { hostDiagnosticsEngine } = require('../systems/diagnostics/host-diagnostics-engine');
+    const windowSec = parseInt(req.query.window || 300, 10);
+    const analysis = hostDiagnosticsEngine.getTrendAnalysis(windowSec);
+    res.json({
+      success: true,
+      ...analysis
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

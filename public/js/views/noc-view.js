@@ -703,13 +703,19 @@
         banner.style.display = 'block';
         banner.style.background = res.criticality === 'CATASTROPHIC' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)';
         banner.style.border = `1px solid ${res.criticality === 'CATASTROPHIC' ? '#ef4444' : '#f59e0b'}`;
+        const nodeObj = (topologyData.nodes || []).find(n => n.id === nodeId);
+        const nodeIp = nodeObj ? nodeObj.hostname_or_ip : '';
         banner.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <div>
               <b style="color: ${res.criticality === 'CATASTROPHIC' ? '#ef4444' : '#f59e0b'};">[💥 BLAST RADIUS: ${res.criticality}]</b>
               <span>${res.simulationNotes}</span>
+              ${nodeIp ? `<span style="margin-left: 10px; color: #94a3b8; font-size: 11px;">Target: <code style="color: #38bdf8;">${escapeHtml(nodeIp)}</code></span>` : ''}
             </div>
-            <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 10px; padding: 2px 8px;">Dismiss</button>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${nodeIp ? `<button class="btn btn-primary" onclick="window.sniffNode('${escapeAttr(nodeIp)}')" style="font-size: 10px; padding: 2px 8px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🦈 Sniff This Node</button>` : ''}
+              <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 10px; padding: 2px 8px;">Dismiss</button>
+            </div>
           </div>
         `;
       }
@@ -1052,7 +1058,7 @@
         }
 
         // Keep-alives must not trigger important mode
-        if (f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck) {
+        if (f.isKeepAlive || f.isKeepAliveAck || f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck || f.tcpDeltaStatus === 'KEEP_ALIVE') {
           return false;
         }
 
@@ -1065,7 +1071,7 @@
     } else if (currentSnifferMode === 'failures') {
       filtered = filtered.filter(f => {
         // Exclude Keep-Alives from failures mode
-        if (f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck) {
+        if (f.isKeepAlive || f.isKeepAliveAck || f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck || f.tcpDeltaStatus === 'KEEP_ALIVE') {
           return false;
         }
         const flags = f.tcp?.flags || {};
@@ -1108,10 +1114,10 @@
 
       // Retransmission & TCP Delta flags
       let tcpDeltaBadge = '<span style="color: var(--text-dim); font-size: 10px;">NORMAL</span>';
-      if (f.tcpAnalysis) {
-        if (f.tcpAnalysis.isKeepAlive || f.tcpAnalysis.isKeepAliveAck) {
-          tcpDeltaBadge = '<span style="color: #64748b; font-size: 10px; font-weight: 600;">[KEEP-ALIVE]</span>';
-        } else if (f.tcpAnalysis.isRetransmission) {
+      if (f.isKeepAlive || f.isKeepAliveAck || f.tcpAnalysis?.isKeepAlive || f.tcpAnalysis?.isKeepAliveAck || f.tcpDeltaStatus === 'KEEP_ALIVE') {
+        tcpDeltaBadge = '<span style="color: #64748b; font-size: 10px; font-weight: 600;">[KEEP-ALIVE]</span>';
+      } else if (f.tcpAnalysis) {
+        if (f.tcpAnalysis.isRetransmission) {
           tcpDeltaBadge = '<span style="color: #ef4444; font-weight: 800; background: rgba(239,68,68,0.2); padding: 1px 4px; border-radius: 3px;">[RETRANS]</span>';
         } else if (f.tcpAnalysis.isDupAck) {
           tcpDeltaBadge = '<span style="color: #f59e0b; font-weight: 800; background: rgba(245,158,11,0.2); padding: 1px 4px; border-radius: 3px;">[DUP ACK]</span>';
@@ -1870,10 +1876,111 @@
     }).join('');
   };
 
-  window.troubleshootEndpoint = function(host, port) {
+  window.sniffNode = function(ip) {
+    if (!ip) return;
+    searchFilter = ip;
+    const searchInput = document.getElementById('packetSearchInput');
+    if (searchInput) searchInput.value = ip;
+    renderPacketTable();
+    const packetSection = document.getElementById('nocPacketTableContainer') || document.querySelector('.sniffer-table-container') || document.getElementById('livePacketStreamSection');
+    if (packetSection) {
+      packetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  window.troubleshootEndpoint = async function(host, port = 443) {
     window.troubleshootTarget = { host, port };
-    if (typeof window.renderView === 'function') {
-      window.renderView('core-diagnostics');
+
+    let modal = document.getElementById('troubleshootEndpointModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'troubleshootEndpointModal';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 10px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #38bdf8;">🩺 Deep Endpoint Troubleshooter (5 Stages)</h3>
+            <div style="font-size: 12px; color: #94a3b8;">Target: <b>${escapeHtml(host)}</b> (Port ${port})</div>
+          </div>
+          <button onclick="document.getElementById('troubleshootEndpointModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+        </div>
+        <div id="troubleshootContentArea" style="text-align: center; padding: 30px; color: #94a3b8;">
+          <div style="margin-bottom: 12px; font-size: 24px;">⚙️</div>
+          <div>Executing 5-Stage Live Wire & OS Diagnostics...</div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await window.api('/api/network/troubleshoot-endpoint', {
+        method: 'POST',
+        body: JSON.stringify({ target: host, port })
+      });
+
+      const content = document.getElementById('troubleshootContentArea');
+      if (!content) return;
+
+      if (!res.success) {
+        content.innerHTML = `<div style="color: #ef4444; padding: 20px;">❌ Diagnostics Failed: ${escapeHtml(res.error || 'Unknown error')}</div>`;
+        return;
+      }
+
+      const stg = res.stages;
+      const vColor = res.overallVerdict === 'HEALTHY' ? '#10b981' : (res.overallVerdict === 'DEGRADED' ? '#f59e0b' : '#ef4444');
+
+      content.innerHTML = `
+        <div style="text-align: left;">
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${vColor}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Overall Health Verdict</div>
+              <div style="font-size: 18px; font-weight: 800; color: ${vColor};">${res.overallVerdict} (Score: ${res.healthScore}/100)</div>
+              <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">${escapeHtml(res.recommendation)}</div>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-primary" onclick="window.sniffNode('${escapeAttr(res.resolvedIp || host)}'); document.getElementById('troubleshootEndpointModal').style.display='none';" style="font-size: 11px; padding: 6px 12px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">
+                🎯 Scope Packet Table
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+            <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 1: Process & Socket Mapping</div>
+              <div>Active Sockets Mapped: <b>${stg.socket.socketsFound}</b></div>
+              ${stg.socket.sockets.length > 0 ? `<div style="color: #94a3b8; font-size: 11px; margin-top: 2px;">Sockets: ${stg.socket.sockets.map(s => escapeHtml(s.name || s.pid)).join(', ')}</div>` : '<div style="color: #64748b; font-size: 11px;">No local process currently has an open socket to this host.</div>'}
+            </div>
+
+            <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 2: DNS & Reverse PTR Resolution</div>
+              <div>Resolved IP: <code style="color: #a78bfa;">${escapeHtml(stg.dns.resolvedIp)}</code> | Hostname: <code style="color: #a78bfa;">${escapeHtml(stg.dns.resolvedHostname)}</code> (${stg.dns.lookupDurationMs}ms)</div>
+            </div>
+
+            <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 3: L3/L4 TCP Reachability & Kernel Check</div>
+              <div>Connection to Port ${stg.tcp.targetPort}: <b style="color: ${stg.tcp.connected ? '#10b981' : '#ef4444'};">${stg.tcp.connected ? `CONNECTED (${stg.tcp.latencyMs}ms)` : `FAILED (${escapeHtml(stg.tcp.kernelError)})`}</b></div>
+            </div>
+
+            <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 4: L6 TLS Handshake & Certificate Inspection</div>
+              ${stg.tls.notApplicable ? `<div style="color: #64748b;">${escapeHtml(stg.tls.message)}</div>` : (
+                stg.tls.handshakeSuccess ? `<div>ALPN: <code style="color: #38bdf8;">${escapeHtml(stg.tls.alpnProtocol)}</code> | Subject: <b>${escapeHtml(stg.tls.subject || '—')}</b> | Valid: <b>${stg.tls.daysRemaining} days remaining</b></div>` : `<div style="color: #ef4444;">TLS Handshake Error: ${escapeHtml(stg.tls.error)}</div>`
+              )}
+            </div>
+
+            <div style="background: #1e293b; border-radius: 6px; padding: 10px 14px;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">Stage 5: Live Wire Capture Correlation</div>
+              <div>Correlated Captured Frames: <b>${stg.capture.correlatedFramesCount}</b> | Retransmissions: <b>${stg.capture.retransmissionsObserved}</b> | Resets (RST): <b>${stg.capture.resetsObserved}</b></div>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      const content = document.getElementById('troubleshootContentArea');
+      if (content) content.innerHTML = `<div style="color: #ef4444; padding: 20px;">Network request failed: ${escapeHtml(err.message)}</div>`;
     }
   };
 

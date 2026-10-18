@@ -445,6 +445,7 @@
           <td class="col-nowrap" style="white-space: nowrap;">${latencyDisplay}</td>
           <td class="col-nowrap" style="white-space: nowrap;">
             <div style="display: flex; gap: 4px; align-items: center;">
+              <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
               <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
               <button class="btn btn-secondary" onclick="window.addHostToTopology('${h.ip}', '${h.hostname}', '${h.macAddress}', '${h.vendor}')" style="font-size: 10px; padding: 2px 6px;" title="Register host into dynamic Layer 1-6 topology map">🗺️ Map</button>
               <button class="btn btn-secondary" onclick="window.sendWolToHost('${h.macAddress}')" style="font-size: 10px; padding: 2px 6px;" title="Transmit Wake-on-LAN magic packet">⏰ WOL</button>
@@ -455,6 +456,100 @@
       `;
     }).join('');
   }
+
+  // Deep Host Inspection Drawer (Section 3)
+  window.inspectHostDeep = async function(ip) {
+    let modal = document.getElementById('deepInspectHostModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'deepInspectHostModal';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 10px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #38bdf8;">🔬 Deep Host Intelligence &amp; Inspection</h3>
+            <div style="font-size: 12px; color: #94a3b8;">Target Host: <b style="color: #38bdf8;">${escapeHtml(ip)}</b></div>
+          </div>
+          <button onclick="document.getElementById('deepInspectHostModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+        </div>
+        <div id="deepInspectContent" style="text-align: center; padding: 30px; color: #94a3b8;">
+          <div style="font-size: 24px; margin-bottom: 10px;">⚙️</div>
+          <div>Probing 15 Enterprise Ports, Reverse PTR, OUI Vendor, OS Fingerprint &amp; Latency Jitter...</div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await window.api('/api/network/scanner/inspect-host', {
+        method: 'POST',
+        body: JSON.stringify({ ip })
+      });
+
+      const content = document.getElementById('deepInspectContent');
+      if (!content) return;
+
+      if (!res.success) {
+        content.innerHTML = `<div style="color: #ef4444; padding: 20px;">❌ Inspection Failed: ${escapeHtml(res.error || 'Unknown error')}</div>`;
+        return;
+      }
+
+      const openServicesHtml = res.openServices && res.openServices.length > 0
+        ? res.openServices.map(s => `<span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">Port ${s.port} (${escapeHtml(s.service)})</span>`).join(' ')
+        : '<span style="color: #64748b; font-size: 12px;">No probed enterprise ports open.</span>';
+
+      content.innerHTML = `
+        <div style="text-align: left; display: flex; flex-direction: column; gap: 12px; font-size: 12px;">
+          <!-- Top Row Summary -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="background: #1e293b; padding: 12px; border-radius: 6px;">
+              <div style="color: #94a3b8; font-size: 11px;">Hostname</div>
+              <div style="font-weight: 700; font-size: 14px; color: #f8fafc; margin-top: 2px;">${escapeHtml(res.hostname || res.ip)}</div>
+            </div>
+            <div style="background: #1e293b; padding: 12px; border-radius: 6px;">
+              <div style="color: #94a3b8; font-size: 11px;">Hardware OUI Vendor</div>
+              <div style="font-weight: 700; font-size: 14px; color: #f8fafc; margin-top: 2px;">${escapeHtml(res.vendor || 'Unknown')}</div>
+              <div style="color: #64748b; font-size: 10px; font-family: monospace;">${escapeHtml(res.macAddress || 'Unknown MAC')}</div>
+            </div>
+          </div>
+
+          <!-- OS Fingerprint & Latency -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="background: #1e293b; padding: 12px; border-radius: 6px;">
+              <div style="color: #94a3b8; font-size: 11px;">Estimated OS Family</div>
+              <div style="font-weight: 700; font-size: 13px; color: #a78bfa; margin-top: 2px;">${escapeHtml(res.osEstimate.os)}</div>
+              <div style="color: #64748b; font-size: 10px;">Confidence: <b>${res.osEstimate.confidence}</b></div>
+            </div>
+            <div style="background: #1e293b; padding: 12px; border-radius: 6px;">
+              <div style="color: #94a3b8; font-size: 11px;">Latency Jitter Telemetry (4 probes)</div>
+              <div style="font-weight: 700; font-size: 13px; color: #34d399; margin-top: 2px;">Avg: ${res.pingStats.avgLatencyMs !== null ? `${res.pingStats.avgLatencyMs}ms` : '—'} (Jitter: ${res.pingStats.jitterMs}ms)</div>
+              <div style="color: #64748b; font-size: 10px;">Loss: ${res.pingStats.packetLossPct}% (Min: ${res.pingStats.minLatencyMs}ms / Max: ${res.pingStats.maxLatencyMs}ms)</div>
+            </div>
+          </div>
+
+          <!-- Open Enterprise Ports -->
+          <div style="background: #1e293b; padding: 12px; border-radius: 6px;">
+            <div style="color: #94a3b8; font-size: 11px; margin-bottom: 6px;">Open Enterprise Ports (${res.openServices ? res.openServices.length : 0} discovered)</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${openServicesHtml}
+            </div>
+          </div>
+
+          <!-- Footer Action Buttons -->
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('deepInspectHostModal').style.display='none'">Close</button>
+            <button class="btn btn-primary" onclick="document.getElementById('deepInspectHostModal').style.display='none'; window.sniffHostOnWire('${escapeAttr(res.ip)}');" style="font-weight: 700; background: #0284c7; border-color: #38bdf8;">🦈 Sniff Host in Wireshark</button>
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      const content = document.getElementById('deepInspectContent');
+      if (content) content.innerHTML = `<div style="color: #ef4444; padding: 20px;">Request failed: ${escapeHtml(e.message)}</div>`;
+    }
+  };
 
   // 1-Click NOC Operations
   window.autoDetectSubnet = async function() {

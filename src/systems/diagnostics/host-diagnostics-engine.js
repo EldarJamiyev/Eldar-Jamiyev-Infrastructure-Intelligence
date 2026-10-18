@@ -24,6 +24,8 @@ class HostDiagnosticsEngine {
     this.cachedAudit = null;
     this.lastAuditTime = 0;
     this.cacheTtlMs = 5000;
+    this.telemetryHistory = [];
+    this.maxHistoryPoints = 60;
   }
 
   /**
@@ -782,6 +784,18 @@ class HostDiagnosticsEngine {
       };
     }
 
+    try {
+      const cpuUsagePct = resource?.details?.loadAverage1m != null ? Number(resource.details.loadAverage1m.toFixed(1)) : (resource?.details?.cpuPercent || 0.0);
+      const memUsagePct = Number(((1 - os.freemem() / os.totalmem()) * 100).toFixed(1));
+      this.recordTelemetryPoint({
+        cpuPercent: cpuUsagePct,
+        memoryPercent: memUsagePct,
+        diskPercent: storage?.details?.drives?.[0]?.percentUsed || 0.0,
+        timestamp: now
+      });
+      auditResult.trendAnalysis = this.computeTrendDelta();
+    } catch (e) {}
+
     this.cachedAudit = auditResult;
     this.lastAuditTime = now;
     return auditResult;
@@ -868,6 +882,99 @@ class HostDiagnosticsEngine {
    */
   async getSocketTable() {
     return this.getSocketList();
+  }
+
+  /**
+   * Record a single telemetry snapshot point in the rolling history
+   */
+  recordTelemetryPoint(metrics = {}) {
+    const cpuVal = typeof metrics.cpuPercent === 'number' ? metrics.cpuPercent : (typeof metrics.cpuLoadPct === 'number' ? metrics.cpuLoadPct : 0.0);
+    const memPct = metrics.memoryPercent != null ? metrics.memoryPercent : (metrics.ramUsedPct != null ? metrics.ramUsedPct : Number(((1 - os.freemem() / os.totalmem()) * 100).toFixed(1)));
+    const point = {
+      timestamp: metrics.timestamp || Date.now(),
+      cpuPercent: cpuVal,
+      memoryPercent: memPct,
+      diskPercent: typeof metrics.diskPercent === 'number' ? metrics.diskPercent : (typeof metrics.diskQueueLength === 'number' ? metrics.diskQueueLength : 0.0),
+      networkBps: typeof metrics.networkBps === 'number' ? metrics.networkBps : 0
+    };
+    this.telemetryHistory.push(point);
+    if (this.telemetryHistory.length > this.maxHistoryPoints) {
+      this.telemetryHistory.shift();
+    }
+    return point;
+  }
+
+  /**
+   * Compute velocity / slope of resource consumption over rolling telemetry history
+   */
+  computeTrendDelta(windowSeconds = 300) {
+    if (this.telemetryHistory.length < 2) {
+      return {
+        sampleCount: this.telemetryHistory.length,
+        cpuDeltaPct: 0.0,
+        memoryDeltaPct: 0.0,
+        cpuTrend: { slope: 0.0, direction: 'STEADY', pctChange: 0.0 },
+        ramTrend: { slope: 0.0, direction: 'STEADY', pctChange: 0.0 },
+        trendSeverity: 'NORMAL',
+        advisory: 'Awaiting sufficient telemetry history samples (minimum 2 required).'
+      };
+    }
+
+    const now = Date.now();
+    const cutoff = now - (windowSeconds * 1000);
+    const windowPoints = this.telemetryHistory.filter(p => p.timestamp >= cutoff);
+    const pts = windowPoints.length >= 2 ? windowPoints : this.telemetryHistory.slice(-10);
+
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const timeDeltaSec = Math.max(1, (last.timestamp - first.timestamp) / 1000);
+
+    const cpuDeltaPct = Number((last.cpuPercent - first.cpuPercent).toFixed(1));
+    const memoryDeltaPct = Number((last.memoryPercent - first.memoryPercent).toFixed(1));
+
+    const cpuSlope = Number((cpuDeltaPct / timeDeltaSec).toFixed(2));
+    const ramSlope = Number((memoryDeltaPct / timeDeltaSec).toFixed(2));
+
+    const cpuDirection = cpuDeltaPct >= 2.0 ? 'RISING' : (cpuDeltaPct <= -2.0 ? 'FALLING' : 'STEADY');
+    const ramDirection = memoryDeltaPct >= 2.0 ? 'RISING' : (memoryDeltaPct <= -2.0 ? 'FALLING' : 'STEADY');
+
+    let trendSeverity = 'NORMAL';
+    let advisory = 'Resource consumption is stable across recent sampling window.';
+
+    if (memoryDeltaPct >= 15.0 || cpuDeltaPct >= 40.0) {
+      trendSeverity = 'CRITICAL';
+      advisory = `Critical resource acceleration: Memory ${memoryDeltaPct >= 0 ? '+' : ''}${memoryDeltaPct}% / CPU ${cpuDeltaPct >= 0 ? '+' : ''}${cpuDeltaPct}% over recent window. Immediate investigation recommended.`;
+    } else if (memoryDeltaPct >= 5.0 || cpuDeltaPct >= 20.0) {
+      trendSeverity = 'ELEVATED';
+      advisory = `Elevated consumption trend: Memory ${memoryDeltaPct >= 0 ? '+' : ''}${memoryDeltaPct}% over recent sampling window.`;
+    } else if (memoryDeltaPct <= -5.0) {
+      advisory = `Resource consumption trending downward: Memory ${memoryDeltaPct}% reclaimed.`;
+    }
+
+    return {
+      sampleCount: pts.length,
+      windowSeconds,
+      cpuDeltaPct,
+      memoryDeltaPct,
+      cpuTrend: { slope: cpuSlope, direction: cpuDirection, pctChange: cpuDeltaPct },
+      ramTrend: { slope: ramSlope, direction: ramDirection, pctChange: memoryDeltaPct },
+      trendSeverity,
+      advisory,
+      current: last,
+      baseline: first
+    };
+  }
+
+  /**
+   * Returns rolling telemetry history and trend analysis
+   */
+  getTrendAnalysis(windowSeconds = 300) {
+    return {
+      history: [...this.telemetryHistory],
+      trend: this.computeTrendDelta(windowSeconds),
+      sampleCount: this.telemetryHistory.length,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 

@@ -51,6 +51,9 @@
               </div>
 
               <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="btn btn-secondary" onclick="window.showScriptHistory()" style="font-size: 11px; padding: 4px 12px; font-weight: 700;">
+                  📜 Execution History
+                </button>
                 <button class="btn btn-primary" onclick="window.rescanAutomationScripts()" style="font-size: 11px; padding: 4px 12px; font-weight: 700;">
                   ↻ Rescan Folder
                 </button>
@@ -154,6 +157,27 @@
             </div>
           </div>
         </div>
+
+        <!-- Script History Modal -->
+        <div id="scriptHistoryModal" class="modal-backdrop" style="display: none;" onclick="window.closeScriptHistoryModal(event)">
+          <div class="modal-card" style="max-width: 860px; width: 92%; max-height: 85vh; overflow-y: auto; scrollbar-gutter: stable; padding-right: 20px;" onclick="event.stopPropagation()">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+              <div>
+                <div style="font-weight: 800; font-size: 15px; color: var(--accent);">📜 Host Automation Execution Ledger</div>
+                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">
+                  Audited execution history of host scripts &bull; Privilege tracking &bull; Elevation advisories
+                </div>
+              </div>
+              <button class="btn-logout" onclick="window.closeScriptHistoryModal()">✕</button>
+            </div>
+            <div id="scriptHistoryModalContent" style="padding: 16px 0;">
+              <div style="color: var(--text-dim); font-size: 12px; text-align: center; padding: 20px;">Loading history...</div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+              <button class="btn btn-secondary" onclick="window.closeScriptHistoryModal()">Close</button>
+            </div>
+          </div>
+        </div>
       `;
 
       renderScriptCards();
@@ -218,6 +242,13 @@
         ? `<span style="background: rgba(56, 189, 248, 0.2); color: #38BDF8; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 9.5px; font-family: var(--font-mono);">PS1 / PowerShell</span>`
         : `<span style="background: rgba(245, 158, 11, 0.2); color: #FBBF24; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 9.5px; font-family: var(--font-mono);">BAT / CMD</span>`;
 
+      const privBadge = s.requiresElevation
+        ? `<span style="background: rgba(239, 68, 68, 0.2); color: #F87171; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-size: 9.5px;">🛡️ Administrator</span>`
+        : `<span style="background: rgba(16, 185, 129, 0.2); color: #34D399; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 9.5px;">👤 Standard User</span>`;
+
+      const riskCol = s.riskLevel === 'CRITICAL' ? '#EF4444' : (s.riskLevel === 'HIGH' ? '#F97316' : (s.riskLevel === 'MEDIUM' ? '#FBBF24' : '#10B981'));
+      const riskBadge = `<span style="background: rgba(255, 255, 255, 0.06); color: ${riskCol}; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-size: 9.5px;">[${s.riskLevel || 'LOW'}]</span>`;
+
       return `
         <div class="script-card" style="background: var(--bg-card); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 14px; transition: border-color 0.15s ease;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='rgba(255, 255, 255, 0.08)'">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
@@ -227,6 +258,8 @@
                 <span style="background: rgba(255, 255, 255, 0.06); color: ${s.categoryColor || '#94A3B8'}; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px;">
                   ${s.categoryBadge || s.category}
                 </span>
+                ${privBadge}
+                ${riskBadge}
                 ${typeBadge}
               </div>
               <div style="font-size: 10.5px; color: #64748B; font-family: var(--font-mono); margin-top: 3px;">
@@ -296,6 +329,9 @@
       }
 
       let formattedOut = '';
+      if (res.elevationAdvisory) {
+        formattedOut += `<div style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 6px; padding: 10px; margin-bottom: 12px; color: #fca5a5; font-size: 11.5px;"><b>⚠️ ELEVATION ADVISORY:</b><br>${escapeHtml(res.elevationAdvisory)}</div>`;
+      }
       if (res.stdout) {
         formattedOut += `<span style="color: #F8FAFC;">${escapeHtml(res.stdout)}</span>\n`;
       }
@@ -381,6 +417,92 @@ ${formattedOut}
 
   window.closeScriptModal = function(e) {
     const modal = document.getElementById('scriptInspectionModal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.showScriptHistory = async function() {
+    const modal = document.getElementById('scriptHistoryModal');
+    const content = document.getElementById('scriptHistoryModalContent');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    if (content) {
+      content.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; text-align: center; padding: 24px;">Loading audited execution ledger...</div>';
+    }
+
+    try {
+      const res = await window.api('/api/network/scripts/history');
+      const list = res?.history || [];
+      if (list.length === 0) {
+        if (content) {
+          content.innerHTML = `
+            <div style="padding: 30px; text-align: center; color: var(--text-muted); font-size: 12px;">
+              No host scripts have been executed during this session yet.<br>
+              <span style="font-size: 11px; color: #64748B;">Run any script from the Automation console to populate this ledger.</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      const rows = list.map(item => {
+        const timeStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '--:--:--';
+        const statusBadge = item.exitCode === 0
+          ? '<span style="background: rgba(16, 185, 129, 0.2); color: #10B981; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 10px;">SUCCESS (0)</span>'
+          : `<span style="background: rgba(239, 68, 68, 0.2); color: #EF4444; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 10px;">EXIT (${item.exitCode})</span>`;
+
+        const advisory = item.elevationAdvisory
+          ? `<div style="margin-top: 4px; font-size: 10px; color: #FCA5A5; background: rgba(239, 68, 68, 0.1); border-left: 2px solid #EF4444; padding: 2px 6px; border-radius: 2px;">⚠️ ${escapeHtml(item.elevationAdvisory)}</div>`
+          : '';
+
+        return `
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11.5px;">
+            <td style="padding: 8px 10px; font-family: var(--font-mono); color: #94A3B8;">${timeStr}</td>
+            <td style="padding: 8px 10px; font-weight: 600; color: #F1F5F9;">
+              ${escapeHtml(item.scriptName)}
+              ${advisory}
+            </td>
+            <td style="padding: 8px 10px; font-family: var(--font-mono); font-size: 10.5px; color: #38BDF8;">${escapeHtml(item.executionType || 'cmd')}</td>
+            <td style="padding: 8px 10px;">${statusBadge}</td>
+            <td style="padding: 8px 10px; font-family: var(--font-mono); color: #94A3B8;">${item.durationMs ?? 0} ms</td>
+            <td style="padding: 8px 10px; text-align: right;">
+              <button class="btn btn-secondary" onclick="window.closeScriptHistoryModal(); window.runScriptByName('${encodeURIComponent(item.scriptName)}');" style="font-size: 10px; padding: 2px 8px;">
+                ▶ Re-run
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      if (content) {
+        content.innerHTML = `
+          <div style="max-height: 55vh; overflow-y: auto; scrollbar-gutter: stable;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 10.5px; color: var(--text-dim); text-transform: uppercase;">
+                  <th style="padding: 6px 10px;">Time</th>
+                  <th style="padding: 6px 10px;">Script</th>
+                  <th style="padding: 6px 10px;">Type</th>
+                  <th style="padding: 6px 10px;">Status</th>
+                  <th style="padding: 6px 10px;">Duration</th>
+                  <th style="padding: 6px 10px; text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+    } catch (err) {
+      if (content) {
+        content.innerHTML = `<div style="color: var(--danger); padding: 16px; font-size: 12px;">Failed to load script history: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+  };
+
+  window.closeScriptHistoryModal = function(e) {
+    const modal = document.getElementById('scriptHistoryModal');
     if (modal) modal.style.display = 'none';
   };
 

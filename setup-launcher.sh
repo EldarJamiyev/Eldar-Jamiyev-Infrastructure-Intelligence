@@ -23,10 +23,13 @@ else
     echo "[OK] Node modules verified."
 fi
 
-# 3. Run Automated Verification Test Suite
+# 3. Run Automated Verification Test Suite (Strictly Isolated Pre-Flight Environment)
 echo ""
 echo "[INFO] Running Zero-Simulation Automated Verification Test Suite..."
-NODE_ENV=test node tests/run-all-tests.js
+PREFLIGHT_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'ejii_preflight')
+EJII_DATA_DIR="$PREFLIGHT_DIR" node src/db/seed.js >/dev/null 2>&1
+NODE_ENV=test EJII_DATA_DIR="$PREFLIGHT_DIR" node tests/run-all-tests.js
+rm -rf "$PREFLIGHT_DIR"
 
 # 4. Start Server
 echo ""

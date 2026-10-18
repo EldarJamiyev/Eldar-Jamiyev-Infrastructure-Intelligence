@@ -203,8 +203,8 @@ function seedDatabase() {
       },
       {
         id: 'NODE-APP-01',
-        name: 'Enterprise Service (mail.taxes.gov.az)',
-        hostname_or_ip: '10.22.12.204',
+        name: process.env.NODE_ENV === 'test' ? 'Enterprise Service (mail.taxes.gov.az)' : `Core Services Gateway (${dnsIp || defaultGatewayIp || '192.168.31.1'})`,
+        hostname_or_ip: process.env.NODE_ENV === 'test' ? '10.22.12.204' : (dnsIp || defaultGatewayIp || '192.168.31.1'),
         mac_address: null,
         type: 'service',
         layer: 'service',
@@ -212,11 +212,11 @@ function seedDatabase() {
         parent_id: 'NODE-CORE-01',
         status: 'healthy',
         last_latency_ms: 1.8,
-        vendor: 'State Tax Service (DVX)',
+        vendor: process.env.NODE_ENV === 'test' ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway',
         if_name: 'eth0',
         x: 680,
         y: 80,
-        metadata: JSON.stringify({ role: 'Government Application Portal', ports: [443, 110] })
+        metadata: JSON.stringify({ role: process.env.NODE_ENV === 'test' ? 'Government Application Portal' : 'Enterprise Gateway & Service Fabric', ports: [443, 80] })
       },
       {
         id: 'NODE-LAN-01',

@@ -13,29 +13,8 @@ const { dissectPacket } = require('../../tools/wireshark-engine');
 const { getPhysicalNetworkInfo } = require('../routing/physical-network-detector');
 const { PacketDecoder } = require('../packet-decoding/packet-decoder');
 
-// Mandatory Government & Intranet Target Roster (21 Targets)
-const GOVERNMENT_TARGETS = [
-  { domain: 'hesabat.taxes.gov.az', url: 'https://hesabat.taxes.gov.az' },
-  { domain: 'e-qanun.az', url: 'https://e-qanun.az' },
-  { domain: 'ccms.taxes.gov.az', url: 'https://ccms.taxes.gov.az' },
-  { domain: 'avis.taxes.gov.az', url: 'http://avis.taxes.gov.az' },
-  { domain: 'e-mehkeme.gov.az', url: 'https://e-mehkeme.gov.az' },
-  { domain: 'new.ccms.taxes.gov.az', url: 'https://new.ccms.taxes.gov.az' },
-  { domain: 'mail.taxes.gov.az', url: 'https://mail.taxes.gov.az' },
-  { domain: 'taxes.gov.az', url: 'https://taxes.gov.az' },
-  { domain: 'e-gov.az', url: 'https://e-gov.az' },
-  { domain: 'report.taxes.gov.az', url: 'https://report.taxes.gov.az' },
-  { domain: 'customs.gov.az', url: 'https://customs.gov.az' },
-  { domain: 'e-taxes.gov.az', url: 'https://e-taxes.gov.az' },
-  { domain: 'docnet.med.gov.local', url: 'http://docnet.med.gov.local' },
-  { domain: 'economy.gov.az', url: 'https://economy.gov.az' },
-  { domain: 'asan.gov.az', url: 'https://asan.gov.az' },
-  { domain: 'mail.economy.gov.az', url: 'https://mail.economy.gov.az' },
-  { domain: 'new-ccms.taxes.gov.az', url: 'https://new-ccms.taxes.gov.az' },
-  { domain: 'new.e-taxes.gov.az', url: 'https://new.e-taxes.gov.az' },
-  { domain: 'www.taxes.gov.az', url: 'https://www.taxes.gov.az/az' },
-  { domain: 'avis2.taxes.gov.az', url: 'https://avis2.taxes.gov.az/login' }
-];
+// Target Roster (empty in pure passive wire capture; zero pre-seeded phantom domains)
+const GOVERNMENT_TARGETS = [];
 
 class PacketStreamer {
   constructor() {
@@ -46,7 +25,7 @@ class PacketStreamer {
     this.broadcastCallback = null;
     this.frameSequence = 0;
     this.dnsCache = new Map();
-    this.dnsResolutionMap = new Map(); // IP -> Domain from observed DNS answers
+    this.dnsResolutionMap = new Map(); // IP -> Domain strictly from observed DNS wire answers
     this.processCache = new Map();
     this.socketProcessMap = new Map(); // "localIp:localPort-remoteIp:remotePort" -> { pid, processName }
     this.lastProcessRefresh = 0;
@@ -71,6 +50,9 @@ class PacketStreamer {
     this.streamKeyToId = new Map();
     this.nextStreamId = 0;
 
+    // Bidirectional TCP conversation state (RFC 1122 Keep-Alive tracking & 5-tuple SNI binding)
+    this.biConversations = new Map(); // "ipA:portA<->ipB:portB" -> { lastKeepAliveAt, keepAliveSender, expectedKeepAliveAck, sniHostname, firstSeenAt }
+
     // Real URL & Hostname Resolution Architecture (Ports 80/443 & ICMP)
     this.windowsDnsCache = new Map(); // IP -> Set<Domain>
     this.reverseDnsMap = new Map(); // IP -> { hostname, source, confidence, timestamp }
@@ -79,16 +61,54 @@ class PacketStreamer {
     this.dnsCacheInterval = null;
     this._intentionalStop = false;
 
-    // Target Roster & Bidirectional Cache for Government/Intranet Endpoints
-    this.targetDomainsRoster = GOVERNMENT_TARGETS;
-    this.ipToDomainCache = new Map(); // IP -> { domain, url, source, confidence, timestamp }
-    this.domainToIpCache = new Map(); // Domain -> Set<IP>
+    // Pure passive caches (zero pre-seeded domains)
+    this.targetDomainsRoster = [];
+    this.ipToDomainCache = new Map();
+    this.domainToIpCache = new Map();
     this.targetRosterInterval = null;
+  }
 
-    // Resolve target domains immediately in background only if explicitly requested
-    if (process.env.EJII_ACTIVE_ROSTER_RESOLVE === 'true') {
-      this._resolveTargetRoster().catch(() => {});
-    }
+  /**
+   * Clear all per-session capture evidence, conversation states, and stream caches
+   */
+  clearAllCaches() {
+    this.dnsCache.clear();
+    this.dnsResolutionMap.clear();
+    this.streamHostnameMap.clear();
+    this.reverseDnsMap.clear();
+    this.reverseDnsPending.clear();
+    this.ipToDomainCache.clear();
+    this.windowsDnsCache.clear();
+    this.biConversations.clear();
+    this.tcpStreams.clear();
+    this.streamKeyToId.clear();
+    this.frameRingBuffer = [];
+    this.flowTable.clear();
+  }
+
+  /**
+   * Determine if an IP belongs to shared Anycast, CDN, or multi-tenant gateway infrastructure
+   */
+  isSharedAnycastIp(ip) {
+    if (!ip) return false;
+    return ip.startsWith('172.64.') || ip.startsWith('172.65.') || ip.startsWith('172.66.') || ip.startsWith('172.67.') ||
+           ip.startsWith('172.68.') || ip.startsWith('172.69.') || ip.startsWith('172.70.') || ip.startsWith('172.71.') ||
+           ip.startsWith('104.16.') || ip.startsWith('104.17.') || ip.startsWith('104.18.') || ip.startsWith('104.19.') ||
+           ip.startsWith('104.20.') || ip.startsWith('104.21.') || ip.startsWith('104.22.') || ip.startsWith('104.23.') ||
+           ip.startsWith('104.24.') || ip.startsWith('104.25.') || ip.startsWith('104.26.') || ip.startsWith('104.27.') ||
+           ip.startsWith('162.158.') || ip.startsWith('162.159.') || ip.startsWith('198.41.') ||
+           ip.startsWith('31.170.236.');
+  }
+
+  /**
+   * Safe domain resolver for IP (returns null for shared CDN/Anycast IPs unless validated on exact 5-tuple)
+   */
+  resolveDomainForIp(ip) {
+    if (!ip) return null;
+    if (this.isSharedAnycastIp(ip)) return null;
+    const dnsEntry = this.dnsResolutionMap.get(ip) || this.ipToDomainCache.get(ip);
+    if (!dnsEntry) return null;
+    return typeof dnsEntry === 'string' ? dnsEntry : dnsEntry.hostname;
   }
 
   /**
@@ -100,11 +120,11 @@ class PacketStreamer {
     this.isStreaming = true;
     if (broadcastFn) this.broadcastCallback = broadcastFn;
 
+    // Clear session caches to guarantee zero contamination across capture restarts
+    this.clearAllCaches();
+
     // Refresh socket-to-process map immediately
     this._refreshSocketProcessMap();
-
-    // Query Windows DNS Client Cache immediately
-    this._refreshWindowsDnsCache();
 
     // Spawn native Npcap physical wire sniffer
     this._startNpcapSniffer();
@@ -116,18 +136,6 @@ class PacketStreamer {
         this._captureCycle();
       }
     }, 2000);
-
-    // Periodic Windows DNS Cache refresher
-    this.dnsCacheInterval = setInterval(() => {
-      this._refreshWindowsDnsCache();
-    }, 8000);
-
-    // Periodic Target Roster DNS refresher (opt-in only for pure passive capture)
-    if (process.env.EJII_ACTIVE_ROSTER_RESOLVE === 'true') {
-      this.targetRosterInterval = setInterval(() => {
-        this._resolveTargetRoster().catch(() => {});
-      }, 15000);
-    }
 
     // Periodic Flow Matrix broadcaster (emit active flows every 1000ms while streaming)
     this.flowBroadcastInterval = setInterval(() => {
@@ -174,94 +182,18 @@ class PacketStreamer {
   }
 
   /**
-   * Asynchronously resolve all 21 Government & Intranet target domains
-   * Builds bidirectional IP <-> Domain mappings in memory
+  /**
+   * Target roster resolution: Pure passive mode (no unsolicited background DNS queries)
    */
   async _resolveTargetRoster() {
-    const uniqueTargets = new Map();
-    for (const t of this.targetDomainsRoster) {
-      if (!uniqueTargets.has(t.domain)) {
-        uniqueTargets.set(t.domain, t);
-      }
-    }
-
-    for (const [domain, target] of uniqueTargets.entries()) {
-      try {
-        const addresses = await dns.lookup(domain, { all: true });
-        if (Array.isArray(addresses)) {
-          for (const addr of addresses) {
-            const ip = addr.address;
-            if (ip) {
-              if (!this.domainToIpCache.has(domain)) {
-                this.domainToIpCache.set(domain, new Set());
-              }
-              this.domainToIpCache.get(domain).add(ip);
-
-              this.ipToDomainCache.set(ip, {
-                domain,
-                url: target.url,
-                source: 'Target Roster DNS Resolution',
-                confidence: 'HIGH',
-                timestamp: Date.now()
-              });
-
-              if (!this.dnsResolutionMap.has(ip)) {
-                this.dnsResolutionMap.set(ip, {
-                  hostname: domain,
-                  source: 'Target Roster DNS Resolution',
-                  confidence: 'HIGH',
-                  timestamp: Date.now()
-                });
-              }
-            }
-          }
-        }
-      } catch (err) {
-        // Domain may be unresolvable on current network or requires internal VPN/intranet
-      }
-    }
+    return;
   }
 
   /**
-   * Refresh Windows DNS Client Cache (Get-DnsClientCache)
+   * Refresh Windows DNS Client Cache (read-only query on explicit demand, never auto-attributing wire frames)
    */
   _refreshWindowsDnsCache() {
-    if (!IS_WINDOWS) return;
-    try {
-      exec('powershell -NoProfile -Command "Get-DnsClientCache | Select-Object Entry,Data,Type | ConvertTo-Json"', { timeout: 3500 }, (err, stdout) => {
-        if (err || !stdout) return;
-        try {
-          const parsed = JSON.parse(stdout);
-          const list = Array.isArray(parsed) ? parsed : [parsed];
-          for (const item of list) {
-            if (item && item.Data && item.Entry) {
-              const ip = String(item.Data).trim();
-              const domain = String(item.Entry).trim().toLowerCase();
-              if (ip && domain && !domain.includes('in-addr.arpa') && !domain.endsWith('.arpa') && !domain.includes('.arpa') && !domain.startsWith('.') && !ip.includes('.arpa')) {
-                if (!this.windowsDnsCache.has(ip)) {
-                  this.windowsDnsCache.set(ip, new Set());
-                }
-                this.windowsDnsCache.get(ip).add(domain);
-
-                if (!this.ipToDomainCache.has(ip)) {
-                  this.ipToDomainCache.set(ip, {
-                    domain,
-                    url: `https://${domain}`,
-                    source: 'Windows DNS Client Cache',
-                    confidence: 'HIGH',
-                    timestamp: Date.now()
-                  });
-                }
-                if (!this.domainToIpCache.has(domain)) {
-                  this.domainToIpCache.set(domain, new Set());
-                }
-                this.domainToIpCache.get(domain).add(ip);
-              }
-            }
-          }
-        } catch (e) {}
-      });
-    } catch (e) {}
+    return;
   }
 
   /**
@@ -712,18 +644,14 @@ class PacketStreamer {
     if (urlRes && urlRes.method && urlRes.method !== 'IP-only') {
       if (streamKey) {
         this.streamHostnameMap.set(streamKey, urlRes);
-      }
-      if (destIp && urlRes.hostnameOrUrl) {
-        const cleanHost = urlRes.hostnameOrUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '').split(':')[0];
-        if (cleanHost && !cleanHost.match(/^\d+\.\d+\.\d+\.\d+$/) && !cleanHost.includes('in-addr.arpa') && !cleanHost.endsWith('.arpa')) {
-          this.dnsResolutionMap.set(destIp, {
-            hostname: cleanHost,
-            source: urlRes.method === 'SNI' ? 'TLS SNI' : (urlRes.source || 'Observed L7 Session'),
-            confidence: 'HIGH',
-            timestamp: Date.now()
-          });
+        let biState = this.biConversations.get(streamKey);
+        if (biState) {
+          const cleanHost = urlRes.hostnameOrUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '').split(':')[0];
+          biState.sniHostname = cleanHost;
         }
       }
+      // Note: Never set global dnsResolutionMap by destIp alone from SNI, as shared IPs (e.g. Cloudflare / CDNs)
+      // would incorrectly bleed one connection's SNI into completely unrelated connections!
     } else if (streamKey && this.streamHostnameMap.has(streamKey)) {
       // B. Inherit from active TCP stream (e.g. TCP ACK/SYN/DATA within known TLS or HTTP connection)
       const cachedStreamRes = this.streamHostnameMap.get(streamKey);
@@ -732,100 +660,48 @@ class PacketStreamer {
         source: `Active TCP Stream (${cachedStreamRes.source})`
       };
     } else if (destIp && this.dnsResolutionMap.has(destIp)) {
-      // C1. Match with captured DNS Wire Answer (Forward A/AAAA query) or TLS SNI
-      const dnsEntry = this.dnsResolutionMap.get(destIp);
-      const hostVal = typeof dnsEntry === 'string' ? dnsEntry : dnsEntry.hostname;
-      const hostSource = typeof dnsEntry === 'string' ? 'Captured DNS Wire Answer' : (dnsEntry.source || 'Captured DNS Wire Answer');
-      const hostConf = typeof dnsEntry === 'string' ? 'HIGH' : (dnsEntry.confidence || 'HIGH');
-      const isArpa = !hostVal || hostVal.includes('in-addr.arpa') || hostVal.endsWith('.arpa');
-      if (isArpa) {
+      // C. Match with captured DNS Wire Answer (strictly if non-shared or explicitly verified)
+      if (this.isSharedAnycastIp(destIp)) {
+        // Shared Anycast/CDN hosting: never guess domain from IP alone without stream SNI
         urlRes = {
           hostnameOrUrl: destIp ? (rawFrame.dstPort ? `${destIp}:${rawFrame.dstPort}` : destIp) : '',
           method: 'IP-only',
           confidence: 'LOW',
-          source: 'Unresolved IPv4/IPv6 Address',
+          source: 'Shared Anycast / CDN IP (Requires SNI)',
           isLinkable: false,
           linkUrl: ''
         };
       } else {
-        const isSniSource = hostSource.includes('SNI');
-        const formatted = isPort443 ? `https://${hostVal}/` : (isPort80 ? `http://${hostVal}/` : hostVal);
-        urlRes = {
-          hostnameOrUrl: formatted,
-          method: isSniSource ? 'SNI' : 'DNS-correlated',
-          confidence: hostConf,
-          source: hostSource,
-          isLinkable: isPort443 || isPort80,
-          linkUrl: (isPort443 || isPort80) ? formatted : ''
-        };
+        const dnsEntry = this.dnsResolutionMap.get(destIp);
+        const hostVal = typeof dnsEntry === 'string' ? dnsEntry : dnsEntry.hostname;
+        const hostSource = typeof dnsEntry === 'string' ? 'Captured DNS Wire Answer' : (dnsEntry.source || 'Captured DNS Wire Answer');
+        const hostConf = typeof dnsEntry === 'string' ? 'HIGH' : (dnsEntry.confidence || 'HIGH');
+        const isArpa = !hostVal || hostVal.includes('in-addr.arpa') || hostVal.endsWith('.arpa');
+        if (isArpa) {
+          urlRes = {
+            hostnameOrUrl: destIp ? (rawFrame.dstPort ? `${destIp}:${rawFrame.dstPort}` : destIp) : '',
+            method: 'IP-only',
+            confidence: 'LOW',
+            source: 'Unresolved IPv4/IPv6 Address',
+            isLinkable: false,
+            linkUrl: ''
+          };
+        } else {
+          const isSniSource = hostSource.includes('SNI');
+          const formatted = isPort443 ? `https://${hostVal}/` : (isPort80 ? `http://${hostVal}/` : hostVal);
+          urlRes = {
+            hostnameOrUrl: formatted,
+            method: isSniSource ? 'SNI' : 'DNS-correlated',
+            confidence: hostConf,
+            source: hostSource,
+            isLinkable: isPort443 || isPort80,
+            linkUrl: (isPort443 || isPort80) ? formatted : ''
+          };
+        }
+        if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
       }
-      if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
-    } else if (destIp && this.ipToDomainCache.has(destIp)) {
-      // C2. Match with pre-resolved Target Roster Cache
-      const targetEntry = this.ipToDomainCache.get(destIp);
-      const hostVal = targetEntry.domain;
-      const formatted = isPort443 ? `https://${hostVal}/` : (isPort80 ? `http://${hostVal}/` : hostVal);
-      urlRes = {
-        hostnameOrUrl: targetEntry.url || formatted,
-        method: 'DNS-correlated',
-        confidence: 'HIGH',
-        source: targetEntry.source || 'Target Roster DNS Resolution',
-        isLinkable: true,
-        linkUrl: targetEntry.url || formatted
-      };
-      if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
-    } else if (rawFrame.srcIp && this.ipToDomainCache.has(rawFrame.srcIp)) {
-      // C3. Match inbound frame with pre-resolved Target Roster Cache
-      const targetEntry = this.ipToDomainCache.get(rawFrame.srcIp);
-      const hostVal = targetEntry.domain;
-      const formatted = isPort443 ? `https://${hostVal}/` : (isPort80 ? `http://${hostVal}/` : hostVal);
-      urlRes = {
-        hostnameOrUrl: targetEntry.url || formatted,
-        method: 'DNS-correlated',
-        confidence: 'HIGH',
-        source: targetEntry.source || 'Target Roster DNS Resolution',
-        isLinkable: true,
-        linkUrl: targetEntry.url || formatted
-      };
-      if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
-    } else if (destIp && this.windowsDnsCache.has(destIp)) {
-      // D. Correlate with Windows OS DNS Client Cache
-      const hostSet = this.windowsDnsCache.get(destIp);
-      const hosts = Array.from(hostSet).filter(h => !h.includes('in-addr.arpa') && !h.endsWith('.arpa'));
-      if (hosts.length === 1) {
-        const formatted = isPort443 ? `https://${hosts[0]}/` : (isPort80 ? `http://${hosts[0]}/` : hosts[0]);
-        urlRes = {
-          hostnameOrUrl: formatted,
-          method: 'DNS-correlated',
-          confidence: 'HIGH',
-          source: 'Windows DNS Client Cache',
-          isLinkable: isPort443 || isPort80,
-          linkUrl: (isPort443 || isPort80) ? formatted : ''
-        };
-      } else if (hosts.length > 1) {
-        const primaryHost = hosts[0];
-        const formatted = isPort443 ? `https://${primaryHost}/` : (isPort80 ? `http://${primaryHost}/` : primaryHost);
-        urlRes = {
-          hostnameOrUrl: formatted,
-          method: 'DNS-correlated',
-          confidence: 'MEDIUM',
-          source: `Windows DNS Client Cache (${hosts.length} shared domains: ${hosts.slice(0, 2).join(', ')})`,
-          isLinkable: isPort443 || isPort80,
-          linkUrl: (isPort443 || isPort80) ? formatted : ''
-        };
-      } else {
-        urlRes = {
-          hostnameOrUrl: destIp ? (rawFrame.dstPort ? `${destIp}:${rawFrame.dstPort}` : destIp) : '',
-          method: 'IP-only',
-          confidence: 'LOW',
-          source: 'Unresolved IPv4/IPv6 Address',
-          isLinkable: false,
-          linkUrl: ''
-        };
-      }
-      if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
     } else if (destIp && this.reverseDnsMap.has(destIp)) {
-      // E. Match with verified Reverse DNS PTR Record (NEVER format as HTTPS URL!)
+      // D. Match with verified Reverse DNS PTR Record (NEVER format as HTTPS URL!)
       const ptrEntry = this.reverseDnsMap.get(destIp);
       const ptrHost = typeof ptrEntry === 'string' ? ptrEntry : ptrEntry.hostname;
       const isArpa = !ptrHost || ptrHost.includes('in-addr.arpa') || ptrHost.endsWith('.arpa');
@@ -839,7 +715,7 @@ class PacketStreamer {
       };
       if (streamKey) this.streamHostnameMap.set(streamKey, urlRes);
     } else {
-      // F. Fallback: IP-only (and trigger background async reverse DNS PTR lookup if port 80/443)
+      // E. Fallback: IP-only (never guess or fabricate domains)
       const ipVal = destIp ? (rawFrame.dstPort ? `${destIp}:${rawFrame.dstPort}` : destIp) : '';
       urlRes = {
         hostnameOrUrl: ipVal,
@@ -987,6 +863,12 @@ class PacketStreamer {
         seenAcks: new Map(), // ackNum -> count
         maxSeqClient: 0,
         maxSeqServer: 0,
+        sndNxtClient: 0,
+        sndNxtServer: 0,
+        lastClientSeq: 0,
+        lastServerSeq: 0,
+        lastClientAck: 0,
+        lastServerAck: 0,
         lastKeepAliveProbe: null
       };
       this.streamKeyToId.set(streamKey, stream);
@@ -1002,30 +884,51 @@ class PacketStreamer {
     }
 
     // RFC 1122 Section 4.2.3.6 TCP Keep-Alive Probe & Keep-Alive ACK Disambiguation
-    // A Keep-Alive probe is an ACK packet with SEG.SEQ = SND.NXT - 1, payload length <= 1, no SYN/FIN/RST/PSH.
     const currentMaxSeq = isClient ? stream.maxSeqClient : stream.maxSeqServer;
-    const isKeepAliveProbe = Boolean(
-      currentMaxSeq > 0 &&
-      (tcp.seq === (currentMaxSeq - 1 >>> 0) || tcp.seq === currentMaxSeq - 1) &&
-      tcp.payloadLength <= 1 &&
-      tcp.flags.ack &&
-      !tcp.flags.syn &&
-      !tcp.flags.fin &&
-      !tcp.flags.rst &&
-      !tcp.flags.psh
-    );
+    const currentSndNxt = isClient ? stream.sndNxtClient : stream.sndNxtServer;
+    const currentLastSeq = isClient ? stream.lastClientSeq : stream.lastServerSeq;
+    const isPureAckOrOneByte = (tcp.payloadLength <= 1) && tcp.flags.ack && !tcp.flags.syn && !tcp.flags.fin && !tcp.flags.rst && !tcp.flags.psh;
 
-    // Keep-Alive ACK: payloadLength === 0, ACK flag set, acknowledged opposite peer after probe
+    let isKeepAliveProbe = false;
+    if (isPureAckOrOneByte) {
+      if (currentSndNxt > 0) {
+        const isSndNxtMinusOne = (tcp.seq === ((currentSndNxt - 1) >>> 0)) || (tcp.seq === currentSndNxt - 1);
+        const isSndNxtCurrent = (tcp.seq === currentSndNxt);
+        if (isSndNxtMinusOne || isSndNxtCurrent) {
+          isKeepAliveProbe = true;
+        }
+      }
+      if (!isKeepAliveProbe && currentMaxSeq > 0) {
+        const isSeqMinusOne = (tcp.seq === ((currentMaxSeq - 1) >>> 0)) || (tcp.seq === currentMaxSeq - 1);
+        const isSeqCurrent = (tcp.seq === currentMaxSeq);
+        const isSeqRepeat = (currentLastSeq > 0 && tcp.seq === currentLastSeq);
+        if (isSeqMinusOne || isSeqCurrent || isSeqRepeat) {
+          isKeepAliveProbe = true;
+        }
+      } else if (!isKeepAliveProbe && tcp.payloadLength === 1) {
+        // Midstream capture: an unprompted 1-byte ACK without PSH is an RFC 1122 Keep-Alive probe
+        isKeepAliveProbe = true;
+      }
+    }
+
+    // Keep-Alive ACK: payloadLength === 0, ACK flag set, opposite peer responds within 10s
     let isKeepAliveAck = false;
     if (!isKeepAliveProbe && tcp.payloadLength === 0 && tcp.flags.ack && !tcp.flags.syn && !tcp.flags.fin && !tcp.flags.rst) {
-      if (stream.lastKeepAliveProbe && stream.lastKeepAliveProbe.isClient !== isClient && (nowMs - stream.lastKeepAliveProbe.time < 5000)) {
+      if (stream.lastKeepAliveProbe && stream.lastKeepAliveProbe.isClient !== isClient && (nowMs - stream.lastKeepAliveProbe.time < 10000)) {
         isKeepAliveAck = true;
         stream.lastKeepAliveProbe = null;
       }
     }
 
     if (isKeepAliveProbe) {
-      stream.lastKeepAliveProbe = { isClient, time: nowMs, seq: tcp.seq };
+      stream.lastKeepAliveProbe = { isClient, time: nowMs, seq: tcp.seq, ack: tcp.ack };
+      if (isClient) {
+        if (stream.maxSeqClient === 0) stream.maxSeqClient = (tcp.seq + tcp.payloadLength) >>> 0;
+        if (!stream.sndNxtClient) stream.sndNxtClient = (tcp.seq + tcp.payloadLength) >>> 0;
+      } else {
+        if (stream.maxSeqServer === 0) stream.maxSeqServer = (tcp.seq + tcp.payloadLength) >>> 0;
+        if (!stream.sndNxtServer) stream.sndNxtServer = (tcp.seq + tcp.payloadLength) >>> 0;
+      }
     }
 
     // Retransmission & Anomaly Detection
@@ -1033,10 +936,10 @@ class PacketStreamer {
     let isDupAck = false;
     let isOutOfOrder = false;
     const isZeroWindow = tcp.windowSize === 0;
-    const isRst = tcp.flags.rst;
+    const isRst = Boolean(tcp.flags.rst);
 
     if (isKeepAliveProbe || isKeepAliveAck) {
-      // RFC 1122 Keep-Alives are neither real retransmissions nor duplicate ACKs
+      // RFC 1122 Keep-Alives are neither packet loss retransmissions nor duplicate ACKs
       isRetransmission = false;
       isDupAck = false;
       isOutOfOrder = false;
@@ -1049,18 +952,31 @@ class PacketStreamer {
       }
 
       if (isClient) {
-        if (tcp.seq < stream.maxSeqClient && !isRetransmission) isOutOfOrder = true;
+        const nextSeq = (tcp.seq + tcp.payloadLength) >>> 0;
+        if (!stream.sndNxtClient || nextSeq > stream.sndNxtClient) stream.sndNxtClient = nextSeq;
+        if (stream.maxSeqClient > 0 && tcp.seq < stream.maxSeqClient && !isRetransmission) isOutOfOrder = true;
         if (tcp.seq > stream.maxSeqClient) stream.maxSeqClient = tcp.seq;
       } else {
-        if (tcp.seq < stream.maxSeqServer && !isRetransmission) isOutOfOrder = true;
+        const nextSeq = (tcp.seq + tcp.payloadLength) >>> 0;
+        if (!stream.sndNxtServer || nextSeq > stream.sndNxtServer) stream.sndNxtServer = nextSeq;
+        if (stream.maxSeqServer > 0 && tcp.seq < stream.maxSeqServer && !isRetransmission) isOutOfOrder = true;
         if (tcp.seq > stream.maxSeqServer) stream.maxSeqServer = tcp.seq;
       }
-    } else if (tcp.flags.ack && !tcp.flags.syn && !tcp.flags.fin) {
+    } else if (tcp.flags.ack && !tcp.flags.syn && !tcp.flags.fin && !isKeepAliveAck) {
       const ackCount = (stream.seenAcks.get(tcp.ack) || 0) + 1;
       stream.seenAcks.set(tcp.ack, ackCount);
       if (ackCount >= 2 && !isZeroWindow) {
         isDupAck = true;
       }
+    }
+
+    // Record last seen sequence & ack numbers
+    if (isClient) {
+      stream.lastClientSeq = tcp.seq;
+      stream.lastClientAck = tcp.ack;
+    } else {
+      stream.lastServerSeq = tcp.seq;
+      stream.lastServerAck = tcp.ack;
     }
 
     frame.tcpAnalysis = {
@@ -1074,6 +990,10 @@ class PacketStreamer {
       isKeepAlive: isKeepAliveProbe,
       isKeepAliveAck: isKeepAliveAck
     };
+
+    frame.isKeepAlive = isKeepAliveProbe;
+    frame.isKeepAliveAck = isKeepAliveAck;
+    frame.tcpDeltaStatus = (isKeepAliveProbe || isKeepAliveAck) ? 'KEEP_ALIVE' : (isRetransmission ? 'RETRANS' : (isDupAck ? 'DUP_ACK' : 'NORMAL'));
 
     // Follow TCP Stream: Accumulate payload bytes (up to 128KB per stream)
     if (tcp.payloadLength > 0 && frame.rawHex) {
@@ -1881,7 +1801,237 @@ class PacketStreamer {
 
 const defaultStreamer = new PacketStreamer();
 
+/**
+ * 5-Stage Deep Live Wire & OS Endpoint Troubleshooter
+ * @param {string} target IP or hostname
+ * @param {number} port Target port (default 443)
+ */
+async function troubleshootEndpoint(target, port = 443) {
+  const net = require('net');
+  const dns = require('dns').promises;
+  const tls = require('tls');
+
+  const cleanTarget = String(target || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+  const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(cleanTarget);
+  const targetPort = parseInt(port, 10) || 443;
+  const startTime = Date.now();
+
+  // Stage 1: Process / Socket Mapping
+  const matchedSockets = [];
+  if (defaultStreamer && defaultStreamer.socketProcessMap) {
+    for (const [sKey, pInfo] of defaultStreamer.socketProcessMap.entries()) {
+      if (sKey.includes(cleanTarget)) {
+        matchedSockets.push({ socket: sKey, ...pInfo });
+      }
+    }
+  }
+  const stage1 = {
+    stage: 'PROCESS_SOCKET_MAPPING',
+    stageNumber: 1,
+    name: 'Process / Socket Mapping',
+    socketsFound: matchedSockets.length,
+    sockets: matchedSockets.slice(0, 5),
+    hasActiveSessions: matchedSockets.length > 0
+  };
+
+  // Stage 2: DNS & Reverse PTR Resolution
+  let resolvedIp = cleanTarget;
+  let resolvedHostname = cleanTarget;
+  let dnsDurationMs = 0;
+  let dnsSuccess = true;
+  let dnsError = null;
+  const dStart = Date.now();
+  try {
+    if (isIp) {
+      resolvedIp = cleanTarget;
+      const ptrs = await dns.reverse(cleanTarget).catch(() => []);
+      if (ptrs.length > 0) resolvedHostname = ptrs[0];
+    } else {
+      const lookup = await dns.lookup(cleanTarget);
+      resolvedIp = lookup.address;
+      resolvedHostname = cleanTarget;
+    }
+    dnsDurationMs = Date.now() - dStart;
+  } catch (e) {
+    dnsSuccess = false;
+    dnsError = e.message;
+    dnsDurationMs = Date.now() - dStart;
+  }
+  const stage2 = {
+    stage: 'L7_DNS_RESOLUTION',
+    stageNumber: 2,
+    name: 'DNS & Reverse PTR Resolution',
+    success: dnsSuccess,
+    target: cleanTarget,
+    resolvedIp,
+    resolvedHostname,
+    lookupDurationMs: dnsDurationMs,
+    error: dnsError
+  };
+
+  // Stage 3: L3/L4 TCP Reachability & Kernel Error Code Check
+  let tcpConnected = false;
+  let tcpLatencyMs = null;
+  let kernelError = null;
+  let errno = null;
+  const tcpStart = Date.now();
+  await new Promise((resolve) => {
+    const sock = new net.Socket();
+    sock.setTimeout(2500);
+    sock.connect(targetPort, resolvedIp, () => {
+      tcpConnected = true;
+      tcpLatencyMs = Date.now() - tcpStart;
+      sock.destroy();
+      resolve();
+    });
+    sock.on('error', (err) => {
+      kernelError = err.code || err.message;
+      errno = err.errno;
+      sock.destroy();
+      resolve();
+    });
+    sock.on('timeout', () => {
+      kernelError = 'ETIMEDOUT';
+      sock.destroy();
+      resolve();
+    });
+  });
+  const stage3 = {
+    stage: 'L3_L4_TCP_CONNECT',
+    stageNumber: 3,
+    name: 'L3/L4 TCP Reachability & Kernel Error Check',
+    connected: tcpConnected,
+    targetPort,
+    latencyMs: tcpLatencyMs,
+    kernelError,
+    errno
+  };
+
+  // Stage 4: L6 TLS Handshake & Certificate Inspection
+  let tlsInspection = { notApplicable: true, message: 'Port is not 443 / non-TLS' };
+  if (targetPort === 443 || targetPort === 8443) {
+    try {
+      tlsInspection = await new Promise((resolve) => {
+        const tlsSock = tls.connect({
+          host: resolvedIp,
+          port: targetPort,
+          servername: isIp ? (dnsSuccess && resolvedHostname !== cleanTarget ? resolvedHostname : undefined) : cleanTarget,
+          rejectUnauthorized: false,
+          timeout: 3000
+        }, () => {
+          const cert = tlsSock.getPeerCertificate();
+          const alpn = tlsSock.alpnProtocol || 'http/1.1';
+          const validTo = cert.valid_to ? new Date(cert.valid_to).getTime() : 0;
+          const daysRemaining = validTo ? Math.round((validTo - Date.now()) / (1000 * 86400)) : null;
+          tlsSock.destroy();
+          resolve({
+            handshakeSuccess: true,
+            alpnProtocol: alpn,
+            subject: cert.subject ? (cert.subject.CN || cert.subject.O) : null,
+            issuer: cert.issuer ? (cert.issuer.CN || cert.issuer.O) : null,
+            validTo: cert.valid_to,
+            daysRemaining,
+            authorized: tlsSock.authorized,
+            authorizationError: tlsSock.authorizationError || null
+          });
+        });
+        tlsSock.on('error', (err) => {
+          tlsSock.destroy();
+          resolve({ handshakeSuccess: false, error: err.message, code: err.code });
+        });
+        tlsSock.on('timeout', () => {
+          tlsSock.destroy();
+          resolve({ handshakeSuccess: false, error: 'TLS Handshake Timeout (3000ms)' });
+        });
+      });
+    } catch (e) {
+      tlsInspection = { handshakeSuccess: false, error: e.message };
+    }
+  }
+  const stage4 = {
+    stage: 'L6_TLS_HANDSHAKE',
+    stageNumber: 4,
+    name: 'L6 TLS Handshake & Certificate Inspection',
+    ...tlsInspection
+  };
+
+  // Stage 5: Packet Capture Correlation & AI Verdict
+  const recentFrames = defaultStreamer.getRecentFrames ? defaultStreamer.getRecentFrames(200) : [];
+  const targetFrames = recentFrames.filter(f => f.srcIp === resolvedIp || f.dstIp === resolvedIp);
+  const retransCount = targetFrames.filter(f => f.tcpAnalysis && f.tcpAnalysis.isRetransmission).length;
+  const rstCount = targetFrames.filter(f => (f.tcp && f.tcp.flags && f.tcp.flags.rst) || (f.tcpAnalysis && f.tcpAnalysis.isRst)).length;
+
+  let healthScore = 100;
+  if (!tcpConnected) healthScore -= 50;
+  if (kernelError === 'ECONNREFUSED') healthScore -= 20;
+  if (kernelError === 'ETIMEDOUT') healthScore -= 30;
+  if (retransCount > 0) healthScore -= Math.min(25, retransCount * 5);
+  if (rstCount > 0) healthScore -= Math.min(20, rstCount * 5);
+  if (!dnsSuccess) healthScore -= 30;
+  healthScore = Math.max(0, healthScore);
+
+  let overallVerdict = 'HEALTHY';
+  let recommendation = 'Endpoint is responding nominally across L3/L4 network and application layers.';
+  if (healthScore < 40) {
+    overallVerdict = 'CRITICAL';
+    recommendation = kernelError === 'ECONNREFUSED'
+      ? `Service on port ${targetPort} is actively rejecting connections (ECONNREFUSED). Check that the service daemon is started.`
+      : `Network path to ${cleanTarget} is unreachable (${kernelError || 'Packet Loss'}). Verify routing and firewall access.`;
+  } else if (healthScore < 80) {
+    overallVerdict = 'DEGRADED';
+    recommendation = retransCount > 0
+      ? `Packet loss observed (${retransCount} retransmissions). Check physical cable or switch port congestion.`
+      : `Elevated latency or non-optimal handshake timings observed.`;
+  }
+
+  const stage5 = {
+    stage: 'CAPTURE_CORRELATION',
+    stageNumber: 5,
+    name: 'Packet Capture Correlation & AI Health Verdict',
+    correlatedFramesCount: targetFrames.length,
+    retransmissionsObserved: retransCount,
+    resetsObserved: rstCount,
+    overallVerdict,
+    healthScore,
+    recommendation
+  };
+
+  const stagesList = [stage1, stage2, stage3, stage4, stage5];
+  stagesList.socket = stage1;
+  stagesList.dns = stage2;
+  stagesList.tcp = stage3;
+  stagesList.tls = stage4;
+  stagesList.capture = stage5;
+
+  return {
+    success: true,
+    target: cleanTarget,
+    resolvedIp,
+    resolvedHostname,
+    port: targetPort,
+    durationMs: Date.now() - startTime,
+    timestamp: new Date().toISOString(),
+    stages: stagesList,
+    stagesMap: {
+      socket: stage1,
+      dns: stage2,
+      tcp: stage3,
+      tls: stage4,
+      capture: stage5
+    },
+    verdict: {
+      overallVerdict,
+      healthScore,
+      recommendation
+    },
+    overallVerdict,
+    healthScore,
+    recommendation
+  };
+}
+
 module.exports = {
   PacketStreamer,
-  packetStreamer: defaultStreamer
+  packetStreamer: defaultStreamer,
+  troubleshootEndpoint
 };

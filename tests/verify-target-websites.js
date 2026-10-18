@@ -108,7 +108,7 @@ function probeTlsCertificate(hostname, hostIp, port = 443, timeoutMs = 2500) {
         const cert = socket.getPeerCertificate(false);
         const cipher = socket.getCipher();
         const latencyMs = Date.now() - startTime;
-        socket.end();
+        socket.destroy();
 
         if (!cert || Object.keys(cert).length === 0) {
           return resolve({ success: true, certStatus: 'No Cert Presented', latencyMs });
@@ -161,10 +161,12 @@ function probeHttpEndpoint(targetUrl, hostIp, timeoutMs = 2500, maxRedirects = 3
           path: parsed.pathname + parsed.search,
           method: 'HEAD',
           timeout: timeoutMs,
+          agent: false,
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) EJI-NOC-Prober/2.1',
             'Accept': '*/*',
-            'Host': parsed.hostname
+            'Host': parsed.hostname,
+            'Connection': 'close'
           },
           rejectUnauthorized: false
         };
@@ -172,6 +174,7 @@ function probeHttpEndpoint(targetUrl, hostIp, timeoutMs = 2500, maxRedirects = 3
         const req = client.request(reqOpts, (res) => {
           const code = res.statusCode;
           const loc = res.headers['location'];
+          req.destroy();
           hopResolve({ success: true, statusCode: code, location: loc });
         });
 
@@ -181,6 +184,7 @@ function probeHttpEndpoint(targetUrl, hostIp, timeoutMs = 2500, maxRedirects = 3
         });
 
         req.on('error', (err) => {
+          req.destroy();
           hopResolve({ success: false, statusCode: null, error: err.code || err.message });
         });
 

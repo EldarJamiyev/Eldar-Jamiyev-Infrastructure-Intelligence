@@ -145,4 +145,18 @@ router.get('/remediation/audit-verify', authenticate, requireRole('ADMIN', 'SYSA
   }
 });
 
+// Rolling Telemetry Trends & Velocity Analysis (Section 5)
+router.get(['/host/trends', '/trends'], (req, res) => {
+  try {
+    const windowSec = parseInt(req.query.window || 300, 10);
+    const analysis = hostDiagnosticsEngine.getTrendAnalysis(windowSec);
+    res.json({
+      success: true,
+      ...analysis
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

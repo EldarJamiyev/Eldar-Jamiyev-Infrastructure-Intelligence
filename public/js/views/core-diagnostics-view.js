@@ -527,8 +527,9 @@
       });
 
       if (data.success && data.outcome) {
-        logConsole(`✓ [SUCCESS] Recipe ${recipeId} executed (${data.outcome.durationMs}ms): ${data.outcome.output || 'Done'}`);
-        alert(`Remediation Executed Successfully:\n\n${data.outcome.name}\n${data.outcome.output || 'Applied'}`);
+        const proof = data.outcome.verificationProof ? `\n[VERIFICATION PROOF]: ${data.outcome.verificationProof.deltaSummary}` : '';
+        logConsole(`✓ [SUCCESS] Recipe ${recipeId} executed (${data.outcome.durationMs}ms): ${data.outcome.output || 'Done'}${proof}`);
+        alert(`Remediation Executed Successfully:\n\n${data.outcome.name}\n${data.outcome.output || 'Applied'}${proof ? '\n' + proof : ''}`);
       } else {
         const err = data.outcome?.error || data.error || 'Execution failed';
         logConsole(`❌ [REJECTED/FAILED] ${recipeId}: ${err}`);
@@ -646,6 +647,20 @@
     if (ramEl) ramEl.textContent = `${resDet.ramUsedPct || 0}% (${resDet.usedRamGB || 0}/${resDet.totalRamGB || 0} GB)`;
     const qEl = document.getElementById('gaugeDiskQueue');
     if (qEl) qEl.textContent = `${resDet.diskQueueLength || 0}`;
+
+    const trendBox = document.getElementById('gaugeTrendAnalysis');
+    const trendBadge = document.getElementById('gaugeTrendBadge');
+    if (trendBox && trendBadge) {
+      const tr = hostAuditData.trendAnalysis?.trend;
+      if (tr && tr.sampleCount >= 2) {
+        trendBox.style.display = 'block';
+        const color = tr.trendSeverity === 'HIGH_RISE' ? '#EF4444' : (tr.trendSeverity === 'MODERATE_RISE' ? '#F59E0B' : '#10B981');
+        const icon = tr.trendSeverity === 'HIGH_RISE' ? '🔺' : (tr.trendSeverity === 'MODERATE_RISE' ? '↗️' : '🟢');
+        trendBadge.innerHTML = `<span style="color: ${color};">${icon} ${tr.trendSeverity}</span> <span style="font-size: 10px; color: #94A3B8;">(CPU: ${tr.cpuTrend?.slope >= 0 ? '+' : ''}${tr.cpuTrend?.slope || 0}/s, RAM: ${tr.ramTrend?.slope >= 0 ? '+' : ''}${tr.ramTrend?.slope || 0}/s)</span>`;
+      } else {
+        trendBox.style.display = 'none';
+      }
+    }
 
     // 2. Diagnosis Feed
     const diagFeed = document.getElementById('diagAnomaliesFeed');
@@ -907,6 +922,10 @@
               <div style="background: var(--bg-input); padding: 8px; border-radius: 4px; margin-top: 6px; text-align: center;">
                 <div style="font-size: 9px; color: var(--text-muted);">PHYSICAL RAM USAGE</div>
                 <div id="gaugeRamUsed" style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px;">--</div>
+              </div>
+              <div id="gaugeTrendAnalysis" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); padding: 8px; border-radius: 4px; margin-top: 6px; text-align: center; display: none;">
+                <div style="font-size: 9px; color: var(--text-muted);">TELEMETRY VELOCITY &amp; TREND</div>
+                <div id="gaugeTrendBadge" style="font-size: 11px; font-weight: 700; color: #38BDF8; margin-top: 2px;">--</div>
               </div>
             </div>
           </div>

@@ -34,15 +34,22 @@ if not exist "node_modules\" (
     echo [OK] Node modules verified.
 )
 
-:: 3. Run Automated Verification Test Suite
+:: 3. Run Automated Verification Test Suite (Strictly Isolated Pre-Flight Environment)
 echo.
 echo [INFO] Running Zero-Simulation Automated Verification Test Suite...
+set PREFLIGHT_DIR=%TEMP%\ejii_preflight_%RANDOM%
+if not exist "%PREFLIGHT_DIR%" mkdir "%PREFLIGHT_DIR%" >nul 2>&1
+set EJII_DATA_DIR=%PREFLIGHT_DIR%
+node src/db/seed.js >nul 2>&1
 set NODE_ENV=test
 node tests/run-all-tests.js
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Test verification failed with exit code %ERRORLEVEL%. Halting startup.
+set TEST_EXIT=%ERRORLEVEL%
+rmdir /s /q "%PREFLIGHT_DIR%" >nul 2>&1
+set EJII_DATA_DIR=
+if %TEST_EXIT% neq 0 (
+    echo [ERROR] Test verification failed with exit code %TEST_EXIT%. Halting startup.
     pause
-    exit /b %ERRORLEVEL%
+    exit /b %TEST_EXIT%
 )
 
 :: 4. Start EJII NOC Workstation
