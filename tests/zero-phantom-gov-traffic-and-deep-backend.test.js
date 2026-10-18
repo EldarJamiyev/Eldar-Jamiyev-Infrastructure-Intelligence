@@ -336,7 +336,7 @@ async function runZeroPhantomGovTrafficAndDeepBackendTests() {
   assert.strictEqual(typeof hostDiagnosticsEngine.getTrendAnalysis, 'function', 'getTrendAnalysis must be a function');
 
   // Push synthetic telemetry history points to verify slope math
-  const t0 = Date.now() - 30000;
+  hostDiagnosticsEngine.telemetryHistory = [];
   hostDiagnosticsEngine.recordTelemetryPoint({ cpuLoadPct: 10, ramUsedPct: 40, usedRamGB: 6.4, totalRamGB: 16, diskQueueLength: 0 });
   hostDiagnosticsEngine.recordTelemetryPoint({ cpuLoadPct: 15, ramUsedPct: 42, usedRamGB: 6.7, totalRamGB: 16, diskQueueLength: 0 });
   hostDiagnosticsEngine.recordTelemetryPoint({ cpuLoadPct: 25, ramUsedPct: 46, usedRamGB: 7.3, totalRamGB: 16, diskQueueLength: 1 });
