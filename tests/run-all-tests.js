@@ -72,6 +72,8 @@ const { runSuite51 } = require('./ai-brain-epistemic-validator-and-dag-planner.t
 const { runSuite52 } = require('./enterprise-api-contracts-concurrency-and-hygiene.test');
 const { runPortableScriptsMountAndUtf8LauncherTests } = require('./portable-scripts-mount-and-utf8-launcher.test');
 const { runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests } = require('./office-equipment-apipa-smart-map-and-plain-diagnostics.test');
+const { runWebSocketEaddrinuseAndServerLifecycleTests } = require('./websocket-eaddrinuse-and-server-lifecycle.test');
+const { runDhcpMdnsDissectorAndOfficeLanIntelligenceTests } = require('./dhcp-mdns-dissector-and-office-lan-intelligence.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -143,7 +145,9 @@ async function runAllTests() {
     { name: '51. AI Brain Epistemic Entropy, Self-Validator & Causal DAG Planner', fn: runSuite51 },
     { name: '52. Enterprise API Contracts, Concurrency & Hygiene Suite', fn: runSuite52 },
     { name: '53. Portable 4-Tier Script Directory Virtualization, Self-Healing Mount & UTF-8 Console Title Integrity', fn: runPortableScriptsMountAndUtf8LauncherTests },
-    { name: '54. Automatic Office Equipment Classification, Visual Smart Map, Plain-Language APIPA Resolver, Hybrid BM25/N-Gram RAG & Counterfactual Causal Simulator', fn: runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests }
+    { name: '54. Automatic Office Equipment Classification, Visual Smart Map, Plain-Language APIPA Resolver, Hybrid BM25/N-Gram RAG & Counterfactual Causal Simulator', fn: runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests },
+    { name: '55. Node.js v24 WebSocketServer EADDRINUSE Crash Defense & Server Lifecycle', fn: runWebSocketEaddrinuseAndServerLifecycleTests },
+    { name: '56. Binary RFC 2131 DHCP (DORA) Dissector, RFC 6762 mDNS/LLMNR & Office LAN Intelligence', fn: runDhcpMdnsDissectorAndOfficeLanIntelligenceTests }
   ];
 
   for (const s of suites) {

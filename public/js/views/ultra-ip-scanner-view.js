@@ -724,7 +724,12 @@
               <div style="font-size: 11px; color: #94a3b8;">Target Device: <b style="color: #38bdf8;">${escapeHtml(ip)}</b> ${name ? `(${escapeHtml(name)})` : ''}</div>
             </div>
           </div>
-          <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button onclick="window.diagnoseOfficeEquipmentModal('${escapeAttr(ip)}', '${escapeAttr(deviceType)}', '${escapeAttr(name)}', '${escapeAttr(mac)}', '${escapeAttr(vendor)}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid #0284c7; color: #38bdf8; border-radius: 6px; cursor: pointer;">
+              ↻ Re-Test Device Now
+            </button>
+            <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+          </div>
         </div>
         <div id="officeDiagLoading" style="text-align: center; padding: 40px; color: #94a3b8;">
           <div style="font-size: 28px; margin-bottom: 12px;">⚙️</div>
@@ -764,7 +769,7 @@
             <div style="display: flex; align-items: center; gap: 6px;">
               <div style="background: ${isBroken ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.8)'}; border: 1px solid ${isBroken ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 10px 12px; min-width: 130px; text-align: center; box-shadow: ${isBroken ? '0 0 12px rgba(239,68,68,0.3)' : 'none'};">
                 <div style="font-size: 20px; margin-bottom: 4px;">${icon}</div>
-                <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#fca5a5' : '#e2e8f0'};">${escapeHtml(hop.name)}</div>
+                <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#fca5a5' : '#e2e8f0'};">${escapeHtml(hop.title || hop.name || 'Network Hop')}</div>
                 <div style="font-size: 10px; color: #94a3b8; font-family: var(--font-mono);">${escapeHtml(hop.ip || hop.role || '')}</div>
                 <span style="display: inline-block; margin-top: 6px; background: ${badgeBg}; color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">${badgeText}</span>
               </div>

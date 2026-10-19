@@ -253,7 +253,9 @@ async function diagnoseOfficeDevice({
     {
       hopNumber: 1,
       nodeId: 'HOP-WORKSTATION',
+      name: 'Your Computer (Operator PC)',
       title: 'Your Computer (Operator PC)',
+      icon: '💻',
       ip: localIp,
       adapter: netInfo.adapterName || 'Wi-Fi / Ethernet NIC',
       status: 'HEALTHY',
@@ -264,7 +266,9 @@ async function diagnoseOfficeDevice({
     {
       hopNumber: 2,
       nodeId: 'HOP-OFFICE-SWITCH',
+      name: 'Office LAN Switch / Wi-Fi Access Point',
       title: 'Office LAN Switch / Wi-Fi Access Point',
+      icon: '🔀',
       ip: subnetCidr,
       adapter: 'Layer 2 Office Distribution',
       status: gatewayReachable ? 'HEALTHY' : 'DEGRADED',
@@ -277,7 +281,9 @@ async function diagnoseOfficeDevice({
     {
       hopNumber: 3,
       nodeId: 'HOP-DEFAULT-GATEWAY',
+      name: 'Office Router & DHCP Server (Gateway)',
       title: 'Office Router & DHCP Server (Gateway)',
+      icon: '🌐',
       ip: gatewayIp,
       adapter: 'DHCP & Internet Gateway',
       status: gatewayReachable ? 'HEALTHY' : 'BROKEN',
@@ -295,10 +301,13 @@ async function diagnoseOfficeDevice({
 
   if (apipa.isApipa) {
     faultScenario = 'APIPA_SELF_ASSIGNED_IP_169_254';
+    const targetTitle = deviceName || equipmentProfile.equipmentLabel || 'Office Device (169.254.x.x)';
     visualConnectionPath.push({
       hopNumber: 4,
       nodeId: 'HOP-TARGET-DEVICE',
-      title: deviceName || equipmentProfile.equipmentLabel || 'Office Printer / Equipment',
+      name: targetTitle,
+      title: targetTitle,
+      icon: equipmentProfile.icon || '⚠️',
       ip: cleanIp,
       adapter: equipmentProfile.equipmentBrand,
       status: 'BROKEN',
@@ -308,27 +317,38 @@ async function diagnoseOfficeDevice({
       plainSummary: `Connection breaks here: The device assigned itself temporary error address ${cleanIp} instead of a valid ${subnetPrefix}.x office IP.`
     });
 
+    const probDesc = `The office ${deviceTypeHint === 'PRINTER' ? 'printer' : 'device'} (${cleanIp}) could not get a valid IP address from the office router (${gatewayIp}) and assigned itself a temporary emergency address starting with 169.254. Because it is on this emergency address, computers on the normal office network (${subnetCidr}) cannot communicate with it or print to it.`;
+    const causeDesc = [
+      `The device tried to request an IP address using DHCP when it powered on, but never received an answer from the office router (${gatewayIp}).`,
+      'Common causes: (1) The network cable or Wi-Fi connection on the printer is loose or plugged into a wall jack on the wrong VLAN, (2) The office router ran out of available DHCP IP addresses (DHCP pool exhaustion), or (3) The printer turned on before the office switch finished booting.'
+    ].join(' ');
+    const fixSteps = [
+      `Step 1 (Check Physical Cable / Wi-Fi): Verify the Ethernet cable is firmly clicked into both the printer and the wall jack (check for solid green/amber link lights), or confirm the printer is connected to the main office Wi-Fi SSID.`,
+      `Step 2 (Restart Network Lease on Device): On the printer's front touchscreen/menu, go to Settings -> Network -> TCP/IP -> Set IPv4 to "Automatic (DHCP)" or power-cycle the printer off for 15 seconds and turn it back on.`,
+      `Step 3 (Verify Office Router DHCP Pool): Open the office router (${gatewayIp}) DHCP settings and ensure the DHCP pool (${subnetPrefix}.2 – ${subnetPrefix}.254) has free leases available.`,
+      `Step 4 (Assign a Static Office IP for Permanent Stability): Once reconnected, assign the printer a permanent reserved IP (for example, ${subnetPrefix}.250 with Subnet Mask 255.255.255.0 and Default Gateway ${gatewayIp}) so it never loses its address again.`
+    ];
+
     plainLanguageDiagnosis = {
       severity: 'CRITICAL',
       badge: 'DHCP / APIPA Address Fault (169.254.x.x)',
-      whatTheProblemIs: `The office ${deviceTypeHint === 'PRINTER' ? 'printer' : 'device'} (${cleanIp}) could not get a valid IP address from the office router (${gatewayIp}) and assigned itself a temporary emergency address starting with 169.254. Because it is on this emergency address, computers on the normal office network (${subnetCidr}) cannot communicate with it or print to it.`,
-      whyItHappened: [
-        `The device tried to request an IP address using DHCP when it powered on, but never received an answer from the office router (${gatewayIp}).`,
-        'Common causes: (1) The network cable or Wi-Fi connection on the printer is loose or plugged into a wall jack on the wrong VLAN, (2) The office router ran out of available DHCP IP addresses (DHCP pool exhaustion), or (3) The printer turned on before the office switch finished booting.'
-      ].join(' '),
-      stepByStepFixPlan: [
-        `Step 1 (Check Physical Cable / Wi-Fi): Verify the Ethernet cable is firmly clicked into both the printer and the wall jack (check for solid green/amber link lights), or confirm the printer is connected to the main office Wi-Fi SSID.`,
-        `Step 2 (Restart Network Lease on Device): On the printer's front touchscreen/menu, go to Settings -> Network -> TCP/IP -> Set IPv4 to "Automatic (DHCP)" or power-cycle the printer off for 15 seconds and turn it back on.`,
-        `Step 3 (Verify Office Router DHCP Pool): Open the office router (${gatewayIp}) DHCP settings and ensure the DHCP pool (${subnetPrefix}.2 – ${subnetPrefix}.254) has free leases available.`,
-        `Step 4 (Assign a Static Office IP for Permanent Stability): Once reconnected, assign the printer a permanent reserved IP (for example, ${subnetPrefix}.250 with Subnet Mask 255.255.255.0 and Default Gateway ${gatewayIp}) so it never loses its address again.`
-      ]
+      whatTheProblemIs: probDesc,
+      whatIsHappening: probDesc,
+      whyItHappened: causeDesc,
+      whyDidThisHappen: causeDesc,
+      stepByStepFixPlan: fixSteps,
+      howToFixIt: fixSteps,
+      recommendedScript: 'flush-dns-cache.ps1'
     };
   } else if (!sameSubnet && net.isIP(cleanIp) && !cleanIp.startsWith('127.')) {
     faultScenario = 'SUBNET_OR_VLAN_MISMATCH';
+    const targetTitle = deviceName || equipmentProfile.equipmentLabel;
     visualConnectionPath.push({
       hopNumber: 4,
       nodeId: 'HOP-TARGET-DEVICE',
-      title: deviceName || equipmentProfile.equipmentLabel,
+      name: targetTitle,
+      title: targetTitle,
+      icon: equipmentProfile.icon || '🌐',
       ip: cleanIp,
       adapter: equipmentProfile.equipmentBrand,
       status: targetPing.alive || openPorts.length > 0 ? 'WARNING' : 'BROKEN',
@@ -338,23 +358,34 @@ async function diagnoseOfficeDevice({
       plainSummary: `Device is on a different subnet (${cleanIp}) than your office network (${subnetCidr}).`
     });
 
+    const probDesc = `The device (${cleanIp}) is configured with an IP address from a different network than your office subnet (${subnetCidr}).`;
+    const causeDesc = `The device either has an old static IP address hardcoded from a previous office location/router, or it is connected to an isolated guest/VLAN network.`;
+    const fixSteps = [
+      `Step 1: Open the network configuration menu on the device (${cleanIp}) and check if Static IP is enabled.`,
+      `Step 2: Change the IP setting to "DHCP / Automatic" or update its static IP to match your office network (${subnetPrefix}.x, Gateway ${gatewayIp}).`,
+      `Step 3: Re-scan the network in EJII Ultra IP Scanner to confirm the device appears on ${subnetCidr}.`
+    ];
+
     plainLanguageDiagnosis = {
       severity: 'WARNING',
       badge: 'Different Network Subnet / VLAN Mismatch',
-      whatTheProblemIs: `The device (${cleanIp}) is configured with an IP address from a different network than your office subnet (${subnetCidr}).`,
-      whyItHappened: `The device either has an old static IP address hardcoded from a previous office location/router, or it is connected to an isolated guest/VLAN network.`,
-      stepByStepFixPlan: [
-        `Step 1: Open the network configuration menu on the device (${cleanIp}) and check if Static IP is enabled.`,
-        `Step 2: Change the IP setting to "DHCP / Automatic" or update its static IP to match your office network (${subnetPrefix}.x, Gateway ${gatewayIp}).`,
-        `Step 3: Re-scan the network in EJII Ultra IP Scanner to confirm the device appears on ${subnetCidr}.`
-      ]
+      whatTheProblemIs: probDesc,
+      whatIsHappening: probDesc,
+      whyItHappened: causeDesc,
+      whyDidThisHappen: causeDesc,
+      stepByStepFixPlan: fixSteps,
+      howToFixIt: fixSteps,
+      recommendedScript: 'flush-dns-cache.ps1'
     };
   } else if (!targetPing.alive && openPorts.length === 0 && rstPorts.length === 0) {
     faultScenario = 'DEVICE_OFFLINE_OR_DISCONNECTED';
+    const targetTitle = deviceName || equipmentProfile.equipmentLabel;
     visualConnectionPath.push({
       hopNumber: 4,
       nodeId: 'HOP-TARGET-DEVICE',
-      title: deviceName || equipmentProfile.equipmentLabel,
+      name: targetTitle,
+      title: targetTitle,
+      icon: equipmentProfile.icon || '🔌',
       ip: cleanIp,
       adapter: equipmentProfile.equipmentBrand,
       status: 'BROKEN',
@@ -364,23 +395,34 @@ async function diagnoseOfficeDevice({
       plainSummary: `Your computer reaches the office router (${gatewayIp}), but ${cleanIp} is not responding.`
     });
 
+    const probDesc = `Your computer and the office router (${gatewayIp}) are working properly, but the target device (${cleanIp}) is completely unresponsive on the network.`;
+    const causeDesc = `The equipment is powered off, in deep sleep mode, unplugged from Ethernet/Wi-Fi, or its IP address changed via DHCP.`;
+    const fixSteps = [
+      `Step 1: Check if the equipment (${deviceName || cleanIp}) is powered on and awake (press the wake button on the control panel).`,
+      `Step 2: Check the Ethernet cable or Wi-Fi status light on the device.`,
+      `Step 3: Run a full subnet scan in EJII Ultra IP Scanner (View 3) and filter by Brand/MAC (${macAddress || vendor || 'Printer'}) to see if the router assigned it a new IP address.`
+    ];
+
     plainLanguageDiagnosis = {
       severity: 'CRITICAL',
       badge: 'Equipment Offline or Disconnected from LAN',
-      whatTheProblemIs: `Your computer and the office router (${gatewayIp}) are working properly, but the target device (${cleanIp}) is completely unresponsive on the network.`,
-      whyItHappened: `The equipment is powered off, in deep sleep mode, unplugged from Ethernet/Wi-Fi, or its IP address changed via DHCP.`,
-      stepByStepFixPlan: [
-        `Step 1: Check if the equipment (${deviceName || cleanIp}) is powered on and awake (press the wake button on the control panel).`,
-        `Step 2: Check the Ethernet cable or Wi-Fi status light on the device.`,
-        `Step 3: Run a full subnet scan in EJII Ultra IP Scanner (View 3) and filter by Brand/MAC (${macAddress || vendor || 'Printer'}) to see if the router assigned it a new IP address.`
-      ]
+      whatTheProblemIs: probDesc,
+      whatIsHappening: probDesc,
+      whyItHappened: causeDesc,
+      whyDidThisHappen: causeDesc,
+      stepByStepFixPlan: fixSteps,
+      howToFixIt: fixSteps,
+      recommendedScript: 'flush-dns-cache.ps1'
     };
   } else if ((targetPing.alive || rstPorts.length > 0) && deviceTypeHint === 'PRINTER' && !openPorts.includes(9100) && !openPorts.includes(631) && !openPorts.includes(515)) {
     faultScenario = 'PRINTER_ONLINE_BUT_PRINT_SERVICE_CLOSED';
+    const targetTitle = deviceName || 'Office Printer';
     visualConnectionPath.push({
       hopNumber: 4,
       nodeId: 'HOP-TARGET-DEVICE',
-      title: deviceName || 'Office Printer',
+      name: targetTitle,
+      title: targetTitle,
+      icon: '🖨️',
       ip: cleanIp,
       adapter: equipmentProfile.equipmentBrand,
       status: 'DEGRADED',
@@ -390,23 +432,34 @@ async function diagnoseOfficeDevice({
       plainSummary: `The device (${cleanIp}) is connected to the network, but its printing service port is closed or stalled.`
     });
 
+    const probDesc = `The printer (${cleanIp}) is connected to the office network and responds to network checks, but it is refusing print jobs on standard printing ports (RAW Port 9100 / IPP Port 631).`;
+    const causeDesc = `Either the printer's internal print server hung (or has a paper/toner error blocking the queue), or the Windows Print Spooler service on the PC is stuck.`;
+    const fixSteps = [
+      `Step 1: Check the printer's physical display screen for paper jams, empty tray alerts, or error codes.`,
+      `Step 2: In EJII View 4 (PC Automation) or View 5 (Core Diagnostics), click "Restart Print Spooler Service & Clear Queue" to clear stuck jobs on the PC.`,
+      `Step 3: Power-cycle the printer off and back on to restart its internal JetDirect (Port 9100) / IPP (Port 631) print service.`
+    ];
+
     plainLanguageDiagnosis = {
       severity: 'WARNING',
       badge: 'Printer Network Online — Print Service / Spooler Stalled',
-      whatTheProblemIs: `The printer (${cleanIp}) is connected to the office network and responds to network checks, but it is refusing print jobs on standard printing ports (RAW Port 9100 / IPP Port 631).`,
-      whyItHappened: `Either the printer's internal print server hung (or has a paper/toner error blocking the queue), or the Windows Print Spooler service on the PC is stuck.`,
-      stepByStepFixPlan: [
-        `Step 1: Check the printer's physical display screen for paper jams, empty tray alerts, or error codes.`,
-        `Step 2: In EJII View 4 (PC Automation) or View 5 (Core Diagnostics), click "Restart Print Spooler Service & Clear Queue" to clear stuck jobs on the PC.`,
-        `Step 3: Power-cycle the printer off and back on to restart its internal JetDirect (Port 9100) / IPP (Port 631) print service.`
-      ]
+      whatTheProblemIs: probDesc,
+      whatIsHappening: probDesc,
+      whyItHappened: causeDesc,
+      whyDidThisHappen: causeDesc,
+      stepByStepFixPlan: fixSteps,
+      howToFixIt: fixSteps,
+      recommendedScript: 'restart-print-spooler.ps1'
     };
   } else {
     faultScenario = 'HEALTHY_OPERATIONAL';
+    const targetTitle = deviceName || equipmentProfile.equipmentLabel;
     visualConnectionPath.push({
       hopNumber: 4,
       nodeId: 'HOP-TARGET-DEVICE',
-      title: deviceName || equipmentProfile.equipmentLabel,
+      name: targetTitle,
+      title: targetTitle,
+      icon: equipmentProfile.icon || '💻',
       ip: cleanIp,
       adapter: equipmentProfile.equipmentBrand,
       status: 'HEALTHY',
@@ -415,15 +468,23 @@ async function diagnoseOfficeDevice({
       plainSummary: `Equipment (${cleanIp}) is online and responding cleanly (${openPorts.length > 0 ? 'Open ports: ' + openPorts.join(', ') : 'ICMP verified'}).`
     });
 
+    const probDesc = `No network connectivity problem detected. The device (${cleanIp}) is reachable on the office network.`;
+    const causeDesc = `All network hops from your computer (${localIp}) through the office switch and router (${gatewayIp}) to ${cleanIp} are operating normally.`;
+    const fixSteps = [
+      `Step 1: If a user still cannot print or connect, clear the local Windows Print Spooler queue in View 4 ("Restart Print Spooler Service & Clear Queue.bat").`,
+      `Step 2: Verify the user's application is pointing to IP address ${cleanIp}.`
+    ];
+
     plainLanguageDiagnosis = {
       severity: 'HEALTHY',
       badge: 'Equipment Online & Healthy',
-      whatTheProblemIs: `No network connectivity problem detected. The device (${cleanIp}) is reachable on the office network.`,
-      whyItHappened: `All network hops from your computer (${localIp}) through the office switch and router (${gatewayIp}) to ${cleanIp} are operating normally.`,
-      stepByStepFixPlan: [
-        `Step 1: If a user still cannot print or connect, clear the local Windows Print Spooler queue in View 4 ("Restart Print Spooler Service & Clear Queue.bat").`,
-        `Step 2: Verify the user's application is pointing to IP address ${cleanIp}.`
-      ]
+      whatTheProblemIs: probDesc,
+      whatIsHappening: probDesc,
+      whyItHappened: causeDesc,
+      whyDidThisHappen: causeDesc,
+      stepByStepFixPlan: fixSteps,
+      howToFixIt: fixSteps,
+      recommendedScript: 'ping-diagnostic.ps1'
     };
   }
 

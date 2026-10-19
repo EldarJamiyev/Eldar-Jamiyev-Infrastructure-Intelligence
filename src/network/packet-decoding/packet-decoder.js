@@ -378,6 +378,104 @@ class PacketDecoder {
   }
 
   /**
+   * Dissects an RFC 2131 DHCP / BOOTP payload inside a UDP (port 67/68) datagram.
+   * Extracts op, xid, ciaddr, yiaddr, siaddr, giaddr, chaddr (Client MAC),
+   * Magic Cookie (0x63825363), and TLV Options (53, 50, 51, 54, 12, 61, 82).
+   */
+  static dissectDhcpPayload(buf, udpPayloadOffset = 42) {
+    if (!Buffer.isBuffer(buf) || buf.length < udpPayloadOffset + 240) {
+      return null;
+    }
+
+    const base = udpPayloadOffset;
+    const op = buf[base]; // 1 = BOOTREQUEST, 2 = BOOTREPLY
+    const htype = buf[base + 1];
+    const hlen = Math.min(16, buf[base + 2] || 6);
+    const hops = buf[base + 3];
+    const xid = `0x${buf.readUInt32BE(base + 4).toString(16).padStart(8, '0')}`;
+    const secs = buf.readUInt16BE(base + 8);
+    const flags = buf.readUInt16BE(base + 10);
+
+    const readIp = (off) => `${buf[off]}.${buf[off + 1]}.${buf[off + 2]}.${buf[off + 3]}`;
+    const ciaddr = readIp(base + 12);
+    const yiaddr = readIp(base + 16);
+    const siaddr = readIp(base + 20);
+    const giaddr = readIp(base + 24);
+
+    const macBytes = [];
+    for (let i = 0; i < hlen; i++) {
+      macBytes.push(buf[base + 28 + i].toString(16).padStart(2, '0').toUpperCase());
+    }
+    const clientMac = macBytes.join(':');
+
+    // Verify RFC 2131 Magic Cookie (99.130.83.99 / 0x63825363) at offset +236
+    const magicCookie = buf.readUInt32BE(base + 236);
+    const options = {};
+    let messageTypeCode = null;
+    let messageTypeName = op === 1 ? 'BOOTP REQUEST' : 'BOOTP REPLY';
+
+    const DHCP_MESSAGE_TYPES = {
+      1: 'DHCP DISCOVER',
+      2: 'DHCP OFFER',
+      3: 'DHCP REQUEST',
+      4: 'DHCP DECLINE',
+      5: 'DHCP ACK',
+      6: 'DHCP NAK',
+      7: 'DHCP RELEASE',
+      8: 'DHCP INFORM'
+    };
+
+    if (magicCookie === 0x63825363) {
+      let optIdx = base + 240;
+      while (optIdx < buf.length) {
+        const optCode = buf[optIdx++];
+        if (optCode === 0) continue; // Pad option
+        if (optCode === 255) break;  // End option
+        if (optIdx >= buf.length) break;
+        const optLen = buf[optIdx++];
+        if (optIdx + optLen > buf.length) break;
+        const optVal = buf.slice(optIdx, optIdx + optLen);
+
+        if (optCode === 53 && optLen >= 1) {
+          messageTypeCode = optVal[0];
+          messageTypeName = DHCP_MESSAGE_TYPES[messageTypeCode] || `DHCP_TYPE_${messageTypeCode}`;
+        } else if (optCode === 50 && optLen === 4) {
+          options.requestedIp = `${optVal[0]}.${optVal[1]}.${optVal[2]}.${optVal[3]}`;
+        } else if (optCode === 54 && optLen === 4) {
+          options.dhcpServerIdentifier = `${optVal[0]}.${optVal[1]}.${optVal[2]}.${optVal[3]}`;
+        } else if (optCode === 51 && optLen === 4) {
+          options.leaseTimeSeconds = optVal.readUInt32BE(0);
+        } else if (optCode === 12 && optLen > 0) {
+          options.hostname = optVal.toString('utf8').replace(/[^\x20-\x7E]/g, '').trim();
+        }
+        optIdx += optLen;
+      }
+    }
+
+    return {
+      protocol: 'DHCP',
+      rfc: 'RFC 2131',
+      op: op === 1 ? 'BOOTREQUEST (1)' : 'BOOTREPLY (2)',
+      transactionId: xid,
+      secsElapsed: secs,
+      flags: `0x${flags.toString(16).padStart(4, '0')}`,
+      clientIp: ciaddr,
+      yourAssignedIp: yiaddr,
+      nextServerIp: siaddr,
+      relayAgentIp: giaddr,
+      clientMac,
+      messageTypeCode,
+      messageType: messageTypeName,
+      requestedIp: options.requestedIp || null,
+      dhcpServerIdentifier: options.dhcpServerIdentifier || null,
+      leaseTimeSeconds: options.leaseTimeSeconds || null,
+      hostname: options.hostname || null,
+      byteRange: [base, buf.length - 1],
+      summary: `${messageTypeName} — Transaction ${xid} | Client MAC ${clientMac}${options.hostname ? ` (${options.hostname})` : ''}${options.requestedIp ? ` requesting ${options.requestedIp}` : ''}${yiaddr !== '0.0.0.0' ? ` -> Offered/Assigned ${yiaddr}` : ''}`
+    };
+  }
+
+  /**
    * Dissect ARP Packet Header (RFC 826)
    */
   static dissectArp(buf, offset) {
@@ -1073,13 +1171,34 @@ class PacketDecoder {
           'udp.checksum': { offset: l4Offset + 6, length: 2, value: transport.checksum, label: `Checksum: ${transport.checksum}` }
         });
 
-        // L7: DNS
-        if ((srcPort === 53 || dstPort === 53) && udpPayloadLen >= 12) {
+        // L7: DHCP (RFC 2131)
+        if ((srcPort === 67 || dstPort === 67 || srcPort === 68 || dstPort === 68) && udpPayloadLen >= 240) {
+          const dhcp = this.dissectDhcpPayload(buf, l4Offset + 8);
+          if (dhcp) {
+            application = dhcp;
+            addLayer('Dynamic Host Configuration Protocol', 'dhcp', l4Offset + 8, udpPayloadLen, `Dynamic Host Configuration Protocol (${dhcp.messageType})`, {
+              'dhcp.type': { offset: l4Offset + 8, length: 1, value: dhcp.op, label: `Message op code: ${dhcp.op}` },
+              'dhcp.id': { offset: l4Offset + 12, length: 4, value: dhcp.transactionId, label: `Transaction ID: ${dhcp.transactionId}` },
+              'dhcp.client_mac': { offset: l4Offset + 36, length: 16, value: dhcp.clientMac, label: `Client MAC address: ${dhcp.clientMac}` },
+              'dhcp.your_ip': { offset: l4Offset + 24, length: 4, value: dhcp.yourAssignedIp, label: `Your (client) IP address: ${dhcp.yourAssignedIp}` },
+              'dhcp.msg_type': { offset: l4Offset + 8 + 240, length: 3, value: dhcp.messageType, label: `Option 53: DHCP Message Type = ${dhcp.messageType}` }
+            });
+          }
+        }
+
+        // L7: DNS / mDNS / LLMNR
+        else if ((srcPort === 53 || dstPort === 53 || srcPort === 5353 || dstPort === 5353 || srcPort === 5355 || dstPort === 5355) && udpPayloadLen >= 12) {
           const dns = this.dissectDns(buf, l4Offset + 8);
           if (dns) {
+            if (srcPort === 5353 || dstPort === 5353) {
+              dns.protocol = 'MDNS';
+            } else if (srcPort === 5355 || dstPort === 5355) {
+              dns.protocol = 'LLMNR';
+            }
             application = dns;
+            const protoTitle = dns.protocol === 'MDNS' ? 'Multicast Domain Name System' : (dns.protocol === 'LLMNR' ? 'Link-Local Multicast Name Resolution' : 'Domain Name System');
             const qStr = (dns.questions || []).map(q => `${q.name} (${q.type})`).join(', ');
-            addLayer('Domain Name System', 'dns', l4Offset + 8, udpPayloadLen, `Domain Name System (${dns.isResponse ? 'response' : 'query'}) ${qStr ? ': ' + qStr : ''}`, {
+            addLayer(protoTitle, (dns.protocol || 'dns').toLowerCase(), l4Offset + 8, udpPayloadLen, `${protoTitle} (${dns.isResponse ? 'response' : 'query'}) ${qStr ? ': ' + qStr : ''}`, {
               'dns.id': { offset: l4Offset + 8, length: 2, value: dns.transactionId, label: `Transaction ID: ${dns.transactionId}` },
               'dns.flags': { offset: l4Offset + 10, length: 2, value: dns.isResponse ? 0x8180 : 0x0100, label: `Flags: ${dns.isResponse ? '0x8180 Standard query response' : '0x0100 Standard query'}` },
               'dns.count.queries': { offset: l4Offset + 12, length: 2, value: dns.questions?.length || 0, label: `Questions: ${dns.questions?.length || 0}` },
@@ -1236,7 +1355,24 @@ class PacketDecoder {
       isTruncated = true;
     }
 
+    let protocol = 'Ethernet';
+    if (application && application.protocol) {
+      protocol = application.protocol;
+    } else if (transport && transport.type) {
+      protocol = transport.type;
+    } else if (ip) {
+      protocol = 'IPv4';
+    } else if (ipv6) {
+      protocol = 'IPv6';
+    } else if (ethernet && ethernet.proto === 'ARP') {
+      protocol = 'ARP';
+    }
+
+    const dhcpObj = (application && application.protocol === 'DHCP') ? application : null;
+
     return {
+      protocol,
+      dhcp: dhcpObj,
       frameLengthBytes: buf.length,
       wireLength,
       capturedLength: buf.length,
@@ -1263,6 +1399,8 @@ class PacketDecoder {
   static dissectFrame(rawInput) {
     const detailed = this.dissectDetailed(rawInput);
     return {
+      protocol: detailed.protocol,
+      dhcp: detailed.dhcp,
       frameLengthBytes: detailed.frameLengthBytes,
       wireLength: detailed.wireLength,
       capturedLength: detailed.capturedLength,
@@ -1280,6 +1418,13 @@ class PacketDecoder {
       passiveOsFingerprint: detailed.passiveOsFingerprint,
       dissectedAt: detailed.dissectedAt
     };
+  }
+
+  /**
+   * Decode entire packet frame (alias for dissectFrame)
+   */
+  static decode(rawInput) {
+    return this.dissectFrame(rawInput);
   }
 
   /**

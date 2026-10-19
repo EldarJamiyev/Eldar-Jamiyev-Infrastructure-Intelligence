@@ -43,6 +43,16 @@ const wss = new WebSocketServer({
   }
 });
 
+// CRITICAL: Prevent Node.js v24+ Unhandled 'error' event on WebSocketServer
+// when the underlying http.Server emits EADDRINUSE or socket errors.
+wss.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    // Handled gracefully by the http.Server EADDRINUSE recovery handler below
+    return;
+  }
+  console.error('[EJII WebSocketServer] Non-fatal transport error:', err ? err.message : err);
+});
+
 // Request correlation and API latency telemetry
 app.use(requestCorrelationAndTelemetryMiddleware);
 
@@ -312,8 +322,82 @@ const initialPollTimeout = process.env.EJII_AUTO_POLL === 'true'
   ? setTimeout(pollRegisteredNodes, 3000)
   : null;
 
+/**
+ * Probes whether an active EJII server is already responding on target host:port.
+ */
+function probeActiveEjiiServer(host, port, timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const http = require('http');
+    const targetHost = (host === '0.0.0.0' || !host) ? '127.0.0.1' : host;
+    const req = http.get(
+      {
+        hostname: targetHost,
+        port,
+        path: '/api/health',
+        timeout: timeoutMs,
+        agent: false
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(body);
+            resolve(res.statusCode === 200 && parsed && parsed.status === 'UP');
+          } catch (_) {
+            resolve(false);
+          }
+        });
+      }
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
 // Start server
 if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
+  server.on('error', async (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      const isHealthyInstance = await probeActiveEjiiServer(HOST, PORT, 1500);
+      if (isHealthyInstance) {
+        console.log('====================================================================');
+        console.log(`  [EJII Server] Active EJII Workstation verified running on http://${HOST}:${PORT}`);
+        console.log('  [EJII Server] Reusing active workstation instance cleanly (Exit 0).');
+        console.log('====================================================================');
+        process.exit(0);
+      } else {
+        console.error(`[EJII Server] Port ${PORT} is occupied by a non-responsive process. Attempting port reclamation...`);
+        if (process.platform === 'win32') {
+          try {
+            const { execSync } = require('child_process');
+            const netstatOut = execSync(`netstat -ano | findstr ":${PORT}" | findstr "LISTENING"`, { encoding: 'utf8' });
+            const lines = netstatOut.trim().split(/\r?\n/);
+            for (const line of lines) {
+              const parts = line.trim().split(/\s+/);
+              const pid = Number(parts[parts.length - 1]);
+              if (pid && pid !== process.pid && pid > 4) {
+                execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+              }
+            }
+            setTimeout(() => {
+              try {
+                server.listen(PORT, HOST);
+              } catch (_) {
+                process.exit(1);
+              }
+            }, 500);
+            return;
+          } catch (_) {}
+        }
+        process.exit(1);
+      }
+    } else {
+      console.error('[EJII Server] Fatal HTTP Server Error:', err);
+      process.exit(1);
+    }
+  });
+
   server.listen(PORT, HOST, () => {
     console.log(`================================================================`);
     console.log(`  EJII — NOC Network Topology & Packet Dissection Workstation   `);
@@ -323,15 +407,6 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
     console.log(`  Access Mode: Unprivileged NOC Operator                        `);
     console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
     console.log(`================================================================`);
-  });
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`\n[EJII CRITICAL] Port ${PORT} is already in use by another process.`);
-      console.error(`Please terminate the existing process listening on port ${PORT} or launch via "setup-launcher.bat".`);
-      process.exit(1);
-    } else {
-      console.error('[EJII Server Error]:', err.message);
-    }
   });
 }
 
