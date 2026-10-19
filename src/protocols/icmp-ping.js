@@ -204,7 +204,22 @@ function realTraceroute(host, maxHops = 15) {
   });
 }
 
+async function pingHost(host, options = {}) {
+  const timeoutMs = options.timeoutMs || 1000;
+  const count = options.count || 1;
+  const res = await realPing(host, count, timeoutMs);
+  return {
+    alive: Boolean(res && res.success),
+    success: Boolean(res && res.success),
+    rttMs: res.avgRttMs,
+    timeMs: res.avgRttMs,
+    raw: res.raw,
+    packetLossPct: res.packetLossPct
+  };
+}
+
 module.exports = {
   realPing,
+  pingHost,
   realTraceroute
 };

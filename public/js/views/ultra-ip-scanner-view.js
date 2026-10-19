@@ -112,18 +112,24 @@
             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
               <span style="font-size: 11px; font-weight: 700; color: var(--text-dim);">Filter:</span>
               <button class="btn ${activeFilterChip === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('all')" style="font-size: 10px; padding: 2px 8px;">All (<span id="chipCountAll">0</span>)</button>
-              <button class="btn ${activeFilterChip === 'online' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('online')" style="font-size: 10px; padding: 2px 8px;">Online Only (<span id="chipCountOnline">0</span>)</button>
-              <button class="btn ${activeFilterChip === 'gateways' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('gateways')" style="font-size: 10px; padding: 2px 8px;">🌐 Gateways &amp; Routers</button>
-              <button class="btn ${activeFilterChip === 'servers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('servers')" style="font-size: 10px; padding: 2px 8px;">🖥️ Servers / Windows</button>
-              <button class="btn ${activeFilterChip === 'services' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('services')" style="font-size: 10px; padding: 2px 8px;">⚡ Exposed Services</button>
+              <button class="btn ${activeFilterChip === 'online' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('online')" style="font-size: 10px; padding: 2px 8px;">Online (<span id="chipCountOnline">0</span>)</button>
+              <button class="btn ${activeFilterChip === 'printers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('printers')" style="font-size: 10px; padding: 2px 8px;">🖨️ Printers</button>
+              <button class="btn ${activeFilterChip === 'computers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('computers')" style="font-size: 10px; padding: 2px 8px;">💻 Computers</button>
+              <button class="btn ${activeFilterChip === 'phones' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('phones')" style="font-size: 10px; padding: 2px 8px;">📞 Phones</button>
+              <button class="btn ${activeFilterChip === 'network_gear' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('network_gear')" style="font-size: 10px; padding: 2px 8px;">🌐 Network Gear</button>
+              <button class="btn ${activeFilterChip === 'apipa_issues' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('apipa_issues')" style="font-size: 10px; padding: 2px 8px;">⚠️ APIPA / Issues</button>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-left: 6px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 6px;">
+                <input type="text" id="apipaQuickDiagInput" class="form-input" placeholder="e.g. 169.254.45.12" style="width: 130px; font-size: 11px; padding: 2px 6px; font-family: var(--font-mono); border: none; background: transparent;">
+                <button class="btn btn-secondary" onclick="window.quickDiagnoseOfficeDevice()" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Plain-language problem resolver & visual smart path mapper">🩺 Diagnose</button>
+              </div>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-left: 4px;">
                 <input type="checkbox" id="hideNoPingCheckbox" onchange="window.toggleHideNoPing(this.checked)">
-                <span>Hide NO PING (Unresponsive)</span>
+                <span>Hide NO PING</span>
               </label>
-              <input type="text" id="scannerSearchInput" class="form-input" placeholder="Search IP, hostname, vendor, port..." style="width: 220px; font-size: 11px; padding: 4px 8px;" oninput="window.onScannerSearchChange(this.value)">
+              <input type="text" id="scannerSearchInput" class="form-input" placeholder="Search IP, hostname, vendor, port..." style="width: 180px; font-size: 11px; padding: 4px 8px;" oninput="window.onScannerSearchChange(this.value)">
             </div>
           </div>
 
@@ -359,8 +365,16 @@
     // Filter chip logic
     if (activeFilterChip === 'online') {
       filtered = filtered.filter(h => h.status === 'ONLINE' || h.status === 'RECENTLY_SEEN');
-    } else if (activeFilterChip === 'gateways') {
-      filtered = filtered.filter(h => (h.category || '').includes('Gateway') || (h.category || '').includes('Router') || (h.category || '').includes('Switch'));
+    } else if (activeFilterChip === 'printers') {
+      filtered = filtered.filter(h => h.equipmentProfile?.equipmentType === 'PRINTER' || /printer|laserjet|officejet|epson|canon|brother|ricoh|xerox/i.test((h.category || '') + ' ' + (h.hostname || '') + ' ' + (h.vendor || '')));
+    } else if (activeFilterChip === 'computers') {
+      filtered = filtered.filter(h => h.equipmentProfile?.equipmentType === 'COMPUTER' || /computer|workstation|pc|desktop|laptop|server/i.test((h.category || '') + ' ' + (h.hostname || '')));
+    } else if (activeFilterChip === 'phones') {
+      filtered = filtered.filter(h => h.equipmentProfile?.equipmentType === 'VOIP_PHONE' || /phone|voip|sip|yealink|polycom|snom|cisco ip/i.test((h.category || '') + ' ' + (h.hostname || '') + ' ' + (h.vendor || '')));
+    } else if (activeFilterChip === 'network_gear' || activeFilterChip === 'gateways') {
+      filtered = filtered.filter(h => h.equipmentProfile?.equipmentType === 'NETWORK_INFRASTRUCTURE' || (h.category || '').includes('Gateway') || (h.category || '').includes('Router') || (h.category || '').includes('Switch'));
+    } else if (activeFilterChip === 'apipa_issues') {
+      filtered = filtered.filter(h => h.ip.startsWith('169.254.') || h.equipmentProfile?.isApipaFault || h.status === 'NO_ICMP_RESPONSE' || h.status === 'UNRESPONSIVE');
     } else if (activeFilterChip === 'servers') {
       filtered = filtered.filter(h => (h.category || '').includes('Server') || (h.category || '').includes('Windows'));
     } else if (activeFilterChip === 'services') {
@@ -456,7 +470,8 @@
       const hasMac = Boolean(h.macAddress && h.macAddress !== 'Unknown' && h.macAddress !== 'N/A' && h.macAddress !== '00:00:00:00:00:00' && h.macAddress !== '— (No MAC Observed)');
       const macDisplay = hasMac ? escapeHtml(h.macAddress) : '—';
       const vendorDisplay = hasMac ? escapeHtml(h.vendor || h.manufacturer || 'Standard Network Device') : '— (No MAC Observed)';
-      const categoryDisplay = escapeHtml(h.category || (h.status === 'ONLINE' ? 'Network Endpoint' : 'Unoccupied / Silent IP'));
+      const eqIcon = h.equipmentProfile?.icon ? `${h.equipmentProfile.icon} ` : '';
+      const categoryDisplay = escapeHtml(eqIcon + (h.equipmentProfile?.equipmentLabel || h.category || (h.status === 'ONLINE' ? 'Network Endpoint' : 'Unoccupied / Silent IP')));
 
       return `
         <tr>
@@ -473,6 +488,7 @@
           <td class="col-nowrap" style="white-space: nowrap;">${latencyDisplay}</td>
           <td class="col-nowrap" style="white-space: nowrap;">
             <div style="display: flex; gap: 4px; align-items: center;">
+              <button class="btn btn-secondary" onclick="window.diagnoseOfficeEquipmentModal('${h.ip}', '${h.equipmentProfile?.equipmentType || ''}', '${escapeAttr(h.hostname || '')}', '${h.macAddress || ''}', '${escapeAttr(h.vendor || '')}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #a78bfa;" title="Plain-language diagnostic & 4-hop visual smart connection map">🩺 Diagnose</button>
               <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
               <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
               <button class="btn btn-secondary" onclick="window.addHostToTopology('${h.ip}', '${h.hostname}', '${h.macAddress}', '${h.vendor}')" style="font-size: 10px; padding: 2px 6px;" title="Register host into dynamic Layer 1-6 topology map">🗺️ Map</button>
@@ -676,6 +692,175 @@
 
   window.printScannerReport = function() {
     window.print();
+  };
+
+  // Quick APIPA & Office Device Troubleshooter
+  window.quickDiagnoseOfficeDevice = function() {
+    const input = document.getElementById('apipaQuickDiagInput');
+    const val = (input?.value || '').trim();
+    if (!val) {
+      return alert('Please enter a target IP (e.g. 169.254.45.12 or printer IP).');
+    }
+    window.diagnoseOfficeEquipmentModal(val, 'PRINTER', 'Office Device', '', '');
+  };
+
+  // Visual Connection Path & Plain-Language Problem Resolver Modal
+  window.diagnoseOfficeEquipmentModal = async function(ip, deviceType = '', name = '', mac = '', vendor = '') {
+    let modal = document.getElementById('officeDeviceDiagnoseModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'officeDeviceDiagnoseModal';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🩺</span>
+            <div>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #38bdf8;">Visual Smart Path &amp; Plain-Language Problem Resolver</h3>
+              <div style="font-size: 11px; color: #94a3b8;">Target Device: <b style="color: #38bdf8;">${escapeHtml(ip)}</b> ${name ? `(${escapeHtml(name)})` : ''}</div>
+            </div>
+          </div>
+          <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+        </div>
+        <div id="officeDiagLoading" style="text-align: center; padding: 40px; color: #94a3b8;">
+          <div style="font-size: 28px; margin-bottom: 12px;">⚙️</div>
+          <div>Tracing 4-hop physical connection path, probing RFC 3927 link-local state, and synthesizing plain-language repair plan...</div>
+        </div>
+        <div id="officeDiagContent" style="display: none; flex-direction: column; gap: 16px;"></div>
+      </div>
+    `;
+
+    try {
+      const res = await window.api('/api/network/office-device/diagnose', {
+        method: 'POST',
+        body: JSON.stringify({
+          targetIp: ip,
+          deviceTypeHint: deviceType,
+          deviceName: name,
+          macAddress: mac,
+          vendor
+        })
+      });
+
+      const loading = document.getElementById('officeDiagLoading');
+      const content = document.getElementById('officeDiagContent');
+      if (loading) loading.style.display = 'none';
+      if (content) {
+        content.style.display = 'flex';
+
+        // Section A: Visual Connection Path
+        const pathHops = (res.visualConnectionPath || []).map((hop, idx) => {
+          const isBroken = hop.status === 'BROKEN';
+          const badgeBg = isBroken ? '#ef4444' : '#10b981';
+          const badgeText = isBroken ? '✕ BROKEN HERE' : '● OK';
+          const icon = hop.icon || '📦';
+          const arrow = idx < res.visualConnectionPath.length - 1 ? `<span style="color: ${isBroken ? '#ef4444' : '#64748b'}; font-size: 16px; font-weight: 800; margin: 0 4px;">───▶</span>` : '';
+
+          return `
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <div style="background: ${isBroken ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.8)'}; border: 1px solid ${isBroken ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 10px 12px; min-width: 130px; text-align: center; box-shadow: ${isBroken ? '0 0 12px rgba(239,68,68,0.3)' : 'none'};">
+                <div style="font-size: 20px; margin-bottom: 4px;">${icon}</div>
+                <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#fca5a5' : '#e2e8f0'};">${escapeHtml(hop.name)}</div>
+                <div style="font-size: 10px; color: #94a3b8; font-family: var(--font-mono);">${escapeHtml(hop.ip || hop.role || '')}</div>
+                <span style="display: inline-block; margin-top: 6px; background: ${badgeBg}; color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">${badgeText}</span>
+              </div>
+              ${arrow}
+            </div>
+          `;
+        }).join('');
+
+        // Section B: Plain Language Summary
+        const plain = res.plainLanguageDiagnosis || {};
+        const steps = (plain.stepByStepFixPlan || []).map((s, i) => `
+          <li style="margin-bottom: 8px; color: #cbd5e1; font-size: 12px; line-height: 1.5;">
+            <b style="color: #38bdf8;">Step ${i + 1}:</b> ${escapeHtml(s)}
+          </li>
+        `).join('');
+
+        content.innerHTML = `
+          <!-- Section A: Visual Connection Path -->
+          <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 14px;">
+            <div style="font-size: 12px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+              Section A: Visual Connection Path (Smart Map)
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; overflow-x: auto; padding: 8px 4px;">
+              ${pathHops}
+            </div>
+          </div>
+
+          <!-- Section B: Automated Problem Resolver -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: #f87171; text-transform: uppercase; margin-bottom: 4px;">
+                1. What the Problem Is
+              </div>
+              <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; line-height: 1.4;">
+                ${escapeHtml(plain.whatTheProblemIs || 'Connectivity failure detected on target device.')}
+              </div>
+            </div>
+
+            <div style="background: rgba(245, 158, 11, 0.08); border-left: 4px solid #f59e0b; border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 4px;">
+                2. Why It Happened (Root Cause)
+              </div>
+              <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5;">
+                ${escapeHtml(plain.whyItHappened || 'Device was unable to complete DHCP handshake or communicate with local gateway.')}
+              </div>
+            </div>
+
+            <div style="background: rgba(56, 189, 248, 0.08); border-left: 4px solid #38bdf8; border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 8px;">
+                3. Step-by-Step Plan on How to Fix It
+              </div>
+              <ol style="margin: 0; padding-left: 18px;">
+                ${steps}
+              </ol>
+            </div>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; border-top: 1px solid #1e293b; padding-top: 14px;">
+            <button class="btn btn-primary" onclick="window.runQuickScriptAction('restart-print-spooler.ps1')" style="font-size: 11px; padding: 6px 12px;">
+              🔄 Restart Print Spooler
+            </button>
+            <button class="btn btn-secondary" onclick="window.runQuickScriptAction('flush-dns-cache.ps1')" style="font-size: 11px; padding: 6px 12px;">
+              🌐 Flush DNS &amp; Renew IP
+            </button>
+            <button class="btn btn-secondary" onclick="window.inspectHostDeep('${escapeAttr(ip)}')" style="font-size: 11px; padding: 6px 12px; color: #38bdf8;">
+              🔬 Deep 15-Port Host Inspection
+            </button>
+          </div>
+        `;
+      }
+    } catch (err) {
+      const content = document.getElementById('officeDiagContent');
+      const loading = document.getElementById('officeDiagLoading');
+      if (loading) loading.style.display = 'none';
+      if (content) {
+        content.style.display = 'block';
+        content.innerHTML = `
+          <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 8px; padding: 16px; color: #fca5a5;">
+            <b>Diagnostic Error:</b> ${escapeHtml(err.message)}
+          </div>
+        `;
+      }
+    }
+  };
+
+  window.runQuickScriptAction = async function(scriptName) {
+    try {
+      const res = await window.api('/api/network/automation/execute', {
+        method: 'POST',
+        body: JSON.stringify({ scriptName })
+      });
+      alert(`Script "${scriptName}" executed successfully.\nOutput:\n${res.stdout || res.output || 'Execution complete.'}`);
+    } catch (err) {
+      alert(`Failed to execute script "${scriptName}": ${err.message}`);
+    }
   };
 
 })(window);

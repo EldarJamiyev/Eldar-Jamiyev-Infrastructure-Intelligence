@@ -2134,6 +2134,131 @@ class AIBrain {
     };
   }
 
+  /**
+   * Counterfactual Causal Remediation Simulator (do-calculus intervention)
+   * Models the counterfactual intervention do(Action) against Bayesian incident hypotheses.
+   */
+  simulateCounterfactualFix({
+    incidentType = 'TCP_SYN_TIMEOUT',
+    currentEvaluation = null,
+    proposedAction = 'flush_dns_cache',
+    telemetry = {}
+  } = {}) {
+    // 1. Compute current evaluation & baseline entropy
+    let baselineEval = currentEvaluation;
+    if (!baselineEval || !Array.isArray(baselineEval.rankedHypotheses)) {
+      const baseTelemetry = { ...telemetry };
+      if ((incidentType === 'DNS_RESOLUTION_FAILURE' || incidentType === 'DNS_FAILURE') && baseTelemetry.dnsResolved === undefined) {
+        baseTelemetry.dnsResolved = false;
+      }
+      baselineEval = reasoningEngine.evaluateIncident({
+        incidentType,
+        ...baseTelemetry
+      });
+    }
+
+    const initialEpistemic = reasoningEngine.computeEpistemicMetrics(baselineEval.rankedHypotheses);
+    const shannonEntropyBefore = initialEpistemic.shannonEntropyBits;
+    const topBefore = baselineEval.topHypothesis || baselineEval.rankedHypotheses?.[0];
+
+    // Calculate baseline risk (non-nominal probability)
+    const nominalBefore = (baselineEval.rankedHypotheses || []).find((h) => h.id === 'NORMAL_OPERATION');
+    const riskBefore = 100 - (nominalBefore ? nominalBefore.confidence : 0);
+
+    // 2. Model the counterfactual intervention do(Action)
+    const actionKey = String(proposedAction || '').toLowerCase().trim();
+    let simulatedEvidence = {};
+    let targetedHypothesis = 'GENERAL_ANOMALY';
+    let resolutionExplanation = '';
+
+    if (actionKey.includes('dns')) {
+      targetedHypothesis = 'DNS_RESOLUTION_FAILURE';
+      simulatedEvidence = { dnsResolved: true, dnsRcode: 'NOERROR' };
+      resolutionExplanation = 'Flushing DNS cache and rebuilding resolver state eliminates domain resolution failures (RFC 1035).';
+    } else if (actionKey.includes('spooler') || actionKey.includes('print')) {
+      targetedHypothesis = 'PORT_CLOSED_SERVICE_STOPPED';
+      simulatedEvidence = { targetPortReachable: true, tcpRstObserved: false, errorCode: null };
+      resolutionExplanation = 'Restarting the Windows Print Spooler service clears hung RPC print queues and rebinds JetDirect/IPP ports (RFC 793).';
+    } else if (actionKey.includes('service') || actionKey.includes('port')) {
+      targetedHypothesis = 'PORT_CLOSED_SERVICE_STOPPED';
+      simulatedEvidence = { targetPortReachable: true, tcpRstObserved: false, errorCode: null };
+      resolutionExplanation = 'Starting the target application service process clears TCP RST rejections and establishes listener sockets.';
+    } else if (actionKey.includes('trim') || actionKey.includes('memory') || actionKey.includes('resource')) {
+      targetedHypothesis = 'LOCAL_HOST_RESOURCE_EXHAUSTION';
+      simulatedEvidence = { hostContext: { localHostSaturated: false, cpuPercent: 15, memoryPercent: 35 } };
+      resolutionExplanation = 'Trimming system working sets and releasing exhausted handles restores kernel socket allocation capacity.';
+    } else if (actionKey.includes('nic') || actionKey.includes('adapter') || actionKey.includes('pnp')) {
+      targetedHypothesis = 'LOCAL_NIC_STACK_ERROR';
+      simulatedEvidence = { hostContext: { localNicDegraded: false }, gatewayReachable: true };
+      resolutionExplanation = 'Resetting the local network adapter clears NDIS driver state and flushes corrupted ARP tables (RFC 1122).';
+    } else if (actionKey.includes('dhcp') || actionKey.includes('renew') || actionKey.includes('ipconfig') || actionKey.includes('apipa')) {
+      targetedHypothesis = 'APIPA_SELF_ASSIGNED_IP';
+      simulatedEvidence = { gatewayReachable: true, targetPortReachable: true, dhcpLeaseAcquired: true };
+      resolutionExplanation = 'Renewing DHCP lease acquires valid routable IP configuration, eliminating APIPA 169.254.x.x link-local fallback.';
+    } else {
+      targetedHypothesis = topBefore ? topBefore.id : 'ANOMALY';
+      simulatedEvidence = { targetPortReachable: true, gatewayReachable: true };
+      resolutionExplanation = `Executing proposed action "${proposedAction}" applies empirical remediation to target fault.`;
+    }
+
+    // 3. Compute projected post-intervention distribution P(H | E, do(Action))
+    const combinedTelemetry = {
+      ...(baselineEval.telemetry || {}),
+      incidentType,
+      ...telemetry,
+      ...simulatedEvidence
+    };
+
+    const projectedEval = reasoningEngine.evaluateIncident(combinedTelemetry);
+    const afterEpistemic = reasoningEngine.computeEpistemicMetrics(projectedEval.rankedHypotheses);
+    const shannonEntropyAfter = afterEpistemic.shannonEntropyBits;
+    const topAfter = projectedEval.topHypothesis || projectedEval.rankedHypotheses?.[0];
+
+    const nominalAfter = (projectedEval.rankedHypotheses || []).find((h) => h.id === 'NORMAL_OPERATION');
+    const riskAfter = 100 - (nominalAfter ? nominalAfter.confidence : 0);
+
+    const targetHBefore = (baselineEval.rankedHypotheses || []).find((h) => h.id === targetedHypothesis) || topBefore;
+    const targetHAfter = (projectedEval.rankedHypotheses || []).find((h) => h.id === targetedHypothesis);
+
+    const probBefore = targetHBefore ? targetHBefore.confidence : 0;
+    const probAfter = targetHAfter ? targetHAfter.confidence : 0;
+
+    let expectedRiskReductionPct = 0;
+    if (probBefore > 0) {
+      expectedRiskReductionPct = Number(Math.max(0, Math.min(100, ((probBefore - probAfter) / probBefore) * 100)).toFixed(1));
+    } else if (riskBefore > 0) {
+      expectedRiskReductionPct = Number(Math.max(0, Math.min(100, ((riskBefore - riskAfter) / riskBefore) * 100)).toFixed(1));
+    }
+
+    const entropyDeltaBits = Number((shannonEntropyBefore - shannonEntropyAfter).toFixed(4));
+
+    return {
+      success: true,
+      timestamp: new Date().toISOString(),
+      intervention: {
+        proposedAction,
+        targetedHypothesis,
+        resolutionExplanation
+      },
+      baseline: {
+        incidentType,
+        topHypothesis: topBefore,
+        shannonEntropyBits: shannonEntropyBefore,
+        failureRiskPct: Number(riskBefore.toFixed(1))
+      },
+      projected: {
+        topHypothesis: topAfter,
+        shannonEntropyBits: shannonEntropyAfter,
+        failureRiskPct: Number(riskAfter.toFixed(1)),
+        rankedHypotheses: projectedEval.rankedHypotheses
+      },
+      expectedRiskReductionPct,
+      entropyDeltaBits,
+      epistemicGainBits: entropyDeltaBits,
+      plainLanguageSummary: `Counterfactual intervention do(${proposedAction}) targets ${targetedHypothesis}. Projected to reduce failure probability from ${probBefore}% to ${probAfter}% (an expected ${expectedRiskReductionPct}% risk reduction), lowering Shannon uncertainty by ${entropyDeltaBits} bits.`
+    };
+  }
+
   getDispatchedNotifications(limit = 50) {
     return (this.dispatchedNotifications || []).slice(-limit).reverse();
   }

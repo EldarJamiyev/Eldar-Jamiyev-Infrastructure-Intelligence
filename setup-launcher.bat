@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+title EJII -- Eldar Jamiyev's Infrastructure Intelligence
 setlocal enabledelayedexpansion
 
 echo ========================================================================

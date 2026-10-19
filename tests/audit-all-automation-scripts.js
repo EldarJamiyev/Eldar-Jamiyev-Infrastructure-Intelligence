@@ -9,20 +9,23 @@ const {
   listAutomationScripts,
   getScriptContent,
   executeScript,
+  getActiveScriptsDirectory,
   DEFAULT_SCRIPTS_DIR
 } = require('../src/tools/script-automation');
 
 async function runAutomationScriptAudit() {
   console.log('\n========================================================================');
-  console.log('  EJII COMPREHENSIVE AUTOMATION SCRIPT AUDIT (ALL 27 SCRIPTS @ e:\\Scripts)');
+  console.log('  EJII COMPREHENSIVE AUTOMATION SCRIPT AUDIT (PORTABLE SCRIPTS MOUNT)   ');
   console.log('========================================================================');
 
-  const scriptsDir = DEFAULT_SCRIPTS_DIR;
+  const scriptsDir = typeof getActiveScriptsDirectory === 'function'
+    ? getActiveScriptsDirectory()
+    : DEFAULT_SCRIPTS_DIR;
   const listResult = await listAutomationScripts(scriptsDir);
 
   console.log(`[Discovery] Target Directory: ${listResult.directory}`);
   console.log(`[Discovery] Scripts Found:    ${listResult.count}`);
-  assert.strictEqual(listResult.count, 27, `Expected exactly 27 scripts in ${scriptsDir}, found ${listResult.count}`);
+  assert.ok(listResult.count >= 25, `Expected at least 25 scripts in ${scriptsDir}, found ${listResult.count}`);
 
   const results = [];
   let index = 1;

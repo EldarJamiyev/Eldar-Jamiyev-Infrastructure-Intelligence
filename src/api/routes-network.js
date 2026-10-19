@@ -800,9 +800,38 @@ router.post('/scanner/start', async (req, res) => {
 router.get('/scanner/status', (req, res) => {
   try {
     const status = ultraIpScanner.getScanStatus();
+    // Enrich hosts with office equipment classification
+    const { classifyOfficeEquipment } = require('../network/diagnostics/office-device-resolver');
+    if (status && Array.isArray(status.hosts)) {
+      status.hosts = status.hosts.map((h) => ({
+        ...h,
+        equipmentProfile: h.equipmentProfile || classifyOfficeEquipment(h)
+      }));
+    }
     res.json(status);
   } catch (err) {
     res.status(500).json({ error: 'Failed to get scan status: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/network/office-device/diagnose
+ * Automated Plain-Language Problem Resolver & Visual Smart Path Mapper
+ */
+router.post('/office-device/diagnose', requirePermission('network.diagnostics.execute'), async (req, res) => {
+  try {
+    const { diagnoseOfficeDevice } = require('../network/diagnostics/office-device-resolver');
+    const result = await diagnoseOfficeDevice(req.body || {});
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    const statusCode = err.message.includes('SECURITY_VIOLATION') ? 403 : 500;
+    res.status(statusCode).json({
+      success: false,
+      error: err.message
+    });
   }
 });
 

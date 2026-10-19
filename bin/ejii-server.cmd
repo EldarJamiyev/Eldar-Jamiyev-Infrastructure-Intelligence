@@ -1,5 +1,6 @@
 @echo off
-title EJII — Eldar Jamiyev's Infrastructure Intelligence
+chcp 65001 >nul
+title EJII -- Eldar Jamiyev's Infrastructure Intelligence
 echo ====================================================================
 echo   Starting EJII Enterprise Intelligence Platform
 echo   Zero-Simulation IT Management ^& Observability Engine

@@ -27,6 +27,9 @@ const { requestCorrelationAndTelemetryMiddleware } = require('./api/middleware')
 // Ensure database and baseline seeds are ready
 initSchema();
 seedDatabase();
+try {
+  process.title = "EJII -- Eldar Jamiyev's Infrastructure Intelligence";
+} catch (_) {}
 
 const app = express();
 const server = http.createServer(app);

@@ -70,6 +70,16 @@ function tokenizeText(text) {
     .filter((tok) => tok.length >= 2);
 }
 
+function extractCharacterTrigrams(text) {
+  if (!text || typeof text !== 'string') return [];
+  const clean = text.toLowerCase().replace(/[^a-z0-9_.-]+/g, ' ').trim();
+  const trigrams = [];
+  for (let i = 0; i < clean.length - 2; i++) {
+    trigrams.push(clean.substring(i, i + 3));
+  }
+  return trigrams;
+}
+
 class RAGKnowledgeEngine {
   constructor(options = {}) {
     this.rootDir = options.rootDir || path.resolve(__dirname, '../..');
@@ -177,7 +187,8 @@ class RAGKnowledgeEngine {
   }
 
   _addDocumentToCorpus(doc) {
-    const tokens = tokenizeText(`${doc.docId || ''} ${doc.source || ''} ${doc.title || ''} ${doc.category || ''} ${doc.content || ''}`);
+    const fullText = `${doc.docId || ''} ${doc.source || ''} ${doc.title || ''} ${doc.category || ''} ${doc.content || ''}`;
+    const tokens = tokenizeText(fullText);
     const termFreq = new Map();
     for (const tok of tokens) {
       termFreq.set(tok, (termFreq.get(tok) || 0) + 1);
@@ -187,10 +198,24 @@ class RAGKnowledgeEngine {
       this.invertedIndex.get(tok).add(doc.docId);
     }
 
+    // Character 3-grams for morphological and sub-token fuzzy vector matching
+    const trigrams = extractCharacterTrigrams(fullText);
+    const trigramFreq = new Map();
+    let trigramNormSq = 0;
+    for (const tri of trigrams) {
+      const c = (trigramFreq.get(tri) || 0) + 1;
+      trigramFreq.set(tri, c);
+    }
+    for (const c of trigramFreq.values()) {
+      trigramNormSq += c * c;
+    }
+
     this.documents.set(doc.docId, {
       ...doc,
       termFreq,
-      tokenCount: tokens.length
+      tokenCount: tokens.length,
+      trigramFreq,
+      trigramNorm: Math.sqrt(trigramNormSq) || 1
     });
     this.docLengths.set(doc.docId, Math.max(1, tokens.length));
   }
@@ -211,23 +236,37 @@ class RAGKnowledgeEngine {
   }
 
   /**
-   * Retrieves top-K relevant knowledge records using Okapi BM25 ranking.
+   * Retrieves top-K relevant knowledge records using Hybrid Okapi BM25 +
+   * Character Trigram Cosine Similarity with Reciprocal Rank Fusion (RRF, k=60).
    */
-  retrieveRelevantContext(queryText, { topK = 3, minScore = 0.1 } = {}) {
+  retrieveRelevantContext(queryText, { topK = 3, minScore = 0.08 } = {}) {
     const queryTokens = tokenizeText(queryText);
-    if (queryTokens.length === 0 || this.documents.size === 0) {
+    const queryTrigrams = extractCharacterTrigrams(queryText);
+    if ((queryTokens.length === 0 && queryTrigrams.length === 0) || this.documents.size === 0) {
       return [];
     }
+
+    // Compute query trigram frequencies and norm
+    const qTriFreq = new Map();
+    let qTriNormSq = 0;
+    for (const tri of queryTrigrams) {
+      const c = (qTriFreq.get(tri) || 0) + 1;
+      qTriFreq.set(tri, c);
+    }
+    for (const c of qTriFreq.values()) {
+      qTriNormSq += c * c;
+    }
+    const qTriNorm = Math.sqrt(qTriNormSq) || 1;
 
     const N = this.documents.size;
     const k1 = 1.5;
     const b = 0.75;
-    const scores = [];
 
+    // Step 1: Compute BM25 scores
+    const bm25Map = new Map();
     for (const [docId, doc] of this.documents.entries()) {
-      let score = 0;
+      let bm25 = 0;
       const docLen = this.docLengths.get(docId) || 1;
-
       for (const qTok of queryTokens) {
         const tf = doc.termFreq.get(qTok) || 0;
         if (tf === 0) continue;
@@ -235,23 +274,69 @@ class RAGKnowledgeEngine {
         const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
         const numerator = tf * (k1 + 1);
         const denominator = tf + k1 * (1 - b + b * (docLen / this.avgDocLength));
-        score += idf * (numerator / denominator);
+        bm25 += idf * (numerator / denominator);
       }
+      bm25Map.set(docId, bm25);
+    }
 
-      if (score >= minScore) {
-        scores.push({
+    // Step 2: Compute N-gram Cosine Similarity
+    const cosineMap = new Map();
+    for (const [docId, doc] of this.documents.entries()) {
+      let dotProduct = 0;
+      if (doc.trigramFreq) {
+        for (const [tri, qCount] of qTriFreq.entries()) {
+          const dCount = doc.trigramFreq.get(tri) || 0;
+          dotProduct += qCount * dCount;
+        }
+      }
+      const cosine = dotProduct / (qTriNorm * (doc.trigramNorm || 1));
+      cosineMap.set(docId, cosine);
+    }
+
+    // Step 3: Compute Ranks for Reciprocal Rank Fusion (k = 60)
+    const sortedByBm25 = Array.from(bm25Map.entries()).sort((a, b) => b[1] - a[1]);
+    const sortedByCosine = Array.from(cosineMap.entries()).sort((a, b) => b[1] - a[1]);
+
+    const bm25RankMap = new Map();
+    sortedByBm25.forEach(([docId], idx) => bm25RankMap.set(docId, idx + 1));
+
+    const cosineRankMap = new Map();
+    sortedByCosine.forEach(([docId], idx) => cosineRankMap.set(docId, idx + 1));
+
+    const kRrf = 60;
+    const results = [];
+
+    for (const [docId, doc] of this.documents.entries()) {
+      const bm25Score = bm25Map.get(docId) || 0;
+      const cosineSim = cosineMap.get(docId) || 0;
+
+      if (bm25Score === 0 && cosineSim < 0.04) continue;
+
+      const rBm25 = bm25RankMap.get(docId) || 1000;
+      const rCosine = cosineRankMap.get(docId) || 1000;
+      const rrfScore = (1 / (kRrf + rBm25)) + (1 / (kRrf + rCosine));
+
+      // Composite relevance score: ensures compatibility with existing BM25 thresholds (> 0.5)
+      // while incorporating character n-gram cosine boost
+      const relevanceScore = bm25Score > 0 ? bm25Score + (cosineSim * 2.5) : (cosineSim * 3.5);
+
+      if (relevanceScore >= minScore) {
+        results.push({
           docId: doc.docId,
           title: doc.title,
           source: doc.source,
           category: doc.category,
           excerpt: doc.content.slice(0, 600),
-          relevanceScore: Number(score.toFixed(4))
+          relevanceScore: Number(relevanceScore.toFixed(4)),
+          bm25Score: Number(bm25Score.toFixed(4)),
+          cosineSimilarity: Number(cosineSim.toFixed(4)),
+          rrfScore: Number(rrfScore.toFixed(6))
         });
       }
     }
 
-    scores.sort((a, b) => b.relevanceScore - a.relevanceScore);
-    return scores.slice(0, topK);
+    results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    return results.slice(0, topK);
   }
 }
 

@@ -34,6 +34,22 @@ class PacketDecoder {
   }
 
   /**
+   * Passive OS Fingerprinting (p0f-style TCP/IP TTL + Window Size heuristic)
+   * Infers operating system family non-intrusively from wire packet headers.
+   */
+  static computePassiveOsFingerprint(ttl, windowSize = null) {
+    if (typeof ttl !== 'number') return 'Unknown OS';
+    if (ttl > 64 && ttl <= 128) {
+      return 'Windows 10/11 or Windows Server (TTL≈128)';
+    } else if (ttl <= 64 && ttl > 32) {
+      return 'Linux / macOS / Android / Embedded Printer OS (TTL≈64)';
+    } else if (ttl > 128) {
+      return 'Cisco IOS / Enterprise Network Router/Switch (TTL≈255)';
+    }
+    return `Generic Network Host (TTL=${ttl})`;
+  }
+
+  /**
    * Dissect Ethernet II Frame with 802.1Q VLAN support
    */
   static dissectEthernet(buf, offset = 0) {
@@ -164,7 +180,8 @@ class PacketDecoder {
       headerChecksum: `0x${headerChecksum.toString(16).padStart(4, '0').toUpperCase()}`,
       srcIp,
       dstIp,
-      payloadOffset: offset + ihl
+      payloadOffset: offset + ihl,
+      passiveOsFingerprint: this.computePassiveOsFingerprint(ttl)
     };
   }
 
@@ -874,7 +891,8 @@ class PacketDecoder {
         checksumCalculated: chk.calculated,
         srcIp,
         dstIp,
-        payloadOffset: payloadOffset + ihl
+        payloadOffset: payloadOffset + ihl,
+        passiveOsFingerprint: this.computePassiveOsFingerprint(ttl)
       };
 
       addLayer('Internet Protocol Version 4', 'ipv4', payloadOffset, ihl, `Internet Protocol Version 4, Src: ${srcIp}, Dst: ${dstIp}`, {
@@ -886,6 +904,7 @@ class PacketDecoder {
         'ip.flags': { offset: payloadOffset + 6, length: 2, value: { df, mf }, label: `Flags: 0x${(flagsFrag >> 13).toString(16)} (DF: ${df ? 1 : 0}, MF: ${mf ? 1 : 0})` },
         'ip.frag_offset': { offset: payloadOffset + 6, length: 2, value: fragOffset, label: `Fragment offset: ${fragOffset}` },
         'ip.ttl': { offset: payloadOffset + 8, length: 1, value: ttl, label: `Time to live: ${ttl}` },
+        'ip.passive_os': { offset: payloadOffset + 8, length: 1, value: ip.passiveOsFingerprint, label: `Passive OS Fingerprint: ${ip.passiveOsFingerprint}` },
         'ip.proto': { offset: payloadOffset + 9, length: 1, value: protoNum, label: `Protocol: ${protoStr} (${protoNum})` },
         'ip.checksum': { offset: payloadOffset + 10, length: 2, value: ip.headerChecksum, label: `Header checksum: ${ip.headerChecksum}` },
         'ip.checksum_status': { offset: payloadOffset + 10, length: 2, value: chk.status, label: `Header checksum status: ${chk.status}` },
@@ -941,7 +960,8 @@ class PacketDecoder {
           checksum: `0x${tcpChecksum.toString(16).padStart(4, '0').toUpperCase()}`,
           urgentPointer,
           options: tcpOptions,
-          payloadLength: tcpPayloadLen
+          payloadLength: tcpPayloadLen,
+          passiveOsFingerprint: this.computePassiveOsFingerprint(ip ? ip.ttl : null, windowSize)
         };
 
         const flagNames = Object.entries(flags).filter(([_, v]) => v).map(([k]) => k.toUpperCase());
@@ -1232,6 +1252,7 @@ class PacketDecoder {
       application,
       layers,
       fields: fieldsMap,
+      passiveOsFingerprint: ip ? this.computePassiveOsFingerprint(ip.ttl, transport?.windowSize) : null,
       dissectedAt: new Date().toISOString()
     };
   }
@@ -1256,6 +1277,7 @@ class PacketDecoder {
       layers: detailed.layers,
       detailedLayers: detailed.layers,
       fields: detailed.fields,
+      passiveOsFingerprint: detailed.passiveOsFingerprint,
       dissectedAt: detailed.dissectedAt
     };
   }

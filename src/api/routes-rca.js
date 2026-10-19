@@ -487,6 +487,23 @@ router.get('/brain/providers-health', authenticate, requirePermission('telemetry
   }
 });
 
+/**
+ * POST /api/rca/brain/counterfactual-simulate
+ * Causal do-calculus simulation of candidate remediation actions
+ */
+router.post('/brain/counterfactual-simulate', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const simulation = aiBrain.simulateCounterfactualFix(req.body || {});
+    res.json({
+      success: true,
+      ...simulation,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 

@@ -186,11 +186,11 @@ class BayesianReasoningEngine {
     let activeHypotheses = [];
 
     // Select candidate hypothesis subspace based on fundamental protocol layer
-    if (incidentType === 'TCP_RST_REJECT' || tcpRstObserved || safeTelemetry.errorCode === 'ECONNREFUSED') {
+    if (incidentType === 'TCP_RST_REJECT' || incidentType === 'PORT_CLOSED_SERVICE_STOPPED' || tcpRstObserved || safeTelemetry.errorCode === 'ECONNREFUSED') {
       activeHypotheses = ['PORT_CLOSED_SERVICE_STOPPED', 'FIREWALL_SILENT_DROP', 'LOCAL_NIC_STACK_ERROR'];
-    } else if (incidentType === 'DNS_FAILURE' || dnsRcode !== null || dnsResolved === false) {
+    } else if (incidentType === 'DNS_FAILURE' || incidentType === 'DNS_RESOLUTION_FAILURE' || dnsRcode !== null || dnsResolved === false) {
       activeHypotheses = ['DNS_RESOLUTION_FAILURE', 'GATEWAY_UNREACHABLE', 'UPSTREAM_TRANSIT_DROP', 'LOCAL_NIC_STACK_ERROR'];
-    } else if (incidentType === 'TLS_ALERT_FAILURE' || tlsAlertCode !== null || tlsHandshakeSuccess === false) {
+    } else if (incidentType === 'TLS_ALERT_FAILURE' || incidentType === 'TLS_NEGOTIATION_ALERT' || tlsAlertCode !== null || tlsHandshakeSuccess === false) {
       activeHypotheses = ['TLS_NEGOTIATION_ALERT', 'BACKEND_PROCESSING_LATENCY', 'FIREWALL_SILENT_DROP'];
     } else if (incidentType === 'HIGH_HANDSHAKE_VS_APP_LATENCY' || (handshakeLatencyMs !== null && appLatencyMs !== null && appLatencyMs > handshakeLatencyMs * 10)) {
       activeHypotheses = ['BACKEND_PROCESSING_LATENCY', 'UPSTREAM_TRANSIT_DROP', 'LOCAL_NIC_STACK_ERROR'];

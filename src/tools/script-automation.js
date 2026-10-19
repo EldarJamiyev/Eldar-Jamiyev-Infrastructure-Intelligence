@@ -243,19 +243,91 @@ function cleanScriptTitle(filename) {
     .trim();
 }
 
+/**
+ * 4-Tier Resilient Script Directory Resolver:
+ * 1. Explicit process.env.EJII_SCRIPTS_DIR (if set and exists)
+ * 2. Physical 'e:\\Scripts' on host (if E:\ drive is mounted and contains scripts)
+ * 3. Repository-bundled 'data/scripts_mount/Scripts'
+ * 4. Repository-bundled 'scripts' (or auto-seeded DATA_DIR/scripts_mount/Scripts)
+ */
+function resolveScriptsDirectory(explicitDir) {
+  if (explicitDir && explicitDir !== 'e:\\Scripts' && explicitDir !== DEFAULT_SCRIPTS_DIR) {
+    try {
+      const p = path.resolve(explicitDir);
+      if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+        const files = fs.readdirSync(p).filter((f) => /\.(bat|cmd|ps1|txt)$/i.test(f));
+        if (files.length > 0) return p;
+      }
+    } catch (_) {}
+  }
+
+  const candidates = [
+    process.env.EJII_SCRIPTS_DIR ? path.resolve(process.env.EJII_SCRIPTS_DIR) : null,
+    'e:\\Scripts',
+    path.resolve(__dirname, '../../data/scripts_mount/Scripts'),
+    path.resolve(__dirname, '../../scripts'),
+    path.join(DATA_DIR || path.resolve(__dirname, '../../data'), 'scripts_mount', 'Scripts')
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+        const files = fs.readdirSync(dir).filter((f) => /\.(bat|cmd|ps1|txt)$/i.test(f));
+        if (files.length > 0) {
+          return dir;
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Self-healing fallback: ensure DATA_DIR/scripts_mount/Scripts is seeded from data/seed-scripts.js
+  const fallbackDir = path.resolve(__dirname, '../../data/scripts_mount/Scripts');
+  try {
+    if (!fs.existsSync(fallbackDir)) {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+    }
+    const { seedScripts } = require('../../data/seed-scripts');
+    if (typeof seedScripts === 'function') {
+      seedScripts(fallbackDir);
+    }
+  } catch (_) {}
+  return fallbackDir;
+}
+
+function getActiveScriptsDirectory() {
+  return resolveScriptsDirectory();
+}
+
+function getMountMetadata() {
+  const activeDir = getActiveScriptsDirectory();
+  const eDrivePresent = fs.existsSync('e:\\Scripts');
+  let mountMode = 'VIRTUAL_MOUNT_FALLBACK';
+  if (eDrivePresent && activeDir.toLowerCase().startsWith('e:\\')) {
+    mountMode = 'PHYSICAL_E_SCRIPTS';
+  }
+  let scriptCount = 0;
+  try {
+    if (fs.existsSync(activeDir)) {
+      scriptCount = fs.readdirSync(activeDir).filter((f) => /\.(bat|cmd|ps1|txt)$/i.test(f)).length;
+    }
+  } catch (_) {}
+  return {
+    activeDir,
+    configuredDisplayPath: 'e:\\Scripts',
+    eDriveMounted: eDrivePresent,
+    mountMode,
+    scriptCount
+  };
+}
+
 function ensureScriptsDir(scriptsDir = DEFAULT_SCRIPTS_DIR) {
+  if (!scriptsDir || scriptsDir === DEFAULT_SCRIPTS_DIR || !fs.existsSync(path.resolve(scriptsDir))) {
+    return resolveScriptsDirectory(scriptsDir);
+  }
   const baseDir = path.resolve(scriptsDir);
   if (fs.existsSync(baseDir)) return baseDir;
 
-  if (process.platform === 'win32' && baseDir.toLowerCase().startsWith('e:\\')) {
-    const localMount = path.resolve(DATA_DIR, 'scripts_mount');
-    if (fs.existsSync(localMount)) {
-      try {
-        require('child_process').execSync(`subst E: "${localMount}"`, { stdio: 'ignore' });
-      } catch (e) {}
-    }
-  }
-  return baseDir;
+  return resolveScriptsDirectory(scriptsDir);
 }
 
 /**
@@ -292,22 +364,36 @@ function resolveScriptPath(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
 }
 
 /**
- * List all automation scripts from e:\Scripts
+ * List all automation scripts from active scripts mount
+ * Returns an Array of scripts decorated with thenable resolution for both sync & async callers.
  */
-async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
+function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
   const baseDir = ensureScriptsDir(scriptsDir);
 
   if (!fs.existsSync(baseDir)) {
-    return {
-      directory: baseDir,
-      exists: false,
-      count: 0,
-      scripts: [],
-      error: `Directory "${baseDir}" does not exist on this machine.`
+    const emptyResult = [];
+    emptyResult.directory = baseDir;
+    emptyResult.exists = false;
+    emptyResult.count = 0;
+    emptyResult.scripts = [];
+    emptyResult.error = `Directory "${baseDir}" does not exist on this machine.`;
+    emptyResult.then = function(resolve) {
+      resolve({
+        directory: this.directory,
+        exists: this.exists,
+        count: this.count,
+        scripts: this.scripts,
+        error: this.error
+      });
     };
+    return emptyResult;
   }
 
-  const files = await fs.promises.readdir(baseDir);
+  let files = [];
+  try {
+    files = fs.readdirSync(baseDir);
+  } catch (_) {}
+
   const scripts = [];
 
   for (const file of files) {
@@ -318,17 +404,20 @@ async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
 
     try {
       const fullPath = path.join(baseDir, file);
-      const stat = await fs.promises.stat(fullPath);
+      const stat = fs.statSync(fullPath);
       if (!stat.isFile()) continue;
 
       let preview = '';
       try {
-        const fileContent = await fs.promises.readFile(fullPath, 'utf8');
-        preview = fileContent;
+        preview = fs.readFileSync(fullPath, 'utf8');
       } catch (e) {}
 
-      const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
-      const liveGateway = netInfo.gatewayIp || '192.168.31.1';
+      let liveGateway = '192.168.31.1';
+      try {
+        const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
+        liveGateway = netInfo.gatewayIp || '192.168.31.1';
+      } catch (_) {}
+
       if (preview.includes('10.168.195.1')) {
         preview = preview.replace(/10\.168\.195\.1/g, liveGateway);
       }
@@ -386,12 +475,25 @@ async function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
   // Sort alphabetically by title
   scripts.sort((a, b) => a.title.localeCompare(b.title));
 
-  return {
-    directory: baseDir,
-    exists: true,
-    count: scripts.length,
-    scripts
+  scripts.directory = baseDir;
+  scripts.exists = true;
+  scripts.count = scripts.length;
+  scripts.scripts = scripts;
+  scripts.then = function(resolve, reject) {
+    try {
+      resolve({
+        directory: this.directory,
+        exists: this.exists,
+        count: this.count,
+        scripts: this.scripts
+      });
+    } catch (e) {
+      if (typeof reject === 'function') reject(e);
+      else throw e;
+    }
   };
+
+  return scripts;
 }
 
 /**
@@ -577,6 +679,9 @@ function getExecutionHistory(limit = 50) {
 
 const scriptAutomation = {
   DEFAULT_SCRIPTS_DIR,
+  resolveScriptsDirectory,
+  getActiveScriptsDirectory,
+  getMountMetadata,
   categorizeScript,
   detectScriptType,
   cleanScriptTitle,
@@ -589,6 +694,9 @@ const scriptAutomation = {
 
 module.exports = {
   DEFAULT_SCRIPTS_DIR,
+  resolveScriptsDirectory,
+  getActiveScriptsDirectory,
+  getMountMetadata,
   categorizeScript,
   detectScriptType,
   cleanScriptTitle,

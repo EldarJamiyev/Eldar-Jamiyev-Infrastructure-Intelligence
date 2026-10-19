@@ -70,6 +70,8 @@ const { runLiveServerVerification } = require('./verify-live-server.e2e');
 const { runFullRepositoryCohesionAndProductionTruthTests } = require('./full-repository-cohesion-and-production-truth.test');
 const { runSuite51 } = require('./ai-brain-epistemic-validator-and-dag-planner.test');
 const { runSuite52 } = require('./enterprise-api-contracts-concurrency-and-hygiene.test');
+const { runPortableScriptsMountAndUtf8LauncherTests } = require('./portable-scripts-mount-and-utf8-launcher.test');
+const { runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests } = require('./office-equipment-apipa-smart-map-and-plain-diagnostics.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -139,7 +141,9 @@ async function runAllTests() {
     { name: '49. Live Running Server Socket, HTTP & WebSocket Telemetry E2E Verification', fn: runLiveServerVerification },
     { name: '50. Full-Repository Cohesion, 100% Reachability, Physical RAG Runbooks/Policies, 20-Tool Sandbox & CLI/Desktop/Mobile Truth', fn: runFullRepositoryCohesionAndProductionTruthTests },
     { name: '51. AI Brain Epistemic Entropy, Self-Validator & Causal DAG Planner', fn: runSuite51 },
-    { name: '52. Enterprise API Contracts, Concurrency & Hygiene Suite', fn: runSuite52 }
+    { name: '52. Enterprise API Contracts, Concurrency & Hygiene Suite', fn: runSuite52 },
+    { name: '53. Portable 4-Tier Script Directory Virtualization, Self-Healing Mount & UTF-8 Console Title Integrity', fn: runPortableScriptsMountAndUtf8LauncherTests },
+    { name: '54. Automatic Office Equipment Classification, Visual Smart Map, Plain-Language APIPA Resolver, Hybrid BM25/N-Gram RAG & Counterfactual Causal Simulator', fn: runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests }
   ];
 
   for (const s of suites) {

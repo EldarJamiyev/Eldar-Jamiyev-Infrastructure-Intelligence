@@ -6,11 +6,14 @@
 
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
 const {
   listAutomationScripts,
   getScriptContent,
   executeScript,
-  resolveScriptPath
+  resolveScriptPath,
+  getActiveScriptsDirectory,
+  scriptAutomation
 } = require('../src/tools/script-automation');
 
 async function runPcAutomationTests() {
@@ -18,11 +21,17 @@ async function runPcAutomationTests() {
   console.log('  TEST SUITE: LOCAL PC AUTOMATION (BAT FILES @ e:\\Scripts)              ');
   console.log('========================================================================');
 
-  // [Test 1] Read real e:\Scripts directory and inspect metadata
-  console.log('[Test 1] Scanning e:\\Scripts directory on host machine...');
-  const result = await listAutomationScripts();
+  // [Test 1] Read real e:\Scripts directory and inspect metadata (Portable Mount Mode)
+  const SCRIPTS_DIR = typeof scriptAutomation.getActiveScriptsDirectory === 'function'
+    ? scriptAutomation.getActiveScriptsDirectory()
+    : (fs.existsSync('e:\\Scripts') ? 'e:\\Scripts' : path.resolve(__dirname, '../data/scripts_mount/Scripts'));
+
+  console.log(`[Test 1] Scanning ${SCRIPTS_DIR} directory on host machine (Portable Mount Mode)...`);
+  assert.strictEqual(fs.existsSync(SCRIPTS_DIR), true, `Active scripts directory (${SCRIPTS_DIR}) must exist on this host`);
+
+  const result = await listAutomationScripts(SCRIPTS_DIR);
   
-  assert.ok(result.exists, 'Directory e:\\Scripts must exist on this host');
+  assert.ok(result.exists, `Active scripts directory (${SCRIPTS_DIR}) must exist on this host`);
   assert.ok(result.count >= 20, `Expected at least 20 automation scripts, found: ${result.count}`);
   console.log(`  ✓ Successfully enumerated ${result.count} automation scripts from ${result.directory}.`);
 

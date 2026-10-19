@@ -206,7 +206,7 @@ async function runLiveDomVisualTruthRegressionTests() {
 
     // 6. Cache busting in index.html
     const indexHtml = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-    assert.ok(indexHtml.includes('?v=2026.10.18.2') || indexHtml.includes('?v=2026.10.18.3') || indexHtml.includes('?v=2026.10.18.4'), 'index.html must include cache-busting version ?v=2026.10.18.x');
+    assert.ok(indexHtml.includes('?v=2026.10.18.2') || indexHtml.includes('?v=2026.10.18.3') || indexHtml.includes('?v=2026.10.18.4') || indexHtml.includes('?v=2026.10.18.5'), 'index.html must include cache-busting version ?v=2026.10.18.x');
 
     console.log('  ✓ Dynamic topology SVG geometry, zero hardcoded subnet & cache busting verified.');
   }
