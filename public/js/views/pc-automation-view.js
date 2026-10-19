@@ -42,8 +42,8 @@
                     Direct Host Execution Engine &bull; Non-Elevated / Elevated Scripts &bull; Subsystem Diagnostics &amp; Repair
                   </div>
                 </div>
-                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38BDF8; margin-left: 8px; font-family: var(--font-mono);">
-                  📁 ${data?.directory || 'e:\\Scripts'}
+                <span class="hud-pill" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38BDF8; margin-left: 8px; font-family: var(--font-mono);">
+                  Mount Mode: ${data?.mountMetadata?.mountMode || 'VIRTUAL_MOUNT_FALLBACK'} | Active Path: ${data?.mountMetadata?.activeDir || data?.directory || 'data/scripts_mount/Scripts'} | ${data?.mountMetadata?.scriptCount || discoveredScripts.length} Scripts Verified
                 </span>
                 <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: rgba(16, 185, 129, 0.15); color: #10B981; font-family: var(--font-mono);">
                   ✓ ${discoveredScripts.length} Scripts Detected
@@ -51,6 +51,9 @@
               </div>
 
               <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="btn btn-secondary" onclick="window.checkLocalPrintSpoolerModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; color: #38BDF8;" title="Inspect local Windows Print Spooler service, WSD ports, and stuck print jobs">
+                  🖨️ Check Local Print Spooler
+                </button>
                 <button class="btn btn-secondary" onclick="window.showScriptHistory()" style="font-size: 11px; padding: 4px 12px; font-weight: 700;">
                   📜 Execution History
                 </button>
@@ -64,25 +67,19 @@
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
               <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;" id="automationCategoryPills">
                 <button class="btn btn-primary btn-cat-pill" data-cat="all" onclick="window.setAutomationCategory('all')" style="font-size: 11px; padding: 3px 10px;">
-                  All (${discoveredScripts.length})
+                  All Scripts (${discoveredScripts.length})
+                </button>
+                <button class="btn btn-secondary btn-cat-pill" data-cat="Network & DHCP" onclick="window.setAutomationCategory('Network & DHCP')" style="font-size: 11px; padding: 3px 10px;">
+                  🌐 Network &amp; DHCP
+                </button>
+                <button class="btn btn-secondary btn-cat-pill" data-cat="Printer & Spooler" onclick="window.setAutomationCategory('Printer & Spooler')" style="font-size: 11px; padding: 3px 10px;">
+                  🖨️ Printer &amp; Spooler
                 </button>
                 <button class="btn btn-secondary btn-cat-pill" data-cat="Security & Access" onclick="window.setAutomationCategory('Security & Access')" style="font-size: 11px; padding: 3px 10px;">
                   🛡️ Security &amp; Access
                 </button>
-                <button class="btn btn-secondary btn-cat-pill" data-cat="Network & DNS Stack" onclick="window.setAutomationCategory('Network & DNS Stack')" style="font-size: 11px; padding: 3px 10px;">
-                  🌐 Network &amp; DNS
-                </button>
-                <button class="btn btn-secondary btn-cat-pill" data-cat="System Diagnostics & Health" onclick="window.setAutomationCategory('System Diagnostics & Health')" style="font-size: 11px; padding: 3px 10px;">
-                  🩺 System Health
-                </button>
-                <button class="btn btn-secondary btn-cat-pill" data-cat="Cleanup & Bloatware" onclick="window.setAutomationCategory('Cleanup & Bloatware')" style="font-size: 11px; padding: 3px 10px;">
-                  🧹 Cleanup &amp; Bloatware
-                </button>
-                <button class="btn btn-secondary btn-cat-pill" data-cat="Performance & Process Triage" onclick="window.setAutomationCategory('Performance & Process Triage')" style="font-size: 11px; padding: 3px 10px;">
-                  ⚡ Performance
-                </button>
-                <button class="btn btn-secondary btn-cat-pill" data-cat="Hardware Inventory" onclick="window.setAutomationCategory('Hardware Inventory')" style="font-size: 11px; padding: 3px 10px;">
-                  🖥️ Hardware
+                <button class="btn btn-secondary btn-cat-pill" data-cat="System & Disk" onclick="window.setAutomationCategory('System & Disk')" style="font-size: 11px; padding: 3px 10px;">
+                  ⚡ System &amp; Disk
                 </button>
               </div>
 
@@ -200,6 +197,7 @@
     });
     renderScriptCards();
   };
+  window.filterScriptCategory = window.setAutomationCategory;
 
   window.onAutomationSearchChange = function(q) {
     activeSearchTerm = (q || '').toLowerCase().trim();
@@ -214,7 +212,19 @@
     let filtered = discoveredScripts.slice();
 
     if (activeCategoryFilter !== 'all') {
-      filtered = filtered.filter(s => s.category === activeCategoryFilter);
+      filtered = filtered.filter(s => {
+        const cat = s.category || '';
+        if (activeCategoryFilter === 'Network & DHCP') {
+          return cat === 'Network & DNS Stack' || /network|dhcp|dns|ip/i.test(cat + ' ' + s.title);
+        }
+        if (activeCategoryFilter === 'Printer & Spooler') {
+          return /spooler|printer|print/i.test(cat + ' ' + s.title);
+        }
+        if (activeCategoryFilter === 'System & Disk') {
+          return /system|diagnostics|disk|performance|hardware/i.test(cat + ' ' + s.title);
+        }
+        return cat === activeCategoryFilter;
+      });
     }
 
     if (activeSearchTerm) {

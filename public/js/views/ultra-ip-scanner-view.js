@@ -125,6 +125,7 @@
                 <input type="text" id="apipaQuickDiagInput" class="form-input" placeholder="e.g. 169.254.45.12" style="width: 130px; font-size: 11px; padding: 2px 6px; font-family: var(--font-mono); border: none; background: transparent;">
                 <button class="btn btn-secondary" onclick="window.quickDiagnoseOfficeDevice()" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Plain-language problem resolver & visual smart path mapper">🩺 Diagnose</button>
               </div>
+              <button class="btn btn-secondary" onclick="window.checkLocalPrintSpoolerModal()" title="Inspect local Windows Print Spooler service, WSD ports, and stuck print jobs">🖨️ Local Print Spooler</button>
               <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-left: 4px;">
                 <input type="checkbox" id="hideNoPingCheckbox" onchange="window.toggleHideNoPing(this.checked)">
                 <span>Hide NO PING</span>
@@ -135,6 +136,34 @@
 
           <!-- Visible Scan Delta Summary Banner -->
           <div id="scannerDeltaSummaryBanner" style="display: none; background: rgba(56, 189, 248, 0.08); border-bottom: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #e2e8f0;"></div>
+
+          <!-- Interactive Equipment KPI Strip -->
+          <div class="eji-equipment-kpi-strip" id="equipmentKpiStrip" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px 18px; background: rgba(15, 23, 42, 0.5); border-bottom: 1px solid var(--border-color);">
+            <div class="kpi-card" onclick="window.setScannerFilterChip('all')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">📡 Total Active Equipment</div>
+              <div id="kpiTotalActive" style="font-size: 18px; font-weight: 800; color: var(--accent); margin-top: 4px;">0</div>
+            </div>
+            <div class="kpi-card" onclick="window.setScannerFilterChip('printers')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">🖨️ Office Printers &amp; MFPs</div>
+              <div id="kpiPrinters" style="font-size: 18px; font-weight: 800; color: #34D399; margin-top: 4px;">0</div>
+            </div>
+            <div class="kpi-card" onclick="window.setScannerFilterChip('computers')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">💻 Computers &amp; Servers</div>
+              <div id="kpiComputers" style="font-size: 18px; font-weight: 800; color: #60A5FA; margin-top: 4px;">0</div>
+            </div>
+            <div class="kpi-card" onclick="window.setScannerFilterChip('phones')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">📞 VoIP Desk Phones</div>
+              <div id="kpiPhones" style="font-size: 18px; font-weight: 800; color: #FBBF24; margin-top: 4px;">0</div>
+            </div>
+            <div class="kpi-card" onclick="window.setScannerFilterChip('network_gear')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">🌐 Routers, Switches &amp; APs</div>
+              <div id="kpiRouters" style="font-size: 18px; font-weight: 800; color: #A78BFA; margin-top: 4px;">0</div>
+            </div>
+            <div class="kpi-card" onclick="window.setScannerFilterChip('apipa_issues')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">⚠️ APIPA (169.254.x.x) / Faults</div>
+              <div id="kpiApipa" style="font-size: 18px; font-weight: 800; color: #EF4444; margin-top: 4px;">0</div>
+            </div>
+          </div>
 
           <!-- Fleet Data Table View -->
           <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
@@ -191,7 +220,45 @@
         }
       }
     } catch (e) {}
+
+    // Auto-fetch persistent office equipment inventory for KPI strip
+    try {
+      const invRes = await window.api('/api/network/office-device/inventory').catch(() => null);
+      if (invRes && invRes.records) {
+        updateEquipmentKpis(invRes.records);
+      }
+    } catch (_) {}
   }
+
+  function updateEquipmentKpis(records = []) {
+    const list = Array.isArray(records) && records.length > 0 ? records : currentScanResults;
+    const total = list.length;
+    let printers = 0, computers = 0, phones = 0, routers = 0, apipa = 0;
+    list.forEach(item => {
+      const cat = (item.category || item.equipmentType || '').toLowerCase();
+      const ip = item.currentIp || item.ip || '';
+      if (/print/i.test(cat)) printers++;
+      else if (/comput|workstation|pc|server/i.test(cat)) computers++;
+      else if (/phone|voip/i.test(cat)) phones++;
+      else if (/router|switch|gateway|ap/i.test(cat)) routers++;
+      if (/^169\.254\./.test(ip) || /apipa/i.test(cat) || item.status === 'FAULT' || item.isApipaFault) apipa++;
+    });
+
+    const elTotal = document.getElementById('kpiTotalActive');
+    const elPrinters = document.getElementById('kpiPrinters');
+    const elComputers = document.getElementById('kpiComputers');
+    const elPhones = document.getElementById('kpiPhones');
+    const elRouters = document.getElementById('kpiRouters');
+    const elApipa = document.getElementById('kpiApipa');
+
+    if (elTotal) elTotal.textContent = total;
+    if (elPrinters) elPrinters.textContent = printers;
+    if (elComputers) elComputers.textContent = computers;
+    if (elPhones) elPhones.textContent = phones;
+    if (elRouters) elRouters.textContent = routers;
+    if (elApipa) elApipa.textContent = apipa;
+  }
+  window.updateEquipmentKpis = updateEquipmentKpis;
 
   window.renderUltraIpScannerView = renderUltraIpScannerView;
   window.renderIpScannerView = renderUltraIpScannerView; // Alias
@@ -705,7 +772,7 @@
   };
 
   // Visual Connection Path & Plain-Language Problem Resolver Modal
-  window.diagnoseOfficeEquipmentModal = async function(ip, deviceType = '', name = '', mac = '', vendor = '') {
+  window.diagnoseOfficeEquipmentModal = async function(ip, deviceType = '', name = '', mac = '', vendor = '', isRetest = false) {
     let modal = document.getElementById('officeDeviceDiagnoseModal');
     if (!modal) {
       modal = document.createElement('div');
@@ -725,7 +792,7 @@
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <button onclick="window.diagnoseOfficeEquipmentModal('${escapeAttr(ip)}', '${escapeAttr(deviceType)}', '${escapeAttr(name)}', '${escapeAttr(mac)}', '${escapeAttr(vendor)}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid #0284c7; color: #38bdf8; border-radius: 6px; cursor: pointer;">
+            <button onclick="window.diagnoseOfficeEquipmentModal('${escapeAttr(ip)}', '${escapeAttr(deviceType)}', '${escapeAttr(name)}', '${escapeAttr(mac)}', '${escapeAttr(vendor)}', true)" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid #0284c7; color: #38bdf8; border-radius: 6px; cursor: pointer;">
               ↻ Re-Test Device Now
             </button>
             <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
@@ -747,7 +814,8 @@
           deviceTypeHint: deviceType,
           deviceName: name,
           macAddress: mac,
-          vendor
+          vendor,
+          isRetest: Boolean(isRetest)
         })
       });
 
@@ -760,14 +828,16 @@
         // Section A: Visual Connection Path
         const pathHops = (res.visualConnectionPath || []).map((hop, idx) => {
           const isBroken = hop.status === 'BROKEN';
-          const badgeBg = isBroken ? '#ef4444' : '#10b981';
-          const badgeText = isBroken ? '✕ BROKEN HERE' : '● OK';
+          const isDegraded = hop.status === 'DEGRADED';
+          const badgeBg = isBroken ? '#ef4444' : (isDegraded ? '#f59e0b' : '#10b981');
+          const badgeText = isBroken ? '✕ BROKEN HERE' : (isDegraded ? '⚠️ DEGRADED' : '● OK');
           const icon = hop.icon || '📦';
           const arrow = idx < res.visualConnectionPath.length - 1 ? `<span style="color: ${isBroken ? '#ef4444' : '#64748b'}; font-size: 16px; font-weight: 800; margin: 0 4px;">───▶</span>` : '';
+          const hopClass = isBroken ? 'eji-hop-card hop-broken' : (isDegraded ? 'eji-hop-card hop-degraded' : 'eji-hop-card hop-healthy');
 
           return `
             <div style="display: flex; align-items: center; gap: 6px;">
-              <div style="background: ${isBroken ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.8)'}; border: 1px solid ${isBroken ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 10px 12px; min-width: 130px; text-align: center; box-shadow: ${isBroken ? '0 0 12px rgba(239,68,68,0.3)' : 'none'};">
+              <div class="${hopClass}" style="background: ${isBroken ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.8)'}; border: 1px solid ${isBroken ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 10px 12px; min-width: 130px; text-align: center; box-shadow: ${isBroken ? '0 0 12px rgba(239,68,68,0.3)' : 'none'};">
                 <div style="font-size: 20px; margin-bottom: 4px;">${icon}</div>
                 <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#fca5a5' : '#e2e8f0'};">${escapeHtml(hop.title || hop.name || 'Network Hop')}</div>
                 <div style="font-size: 10px; color: #94a3b8; font-family: var(--font-mono);">${escapeHtml(hop.ip || hop.role || '')}</div>
@@ -786,19 +856,28 @@
           </li>
         `).join('');
 
+        const diffBanner = res.reverificationDiff?.hasPreviousSnapshot ? `
+          <div class="alert alert-info" style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38BDF8; color: #E0F2FE; padding: 10px 14px; border-radius: 6px; font-size: 12px;">
+            <strong>🔄 Re-Verification Comparison:</strong> Previous State: <code>${escapeHtml(res.reverificationDiff.previousScenario)}</code> ➔ Current State: <code>${escapeHtml(res.reverificationDiff.currentScenario)}</code>
+            ${res.reverificationDiff.statusImproved ? ' <span class="badge badge-success" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 700;">FIX SUCCESSFUL / RECOVERED</span>' : ''}
+          </div>
+        ` : '';
+
         content.innerHTML = `
+          ${diffBanner}
+
           <!-- Section A: Visual Connection Path -->
           <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 14px;">
             <div style="font-size: 12px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
               Section A: Visual Connection Path (Smart Map)
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; overflow-x: auto; padding: 8px 4px;">
+            <div class="eji-hop-pipeline" style="display: flex; align-items: center; justify-content: space-between; overflow-x: auto; padding: 8px 4px;">
               ${pathHops}
             </div>
           </div>
 
           <!-- Section B: Automated Problem Resolver -->
-          <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="eji-plain-resolver-grid" style="display: flex; flex-direction: column; gap: 12px;">
             <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 4px; padding: 12px 16px;">
               <div style="font-size: 11px; font-weight: 700; color: #f87171; text-transform: uppercase; margin-bottom: 4px;">
                 1. What the Problem Is

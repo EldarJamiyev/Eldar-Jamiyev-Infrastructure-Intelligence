@@ -24,10 +24,13 @@ async function runServiceVerifierMatrixTests() {
   assert.strictEqual(isPrivateIp('8.8.8.8'), false, '8.8.8.8 is public');
   console.log('✓ RFC 1918 & CGNAT private IP classifier verified.');
 
-  // Test 2: Real Enterprise Web Service Verifier
   const targetHost = process.env.EJII_TEST_WEB_TARGET || 'taxes.gov.az';
   console.log(`Testing Enterprise Web Verifier on ${targetHost}...`);
-  const webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 4000 });
+  let webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 6000 });
+  if (!webReport || !webReport.tls || !webReport.tls.success) {
+    console.log(`Transient WAN network delay on ${targetHost}, retrying with 8000ms...`);
+    webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 8000 });
+  }
   assert.ok(webReport, 'Web report must exist');
   assert.strictEqual(webReport.hostname, targetHost);
   assert.strictEqual(webReport.dns.success, true, `DNS must resolve ${targetHost}`);

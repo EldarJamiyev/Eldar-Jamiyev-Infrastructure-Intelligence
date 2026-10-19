@@ -82,17 +82,31 @@ window.escapeAttr = escapeAttr;
     `;
 
     try {
-      const [topoRes, captureStatusRes, initialFramesRes, flowsRes] = await Promise.all([
+      const [topoRes, captureStatusRes, initialFramesRes, flowsRes, sharedOutagesRes] = await Promise.all([
         window.api('/api/network/topology'),
         window.api('/api/network/capture/status').catch(() => ({ active: true })),
         window.api('/api/network/capture/frames?limit=60').catch(() => ({ frames: [] })),
-        window.api('/api/network/capture/flows?limit=60').catch(() => ({ flows: [] }))
+        window.api('/api/network/capture/flows?limit=60').catch(() => ({ flows: [] })),
+        window.api('/api/rca/brain/shared-outages').catch(() => ({ clusters: [] }))
       ]);
 
       topologyData = topoRes || { nodes: [], edges: [], layers: [] };
       isCapturing = captureStatusRes ? captureStatusRes.active : true;
       if (initialFramesRes && initialFramesRes.frames) liveFrames = initialFramesRes.frames;
       if (flowsRes && flowsRes.flows) liveFlows = flowsRes.flows;
+
+      let outageBannerHtml = '';
+      if (sharedOutagesRes && Array.isArray(sharedOutagesRes.clusters) && sharedOutagesRes.clusters.length > 0) {
+        const clusterDescs = sharedOutagesRes.clusters.map(c => `<strong>${escapeHtml(c.upstreamTarget || c.switchOrGateway || 'Upstream Gateway')}</strong> (${(c.affectedHosts || []).length} failing hosts)`).join(', ');
+        outageBannerHtml = `
+          <div id="sharedOutageAlertBanner" class="alert alert-warning" style="margin-bottom: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid #F59E0B; color: #FCD34D; padding: 8px 14px; border-radius: 6px; display: flex; align-items: center; gap: 10px; font-size: 12px;">
+            <span style="font-size: 16px;">⚠️</span>
+            <div>
+              <strong>Shared Upstream Subnet Outage Correlated:</strong> Concurrent failures detected downstream of ${clusterDescs}.
+            </div>
+          </div>
+        `;
+      }
 
       // Start capture stream if paused
       if (!isCapturing) {
@@ -107,6 +121,8 @@ window.escapeAttr = escapeAttr;
         <div class="noc-dual-pane">
           <!-- Autonomous AI Diagnostic Brain Live Drawer -->
           <div id="nocAiBrainDrawerContainer" class="ai-brain-drawer-mount" style="margin-bottom: 8px;"></div>
+
+          ${outageBannerHtml}
 
           <!-- UPPER PANE: NOC NETWORK TOPOLOGY & DEPENDENCY GRAPH -->
           <div class="noc-pane-upper card" style="margin: 0;">
@@ -221,6 +237,8 @@ window.escapeAttr = escapeAttr;
                   <option value="TLS">TLS</option>
                   <option value="ICMP">ICMP</option>
                   <option value="ARP">ARP</option>
+                  <option value="DHCP">DHCP</option>
+                  <option value="MDNS">mDNS</option>
                 </select>
 
                 <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, URL, host..." style="width: 150px; padding: 4px 6px; font-size: 11px;" oninput="window.onPacketSearchChange(this.value)">
@@ -990,7 +1008,16 @@ window.escapeAttr = escapeAttr;
     }
 
     if (protocolFilter !== 'ALL') {
-      filtered = filtered.filter(f => (f.protocol || '').toUpperCase() === protocolFilter);
+      filtered = filtered.filter(f => {
+        const p = (f.protocol || '').toUpperCase();
+        if (protocolFilter === 'DHCP') {
+          return p === 'DHCP' || p === 'BOOTP' || Boolean(f.dhcp) || (f.udp && (f.udp.srcPort === 67 || f.udp.dstPort === 67 || f.udp.srcPort === 68 || f.udp.dstPort === 68));
+        }
+        if (protocolFilter === 'MDNS') {
+          return p === 'MDNS' || Boolean(f.mdns) || (f.udp && (f.udp.srcPort === 5353 || f.udp.dstPort === 5353));
+        }
+        return p === protocolFilter;
+      });
     }
 
     if (searchFilter) {
@@ -1267,9 +1294,46 @@ window.escapeAttr = escapeAttr;
   }
 
   function buildProtocolTreeHtml(f) {
+    let osBadgeHtml = '';
+    if (f.passiveOsFingerprint) {
+      const p0f = typeof f.passiveOsFingerprint === 'object' ? f.passiveOsFingerprint : { os: f.passiveOsFingerprint };
+      osBadgeHtml = `
+        <div class="protocol-layer-node p0f-badge" style="margin-bottom: 8px; background: rgba(168, 85, 247, 0.15); border: 1px solid #A855F7; border-radius: 6px; padding: 6px 10px;">
+          <div style="font-weight: 700; color: #C084FC; font-size: 11px;">🔍 Passive OS Fingerprint (p0f)</div>
+          <div style="color: var(--text-main); font-size: 11px; margin-top: 2px;">
+            <strong>OS Family:</strong> ${escapeHtml(p0f.os || p0f.osFamily || 'Identified OS')}
+            ${p0f.flavor ? ` &bull; <strong>Flavor:</strong> ${escapeHtml(p0f.flavor)}` : ''}
+            ${p0f.distance ? ` &bull; <strong>Hop Distance:</strong> ${escapeHtml(p0f.distance)}` : ''}
+            ${p0f.signature ? ` &bull; <code>${escapeHtml(p0f.signature)}</code>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    let dhcpDetailsHtml = '';
+    if (f.dhcp) {
+      const d = f.dhcp;
+      dhcpDetailsHtml = `
+        <details open class="protocol-layer-node" style="margin-bottom: 8px; background: rgba(56, 189, 248, 0.1); border: 1px solid #38BDF8; border-radius: 6px; padding: 6px 10px;">
+          <summary style="cursor: pointer; font-weight: 700; color: #38BDF8; font-size: 11px;">
+            📡 RFC 2131 Dynamic Host Configuration Protocol (${escapeHtml(d.messageType || 'DHCP')})
+          </summary>
+          <div style="padding-left: 10px; margin-top: 4px; font-size: 11px; color: var(--text-main);">
+            <div><strong>Message Type:</strong> ${escapeHtml(d.messageType || 'Unknown')}</div>
+            ${d.clientMac ? `<div><strong>Client MAC:</strong> <code>${escapeHtml(d.clientMac)}</code></div>` : ''}
+            ${d.requestedIp ? `<div><strong>Requested IP:</strong> <code>${escapeHtml(d.requestedIp)}</code></div>` : ''}
+            ${d.yourAssignedIp || d.yiaddr ? `<div><strong>Your Assigned IP (yiaddr):</strong> <code>${escapeHtml(d.yourAssignedIp || d.yiaddr)}</code></div>` : ''}
+            ${d.hostname ? `<div><strong>Host Name (Option 12):</strong> ${escapeHtml(d.hostname)}</div>` : ''}
+            ${d.leaseTimeSec ? `<div><strong>Lease Time:</strong> ${escapeHtml(d.leaseTimeSec)}s</div>` : ''}
+            ${d.serverIdentifier ? `<div><strong>DHCP Server IP:</strong> ${escapeHtml(d.serverIdentifier)}</div>` : ''}
+          </div>
+        </details>
+      `;
+    }
+
     const layers = f.detailedLayers || (f.dissection?.detailedLayers) || (Array.isArray(f.layers) ? f.layers : null);
     if (layers && Array.isArray(layers) && layers.length > 0) {
-      return layers.map(layer => {
+      return osBadgeHtml + dhcpDetailsHtml + layers.map(layer => {
         const fieldsHtml = Object.entries(layer.fields || {}).map(([fKey, fVal]) => {
           if (!fVal) return '';
           const off = fVal.offset !== undefined ? fVal.offset : layer.offset;
@@ -1313,7 +1377,7 @@ window.escapeAttr = escapeAttr;
     const l4Offset = ipOffset + ipLen;
     const l4Len = f.tcp ? (f.tcp.headerLengthBytes || 20) : (f.udp ? 8 : 8);
 
-    return `
+    return osBadgeHtml + dhcpDetailsHtml + `
       <details open style="margin-bottom: 6px;">
         <summary class="protocol-layer-header" onmouseover="window.highlightPacketByteSpan(${ethOffset}, ${ethLen})" onmouseout="window.clearPacketByteSpan()" onclick="window.selectPacketByteSpan(${ethOffset}, ${ethLen}, 'Ethernet II')" style="cursor: pointer; font-weight: 700; color: #60a5fa;">
           <span style="font-size: 10px; color: var(--text-dim);">[+0, 14B]</span> Ethernet II, Src: ${escapeHtml(f.ethernet?.srcMac || 'Wire')}, Dst: ${escapeHtml(f.ethernet?.dstMac || 'Wire')}
@@ -2181,7 +2245,10 @@ window.escapeAttr = escapeAttr;
 
   window.refreshTopologyView = async function() {
     try {
-      const topoRes = await window.api('/api/network/topology');
+      const [topoRes, sharedOutagesRes] = await Promise.all([
+        window.api('/api/network/topology'),
+        window.api('/api/rca/brain/shared-outages').catch(() => null)
+      ]);
       topologyData = topoRes || topologyData;
       const svgCont = document.getElementById('topologySvgContainer');
       if (svgCont) svgCont.innerHTML = renderTopologySvg();
@@ -2190,6 +2257,22 @@ window.escapeAttr = escapeAttr;
       const btnScope = document.getElementById('topoFleetToggleBtn');
       if (btnScope) {
         btnScope.textContent = topoFleetExpanded ? '🛡️ Focus Infrastructure' : `🌐 Expand Fleet (${topologyData.nodes.length})`;
+      }
+
+      const bannerEl = document.getElementById('sharedOutageAlertBanner');
+      if (sharedOutagesRes && Array.isArray(sharedOutagesRes.clusters) && sharedOutagesRes.clusters.length > 0) {
+        const clusterDescs = sharedOutagesRes.clusters.map(c => `<strong>${escapeHtml(c.upstreamTarget || c.switchOrGateway || 'Upstream Gateway')}</strong> (${(c.affectedHosts || []).length} failing hosts)`).join(', ');
+        if (bannerEl) {
+          bannerEl.style.display = 'flex';
+          bannerEl.innerHTML = `
+            <span style="font-size: 16px;">⚠️</span>
+            <div>
+              <strong>Shared Upstream Subnet Outage Correlated:</strong> Concurrent failures detected downstream of ${clusterDescs}.
+            </div>
+          `;
+        }
+      } else if (bannerEl) {
+        bannerEl.style.display = 'none';
       }
     } catch (e) {}
   };

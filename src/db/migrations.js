@@ -159,6 +159,40 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_dhcp_events_mac ON dhcp_and_ip_events(mac_address);
       CREATE INDEX IF NOT EXISTS idx_dhcp_events_time ON dhcp_and_ip_events(observed_at);
     `
+  },
+  {
+    version: 4,
+    name: '004_endpoint_behavioral_profiles_and_autonomous_workflows',
+    sql: `
+      CREATE TABLE IF NOT EXISTS endpoint_behavioral_profiles (
+        target_key TEXT PRIMARY KEY,
+        mac_address TEXT,
+        icmp_filtered_normal INTEGER DEFAULT 0,
+        known_open_ports_json TEXT DEFAULT '[]',
+        expected_equipment_type TEXT DEFAULT 'UNKNOWN',
+        apipa_flap_count INTEGER DEFAULT 0,
+        last_root_cause_id TEXT,
+        operator_notes TEXT,
+        calibration_json TEXT DEFAULT '{}',
+        first_learned_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_endpoint_profile_mac ON endpoint_behavioral_profiles(mac_address);
+
+      CREATE TABLE IF NOT EXISTS autonomous_workflow_runs (
+        workflow_id TEXT PRIMARY KEY,
+        goal TEXT NOT NULL,
+        target_host TEXT NOT NULL,
+        target_port INTEGER DEFAULT 0,
+        status TEXT NOT NULL,
+        top_hypothesis_id TEXT,
+        confidence INTEGER DEFAULT 0,
+        plain_summary_json TEXT NOT NULL,
+        workflow_report_json TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL
+      );
+    `
   }
 ];
 

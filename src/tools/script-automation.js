@@ -475,9 +475,11 @@ function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
   // Sort alphabetically by title
   scripts.sort((a, b) => a.title.localeCompare(b.title));
 
+  const mountMeta = getMountMetadata(baseDir);
   scripts.directory = baseDir;
   scripts.exists = true;
   scripts.count = scripts.length;
+  scripts.mountMetadata = mountMeta;
   scripts.scripts = scripts;
   scripts.then = function(resolve, reject) {
     try {
@@ -485,6 +487,7 @@ function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
         directory: this.directory,
         exists: this.exists,
         count: this.count,
+        mountMetadata: this.mountMetadata,
         scripts: this.scripts
       });
     } catch (e) {

@@ -194,6 +194,104 @@ function probeTcpPortQuick(ip, port, timeoutMs = 900) {
   });
 }
 
+const previousDiagnosisMap = new Map();
+const MAX_PREVIOUS_DIAGNOSES = 200;
+
+/**
+ * Safe HTTP / IPP (Port 631 / Port 80) & JetDirect Application-Layer Banner Introspection
+ * Sends a bounded HTTP HEAD / request over a raw TCP socket and parses Server header.
+ */
+function probeOfficeApplicationBanner(ip, port, timeoutMs = 650) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const socket = new net.Socket();
+    let rawData = '';
+
+    const done = (res) => {
+      if (!resolved) {
+        resolved = true;
+        try { socket.destroy(); } catch (_) {}
+        resolve(res);
+      }
+    };
+
+    socket.setTimeout(timeoutMs);
+
+    socket.on('connect', () => {
+      if (Number(port) === 9100) {
+        // JetDirect / RAW printer port probe
+        socket.write('@PJL INFO ID\r\n');
+      } else {
+        // Standard HTTP / IPP probe
+        const req = `GET / HTTP/1.1\r\nHost: ${ip}\r\nUser-Agent: EJII-OfficeProber/1.0\r\nConnection: close\r\n\r\n`;
+        socket.write(req);
+      }
+    });
+
+    socket.on('data', (chunk) => {
+      rawData += chunk.toString('utf8');
+      if (rawData.includes('\r\n\r\n') || rawData.includes('\x0c') || rawData.length > 2048) {
+        parseAndResolve();
+      }
+    });
+
+    function parseAndResolve() {
+      const isJetDirect = Number(port) === 9100 || rawData.includes('@PJL') || /LaserJet|Printer|DeskJet|Stylus/i.test(rawData);
+      if (isJetDirect && !rawData.startsWith('HTTP/')) {
+        const cleanBanner = rawData.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim();
+        done({
+          protocol: 'JETDIRECT',
+          banner: cleanBanner || 'Raw Printer Socket',
+          server: 'JetDirect/9100',
+          title: cleanBanner,
+          statusCode: 200,
+          rawBanner: rawData
+        });
+        return;
+      }
+
+      const firstLine = rawData.split('\r\n')[0] || '';
+      const statusMatch = firstLine.match(/HTTP\/\d\.\d\s+(\d{3})/i);
+      const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : (rawData.length > 0 ? 200 : 0);
+      const serverMatch = rawData.match(/Server:\s*([^\r\n]+)/i);
+      const serverHeader = serverMatch ? serverMatch[1].trim() : '';
+      const titleMatch = rawData.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].trim() : '';
+
+      const combinedBanner = [serverHeader, title].filter(Boolean).join(' - ') || firstLine || 'HTTP Service';
+
+      done({
+        protocol: 'HTTP_IPP',
+        banner: combinedBanner,
+        server: serverHeader,
+        title,
+        statusCode,
+        statusLine: firstLine,
+        serverHeader,
+        rawBanner: rawData
+      });
+    }
+
+    socket.on('end', () => {
+      if (rawData.length > 0) {
+        parseAndResolve();
+      } else {
+        done(null);
+      }
+    });
+
+    socket.on('timeout', () => {
+      done(null);
+    });
+
+    socket.on('error', () => {
+      done(null);
+    });
+
+    socket.connect(port, ip);
+  });
+}
+
 /**
  * Runs an Automated Plain-Language Diagnostic & Visual Smart Path Trace on any Office Device
  * (e.g., an office printer with a 169.254.x.x APIPA error address, an offline printer on the LAN,
@@ -204,7 +302,8 @@ async function diagnoseOfficeDevice({
   deviceTypeHint = 'PRINTER',
   deviceName = '',
   macAddress = '',
-  vendor = ''
+  vendor = '',
+  isRetest = false
 } = {}) {
   const cleanIp = String(targetIp || '').trim();
   const apipa = analyzeApipaAddress(cleanIp);
@@ -503,6 +602,86 @@ async function diagnoseOfficeDevice({
     }
   } catch (_) {}
 
+  // Application-Layer Printer / HTTP Banner Introspection
+  const applicationProtocolBanners = {};
+  const bannerCandidatePorts = openPorts.filter((p) => [80, 443, 631, 8080, 9100].includes(p));
+  for (const bPort of bannerCandidatePorts) {
+    try {
+      const banner = await probeOfficeApplicationBanner(cleanIp, bPort, 650);
+      if (banner && banner.statusCode > 0) {
+        applicationProtocolBanners[bPort] = banner;
+      }
+    } catch (_) {}
+  }
+
+  // Closed-Loop Re-Verification Snapshot Diff
+  const prev = previousDiagnosisMap.get(cleanIp) || null;
+  let stateChange = 'UNCHANGED';
+  if (prev) {
+    if (prev.faultScenario !== 'HEALTHY_OPERATIONAL' && faultScenario === 'HEALTHY_OPERATIONAL') {
+      stateChange = 'RESOLVED';
+    } else if (openPorts.length > (prev.openPorts || []).length) {
+      stateChange = 'IMPROVED';
+    } else if (openPorts.length < (prev.openPorts || []).length || (prev.faultScenario === 'HEALTHY_OPERATIONAL' && faultScenario !== 'HEALTHY_OPERATIONAL')) {
+      stateChange = 'DEGRADED';
+    } else {
+      stateChange = 'UNCHANGED';
+    }
+  }
+
+  const fixedAnomalies = prev && prev.faultScenario !== faultScenario && faultScenario === 'HEALTHY_OPERATIONAL'
+    ? [`Resolved: ${prev.faultScenario}`]
+    : [];
+  const newAnomalies = prev && prev.faultScenario !== faultScenario && faultScenario !== 'HEALTHY_OPERATIONAL' && prev.faultScenario === 'HEALTHY_OPERATIONAL'
+    ? [`New fault detected: ${faultScenario}`]
+    : [];
+  const deltaSummary = prev
+    ? `State change: ${stateChange} (Scenario: ${prev.faultScenario} → ${faultScenario}, open ports: ${openPorts.length})`
+    : 'Initial baseline diagnosis recorded.';
+
+  const reverificationDiff = prev
+    ? {
+        hasPreviousSnapshot: true,
+        previousState: prev.faultScenario,
+        currentState: faultScenario,
+        previousDiagnosedAt: prev.diagnosedAt,
+        previousScenario: prev.faultScenario,
+        currentScenario: faultScenario,
+        statusImproved: stateChange === 'RESOLVED' || stateChange === 'IMPROVED',
+        stateChange,
+        deltaSummary,
+        fixedAnomalies,
+        newAnomalies,
+        newlyOpenedPorts: openPorts.filter((p) => !(prev.openPorts || []).includes(p)),
+        hopsRecovered: visualConnectionPath
+          .filter((h, idx) => h.status === 'HEALTHY' && prev.hopStatuses?.[idx] && prev.hopStatuses[idx] !== 'HEALTHY')
+          .map((h) => h.title)
+      }
+    : {
+        hasPreviousSnapshot: false,
+        previousState: null,
+        currentState: faultScenario,
+        statusImproved: false,
+        stateChange: 'INITIAL',
+        deltaSummary,
+        fixedAnomalies: [],
+        newAnomalies: [],
+        newlyOpenedPorts: [],
+        hopsRecovered: []
+      };
+
+  if (previousDiagnosisMap.size >= MAX_PREVIOUS_DIAGNOSES) {
+    const firstKey = previousDiagnosisMap.keys().next().value;
+    previousDiagnosisMap.delete(firstKey);
+  }
+
+  previousDiagnosisMap.set(cleanIp, {
+    diagnosedAt: new Date().toISOString(),
+    faultScenario,
+    openPorts,
+    hopStatuses: visualConnectionPath.map((h) => h.status)
+  });
+
   return {
     diagnosedAt: new Date().toISOString(),
     targetIp: cleanIp,
@@ -511,6 +690,8 @@ async function diagnoseOfficeDevice({
     equipmentProfile,
     visualConnectionPath,
     plainLanguageDiagnosis,
+    applicationProtocolBanners,
+    reverificationDiff,
     technicalTelemetry: {
       localWorkstationIp: localIp,
       officeSubnetCidr: subnetCidr,
@@ -629,5 +810,7 @@ module.exports = {
   analyzeApipaAddress,
   classifyOfficeEquipment,
   diagnoseOfficeDevice,
-  inspectLocalWindowsPrintSpooler
+  inspectLocalWindowsPrintSpooler,
+  probeOfficeApplicationBanner,
+  previousDiagnosisMap
 };

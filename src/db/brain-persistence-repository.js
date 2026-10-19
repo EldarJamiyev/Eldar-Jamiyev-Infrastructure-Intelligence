@@ -75,6 +75,33 @@ class BrainPersistenceRepository {
           started_at TEXT NOT NULL,
           completed_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS endpoint_behavioral_profiles (
+          target_key TEXT PRIMARY KEY,
+          mac_address TEXT,
+          icmp_filtered_normal INTEGER DEFAULT 0,
+          known_open_ports_json TEXT DEFAULT '[]',
+          expected_equipment_type TEXT DEFAULT 'UNKNOWN',
+          apipa_flap_count INTEGER DEFAULT 0,
+          last_root_cause_id TEXT,
+          operator_notes TEXT,
+          calibration_json TEXT DEFAULT '{}',
+          first_learned_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_endpoint_profile_mac ON endpoint_behavioral_profiles(mac_address);
+        CREATE TABLE IF NOT EXISTS autonomous_workflow_runs (
+          workflow_id TEXT PRIMARY KEY,
+          goal TEXT NOT NULL,
+          target_host TEXT NOT NULL,
+          target_port INTEGER DEFAULT 0,
+          status TEXT NOT NULL,
+          top_hypothesis_id TEXT,
+          confidence INTEGER DEFAULT 0,
+          plain_summary_json TEXT NOT NULL,
+          workflow_report_json TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          completed_at TEXT NOT NULL
+        );
       `);
     } catch (_) {}
   }
@@ -314,6 +341,149 @@ class BrainPersistenceRepository {
     } catch (err) {
       try { db.exec('ROLLBACK;'); } catch (_) {}
       return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Upsert an Endpoint Behavioral Profile (Migration v4)
+   */
+  upsertEndpointProfile({
+    targetKey,
+    macAddress = 'Unknown',
+    icmpFilteredNormal = 0,
+    knownOpenPorts = [],
+    expectedEquipmentType = 'UNKNOWN',
+    apipaFlapIncrement = 0,
+    lastRootCauseId = null,
+    operatorNotes = null,
+    calibration = {}
+  }) {
+    if (!targetKey) return null;
+    const now = new Date().toISOString();
+    const existing = this.getEndpointProfile(targetKey);
+    const firstLearned = existing?.first_learned_at || now;
+    const newFlapCount = (existing?.apipa_flap_count || 0) + (apipaFlapIncrement || 0);
+    const portsJson = JSON.stringify(Array.isArray(knownOpenPorts) ? knownOpenPorts : []);
+    const calJson = JSON.stringify(calibration || {});
+
+    const stmt = db.prepare(`
+      INSERT INTO endpoint_behavioral_profiles (
+        target_key, mac_address, icmp_filtered_normal, known_open_ports_json,
+        expected_equipment_type, apipa_flap_count, last_root_cause_id,
+        operator_notes, calibration_json, first_learned_at, updated_at
+      ) VALUES (
+        @target_key, @mac_address, @icmp_filtered_normal, @known_open_ports_json,
+        @expected_equipment_type, @apipa_flap_count, @last_root_cause_id,
+        @operator_notes, @calibration_json, @first_learned_at, @updated_at
+      )
+      ON CONFLICT(target_key) DO UPDATE SET
+        mac_address = CASE WHEN excluded.mac_address != 'Unknown' THEN excluded.mac_address ELSE endpoint_behavioral_profiles.mac_address END,
+        icmp_filtered_normal = MAX(endpoint_behavioral_profiles.icmp_filtered_normal, excluded.icmp_filtered_normal),
+        known_open_ports_json = excluded.known_open_ports_json,
+        expected_equipment_type = CASE WHEN excluded.expected_equipment_type != 'UNKNOWN' THEN excluded.expected_equipment_type ELSE endpoint_behavioral_profiles.expected_equipment_type END,
+        apipa_flap_count = @apipa_flap_count,
+        last_root_cause_id = COALESCE(excluded.last_root_cause_id, endpoint_behavioral_profiles.last_root_cause_id),
+        operator_notes = COALESCE(excluded.operator_notes, endpoint_behavioral_profiles.operator_notes),
+        calibration_json = excluded.calibration_json,
+        updated_at = excluded.updated_at
+    `);
+
+    stmt.run({
+      target_key: targetKey,
+      mac_address: macAddress,
+      icmp_filtered_normal: icmpFilteredNormal ? 1 : 0,
+      known_open_ports_json: portsJson,
+      expected_equipment_type: expectedEquipmentType,
+      apipa_flap_count: newFlapCount,
+      last_root_cause_id: lastRootCauseId,
+      operator_notes: operatorNotes,
+      calibration_json: calJson,
+      first_learned_at: firstLearned,
+      updated_at: now
+    });
+
+    return this.getEndpointProfile(targetKey);
+  }
+
+  /**
+   * Retrieve an Endpoint Behavioral Profile by IP or Target Key
+   */
+  getEndpointProfile(targetKey) {
+    if (!targetKey) return null;
+    try {
+      const row = db.prepare('SELECT * FROM endpoint_behavioral_profiles WHERE target_key = ?').get(targetKey);
+      if (!row) return null;
+      let knownOpenPorts = [];
+      let calibration = {};
+      try { knownOpenPorts = JSON.parse(row.known_open_ports_json || '[]'); } catch (_) {}
+      try { calibration = JSON.parse(row.calibration_json || '{}'); } catch (_) {}
+      return {
+        ...row,
+        knownOpenPorts,
+        calibration
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Persist an Autonomous Workflow Execution Run
+   */
+  saveAutonomousWorkflowRun(report) {
+    if (!report || !report.workflowId) return null;
+    const now = new Date().toISOString();
+    try {
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO autonomous_workflow_runs (
+          workflow_id, goal, target_host, target_port, status,
+          top_hypothesis_id, confidence, plain_summary_json,
+          workflow_report_json, started_at, completed_at
+        ) VALUES (
+          @workflow_id, @goal, @target_host, @target_port, @status,
+          @top_hypothesis_id, @confidence, @plain_summary_json,
+          @workflow_report_json, @started_at, @completed_at
+        )
+      `);
+      stmt.run({
+        workflow_id: report.workflowId,
+        goal: report.goal || 'General Investigation',
+        target_host: report.targetHost || '127.0.0.1',
+        target_port: report.targetPort || 0,
+        status: report.status || 'COMPLETED',
+        top_hypothesis_id: report.bayesianEvaluation?.topHypothesis?.id || null,
+        confidence: report.bayesianEvaluation?.topHypothesis?.confidence || 0,
+        plain_summary_json: JSON.stringify(report.plainLanguageDiagnosis || {}),
+        workflow_report_json: JSON.stringify(report),
+        started_at: report.startedAt || now,
+        completed_at: report.completedAt || now
+      });
+      return report;
+    } catch (err) {
+      console.error('[BrainPersistenceRepository] Error saving autonomous workflow run:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get Recent Autonomous Workflow Runs
+   */
+  getRecentAutonomousWorkflowRuns(limit = 20) {
+    try {
+      const rows = db.prepare('SELECT * FROM autonomous_workflow_runs ORDER BY completed_at DESC LIMIT ?').all(limit);
+      return rows.map((r) => {
+        let plainSummary = {};
+        let workflowReport = {};
+        try { plainSummary = JSON.parse(r.plain_summary_json || '{}'); } catch (_) {}
+        try { workflowReport = JSON.parse(r.workflow_report_json || '{}'); } catch (_) {}
+        return {
+          ...r,
+          plainSummary,
+          workflowReport
+        };
+      });
+    } catch (_) {
+      return [];
     }
   }
 

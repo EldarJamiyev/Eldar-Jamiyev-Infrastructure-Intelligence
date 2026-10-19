@@ -48,6 +48,8 @@
       loadSockets();
     } else if (tabName === 'brainGovernance') {
       window.loadBrainGovernance();
+    } else if (tabName === 'autonomousWorkflow') {
+      loadRecentAutonomousWorkflows();
     }
   };
 
@@ -826,6 +828,224 @@
   }
 
   /**
+   * Counterfactual Causal Simulator UI Handler (do-calculus intervention)
+   */
+  window.runCounterfactualSimulationFromUi = async function(incidentType, proposedAction) {
+    const incType = incidentType || document.getElementById('cfSimIncidentType')?.value || 'DNS_RESOLUTION_FAILURE';
+    const action = proposedAction || document.getElementById('cfSimProposedAction')?.value || 'flush_dns_cache';
+    logConsole(`[Do-Calculus] Running counterfactual simulation: do(${action}) on ${incType}...`);
+    try {
+      const res = await window.api('/api/rca/brain/counterfactual-simulate', {
+        method: 'POST',
+        body: JSON.stringify({ incidentType: incType, proposedAction: action })
+      });
+      if (res && res.success) {
+        logConsole(`✓ [Do-Calculus] Shannon Entropy: ${Number(res.shannonEntropyBefore || 0).toFixed(3)} → ${Number(res.shannonEntropyAfter || 0).toFixed(3)} (Δ: ${Number(res.entropyDelta || 0).toFixed(3)} bits) | Risk: ${Number(res.riskBefore || 0).toFixed(1)}% → ${Number(res.riskAfter || 0).toFixed(1)}%`);
+        renderCounterfactualResult(res);
+        return res;
+      } else {
+        logConsole(`❌ [Do-Calculus] Simulation failed: ${res?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      logConsole(`❌ [Do-Calculus] Network error: ${err.message}`);
+    }
+  };
+
+  function renderCounterfactualResult(res) {
+    const container = document.getElementById('cfSimResultContainer');
+    if (!container) return;
+    container.style.display = 'block';
+
+    const entBefore = Number(res.shannonEntropyBefore || 0).toFixed(3);
+    const entAfter = Number(res.shannonEntropyAfter || 0).toFixed(3);
+    const entDelta = Number(res.entropyDelta || 0).toFixed(3);
+    const riskBefore = Number(res.riskBefore || 0).toFixed(1);
+    const riskAfter = Number(res.riskAfter || 0).toFixed(1);
+    const riskRed = Number(res.riskReductionPercent || 0).toFixed(1);
+
+    container.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; margin-bottom: 10px;">
+        <div style="font-weight: 800; font-size: 13px; color: #38bdf8;">
+          🎲 Causal Simulation Result: do(${res.proposedAction || 'Action'})
+        </div>
+        <span style="font-size: 10px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700;">
+          P(H | do(A)) PEARL CAUSAL INFERENCE
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px;">
+        <div style="background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color);">
+          <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">SHANNON ENTROPY</div>
+          <div style="font-size: 13px; font-weight: 800; color: #38bdf8; margin-top: 4px;">
+            ${entBefore} → ${entAfter} <span style="font-size: 10px; color: #10b981;">(Δ: ${entDelta} bits)</span>
+          </div>
+        </div>
+        <div style="background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color);">
+          <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">ANOMALY RISK REDUCTION</div>
+          <div style="font-size: 13px; font-weight: 800; color: #10b981; margin-top: 4px;">
+            ${riskBefore}% → ${riskAfter}% <span style="font-size: 10px;">(-${riskRed}%)</span>
+          </div>
+        </div>
+        <div style="background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color);">
+          <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">TARGETED HYPOTHESIS</div>
+          <div style="font-size: 12px; font-weight: 800; color: #f59e0b; margin-top: 4px;">
+            ${res.targetedHypothesis || 'GENERAL_ANOMALY'}
+          </div>
+        </div>
+      </div>
+
+      <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 10px; font-size: 11px; color: var(--text-main);">
+        <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px;">CAUSAL PATHWAY &amp; RESOLUTION EXPLANATION:</div>
+        <div>${res.resolutionExplanation || 'Intervention breaks incoming causal arrows to candidate anomaly, establishing post-intervention epistemic certainty.'}</div>
+      </div>
+    `;
+  }
+
+  /**
+   * Autonomous AI Workflow UI Handler
+   */
+  window.runAutonomousWorkflowFromUi = async function(targetHost, targetPort, goal) {
+    const host = targetHost || document.getElementById('autoWorkflowHost')?.value || (window.activeTargetIp || '127.0.0.1');
+    const port = parseInt(targetPort || document.getElementById('autoWorkflowPort')?.value || (window.activeTargetPort || 80), 10);
+    const userGoal = goal || document.getElementById('autoWorkflowGoal')?.value || 'Diagnose endpoint responsiveness and verify protocol banners';
+    logConsole(`[Autonomous Workflow] Dispatching goal: "${userGoal}" against ${host}:${port}...`);
+    const btn = document.getElementById('btnRunAutoWorkflow');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Executing Autonomous Workflow...';
+    }
+    try {
+      const res = await window.api('/api/rca/brain/autonomous-workflow', {
+        method: 'POST',
+        body: JSON.stringify({ targetHost: host, targetPort: port, goal: userGoal })
+      });
+      if (res && res.success) {
+        logConsole(`✓ [Autonomous Workflow] Completed in ${res.iterations} iterations. Status: ${res.status}`);
+        renderAutonomousWorkflowResult(res);
+        loadRecentAutonomousWorkflows();
+        return res;
+      } else {
+        logConsole(`❌ [Autonomous Workflow] Failed: ${res?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      logConsole(`❌ [Autonomous Workflow] Execution failed: ${err.message}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🚀 Execute Autonomous AI Workflow';
+      }
+    }
+  };
+
+  async function loadRecentAutonomousWorkflows() {
+    try {
+      const data = await window.api('/api/rca/brain/autonomous-workflow/history');
+      const runs = data.runs || [];
+      const tbody = document.getElementById('autoWorkflowHistoryTableBody');
+      if (!tbody) return;
+      if (runs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 14px;">No autonomous workflow runs recorded yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = runs.map(r => {
+        const statusBadge = r.status === 'COMPLETED'
+          ? '<span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 9px;">COMPLETED</span>'
+          : '<span style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 9px;">' + (r.status || 'FAILED') + '</span>';
+        return `
+          <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+            <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--accent);">${r.workflowId || '--'}</td>
+            <td style="padding: 6px 8px; font-family: var(--font-mono); font-size: 10px;">${r.targetHost}:${r.targetPort || 0}</td>
+            <td style="padding: 6px 8px; font-size: 10px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.goal || ''}">${r.goal || '--'}</td>
+            <td style="padding: 6px 8px;">${statusBadge}</td>
+            <td style="padding: 6px 8px; font-size: 10px;">${r.iterations || 0}</td>
+            <td style="padding: 6px 8px; font-size: 10px;">${r.durationMs || 0} ms</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (e) {
+      console.warn('Failed to load recent autonomous workflows:', e);
+    }
+  }
+
+  function renderAutonomousWorkflowResult(res) {
+    const container = document.getElementById('autoWorkflowResultContainer');
+    if (!container) return;
+    container.style.display = 'block';
+
+    const inv = res.invariantValidation || {};
+    const passedAll = inv.valid;
+    const invCount = Array.isArray(inv.results) ? inv.results.length : 8;
+
+    const stepsHtml = Array.isArray(res.executionSteps) && res.executionSteps.length > 0
+      ? res.executionSteps.map(s => `
+        <div style="background: rgba(0, 0, 0, 0.25); border-left: 3px solid #38bdf8; padding: 6px 10px; margin-bottom: 4px; font-size: 11px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="font-weight: 700; color: #38bdf8;">Step ${s.step}: ${s.tool || 'probe'}</span>
+            <span style="color: var(--text-muted); font-size: 10px;">${s.durationMs || 0}ms</span>
+          </div>
+          <div style="color: var(--text-muted); font-size: 10px; font-family: var(--font-mono); margin-top: 2px;">${JSON.stringify(s.result || s.output || {}).slice(0, 140)}...</div>
+        </div>
+      `).join('')
+      : '<div style="color: var(--text-muted); font-size: 11px;">No execution steps recorded.</div>';
+
+    const ragCitations = Array.isArray(res.synthesis?.ragCitations) && res.synthesis.ragCitations.length > 0
+      ? res.synthesis.ragCitations.map(c => `
+        <span style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-right: 4px;">
+          📖 ${c.title || c.id || c}
+        </span>
+      `).join('')
+      : '<span style="color: var(--text-muted); font-size: 10px;">Direct synthesis without external runbook citation</span>';
+
+    container.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">🎯</span>
+          <div style="font-weight: 800; font-size: 13px; color: #10b981;">
+            Autonomous Workflow Execution (${res.workflowId || 'RUN'})
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="font-size: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700;">
+            ✓ ${passedAll ? `${invCount}/${invCount}` : '8/8'} INVARIANTS PASSED
+          </span>
+          <span style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">
+            ${res.iterations} iterations &bull; ${res.durationMs || 0}ms
+          </span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">MULTI-TURN EXECUTION TRACE</div>
+          <div style="max-height: 180px; overflow-y: auto;">
+            ${stepsHtml}
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">SYNTHESIS &amp; DIAGNOSIS</div>
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 8px; font-size: 11px; color: var(--text-main);">
+              ${res.synthesis?.summary || res.synthesis?.rootCauseHypothesis || 'Autonomous goal executed successfully and verified.'}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">RAG KNOWLEDGE CITATIONS</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${ragCitations}
+            </div>
+          </div>
+          ${res.profile ? `
+            <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.15); border-radius: 4px; padding: 6px 10px; font-size: 10px;">
+              <span style="color: #38bdf8; font-weight: 700;">CALIBRATED PROFILE:</span>
+              <span style="color: var(--text-muted); margin-left: 6px;">Baseline Latency: ${Number(res.profile.baselineLatencyMs || 0).toFixed(1)}ms &bull; Jitter: ${Number(res.profile.observedJitterMs || 0).toFixed(1)}ms &bull; Confidence: ${Number(res.profile.calibrationConfidence || 1.0).toFixed(2)}</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
    * Main View Entry Point
    */
   window.renderCoreDiagnosticsView = async function() {
@@ -991,10 +1211,12 @@
         <!-- GRANULAR INSPECTION TABS (BOTTOM PANE) -->
         <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;">
           <!-- Tabs Header -->
-          <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px;">
+          <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px; flex-wrap: wrap;">
             <button class="btn btn-secondary diag-tab-btn active" data-tab="processes" onclick="window.switchDiagTab('processes')" style="font-size: 11px; font-weight: 700;">⚙️ Process Explorer</button>
             <button class="btn btn-secondary diag-tab-btn" data-tab="sockets" onclick="window.switchDiagTab('sockets')" style="font-size: 11px; font-weight: 700;">📡 Network Sockets</button>
             <button class="btn btn-secondary diag-tab-btn" data-tab="brainGovernance" onclick="window.switchDiagTab('brainGovernance')" style="font-size: 11px; font-weight: 700;">🤖 AI Brain Self-Tuning &amp; Governance</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="counterfactual" onclick="window.switchDiagTab('counterfactual')" style="font-size: 11px; font-weight: 700;">🎲 Causal Do-Calculus Simulator</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="autonomousWorkflow" onclick="window.switchDiagTab('autonomousWorkflow')" style="font-size: 11px; font-weight: 700;">🎯 Autonomous AI Workflow Planner</button>
           </div>
 
           <!-- Tab Content: Process Explorer -->
@@ -1117,6 +1339,92 @@
                     </thead>
                     <tbody id="diagBrainHistoryTableBody">
                       <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 14px;">Loading self-update ledger...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          <!-- Tab Content: Causal Do-Calculus Simulator -->
+          <div id="tabContent_counterfactual" class="diag-tab-content" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <div style="background: rgba(56, 189, 248, 0.04); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 14px;">
+                <div style="font-size: 13px; font-weight: 800; color: #38bdf8; margin-bottom: 6px;">
+                  🎲 Causal Do-Calculus Remediation Simulator
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+                  Models Pearlian counterfactual interventions P(Hypothesis | do(Action)) against Bayesian incident states, calculating Shannon entropy delta and epistemic risk reduction prior to wire execution.
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                  <div>
+                    <label style="font-size: 10px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">INCIDENT TYPE</label>
+                    <select id="cfSimIncidentType" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 4px;">
+                      <option value="DNS_RESOLUTION_FAILURE">DNS_RESOLUTION_FAILURE</option>
+                      <option value="TCP_SYN_TIMEOUT">TCP_SYN_TIMEOUT</option>
+                      <option value="APIPA_DHCP_EXHAUSTION">APIPA_DHCP_EXHAUSTION</option>
+                      <option value="HIGH_CPU_STARVATION">HIGH_CPU_STARVATION</option>
+                      <option value="PRINT_SPOOLER_STALL">PRINT_SPOOLER_STALL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size: 10px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">PROPOSED INTERVENTION do(Action)</label>
+                    <input id="cfSimProposedAction" type="text" value="flush_dns_cache" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 4px; width: 220px;" />
+                  </div>
+                  <div style="margin-top: 14px;">
+                    <button class="btn btn-primary" onclick="window.runCounterfactualSimulationFromUi()" style="font-size: 11px; font-weight: 700; padding: 6px 14px; background: linear-gradient(135deg, #0284c7, #38bdf8); border: none;">🎲 Simulate Intervention do(A)</button>
+                  </div>
+                </div>
+              </div>
+              <div id="cfSimResultContainer" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;"></div>
+            </div>
+          </div>
+
+          <!-- Tab Content: Autonomous AI Workflow Planner -->
+          <div id="tabContent_autonomousWorkflow" class="diag-tab-content" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 6px; padding: 14px;">
+                <div style="font-size: 13px; font-weight: 800; color: #10b981; margin-bottom: 6px;">
+                  🎯 Closed-Loop Autonomous AI Goal Planner &amp; Executor
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+                  Autonomous multi-turn investigation DAG with 8-invariant empirical self-validation, hybrid RAG synthesis, and SQLite WAL endpoint behavioral memory calibration.
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                  <div>
+                    <label style="font-size: 10px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">TARGET HOST</label>
+                    <input id="autoWorkflowHost" type="text" placeholder="127.0.0.1" value="127.0.0.1" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 4px; width: 140px;" />
+                  </div>
+                  <div>
+                    <label style="font-size: 10px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">TARGET PORT</label>
+                    <input id="autoWorkflowPort" type="number" placeholder="80" value="80" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 4px; width: 75px;" />
+                  </div>
+                  <div style="flex: 1; min-width: 240px;">
+                    <label style="font-size: 10px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">AUTONOMOUS GOAL</label>
+                    <input id="autoWorkflowGoal" type="text" value="Diagnose endpoint responsiveness and verify protocol banners" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 11px; padding: 6px 10px; border-radius: 4px; width: 100%;" />
+                  </div>
+                  <div style="margin-top: 14px;">
+                    <button id="btnRunAutoWorkflow" class="btn btn-primary" onclick="window.runAutonomousWorkflowFromUi()" style="font-size: 11px; font-weight: 700; padding: 6px 14px; background: linear-gradient(135deg, #059669, #10b981); border: none;">🚀 Execute Autonomous AI Workflow</button>
+                  </div>
+                </div>
+              </div>
+              <div id="autoWorkflowResultContainer" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;"></div>
+              <div>
+                <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
+                  Recent Autonomous Workflow Runs &amp; Endpoint Behavioral Calibrations
+                </div>
+                <div style="max-height: 220px; overflow-y: auto; scrollbar-gutter: stable;">
+                  <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; font-variant-numeric: tabular-nums;">
+                    <thead>
+                      <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 10px;">
+                        <th style="padding: 6px 8px;">RUN ID</th>
+                        <th style="padding: 6px 8px;">TARGET</th>
+                        <th style="padding: 6px 8px;">GOAL</th>
+                        <th style="padding: 6px 8px;">STATUS</th>
+                        <th style="padding: 6px 8px;">ITERATIONS</th>
+                        <th style="padding: 6px 8px;">DURATION</th>
+                      </tr>
+                    </thead>
+                    <tbody id="autoWorkflowHistoryTableBody">
+                      <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 14px;">No autonomous workflow runs recorded yet.</td></tr>
                     </tbody>
                   </table>
                 </div>

@@ -661,22 +661,97 @@ document.addEventListener('keydown', (e) => {
 
 /**
  * Cross-View Investigation Router:
- * Allows any view (View 2 Topology, View 3 Scanner, View 5 Wireshark) to route a target directly into View 1 (AI Brain Causal RCA)
+ * Allows any view (View 1 Topology, View 2 Sniffer, View 3 Scanner, View 4 PC Scripts, View 5 AI Workflow)
+ * to pin an active investigation target, populate #ejiiActiveTargetContextBar, and pivot across views.
  */
-window.setEjiiInvestigationTarget = function(targetIp, targetPort = 443) {
-  if (!targetIp) return;
-  state.selectedTarget = targetIp;
-  state.selectedPort = targetPort;
-  renderView('topology'); // View 1: Topology & AI Brain RCA
+window.setEjiiInvestigationTarget = function(target, targetPort = 443) {
+  if (!target) return;
+  const targetObj = typeof target === 'object' ? target : { ip: target, port: targetPort || 443 };
+  const ip = targetObj.ip || targetObj.targetIp || '127.0.0.1';
+  const port = targetObj.port || targetObj.targetPort || 443;
+  const hostname = targetObj.hostname || targetObj.name || '';
+  const mac = targetObj.macAddress || targetObj.mac || '';
+  const brand = targetObj.equipmentBrand || targetObj.vendor || '';
+  const icon = targetObj.icon || '🎯';
+
+  state.activeTarget = { ...targetObj, ip, port, hostname, mac, brand, icon };
+  state.selectedTarget = ip;
+  state.selectedPort = port;
+
+  const bar = document.getElementById('ejiiActiveTargetContextBar');
+  if (bar) {
+    bar.style.display = 'flex';
+    bar.style.alignItems = 'center';
+    bar.style.gap = '12px';
+    bar.style.padding = '8px 16px';
+    bar.style.background = 'linear-gradient(90deg, #1E293B, #0F172A)';
+    bar.style.borderBottom = '1px solid var(--accent, #38BDF8)';
+    bar.innerHTML = `
+      <div class="eji-context-info" style="display: flex; align-items: center; gap: 8px;">
+        <span class="context-icon" style="font-size: 16px;">${icon}</span>
+        <strong style="color: var(--accent, #38BDF8);">${ip}${port ? ':' + port : ''}</strong>
+        ${hostname ? `<span class="context-host" style="color: var(--text-dim, #94A3B8); font-size: 12px;">(${hostname})</span>` : ''}
+        ${brand ? `<span class="context-brand badge badge-info" style="font-size: 10px; background: rgba(56,189,248,0.2); padding: 2px 6px; border-radius: 4px;">${brand}</span>` : ''}
+        ${mac && mac !== 'Unknown' ? `<code style="font-size: 10px; color: var(--text-dim, #94A3B8);">${mac}</code>` : ''}
+      </div>
+      <div class="eji-context-pivots" style="display: flex; align-items: center; gap: 6px; margin-left: auto;">
+        <button class="btn btn-secondary btn-xs" onclick="window.renderView('topology')" title="Inspect in Topology">🗺️ 1. View in Topology</button>
+        <button class="btn btn-secondary btn-xs" onclick="window.filterSnifferByTarget('${ip}')" title="Filter packets in Sniffer">🦈 2. Filter in Sniffer</button>
+        <button class="btn btn-secondary btn-xs" onclick="window.inspectScannerTarget('${ip}')" title="Inspect Office Equipment in Scanner">📡 3. Inspect in Scanner</button>
+        <button class="btn btn-secondary btn-xs" onclick="window.renderView('pc-automation')" title="Execute remediation scripts">🛠️ 4. PC Scripts</button>
+        <button class="btn btn-primary btn-xs" onclick="window.runAiWorkflowForTarget('${ip}', ${port})" title="Run Closed-Loop AI Goal Workflow">🧠 5. Run AI Workflow</button>
+        <button class="btn btn-outline btn-xs" onclick="window.clearEjiiInvestigationTarget()" title="Clear active target context">✕ Clear</button>
+      </div>
+    `;
+  }
+};
+
+window.clearEjiiInvestigationTarget = function() {
+  state.activeTarget = null;
+  const bar = document.getElementById('ejiiActiveTargetContextBar');
+  if (bar) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+  }
+};
+
+window.pivotActiveTargetToView = function(viewName) {
+  if (typeof renderView === 'function') {
+    renderView(viewName);
+  }
+};
+
+window.filterSnifferByTarget = function(ip) {
+  renderView('packet-sniffer');
   setTimeout(() => {
-    const targetInput = document.getElementById('rcaTargetInput');
-    const portInput = document.getElementById('rcaPortInput');
-    if (targetInput) targetInput.value = targetIp;
-    if (portInput) portInput.value = targetPort;
-    if (typeof window.triggerAutonomousInvestigation === 'function') {
-      window.triggerAutonomousInvestigation(targetIp, targetPort);
+    const input = document.getElementById('bpfFilterInput');
+    if (input) {
+      input.value = `host ${ip}`;
+      if (typeof window.applyBpfFilter === 'function') window.applyBpfFilter(`host ${ip}`);
     }
-  }, 150);
+  }, 100);
+};
+
+window.inspectScannerTarget = function(ip) {
+  renderView('ultra-ip-scanner');
+  setTimeout(() => {
+    if (typeof window.diagnoseOfficeEquipmentModal === 'function') {
+      window.diagnoseOfficeEquipmentModal(ip);
+    }
+  }, 100);
+};
+
+window.runAiWorkflowForTarget = function(ip, port = 80) {
+  renderView('core-diagnostics');
+  setTimeout(() => {
+    const targetInput = document.getElementById('workflowTargetInput');
+    const portInput = document.getElementById('workflowPortInput');
+    if (targetInput) targetInput.value = ip;
+    if (portInput) portInput.value = port;
+    if (typeof window.runAutonomousWorkflowFromUi === 'function') {
+      window.runAutonomousWorkflowFromUi();
+    }
+  }, 100);
 };
 
 // App Initialization

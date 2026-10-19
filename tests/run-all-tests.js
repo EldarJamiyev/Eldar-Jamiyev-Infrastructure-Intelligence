@@ -78,6 +78,10 @@ const { runPersistentEquipmentInventoryAndDhcpDoraTrackerTests } = require('./pe
 const { runAiContextWindowSharedOutageAndRecoveryLoopTests } = require('./ai-context-window-shared-outage-and-recovery-loop.test');
 const { runWebSocketBackpressureSchemaMigrationsAndApiContractsTests } = require('./websocket-backpressure-schema-migrations-and-api-contracts.test');
 const { runEnterpriseDesignSystemAndCrossViewStateTests } = require('./enterprise-design-system-and-cross-view-state.test');
+const { runAutonomousGoalWorkflowAndEndpointMemoryTests } = require('./autonomous-goal-workflow-and-endpoint-memory.test');
+const { runOfficeProtocolBannersAndReverificationDiffTests } = require('./office-protocol-banners-and-reverification-diff.test');
+const { runFiveViewFrontendBackendWiringTests } = require('./five-view-frontend-backend-wiring.test');
+const { runReportConsistencyAndZeroStaleCountsTests } = require('./report-consistency-and-zero-stale-counts.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -155,7 +159,11 @@ async function runAllTests() {
     { name: '57. Persistent Office Equipment Inventory, DHCP DORA Wire Tracker & Local Print Spooler', fn: runPersistentEquipmentInventoryAndDhcpDoraTrackerTests },
     { name: '58. AI Episodic Context Window Manager, Shared Outage Correlator & Multi-Turn Recovery Loop', fn: runAiContextWindowSharedOutageAndRecoveryLoopTests },
     { name: '59. WebSocket Backpressure, Transactional Schema Migrations & Enterprise API Contracts', fn: runWebSocketBackpressureSchemaMigrationsAndApiContractsTests },
-    { name: '60. Enterprise Design System, Cross-View State Routing & 5-Pillar Architectural Restraint', fn: runEnterpriseDesignSystemAndCrossViewStateTests }
+    { name: '60. Enterprise Design System, Cross-View State Routing & 5-Pillar Architectural Restraint', fn: runEnterpriseDesignSystemAndCrossViewStateTests },
+    { name: '61. Autonomous Goal Workflow DAG, 8-Invariant Self-Validation & SQLite WAL v4 Endpoint Behavioral Memory', fn: runAutonomousGoalWorkflowAndEndpointMemoryTests },
+    { name: '62. Office Protocol Banners (IPP/JetDirect), Safe 650ms Short-Circuit & Closed-Loop Re-Verification Diff', fn: runOfficeProtocolBannersAndReverificationDiffTests },
+    { name: '63. Full 5-View Frontend-to-Backend Wiring, Real Wire Filters, Banners & Do-Calculus DOM', fn: runFiveViewFrontendBackendWiringTests },
+    { name: '64. Master Report Consistency, Zero Zombie Files, Test Integrity & 64-Suite Milestone Alignment', fn: runReportConsistencyAndZeroStaleCountsTests }
   ];
 
   for (const s of suites) {

@@ -115,6 +115,8 @@ window.escapeAttr = escapeAttr;
                   <option value="QUIC">QUIC</option>
                   <option value="ICMP">ICMP</option>
                   <option value="ARP">ARP</option>
+                  <option value="DHCP">DHCP</option>
+                  <option value="MDNS">mDNS</option>
                 </select>
 
                 <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, host..." style="width: 140px; padding: 4px 8px; font-size: 11px;" oninput="window.onPacketSearchChange(this.value)">

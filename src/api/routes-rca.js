@@ -555,6 +555,55 @@ router.post('/brain/context-window-preview', authenticate, requirePermission('te
   }
 });
 
+/**
+ * POST /api/rca/brain/autonomous-workflow
+ * Executes closed-loop autonomous goal-driven task planning, multi-step investigation,
+ * episodic memory calibration, counterfactual simulation, and 8-invariant self-validation.
+ */
+router.post('/brain/autonomous-workflow', authenticate, requirePermission('network.diagnostics.execute'), async (req, res) => {
+  try {
+    const { goal, targetHost, targetPort, processName, deviceTypeHint } = req.body || {};
+    const report = await aiBrain.planAndExecuteAutonomousWorkflow({
+      goal,
+      targetHost,
+      targetPort,
+      processName,
+      deviceTypeHint,
+      userRole: req.user?.role || 'ADMIN'
+    });
+    res.json({
+      success: true,
+      report
+    });
+  } catch (err) {
+    res.status(err.message?.includes('SECURITY_VIOLATION') ? 400 : 500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/rca/brain/autonomous-workflow/history
+ * Returns recent persisted autonomous workflow executions from SQLite WAL
+ */
+router.get('/brain/autonomous-workflow/history', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+    const limit = parseInt(req.query.limit || 20, 10);
+    const history = typeof brainPersistenceRepository.getRecentAutonomousWorkflowRuns === 'function'
+      ? brainPersistenceRepository.getRecentAutonomousWorkflowRuns(limit)
+      : [];
+    res.json({
+      success: true,
+      count: history.length,
+      history
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 
