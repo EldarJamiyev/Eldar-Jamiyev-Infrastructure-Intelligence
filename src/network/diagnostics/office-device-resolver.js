@@ -488,6 +488,21 @@ async function diagnoseOfficeDevice({
     };
   }
 
+  try {
+    const { equipmentInventoryRepository } = require('../../db/equipment-inventory-repository');
+    if (equipmentInventoryRepository) {
+      equipmentInventoryRepository.upsertEquipmentRecord({
+        macAddress: equipmentProfile.digitalSignatureMac !== 'Unresolved (No L2 ARP)' ? equipmentProfile.digitalSignatureMac : null,
+        currentIp: cleanIp,
+        hostname: deviceName || equipmentProfile.equipmentLabel,
+        equipmentType: equipmentProfile.equipmentType,
+        equipmentBrand: equipmentProfile.equipmentBrand,
+        openPorts: openPorts.join(','),
+        source: 'OFFICE_DEVICE_DIAGNOSTICS'
+      });
+    }
+  } catch (_) {}
+
   return {
     diagnosedAt: new Date().toISOString(),
     targetIp: cleanIp,
@@ -510,8 +525,109 @@ async function diagnoseOfficeDevice({
   };
 }
 
+/**
+ * Inspects local Windows Print Spooler service, installed printers, ports, and job queues.
+ * Identifies stuck jobs and problematic WSD ports (prone to disconnects on IP shifts).
+ */
+async function inspectLocalWindowsPrintSpooler(timeoutMs = 3500) {
+  if (process.platform !== 'win32') {
+    return {
+      available: false,
+      spoolerServiceStatus: 'N/A_NON_WINDOWS',
+      printers: [],
+      ports: [],
+      stuckJobsCount: 0,
+      wsdPortWarning: false,
+      plainSummary: 'Print spooler inspection is only available on Windows operating systems.'
+    };
+  }
+
+  const { execFile } = require('child_process');
+  const psCmd = `
+    $ErrorActionPreference = 'SilentlyContinue';
+    $svc = Get-Service -Name Spooler | Select-Object -Property Status, StartType;
+    $printers = Get-Printer | Select-Object -Property Name, DriverName, PortName, PrinterStatus, JobCount;
+    $jobs = Get-PrintJob -PrinterName * | Select-Object -Property Id, DocumentName, JobStatus, TotalPages;
+    @{
+      SpoolerStatus = $svc.Status.ToString();
+      StartType = $svc.StartType.ToString();
+      Printers = @($printers);
+      Jobs = @($jobs);
+    } | ConvertTo-Json -Depth 3 -Compress
+  `;
+
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
+      { timeout: timeoutMs, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err || !stdout || !stdout.trim()) {
+          return resolve({
+            available: true,
+            spoolerServiceStatus: 'UNKNOWN_OR_TIMEOUT',
+            printers: [],
+            ports: [],
+            stuckJobsCount: 0,
+            wsdPortWarning: false,
+            plainSummary: 'Unable to query Print Spooler via PowerShell (query timed out or service offline).'
+          });
+        }
+
+        try {
+          const parsed = JSON.parse(stdout.trim());
+          const spoolerStatus = parsed.SpoolerStatus || 'Unknown';
+          const rawPrinters = Array.isArray(parsed.Printers) ? parsed.Printers : (parsed.Printers ? [parsed.Printers] : []);
+          const rawJobs = Array.isArray(parsed.Jobs) ? parsed.Jobs : (parsed.Jobs ? [parsed.Jobs] : []);
+
+          const printers = rawPrinters.map(p => ({
+            name: p.Name || 'Unnamed Printer',
+            driverName: p.DriverName || 'Generic',
+            portName: p.PortName || 'Unknown',
+            printerStatus: p.PrinterStatus || 'Normal',
+            jobCount: Number(p.JobCount || 0),
+            isWsdPort: String(p.PortName || '').toUpperCase().startsWith('WSD-')
+          }));
+
+          const wsdPortWarning = printers.some(p => p.isWsdPort);
+          const stuckJobsCount = rawJobs.length;
+
+          let summary = `Spooler service is ${spoolerStatus}. Discovered ${printers.length} local printer(s).`;
+          if (stuckJobsCount > 0) {
+            summary += ` Warning: ${stuckJobsCount} print job(s) pending or stuck in spooler queue.`;
+          }
+          if (wsdPortWarning) {
+            summary += ` Advisory: Printer uses WSD port, which may fail if device IP changes. Use Standard TCP/IP port for reliable enterprise printing.`;
+          }
+
+          resolve({
+            available: true,
+            spoolerServiceStatus: spoolerStatus,
+            printers,
+            ports: printers.map(p => p.portName),
+            stuckJobsCount,
+            wsdPortWarning,
+            plainSummary: summary
+          });
+        } catch (_) {
+          resolve({
+            available: true,
+            spoolerServiceStatus: 'PARSE_ERROR',
+            printers: [],
+            ports: [],
+            stuckJobsCount: 0,
+            wsdPortWarning: false,
+            plainSummary: 'PowerShell output parsing failed.'
+          });
+        }
+      }
+    );
+  });
+}
+
 module.exports = {
   analyzeApipaAddress,
   classifyOfficeEquipment,
-  diagnoseOfficeDevice
+  diagnoseOfficeDevice,
+  inspectLocalWindowsPrintSpooler
 };

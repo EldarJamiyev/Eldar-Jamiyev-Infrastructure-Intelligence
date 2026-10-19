@@ -66,6 +66,7 @@ class PacketStreamer {
     this.ipToDomainCache = new Map();
     this.domainToIpCache = new Map();
     this.targetRosterInterval = null;
+    this.ipToMacMap = new Map(); // RFC 5227 IPv4 address conflict tracking
   }
 
   /**
@@ -82,6 +83,7 @@ class PacketStreamer {
     this.biConversations.clear();
     this.tcpStreams.clear();
     this.streamKeyToId.clear();
+    this.ipToMacMap.clear();
     this.frameRingBuffer = [];
     this.flowTable.clear();
   }
@@ -814,6 +816,82 @@ class PacketStreamer {
       const { aiBrain } = require('../../core/ai-brain');
       aiBrain.ingestWireFrame(rawFrame);
     } catch (e) {}
+
+    // 4d. Passive Wire Office Inventory & DHCP DORA Tracking (RFC 2131 / RFC 5227)
+    try {
+      const { equipmentInventoryRepository } = require('../../db/equipment-inventory-repository');
+      if (equipmentInventoryRepository) {
+        // A. DHCP Frame Ingestion
+        if (rawFrame.dhcp || (rawFrame.protocol === 'DHCP') || (rawFrame.udp && (rawFrame.udp.srcPort === 67 || rawFrame.udp.dstPort === 67 || rawFrame.udp.srcPort === 68 || rawFrame.udp.dstPort === 68))) {
+          const dhcp = rawFrame.dhcp || rawFrame.dissection?.layers?.dhcp || {};
+          const msgType = dhcp.messageType || 'DHCP_FRAME';
+          const clientMac = dhcp.clientMac || rawFrame.ethernet?.srcMac || null;
+          const offeredIp = dhcp.offeredIp || dhcp.yourIp || dhcp.requestedIp || null;
+          const serverIp = dhcp.serverIp || rawFrame.srcIp || null;
+          const hostname = dhcp.hostname || null;
+
+          equipmentInventoryRepository.recordDhcpOrIpEvent({
+            eventType: msgType,
+            clientMac,
+            offeredIp,
+            serverIp,
+            hostname,
+            details: JSON.stringify({ summary: rawFrame.summary || msgType })
+          });
+
+          if (clientMac && offeredIp && offeredIp !== '0.0.0.0') {
+            equipmentInventoryRepository.upsertEquipmentRecord({
+              macAddress: clientMac,
+              currentIp: offeredIp,
+              hostname,
+              source: 'PASSIVE_DHCP_DORA'
+            });
+          }
+        }
+
+        // B. ARP Frame Ingestion & RFC 5227 Address Conflict Detection
+        const arp = rawFrame.arp || rawFrame.dissection?.layers?.arp;
+        if (arp && arp.senderIp && arp.senderMac) {
+          const sIp = arp.senderIp;
+          const sMac = arp.senderMac.toUpperCase();
+
+          if (this.ipToMacMap.has(sIp)) {
+            const prevMac = this.ipToMacMap.get(sIp);
+            if (prevMac !== sMac && !sIp.startsWith('0.') && sIp !== '255.255.255.255') {
+              const conflict = {
+                conflictIp: sIp,
+                macA: prevMac,
+                macB: sMac,
+                timestamp: new Date().toISOString(),
+                rfcCitation: 'RFC 5227 (IPv4 Address Conflict Detection)'
+              };
+              rawFrame.arpConflict = conflict;
+              if (this.broadcastCallback) {
+                this.broadcastCallback('ARP_CONFLICT_DETECTED', conflict);
+              }
+              equipmentInventoryRepository.recordDhcpOrIpEvent({
+                eventType: 'ARP_CONFLICT',
+                clientMac: sMac,
+                offeredIp: sIp,
+                details: JSON.stringify({ macA: prevMac, macB: sMac })
+              });
+            }
+          } else {
+            this.ipToMacMap.set(sIp, sMac);
+            this._pruneMapIfNeeded(this.ipToMacMap, 2500);
+          }
+
+          if (sIp.startsWith('169.254.') && sIp !== '169.254.169.254') {
+            equipmentInventoryRepository.upsertEquipmentRecord({
+              macAddress: sMac,
+              currentIp: sIp,
+              equipmentType: 'APIPA_ENDPOINT',
+              source: 'PASSIVE_WIRE_ARP'
+            });
+          }
+        }
+      }
+    } catch (_) {}
 
     // 5. Update NirSoft Flow Matrix
     this._updateFlowFromWireFrame(rawFrame);

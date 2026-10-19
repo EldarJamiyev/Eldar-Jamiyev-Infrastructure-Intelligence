@@ -1872,6 +1872,49 @@ class AIBrain {
         targetPort: port
       });
 
+      const isIcmpFail = selectedProbe.probeType === 'ICMP_PING_TARGET' && !probeResult.probeSuccess;
+      let icmpFilteredButHostAlive = false;
+      let hostAliveEvidence = null;
+
+      if (isIcmpFail) {
+        // Multi-Turn Recovery Probing: Many office equipment, printers, and secure endpoints drop ICMP Echo.
+        // Perform bounded Layer 4 socket sweep across common enterprise ports (80, 443, 445, 9100, 631).
+        try {
+          const l4Ports = [80, 443, 445, 9100, 631];
+          for (const l4p of l4Ports) {
+            const check = await new Promise((resolve) => {
+              const s = new net.Socket();
+              s.setTimeout(300);
+              s.once('connect', () => { s.destroy(); resolve({ open: true, port: l4p, status: 'CONNECTED' }); });
+              s.once('error', (err) => {
+                s.destroy();
+                if (err.code === 'ECONNREFUSED') {
+                  resolve({ open: false, port: l4p, status: 'RST_ACTIVE' });
+                } else {
+                  resolve({ open: false, port: l4p, status: err.code || 'FAIL' });
+                }
+              });
+              s.once('timeout', () => { s.destroy(); resolve({ open: false, port: l4p, status: 'TIMEOUT' }); });
+              s.connect(l4p, target);
+            });
+
+            if (check.open || check.status === 'RST_ACTIVE') {
+              icmpFilteredButHostAlive = true;
+              hostAliveEvidence = check;
+              break;
+            }
+          }
+        } catch (_) {}
+
+        if (icmpFilteredButHostAlive) {
+          currentEvaluation = reasoningEngine.reviseBeliefs(currentEvaluation, {
+            icmpFilteredButHostAlive: true,
+            targetPingReachable: false,
+            hostAliveL2OrL4: true
+          });
+        }
+      }
+
       const priorTop = currentEvaluation.topHypothesis;
       currentEvaluation = probeResult.revisedEvaluation || currentEvaluation;
       const newTop = currentEvaluation.topHypothesis;
@@ -1886,7 +1929,9 @@ class AIBrain {
         priorTopHypothesis: priorTop?.label || null,
         newTopHypothesis: newTop?.label || null,
         confidence: newTop?.confidence || 0,
-        revisions: currentEvaluation.revisions || []
+        revisions: currentEvaluation.revisions || [],
+        icmpFilteredButHostAlive: Boolean(icmpFilteredButHostAlive),
+        hostAliveEvidence
       });
     }
 
@@ -1971,6 +2016,7 @@ class AIBrain {
       },
       dagSummary,
       steps,
+      icmpFilteredButHostAlive: steps.some(s => s.icmpFilteredButHostAlive),
       evaluation: currentEvaluation
     };
   }
@@ -1996,6 +2042,85 @@ class AIBrain {
         adapter: netInfo?.adapterName || 'Wi-Fi'
       },
       lastMemorySync: this.lastLearningUpdate || new Date().toISOString()
+    };
+  }
+
+  /**
+   * Correlates concurrent failing targets across subnets and parent switches/gateways.
+   * Clusters multiple failing hosts into a single Shared Upstream Outage event,
+   * isolating whether a common default gateway, switch node (e.g. NODE-LAN-01, NODE-GW-01),
+   * or subnet is the common single point of failure (SPOF).
+   */
+  correlateSharedUpstreamFaults(windowMs = 120000) {
+    const now = Date.now();
+    const failingIncidents = [];
+
+    for (const [key, inc] of this.activeIncidents.entries()) {
+      const ts = new Date(inc.timestamp || inc.lastSeen || now).getTime();
+      if (now - ts <= windowMs) {
+        const topH = inc.evaluation?.topHypothesis?.id || inc.incidentType;
+        const isFailing = inc.incidentType !== 'NORMAL_OPERATION' &&
+          (topH === 'GATEWAY_UNREACHABLE' || topH === 'REMOTE_HOST_DOWN' || topH === 'TCP_SYN_TIMEOUT' || topH === 'ARP_CONFLICT' || topH === 'FIREWALL_SILENT_DROP' || inc.incidentType === 'TCP_SYN_TIMEOUT');
+        if (isFailing) {
+          failingIncidents.push({
+            incidentId: key,
+            targetIp: inc.destIp || inc.targetIp,
+            targetPort: inc.destPort || inc.targetPort,
+            incidentType: inc.incidentType,
+            topHypothesis: inc.evaluation?.topHypothesis?.label || topH,
+            confidence: inc.evaluation?.topHypothesis?.confidence || 0,
+            timestamp: inc.timestamp || inc.lastSeen || new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    // Group by subnet (/24)
+    const subnetClusters = new Map();
+    for (const inc of failingIncidents) {
+      const ip = inc.targetIp;
+      if (!ip) continue;
+      const parts = ip.split('.');
+      const subnet = parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.0/24` : 'UNKNOWN_SUBNET';
+      if (!subnetClusters.has(subnet)) subnetClusters.set(subnet, []);
+      subnetClusters.get(subnet).push(inc);
+    }
+
+    const clusters = [];
+    let netInfo = null;
+    try {
+      netInfo = getPhysicalNetworkInfo();
+    } catch (_) {}
+    const liveGateway = netInfo?.gatewayIp || '192.168.31.1';
+
+    for (const [subnet, incidents] of subnetClusters.entries()) {
+      if (incidents.length >= 2) {
+        const hasGateway = incidents.some(i => i.targetIp === liveGateway || String(i.topHypothesis).includes('Gateway'));
+        const parentNode = hasGateway ? 'NODE-GW-01' : 'NODE-LAN-01';
+        clusters.push({
+          clusterId: `OUTAGE-${crypto.createHash('sha256').update(`${subnet}-${now}`).digest('hex').slice(0, 10)}`,
+          subnet,
+          parentNode,
+          failingHostsCount: incidents.length,
+          failingTargets: incidents.map(i => i.targetIp),
+          sharedFaultHypothesis: hasGateway ? 'UPSTREAM_GATEWAY_OUTAGE' : 'COMMON_ACCESS_SWITCH_FAILURE',
+          confidence: Math.min(99, 65 + incidents.length * 10),
+          incidents,
+          recommendedAction: hasGateway
+            ? `Inspect Default Gateway (${liveGateway}) L2 ARP / link state before troubleshooting individual endpoints.`
+            : `Inspect upstream switch (${parentNode}) servicing subnet ${subnet}; multiple concurrent failures indicate common switch/VLAN outage.`,
+          detectedAt: new Date().toISOString()
+        });
+      }
+    }
+
+    return {
+      evaluatedAt: new Date().toISOString(),
+      activeFailingCount: failingIncidents.length,
+      sharedOutagesDetected: clusters.length > 0,
+      sharedOutagesCount: clusters.length,
+      clusters,
+      unclusteredFailingIncidents: failingIncidents.filter(inc => !clusters.some(c => c.failingTargets.includes(inc.targetIp)))
     };
   }
 

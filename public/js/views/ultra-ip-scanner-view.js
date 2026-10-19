@@ -868,4 +868,84 @@
     }
   };
 
+  window.checkLocalPrintSpoolerModal = async function() {
+    let modal = document.getElementById('localSpoolerModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'localSpoolerModal';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px);';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; width: 720px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🖨️</span>
+            <div>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #38bdf8;">Windows Print Spooler &amp; Local Printer Health</h3>
+              <div style="font-size: 11px; color: #94a3b8;">Local Workstation Host Print Architecture Inspection</div>
+            </div>
+          </div>
+          <button onclick="document.getElementById('localSpoolerModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+        </div>
+        <div id="spoolerModalBody" style="padding: 20px 0;">
+          <div style="text-align: center; color: #94a3b8;">Inspecting Windows Spooler service, local queues, and port bindings...</div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const data = await window.api('/api/network/office-device/local-spooler');
+      const bodyEl = document.getElementById('spoolerModalBody');
+      if (!bodyEl) return;
+
+      const isRunning = (data.spoolerServiceStatus || '').toLowerCase() === 'running';
+      const statusColor = isRunning ? '#10b981' : '#ef4444';
+
+      let printersHtml = '';
+      if (Array.isArray(data.printers) && data.printers.length > 0) {
+        printersHtml = data.printers.map(p => `
+          <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <b style="color: #f1f5f9;">${escapeHtml(p.name)}</b>
+              <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 4px;">Port: ${escapeHtml(p.portName)}</span>
+            </div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Driver: ${escapeHtml(p.driverName)} | Status: ${escapeHtml(p.printerStatus)} | Jobs in Queue: <b>${p.jobCount}</b></div>
+            ${p.isWsdPort ? '<div style="font-size: 11px; color: #fbbf24; margin-top: 6px;">⚠️ Warning: Configured on WSD port. May drop offline on IP changes; configure Standard TCP/IP port instead.</div>' : ''}
+          </div>
+        `).join('');
+      } else {
+        printersHtml = '<div style="color: #94a3b8; font-style: italic;">No local printers installed or detected.</div>';
+      }
+
+      bodyEl.innerHTML = `
+        <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+          <div style="flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: #64748b;">SPOOLER SERVICE</div>
+            <div style="font-size: 18px; font-weight: bold; color: ${statusColor};">${escapeHtml(data.spoolerServiceStatus)}</div>
+          </div>
+          <div style="flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: #64748b;">STUCK / PENDING JOBS</div>
+            <div style="font-size: 18px; font-weight: bold; color: ${data.stuckJobsCount > 0 ? '#f59e0b' : '#10b981'};">${data.stuckJobsCount}</div>
+          </div>
+          <div style="flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: #64748b;">WSD PORT WARNING</div>
+            <div style="font-size: 18px; font-weight: bold; color: ${data.wsdPortWarning ? '#f59e0b' : '#10b981'};">${data.wsdPortWarning ? 'YES' : 'NONE'}</div>
+          </div>
+        </div>
+        <div style="margin-bottom: 16px; padding: 12px; background: rgba(30, 41, 59, 0.4); border-radius: 8px; font-size: 13px; color: #cbd5e1;">
+          ${escapeHtml(data.plainSummary || '')}
+        </div>
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #94a3b8; text-transform: uppercase;">Installed Printers (${data.printers?.length || 0})</h4>
+        ${printersHtml}
+      `;
+    } catch (err) {
+      const bodyEl = document.getElementById('spoolerModalBody');
+      if (bodyEl) {
+        bodyEl.innerHTML = `<div style="color: #ef4444;">Error inspecting print spooler: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+  };
+
 })(window);

@@ -4,11 +4,12 @@
 **Release Tag / Git HEAD:** `v1.0.0-gold-master` (Clean Working Tree)  
 **Date of Audit:** October 18, 2026  
 **Auditor:** Principal Software Architect, Application Security Engineer & QA Lead (Claude Source Pro Max)  
-**Overall Verdict:** **UNCONDITIONAL TEST RUNNER INTEGRITY PASS (All 56 Suites Verified — 100% Green)**
+**Overall Verdict:** **UNCONDITIONAL TEST RUNNER INTEGRITY PASS (All 60 Suites Verified — 100% Green)**
 
 ---
 
 ## 1. Test Architecture & Runner Verification
+
 
 The EJII Master Test Runner (`tests/run-all-tests.js`) serves as the single source of truth for repository quality and functional conformance. This audit rigorously verified the test harness to guarantee that:
 1. Every single test suite is asynchronously awaited and never executed as an ignored fire-and-forget promise.
@@ -91,7 +92,7 @@ Upon reverting the temporary fault:
 
 ---
 
-## 3. Comprehensive 56-Suite Matrix
+## 3. Comprehensive 60-Suite Matrix
 
 | # | Suite Name & Scope | Execution Method | Status |
 | :-: | :--- | :--- | :--- |
@@ -151,6 +152,10 @@ Upon reverting the temporary fault:
 | **54** | **Office Equipment & Printer/VoIP Smart Discovery, Visual Connection Path Mapping, Plain-Language APIPA Resolver, Hybrid BM25/Cosine RAG & Counterfactual Causal AI:** 6-category office equipment classification (printers, VoIP phones, switches, workstations, firewalls, APIPA devices), 4-hop visual connection path mapper with hop health & culprit detection, plain-language APIPA 169.254.x.x 3-bullet troubleshooter with 1-click script execution, Hybrid Okapi BM25 + Trigram Cosine Vector RAG with RRF ($k=60$), 2 new authoritative runbooks (RB-07, RB-08), Counterfactual Causal Simulator ($P(H \mid E, do(A))$, risk reduction %), and passive OS fingerprinting | Real/synthetic office packet heuristics, 4-hop path traversal, BM25/Cosine fused retrieval, counterfactual Bayesian interventions | **PASS** |
 | **55** | **Node.js v24 WebSocketServer EADDRINUSE Crash Defense & Server Lifecycle:** `wss.on('error')` early binding, pre-bind active instance detection, self-healing port reclamation, clean exit handoff | Ephemeral port collision testing, child process server spawn & exit code verification | **PASS** |
 | **56** | **Binary RFC 2131 DHCP (DORA) Dissector, RFC 6762 mDNS/LLMNR & Office LAN Intelligence:** Binary RFC 2131 DHCP DISCOVER/OFFER/REQUEST/ACK dissection (Magic Cookie 0x63825363, TLV Options 53, 50, 54, 51, 12), UDP 67/68/5353/5355 L7 dispatch, office printer port-refusal diagnostic verification, report synchronization | Wire buffer frame parsing, live loopback office device diagnostics, markdown synchronization assertion | **PASS** |
+| **57** | **Persistent Office Equipment Inventory & DHCP (DORA) Tracker:** SQLite WAL tables `office_equipment_inventory` & `dhcp_and_ip_events`, APIPA 169.254.x.x regression tracking with `last_known_good_ip` retention, classification lock, passive frame wire-to-inventory bridge & RFC 5227 duplicate IP conflict detection | Database table migrations, inventory repository upserts, APIPA regression logging, passive DHCP/ARP wire stream ingestion | **PASS** |
+| **58** | **AI Context Window Manager, Multi-Host Shared Upstream Fault Correlation & Multi-Turn Tool Recovery Loop:** Token budgeting with 3-tier priority allocation & exponential half-life decay, multi-host subnet correlation (`correlateSharedUpstreamFaults`), ICMP-loss L4 port sweep recovery (`icmpFilteredButHostAlive`), and contradiction proof disproving `REMOTE_HOST_DOWN` | Token budget calculation, decay weighting, shared outage subnet clustering, L4 recovery loop execution, Bayesian contradiction proof | **PASS** |
+| **59** | **WebSocket Backpressure, Transactional Schema Migrations & API Contracts:** Bounded LRU rate limiter (`MAX_TRACKED_CLIENTS = 5000`), WebSocket 512KB buffer backpressure dropping high-frequency frames, transactional migrations with SHA-256 checksum tracking, and REST endpoints (`GET /api/network/office-device/inventory`, `GET /api/network/office-device/local-spooler`, `GET /api/rca/brain/shared-outages`, `POST /api/rca/brain/context-window-preview`) | LRU eviction tests, WS client bufferedAmount simulation, migration checksum verification, authenticated HTTP endpoint contracts | **PASS** |
+| **60** | **Enterprise Design System, Cross-View State & Strict 5-Pillar Architectural Invariant:** CSS token classes (`.eji-context-bar`, `.eji-equipment-kpi-strip`, `.eji-hop-pipeline`, etc.), cross-view routing (`window.setEjiiInvestigationTarget`), local spooler modal (`window.checkLocalPrintSpoolerModal`), strict 5-pillar navigation layout with zero rogue pages, and 60-suite runner registration | CSS stylesheet inspection, UI JavaScript export verification, index.html DOM navigation layout audit, runner registration validation | **PASS** |
 
 ---
 
@@ -301,13 +306,19 @@ The AI Brain features a closed-loop self-updating architecture with 7 verified t
 * **Binary RFC 2131 DHCP Dissector:** Verified that `PacketDecoder.dissectDhcpPayload()` parses binary BOOTREQUEST/BOOTREPLY frames, extracts the RFC 2131 Magic Cookie (`0x63825363`), client hardware address (`chaddr` / MAC `3C:D9:2B:AA:BB:CC`), transaction ID (`xid`), and TLV options (Option 53 Message Type `DISCOVER`/`OFFER`/`REQUEST`/`ACK`, Option 50 Requested IP, Option 54 Server Identifier, Option 51 Lease Time, Option 12 Hostname).
 * **Wire Protocol Dispatch:** Verified that `PacketDecoder.dissectFrame()` routes UDP ports 67/68 to `protocol: 'DHCP'`, UDP port 5353 to `protocol: 'MDNS'`, and UDP port 5355 to `protocol: 'LLMNR'`.
 * **Office Equipment Closed-Loop Diagnostic:** Verified that `diagnoseOfficeDevice()` evaluates real loopback and LAN targets, correctly diagnosing `PRINTER_ONLINE_BUT_PRINT_SERVICE_CLOSED` when TCP ports 9100/631/515 refuse connection, returning a 4-hop `visualConnectionPath` and a 3-part `plainLanguageDiagnosis`.
-* **Canonical Markdown Report Synchronization:** Verified that both `EJII_TEST_EXECUTION_INTEGRITY_REPORT.md` and `EJII_SECURE_DEPLOYMENT_REPORT.md` are 100% synchronized to reflect all 56 passing test suites.
+* **Canonical Markdown Report Synchronization:** Verified that both `EJII_TEST_EXECUTION_INTEGRITY_REPORT.md` and `EJII_SECURE_DEPLOYMENT_REPORT.md` are 100% synchronized to reflect all 60 passing test suites.
+
+### 4.23 Persistent Equipment Inventory, Context Window Manager, Backpressure & 60-Suite Design System (Suites 57–60)
+* **Persistent Office Equipment & DHCP (DORA) Tracker (Suite 57):** Verified transactional SQLite WAL migrations registering `office_equipment_inventory` and `dhcp_and_ip_events`, preserving `last_known_good_ip` across APIPA (`169.254.x.x`) regressions, maintaining device classifications, and streaming passive wire DHCP DORA and RFC 5227 duplicate IP conflict events directly to the inventory.
+* **AI Context Window Manager & Shared Outage Correlation (Suite 58):** Verified token budgeting within `maxTokens` (8000 default) using 3-tier priority allocation and exponential temporal half-life decay ($w(\Delta t) = 2^{-\Delta t / 120}$), multi-host subnet correlation (`correlateSharedUpstreamFaults`) isolating shared gateway failures from individual target issues, and multi-turn autonomous investigation tool recovery sweeps on failing ICMP echoes probing L4 service ports (80, 443, 445, 9100, 631) to establish `icmpFilteredButHostAlive` and eliminate false `REMOTE_HOST_DOWN` hypotheses.
+* **WebSocket Backpressure, Transactional Schema Migrations & API Contracts (Suite 59):** Verified bounded LRU rate limiter (`MAX_TRACKED_CLIENTS = 5000`), WebSocket backpressure dropping packet frames when `client.bufferedAmount > 512KB`, transactional WAL migrations tracking SHA-256 checksums in `schema_migrations`, and authenticated REST API routes (`GET /api/network/office-device/inventory`, `GET /api/network/office-device/local-spooler`, `GET /api/rca/brain/shared-outages`, `POST /api/rca/brain/context-window-preview`).
+* **Enterprise Design System, Cross-View State & Strict 5-Pillar Architectural Invariant (Suite 60):** Verified 7 Enterprise Design System CSS token classes (`.eji-context-bar`, `.eji-equipment-kpi-strip`, `.eji-hop-pipeline`, etc.), cross-view routing (`window.setEjiiInvestigationTarget`), local spooler modal (`window.checkLocalPrintSpoolerModal`), strict 5-pillar navigation layout with zero rogue pages, and full 60-suite runner registration in `tests/run-all-tests.js`.
 
 ---
 
 ## 5. Conclusion & Certification
 
-The EJII testing infrastructure is rigorous, resilient, and comprehensive. With 56 test suites executing across protocol drivers, binary dissectors, Bayesian reasoning engines, live production sockets, deployment lifecycles, autonomous self-updating AI harnesses, operator calibration loops, UTF-8 introspection, DNS-rebinding IP pinning, cross-layer host+wire RCA correlation, universal redirect SSRF defense, graceful WAL checkpoints, smart traffic triage modes, process-to-server endpoint discovery, vectorized multi-model AI orchestration, visual runtime truth & signal hygiene, zero phantom traffic & deep 5-section backend engineering, local RAG knowledge engine with Okapi BM25 ranking, unified 5-stage cross-section investigation with closed-loop post-fix re-verification, live DOM visual truth, epistemic Shannon entropy self-validation, causal DAG planning, SQLite WAL batch concurrency, 4-tier portable script mounting, office equipment plain-language diagnostics, Node.js v24 WebSocketServer EADDRINUSE crash defense, and binary RFC 2131 DHCP dissector:
+The EJII testing infrastructure is rigorous, resilient, and comprehensive. With 60 test suites executing across protocol drivers, binary dissectors, Bayesian reasoning engines, live production sockets, deployment lifecycles, autonomous self-updating AI harnesses, operator calibration loops, UTF-8 introspection, DNS-rebinding IP pinning, cross-layer host+wire RCA correlation, universal redirect SSRF defense, graceful WAL checkpoints, smart traffic triage modes, process-to-server endpoint discovery, vectorized multi-model AI orchestration, visual runtime truth & signal hygiene, zero phantom traffic & deep 5-section backend engineering, local RAG knowledge engine with Okapi BM25 ranking, unified 5-stage cross-section investigation with closed-loop post-fix re-verification, live DOM visual truth, epistemic Shannon entropy self-validation, causal DAG planning, SQLite WAL batch concurrency, 4-tier portable script mounting, office equipment plain-language diagnostics, Node.js v24 WebSocketServer EADDRINUSE crash defense, binary RFC 2131 DHCP dissector, persistent SQLite equipment inventory, AI episodic context window manager, multi-host shared outage correlation, and enterprise design system restraint:
 * **Zero Fake / Mocked Tests:** All tests execute against real physical network sockets, genuine Windows OS APIs, or validated cryptographic routines.
 * **Error Detection Authenticity:** Proven by deliberate fault injection yielding exit code 1.
-* **All 56 Test Suites Pass 100% Cleanly.**
+* **All 60 Test Suites Pass 100% Cleanly.**

@@ -659,6 +659,26 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/**
+ * Cross-View Investigation Router:
+ * Allows any view (View 2 Topology, View 3 Scanner, View 5 Wireshark) to route a target directly into View 1 (AI Brain Causal RCA)
+ */
+window.setEjiiInvestigationTarget = function(targetIp, targetPort = 443) {
+  if (!targetIp) return;
+  state.selectedTarget = targetIp;
+  state.selectedPort = targetPort;
+  renderView('topology'); // View 1: Topology & AI Brain RCA
+  setTimeout(() => {
+    const targetInput = document.getElementById('rcaTargetInput');
+    const portInput = document.getElementById('rcaPortInput');
+    if (targetInput) targetInput.value = targetIp;
+    if (portInput) portInput.value = targetPort;
+    if (typeof window.triggerAutonomousInvestigation === 'function') {
+      window.triggerAutonomousInvestigation(targetIp, targetPort);
+    }
+  }, 150);
+};
+
 // App Initialization
 window.addEventListener('DOMContentLoaded', async () => {
   initWebSocket();

@@ -494,6 +494,21 @@ class BayesianReasoningEngine {
       });
     }
 
+    if (telemetry.hostAliveL2OrL4 === true || telemetry.icmpFilteredButHostAlive === true) {
+      contradictory.push({
+        hypothesis: 'REMOTE_HOST_DOWN',
+        rule: 'RFC 793 TCP / RFC 826 L2 Wire Evidence',
+        reason: 'Target host responded on Layer 2 (ARP) or Layer 4 (TCP socket connection / active RST); remote hardware and OS kernel are confirmed powered on and active despite ICMP Echo filter.',
+        timestamp: new Date().toISOString()
+      });
+      contradictory.push({
+        hypothesis: 'UPSTREAM_TRANSIT_DROP',
+        rule: 'RFC 791 IPv4 Routing',
+        reason: 'Layer 4 frames reached target host across network path.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     if (altPortReachable === true) {
       contradictory.push({
         hypothesis: 'REMOTE_HOST_DOWN',

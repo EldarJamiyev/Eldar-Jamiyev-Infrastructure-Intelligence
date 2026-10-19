@@ -6,6 +6,19 @@
 const attemptsMap = new Map();
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes lockout
+const MAX_TRACKED_CLIENTS = 5000;
+
+function enforceMaxCapacity() {
+  if (attemptsMap.size > MAX_TRACKED_CLIENTS) {
+    const excess = attemptsMap.size - MAX_TRACKED_CLIENTS;
+    const iter = attemptsMap.keys();
+    for (let i = 0; i < excess; i++) {
+      const next = iter.next();
+      if (next.done) break;
+      attemptsMap.delete(next.value);
+    }
+  }
+}
 
 function cleanOldAttempts() {
   const now = Date.now();
@@ -67,6 +80,7 @@ function recordLoginAttempt(req, success) {
   }
 
   attemptsMap.set(key, data);
+  enforceMaxCapacity();
 }
 
 function checkRateLimit(keyOrIp) {
@@ -98,10 +112,15 @@ function recordFailedAttempt(keyOrIp) {
     data.lockedUntil = now + WINDOW_MS;
   }
   attemptsMap.set(keyOrIp, data);
+  enforceMaxCapacity();
 }
 
 function resetRateLimit(keyOrIp) {
   attemptsMap.delete(keyOrIp);
+}
+
+function getAttemptsMapSize() {
+  return attemptsMap.size;
 }
 
 module.exports = {
@@ -109,6 +128,8 @@ module.exports = {
   recordLoginAttempt,
   checkRateLimit,
   recordFailedAttempt,
-  resetRateLimit
+  resetRateLimit,
+  getAttemptsMapSize,
+  MAX_TRACKED_CLIENTS
 };
 

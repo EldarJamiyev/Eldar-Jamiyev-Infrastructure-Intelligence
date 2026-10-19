@@ -108,6 +108,8 @@ const { verifyToken, hasPermission } = require('./core/security');
 
 wss.on('connection', (ws, req) => {
   activeClients.add(ws);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   // Authenticate WebSocket connection via Sec-WebSocket-Protocol, cookie, auth header, or deprecated query
   let token = null;
@@ -218,6 +220,11 @@ function broadcast(type, payload) {
           hasPermission(client.user.role, 'telemetry.read')
         );
         if (!hasAccess) continue;
+
+        // WebSocket Backpressure Guard: Drop high-frequency frames if client buffer exceeds 512 KB
+        if (client.bufferedAmount > 512 * 1024) {
+          continue;
+        }
       }
       try {
         client.send(message);
@@ -227,6 +234,22 @@ function broadcast(type, payload) {
     }
   }
 }
+
+// 20s Heartbeat sweep to terminate dead WebSocket connections
+const wsHeartbeatSweep = setInterval(() => {
+  for (const client of activeClients) {
+    if (client.readyState === 1) {
+      if (client.isAlive === false) {
+        activeClients.delete(client);
+        try { client.terminate(); } catch (_) {}
+        continue;
+      }
+      client.isAlive = false;
+      try { client.ping(); } catch (_) {}
+    }
+  }
+}, 20000);
+if (wsHeartbeatSweep.unref) wsHeartbeatSweep.unref();
 
 app.locals.broadcast = broadcast;
 

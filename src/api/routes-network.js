@@ -836,6 +836,47 @@ router.post('/office-device/diagnose', requirePermission('network.diagnostics.ex
 });
 
 /**
+ * GET /api/network/office-device/inventory
+ * Retrieves persistent office equipment inventory and summary stats
+ */
+router.get('/office-device/inventory', (req, res) => {
+  try {
+    const { equipmentInventoryRepository } = require('../db/equipment-inventory-repository');
+    const typeFilter = req.query.type || null;
+    const items = equipmentInventoryRepository.getInventory({ equipmentType: typeFilter });
+    const summary = equipmentInventoryRepository.getEquipmentSummaryCounts();
+    const recentDhcp = equipmentInventoryRepository.getRecentDhcpEvents(20);
+    res.json({
+      success: true,
+      count: items.length,
+      inventory: items,
+      summary,
+      recentDhcpEvents: recentDhcp
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve inventory: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/network/office-device/local-spooler
+ * Inspects local Windows Print Spooler, active printers, WSD port alerts, and stuck jobs
+ */
+router.get('/office-device/local-spooler', async (req, res) => {
+  try {
+    const { inspectLocalWindowsPrintSpooler } = require('../network/diagnostics/office-device-resolver');
+    const timeoutMs = parseInt(req.query.timeoutMs || 3500, 10);
+    const result = await inspectLocalWindowsPrintSpooler(timeoutMs);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to inspect local print spooler: ' + err.message });
+  }
+});
+
+/**
  * POST /api/network/scanner/stop
  */
 router.post('/scanner/stop', (req, res) => {

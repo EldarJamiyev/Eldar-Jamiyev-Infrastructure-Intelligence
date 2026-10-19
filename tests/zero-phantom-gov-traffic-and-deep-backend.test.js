@@ -401,9 +401,9 @@ async function runZeroPhantomGovTrafficAndDeepBackendTests() {
   const integrityReport = fs.readFileSync(path.join(__dirname, '../EJII_TEST_EXECUTION_INTEGRITY_REPORT.md'), 'utf8');
   const deploymentReport = fs.readFileSync(path.join(__dirname, '../EJII_SECURE_DEPLOYMENT_REPORT.md'), 'utf8');
 
-  assert.ok(/5[0-6]\s*\/\s*5[0-6]|4[0-9]\s*\/\s*4[0-9]|38\s*\/\s*38/.test(integrityReport), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must report all suites passed');
+  assert.ok(/6[0-9]\s*\/\s*6[0-9]|5[0-9]\s*\/\s*5[0-9]|4[0-9]\s*\/\s*4[0-9]|38\s*\/\s*38/.test(integrityReport), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must report all suites passed');
   assert.ok(integrityReport.includes('Suite Matrix'), 'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must have Comprehensive Suite Matrix');
-  assert.ok(/5[0-6]\s*\/\s*5[0-6]|4[0-9]\s*\/\s*4[0-9]|38\s*\/\s*38/.test(deploymentReport), 'EJII_SECURE_DEPLOYMENT_REPORT.md must report all suites passed');
+  assert.ok(/6[0-9]\s*\/\s*6[0-9]|5[0-9]\s*\/\s*5[0-9]|4[0-9]\s*\/\s*4[0-9]|38\s*\/\s*38/.test(deploymentReport), 'EJII_SECURE_DEPLOYMENT_REPORT.md must report all suites passed');
   assert.ok(deploymentReport.includes('38.1') && deploymentReport.includes('38.5'), 'EJII_SECURE_DEPLOYMENT_REPORT.md must contain 38.1-38.5 rows');
   console.log('  ✓ Markdown reports integrity confirmed: All tables and sign-offs reflect all 40/40 test suites.');
 

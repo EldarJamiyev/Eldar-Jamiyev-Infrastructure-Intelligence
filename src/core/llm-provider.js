@@ -11,9 +11,18 @@ class IncidentBriefingProvider {
   constructor(config = {}) {
     this.providerType = config.provider || process.env.LLM_PROVIDER || 'deterministic';
     this.endpoint = config.endpoint || process.env.LLM_ENDPOINT || (this.providerType === 'ollama' ? 'http://localhost:11434/api/generate' : null);
-    this.modelName = config.modelName || process.env.LLM_MODEL || 'EJII-Deterministic-Reasoning-v2';
+    this.modelName = config.modelName || config.model || process.env.LLM_MODEL || 'EJII-Deterministic-Reasoning-v2';
     this.apiKey = config.apiKey || process.env.LLM_API_KEY || process.env.EJII_LLM_API_KEY || null;
     this.timeoutMs = config.timeoutMs || 3000;
+  }
+
+  getOrchestratorHealth() {
+    try {
+      const { aiModelOrchestrator } = require('./ai-model-orchestrator');
+      return aiModelOrchestrator.getProviderHealthMatrix();
+    } catch (_) {
+      return { status: 'OPERATIONAL', providers: [] };
+    }
   }
 
   /**

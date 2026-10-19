@@ -74,6 +74,10 @@ const { runPortableScriptsMountAndUtf8LauncherTests } = require('./portable-scri
 const { runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests } = require('./office-equipment-apipa-smart-map-and-plain-diagnostics.test');
 const { runWebSocketEaddrinuseAndServerLifecycleTests } = require('./websocket-eaddrinuse-and-server-lifecycle.test');
 const { runDhcpMdnsDissectorAndOfficeLanIntelligenceTests } = require('./dhcp-mdns-dissector-and-office-lan-intelligence.test');
+const { runPersistentEquipmentInventoryAndDhcpDoraTrackerTests } = require('./persistent-equipment-inventory-and-dhcp-dora-tracker.test');
+const { runAiContextWindowSharedOutageAndRecoveryLoopTests } = require('./ai-context-window-shared-outage-and-recovery-loop.test');
+const { runWebSocketBackpressureSchemaMigrationsAndApiContractsTests } = require('./websocket-backpressure-schema-migrations-and-api-contracts.test');
+const { runEnterpriseDesignSystemAndCrossViewStateTests } = require('./enterprise-design-system-and-cross-view-state.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -147,7 +151,11 @@ async function runAllTests() {
     { name: '53. Portable 4-Tier Script Directory Virtualization, Self-Healing Mount & UTF-8 Console Title Integrity', fn: runPortableScriptsMountAndUtf8LauncherTests },
     { name: '54. Automatic Office Equipment Classification, Visual Smart Map, Plain-Language APIPA Resolver, Hybrid BM25/N-Gram RAG & Counterfactual Causal Simulator', fn: runOfficeEquipmentApipaSmartMapAndPlainDiagnosticsTests },
     { name: '55. Node.js v24 WebSocketServer EADDRINUSE Crash Defense & Server Lifecycle', fn: runWebSocketEaddrinuseAndServerLifecycleTests },
-    { name: '56. Binary RFC 2131 DHCP (DORA) Dissector, RFC 6762 mDNS/LLMNR & Office LAN Intelligence', fn: runDhcpMdnsDissectorAndOfficeLanIntelligenceTests }
+    { name: '56. Binary RFC 2131 DHCP (DORA) Dissector, RFC 6762 mDNS/LLMNR & Office LAN Intelligence', fn: runDhcpMdnsDissectorAndOfficeLanIntelligenceTests },
+    { name: '57. Persistent Office Equipment Inventory, DHCP DORA Wire Tracker & Local Print Spooler', fn: runPersistentEquipmentInventoryAndDhcpDoraTrackerTests },
+    { name: '58. AI Episodic Context Window Manager, Shared Outage Correlator & Multi-Turn Recovery Loop', fn: runAiContextWindowSharedOutageAndRecoveryLoopTests },
+    { name: '59. WebSocket Backpressure, Transactional Schema Migrations & Enterprise API Contracts', fn: runWebSocketBackpressureSchemaMigrationsAndApiContractsTests },
+    { name: '60. Enterprise Design System, Cross-View State Routing & 5-Pillar Architectural Restraint', fn: runEnterpriseDesignSystemAndCrossViewStateTests }
   ];
 
   for (const s of suites) {

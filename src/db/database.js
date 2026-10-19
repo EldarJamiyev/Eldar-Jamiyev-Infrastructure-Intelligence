@@ -376,6 +376,11 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
   `);
 
+  try {
+    const { runMigrations } = require('./migrations');
+    runMigrations(db);
+  } catch (_) {}
+
   db.exec('PRAGMA foreign_keys = ON;');
 }
 

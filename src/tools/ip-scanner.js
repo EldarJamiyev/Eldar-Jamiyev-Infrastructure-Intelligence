@@ -1398,6 +1398,25 @@ class UltraIpScanner {
             this.deltaSummary = this.computeScanDelta(this.previousScanHosts, this.hosts);
           }
           this.previousScanHosts = JSON.parse(JSON.stringify(this.hosts));
+
+          try {
+            const { equipmentInventoryRepository } = require('../db/equipment-inventory-repository');
+            if (equipmentInventoryRepository) {
+              for (const h of this.hosts) {
+                if (h.status === 'ONLINE' || (h.macAddress && h.macAddress !== 'Unknown')) {
+                  equipmentInventoryRepository.upsertEquipmentRecord({
+                    macAddress: (h.macAddress && h.macAddress !== 'Unknown') ? h.macAddress : null,
+                    currentIp: h.ip,
+                    hostname: h.hostname !== 'Host Offline' && h.hostname !== 'Unresponsive Target' ? h.hostname : null,
+                    equipmentType: h.category,
+                    equipmentBrand: (h.vendor && h.vendor !== 'Unknown Vendor') ? h.vendor : null,
+                    openPorts: Array.isArray(h.openServices) ? h.openServices.map(s => typeof s === 'object' ? s.port : s).join(',') : null,
+                    source: 'ULTRA_IP_SCANNER'
+                  });
+                }
+              }
+            }
+          } catch (_) {}
         }
 
         this.status = this.abortController.aborted ? 'stopped' : 'completed';

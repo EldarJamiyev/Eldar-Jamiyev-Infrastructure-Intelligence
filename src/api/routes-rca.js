@@ -504,6 +504,57 @@ router.post('/brain/counterfactual-simulate', authenticate, requirePermission('t
   }
 });
 
+/**
+ * GET /api/rca/brain/shared-outages
+ * Correlates concurrent failing targets across subnets and parent switches/gateways
+ */
+router.get('/brain/shared-outages', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const windowMs = parseInt(req.query.windowMs || 120000, 10);
+    const result = aiBrain.correlateSharedUpstreamFaults(windowMs);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/brain/context-window-preview
+ * Previews token budgeting, exponential half-life temporal decay weighting,
+ * and prioritized 3-tier context assembly for LLM prompts
+ */
+router.post('/brain/context-window-preview', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const { ContextWindowManager } = require('../core/context-window-manager');
+    const {
+      maxTokens = 4096,
+      halfLifeSec = 120,
+      events = [],
+      baselineSnapshot = null,
+      runbookSnippets = [],
+      activeIncidents = []
+    } = req.body || {};
+
+    const mgr = new ContextWindowManager({ maxContextTokens: maxTokens, halfLifeSec });
+    const result = mgr.buildContextPayload({
+      events,
+      baselineSnapshot,
+      runbookSnippets,
+      activeIncidents
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 
