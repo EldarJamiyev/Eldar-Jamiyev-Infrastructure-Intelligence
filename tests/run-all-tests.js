@@ -82,6 +82,10 @@ const { runAutonomousGoalWorkflowAndEndpointMemoryTests } = require('./autonomou
 const { runOfficeProtocolBannersAndReverificationDiffTests } = require('./office-protocol-banners-and-reverification-diff.test');
 const { runFiveViewFrontendBackendWiringTests } = require('./five-view-frontend-backend-wiring.test');
 const { runReportConsistencyAndZeroStaleCountsTests } = require('./report-consistency-and-zero-stale-counts.test');
+const { runDynamicLocationTopologyAndZeroHardcodedIpsTests } = require('./dynamic-location-topology-and-zero-hardcoded-ips.test');
+const { runWorkerPoolTypesAndTimeseriesAdapterTests } = require('./worker-pool-types-and-timeseries-adapter.test');
+const { runCncfPrometheusOtelAndLinuxParityTests } = require('./cncf-prometheus-otel-and-linux-parity.test');
+const { runGitopsDriftReconciliationLoopTests } = require('./gitops-drift-reconciliation-loop.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -163,7 +167,11 @@ async function runAllTests() {
     { name: '61. Autonomous Goal Workflow DAG, 8-Invariant Self-Validation & SQLite WAL v4 Endpoint Behavioral Memory', fn: runAutonomousGoalWorkflowAndEndpointMemoryTests },
     { name: '62. Office Protocol Banners (IPP/JetDirect), Safe 650ms Short-Circuit & Closed-Loop Re-Verification Diff', fn: runOfficeProtocolBannersAndReverificationDiffTests },
     { name: '63. Full 5-View Frontend-to-Backend Wiring, Real Wire Filters, Banners & Do-Calculus DOM', fn: runFiveViewFrontendBackendWiringTests },
-    { name: '64. Master Report Consistency, Zero Zombie Files, Test Integrity & 64-Suite Milestone Alignment', fn: runReportConsistencyAndZeroStaleCountsTests }
+    { name: '64. Master Report Consistency, Zero Zombie Files, Test Integrity & 68-Suite Milestone Alignment', fn: runReportConsistencyAndZeroStaleCountsTests },
+    { name: '65. Dynamic Location Topology Auto-Sync, Zero Hardcoded Alien IPs & Real Gateway OUI', fn: runDynamicLocationTopologyAndZeroHardcodedIpsTests },
+    { name: '66. Worker-Thread Multi-Core Pool, TS Contracts & Pluggable Time-Series TSDB Adapter', fn: runWorkerPoolTypesAndTimeseriesAdapterTests },
+    { name: '67. CNCF Prometheus Exposition, OpenTelemetry OTLP Spans, Grafana Dashboard & Linux /proc Parity', fn: runCncfPrometheusOtelAndLinuxParityTests },
+    { name: '68. Continuous GitOps IaC Drift Detection & Autonomous Reconciliation Loop', fn: runGitopsDriftReconciliationLoopTests }
   ];
 
   for (const s of suites) {

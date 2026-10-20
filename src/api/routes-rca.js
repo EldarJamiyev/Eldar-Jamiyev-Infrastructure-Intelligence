@@ -604,6 +604,43 @@ router.get('/brain/autonomous-workflow/history', authenticate, requirePermission
   }
 });
 
+/**
+ * GET /api/rca/gitops/drift
+ * Returns declarative GitOps Infrastructure-as-Code (IaC) drift report
+ */
+router.get('/gitops/drift', authenticate, requirePermission('telemetry.read'), (req, res) => {
+  try {
+    const { gitopsReconciliationEngine } = require('../core/gitops-reconciliation-engine');
+    const report = gitopsReconciliationEngine.detectInfrastructureDrift();
+    res.json({
+      success: true,
+      report,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/gitops/reconcile
+ * Executes safe autonomous reconciliation of infrastructure drift
+ */
+router.post('/gitops/reconcile', authenticate, requirePermission('network.diagnostics.execute'), (req, res) => {
+  try {
+    const { gitopsReconciliationEngine } = require('../core/gitops-reconciliation-engine');
+    const { autoHealSafeTopologyDrift = true } = req.body || {};
+    const result = gitopsReconciliationEngine.reconcileDrift({ autoHealSafeTopologyDrift });
+    res.json({
+      success: true,
+      result,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 

@@ -1,0 +1,29 @@
+{
+  "apiVersion": "ejii.infrastructure.io/v1",
+  "kind": "DesiredInfrastructureState",
+  "metadata": {
+    "name": "ejii-enterprise-noc-baseline",
+    "environment": "production-workstation",
+    "reconciliationIntervalSeconds": 30
+  },
+  "spec": {
+    "topologyInvariants": {
+      "autoSyncLocationSubnet": true,
+      "forbidHardcodedAlienAppIp": true,
+      "forbiddenStaticAppIps": ["10.22.12.204", "10.168.195.1"],
+      "maxGatewayRttMs": 35.0,
+      "maxPacketLossPercent": 2.0
+    },
+    "officeLanCompliance": {
+      "maxApipaDevicesAllowed": 0,
+      "maxDuplicateIpArpConflicts": 0,
+      "requireGatewayMacResolution": true
+    },
+    "hostSecurityAndServices": {
+      "requiredWindowsServicesRunning": ["Spooler", "Dnscache"],
+      "forbiddenListeningTcpPorts": [21, 23],
+      "enforceOsProcessShield": true,
+      "enforceAiLocalOnlyPrivacyGate": true
+    }
+  }
+}

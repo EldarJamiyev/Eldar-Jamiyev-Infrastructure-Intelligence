@@ -10,15 +10,16 @@ const crypto = require('crypto');
 const { db, initSchema } = require('./database');
 const { runMigrations } = require('./migrations');
 const { hashPassword, ROLES } = require('../core/security');
-const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('../network/routing/physical-network-detector');
 const { DATA_DIR, IS_EVALUATION_MODE } = require('../config');
 
 function getSystemDefaultGateway() {
   try {
-    const info = getPhysicalNetworkInfo();
+    const info = getPhysicalNetworkInfo({ forceRefresh: true });
+    if (info && info.defaultGateway) return info.defaultGateway;
     if (info && info.gatewayIp) return info.gatewayIp;
   } catch (e) {}
-  return '10.168.195.1';
+  return '192.168.31.1';
 }
 
 function seedDatabase() {
@@ -137,9 +138,9 @@ function seedDatabase() {
   }
 
   // Detect genuine physical network info
-  const netInfo = getPhysicalNetworkInfo();
-  const defaultGatewayIp = netInfo.gatewayIp || getSystemDefaultGateway();
-  const hostIp = netInfo.hostIp || '192.168.31.89';
+  const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+  const defaultGatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || getSystemDefaultGateway();
+  const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
   const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '192.168.31.1';
   const lanCidr = netInfo.subnetCidr || '192.168.31.0/24';
   const now = new Date().toISOString();
@@ -152,8 +153,8 @@ function seedDatabase() {
     const defaultNodes = [
       {
         id: 'NODE-WAN-01',
-        name: 'Upstream Internet Transit (8.8.8.8)',
-        hostname_or_ip: '8.8.8.8',
+        name: `Upstream Internet Transit (${netInfo.primaryDnsIp && !netInfo.primaryDnsIp.startsWith('192.168.') && !netInfo.primaryDnsIp.startsWith('10.') ? netInfo.primaryDnsIp : '8.8.8.8'})`,
+        hostname_or_ip: netInfo.primaryDnsIp && !netInfo.primaryDnsIp.startsWith('192.168.') && !netInfo.primaryDnsIp.startsWith('10.') ? netInfo.primaryDnsIp : '8.8.8.8',
         mac_address: null,
         type: 'wan',
         layer: 'wan',
@@ -171,14 +172,14 @@ function seedDatabase() {
         id: 'NODE-GW-01',
         name: `Edge Perimeter Router (${defaultGatewayIp})`,
         hostname_or_ip: defaultGatewayIp,
-        mac_address: '64:12:25:E4:88:90',
+        mac_address: netInfo.gatewayMac !== 'Unknown' ? netInfo.gatewayMac : '64:12:25:E4:88:90',
         type: 'router',
         layer: 'edge',
         layer_level: 2,
         parent_id: 'NODE-WAN-01',
         status: 'healthy',
         last_latency_ms: 0.8,
-        vendor: 'MikroTik RouterOS',
+        vendor: netInfo.gatewayVendor || 'Observed Default Gateway',
         if_name: 'ether1',
         x: 280,
         y: 140,
@@ -195,7 +196,7 @@ function seedDatabase() {
         parent_id: 'NODE-GW-01',
         status: 'healthy',
         last_latency_ms: 0.9,
-        vendor: 'Cisco Catalyst / MikroTik Core',
+        vendor: dnsIp !== defaultGatewayIp ? 'Configured OS DNS Resolver' : `${netInfo.gatewayVendor || 'Local Gateway'} DNS Forwarder`,
         if_name: 'tengig0/1',
         x: 480,
         y: 80,
@@ -203,8 +204,8 @@ function seedDatabase() {
       },
       {
         id: 'NODE-APP-01',
-        name: process.env.NODE_ENV === 'test' ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)',
-        hostname_or_ip: '10.22.12.204',
+        name: `Local Subnet Service Host (${hostIp})`,
+        hostname_or_ip: hostIp,
         mac_address: null,
         type: 'service',
         layer: 'service',
@@ -212,11 +213,11 @@ function seedDatabase() {
         parent_id: 'NODE-CORE-01',
         status: 'healthy',
         last_latency_ms: 1.8,
-        vendor: process.env.NODE_ENV === 'test' ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway',
+        vendor: `Active Service (${lanCidr})`,
         if_name: 'eth0',
         x: 680,
         y: 80,
-        metadata: JSON.stringify({ role: process.env.NODE_ENV === 'test' ? 'Government Application Portal' : 'Enterprise Gateway & Service Fabric', ports: [443, 80] })
+        metadata: JSON.stringify({ role: 'Enterprise Gateway & Service Fabric', ports: [8443, 80] })
       },
       {
         id: 'NODE-LAN-01',
@@ -233,13 +234,13 @@ function seedDatabase() {
         if_name: 'gig0/1-24',
         x: 880,
         y: 200,
-        metadata: JSON.stringify({ role: 'Access LAN Subnet', hostsCount: 30 })
+        metadata: JSON.stringify({ role: 'Access LAN Subnet', hostsCount: netInfo.arpNeighborsCount || 1 })
       },
       {
         id: 'NODE-HOST-01',
         name: `Local Workstation Host (${hostIp})`,
         hostname_or_ip: hostIp,
-        mac_address: netInfo.mac || '70:15:FB:6B:F3:46',
+        mac_address: netInfo.macAddress || netInfo.mac || '70:15:FB:6B:F3:46',
         type: 'host',
         layer: 'endpoint',
         layer_level: 6,
@@ -250,7 +251,7 @@ function seedDatabase() {
         if_name: ((netInfo.hardwareDescription || netInfo.adapterName || '').toLowerCase().includes('wi-fi') || (netInfo.hardwareDescription || netInfo.adapterName || '').toLowerCase().includes('wireless')) ? 'Wi-Fi' : 'Ethernet',
         x: 1080,
         y: 140,
-        metadata: JSON.stringify({ role: 'NOC Analyst Workstation', os: 'Windows' })
+        metadata: JSON.stringify({ role: 'NOC Analyst Workstation', os: os.platform() })
       }
     ];
 
@@ -391,6 +392,14 @@ function seedDatabase() {
         now
       );
     }
+  }
+
+  // Always ensure topology matches current location and active network
+  try {
+    syncTopologyWithCurrentLocation(db);
+    console.log('✓ Synchronized NOC Network Topology with Current Location');
+  } catch (syncErr) {
+    console.warn('[Topology Seed Warning]: Location auto-sync:', syncErr.message);
   }
 
   // 5. Initialize Cryptographic Genesis Audit Log if uninitialized

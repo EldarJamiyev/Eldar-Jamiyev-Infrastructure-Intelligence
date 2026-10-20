@@ -371,31 +371,33 @@ async function runZeroPhantomGovTrafficAndDeepBackendTests() {
   assert.strictEqual(fs.existsSync(scratchFile), false, 'Scratch script scripts/inspect-db.js must be permanently absent');
   console.log('  ✓ Scratch script scripts/inspect-db.js confirmed absent.');
 
-  // B. Topology 7-Node Integrity & Canonical 10.22.12.204 Resolution in Both Test and Dev Modes
+  // B. Topology Node Integrity & Dynamic NODE-APP-01 Resolution Across Modes
   // 1. Test Mode Topology Check
   const origEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'test';
+  topologyEngine.cachedTopology = null;
   const testTopo = topologyEngine.getTopology();
   assert.ok(testTopo.nodes && testTopo.nodes.length >= 6, 'Topology must retain at least 6 canonical nodes in test mode');
-  const testAppNode = testTopo.nodes.find(n => n.hostname_or_ip === '10.22.12.204');
-  assert.ok(testAppNode, 'Topology must resolve NODE-APP-01 canonical IP 10.22.12.204 in test mode');
-  assert.strictEqual(testAppNode.id, 'NODE-APP-01', 'Node ID for 10.22.12.204 must be NODE-APP-01');
-  assert.strictEqual(testAppNode.name, 'Enterprise Service (mail.taxes.gov.az)', 'Test mode label must be Enterprise Service (mail.taxes.gov.az)');
+  const testAppNode = testTopo.nodes.find(n => n.id === 'NODE-APP-01');
+  assert.ok(testAppNode, 'Topology must resolve NODE-APP-01 service node in test mode');
+  assert.strictEqual(testAppNode.id, 'NODE-APP-01', 'Node ID must be NODE-APP-01');
+  assert.strictEqual(testAppNode.layer, 'service', 'Node layer must be service');
 
   // 2. Dev Mode Topology Check
   process.env.NODE_ENV = 'development';
   topologyEngine.cachedTopology = null;
   const devTopo = topologyEngine.getTopology();
   assert.ok(devTopo.nodes && devTopo.nodes.length >= 6, 'Topology must retain at least 6 canonical nodes in development mode');
-  const devAppNode = devTopo.nodes.find(n => n.hostname_or_ip === '10.22.12.204');
-  assert.ok(devAppNode, 'Topology must resolve NODE-APP-01 canonical IP 10.22.12.204 in development mode');
-  assert.strictEqual(devAppNode.id, 'NODE-APP-01', 'Node ID for 10.22.12.204 must be NODE-APP-01');
-  assert.strictEqual(devAppNode.name, 'Enterprise Application Server (10.22.12.204)', 'Development mode label must be Enterprise Application Server (10.22.12.204)');
+  const devAppNode = devTopo.nodes.find(n => n.id === 'NODE-APP-01');
+  assert.ok(devAppNode, 'Topology must resolve NODE-APP-01 in development mode');
+  assert.strictEqual(devAppNode.id, 'NODE-APP-01', 'Node ID must be NODE-APP-01');
+  assert.strictEqual(devAppNode.layer, 'service', 'Node layer must be service');
+  assert.ok(devAppNode.hostname_or_ip, 'NODE-APP-01 must have a valid IP');
 
   // Restore env
   process.env.NODE_ENV = origEnv || 'test';
   topologyEngine.cachedTopology = null;
-  console.log('  ✓ Topology 7-node integrity and 10.22.12.204 correlation verified across test & dev modes.');
+  console.log('  ✓ Topology node integrity and dynamic NODE-APP-01 service alignment verified across test & dev modes.');
 
   // C. Synchronized Markdown Reports Check (38/38 or 38 / 38)
   const integrityReport = fs.readFileSync(path.join(__dirname, '../EJII_TEST_EXECUTION_INTEGRITY_REPORT.md'), 'utf8');

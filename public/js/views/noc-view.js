@@ -151,6 +151,7 @@ window.escapeAttr = escapeAttr;
                   <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px;" title="Zoom Out">➖</button>
                   <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
                 </div>
+                <button class="btn btn-warning" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 10px; font-weight: 700;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">📍 Sync Location &amp; Subnet IPs</button>
                 <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover Network</button>
                 <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px;" title="Reset highlight overlays">↺ Reset</button>
                 <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px;" title="Refresh topology from database">↻</button>
@@ -438,7 +439,7 @@ window.escapeAttr = escapeAttr;
     if (!topoFleetExpanded) {
         const lanNode = rawNodes.find(n => n.id === 'NODE-LAN-01' || n.type === 'subnet' || (n.hostname_or_ip && n.hostname_or_ip.includes('/')));
         const rawSubnet = (lanNode && lanNode.hostname_or_ip) || topologyData.environmentCidr || topologyData.subnetCidr || '';
-        const activeSubnetCidr = (rawSubnet && !rawSubnet.startsWith('10.168.195')) ? rawSubnet : '192.168.31.0/24';
+        const activeSubnetCidr = rawSubnet || '192.168.31.0/24';
 
         const clusterNode = {
           id: 'NODE-FLEET-CLUSTER',
@@ -2275,6 +2276,22 @@ window.escapeAttr = escapeAttr;
         bannerEl.style.display = 'none';
       }
     } catch (e) {}
+  };
+
+  window.syncTopologyLocationNow = async function() {
+    const btn = document.getElementById('btnSyncTopologyLocation');
+    if (btn) { btn.disabled = true; btn.textContent = '📍 Syncing...'; }
+    try {
+      const res = await window.api('/api/network/topology/sync-location', { method: 'POST' });
+      await window.refreshTopologyView();
+      if (res && res.synced) {
+        alert(`Location Sync Complete!\nActive Subnet: ${res.networkInfo?.subnetCidr || 'Discovered'}\nGateway: ${res.networkInfo?.defaultGateway || 'Discovered'} (${res.networkInfo?.gatewayVendor || 'Router'})\nHost: ${res.networkInfo?.localIp || 'Active'}\nARP Devices: ${res.networkInfo?.arpNeighborsCount || 0}`);
+      }
+    } catch (e) {
+      alert('Location sync failed: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '📍 Sync Location & Subnet IPs'; }
+    }
   };
 
   window.runDynamicDiscoveryModal = async function() {

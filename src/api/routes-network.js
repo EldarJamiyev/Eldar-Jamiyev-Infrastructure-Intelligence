@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const { authenticate, requireRole, requirePermission } = require('./middleware');
 const { db } = require('../db/database');
 const { topologyEngine } = require('../network/topology/topology-engine');
+const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('../network/routing/physical-network-detector');
 const { packetStreamer } = require('../network/packet-streaming/packet-streamer');
 const { processSocketCorrelator } = require('../network/process-socket-correlator');
 processSocketCorrelator.setPacketStreamer(packetStreamer);
@@ -48,6 +49,24 @@ router.use(authenticate);
  * GET /api/network/topology
  * Returns full Layer 1 - Layer 6 topology nodes, edges, and congestion heatmap
  */
+router.post('/topology/sync-location', (req, res) => {
+  try {
+    const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+    const syncRes = syncTopologyWithCurrentLocation(db);
+    topologyEngine.cachedTopology = null;
+    const topo = topologyEngine.getTopology();
+    res.json({
+      success: true,
+      synced: true,
+      networkInfo: netInfo,
+      topology: topo,
+      syncedAt: syncRes.syncedAt || new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Location sync failed: ' + err.message });
+  }
+});
+
 router.get('/topology', (req, res) => {
   try {
     const topo = topologyEngine.getTopology();

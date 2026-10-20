@@ -1,9 +1,9 @@
 /**
- * EJII Test Suite 64: Master Report Consistency, Zero Zombie Files & 64-Suite Milestone
+ * EJII Test Suite 64: Master Report Consistency, Zero Zombie Files & 68-Suite Milestone
  * 
  * Verifies:
  * [64.1] Zero Zombie Artifacts & Hygiene (sync_now.bat eliminated, .gitignore enforced)
- * [64.2] Master Test Runner 64-Suite Registration & Execution Invariant
+ * [64.2] Master Test Runner 68-Suite Registration & Execution Invariant
  * [64.3] Canonical Integrity Report Alignment (EJII_TEST_EXECUTION_INTEGRITY_REPORT.md)
  * [64.4] Canonical Deployment Report Alignment (EJII_SECURE_DEPLOYMENT_REPORT.md)
  */
@@ -18,8 +18,8 @@ const rootDir = path.join(__dirname, '..');
 
 async function runReportConsistencyAndZeroStaleCountsTests() {
   console.log('========================================================================');
-  console.log('  SUITE 64: MASTER REPORT CONSISTENCY, HYGIENE & 64-SUITE MILESTONE      ');
-  console.log('  Zero Zombie Artifacts, Zero Stale Counts & Canonical 64/64 Alignment   ');
+  console.log('  SUITE 64: MASTER REPORT CONSISTENCY, HYGIENE & 68-SUITE MILESTONE      ');
+  console.log('  Zero Zombie Artifacts, Zero Stale Counts & Canonical 68/68 Alignment   ');
   console.log('========================================================================\n');
 
   // [64.1] Zero Zombie Files & Git Ignore Hygiene
@@ -40,8 +40,8 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   );
   console.log('  ✓ sync_now.bat confirmed non-existent on disk and barred in .gitignore.');
 
-  // [64.2] Master Test Runner 64-Suite Registration
-  console.log('[64.2] Verifying master test runner registration of all 64 suites...');
+  // [64.2] Master Test Runner 68-Suite Registration
+  console.log('[64.2] Verifying master test runner registration of all 68 suites...');
   const runnerPath = path.join(rootDir, 'tests', 'run-all-tests.js');
   const runnerContent = fs.readFileSync(runnerPath, 'utf8');
 
@@ -49,15 +49,19 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   assert.ok(runnerContent.includes('office-protocol-banners-and-reverification-diff.test'), 'Runner must import Suite 62');
   assert.ok(runnerContent.includes('five-view-frontend-backend-wiring.test'), 'Runner must import Suite 63');
   assert.ok(runnerContent.includes('report-consistency-and-zero-stale-counts.test'), 'Runner must import Suite 64');
+  assert.ok(runnerContent.includes('dynamic-location-topology-and-zero-hardcoded-ips.test'), 'Runner must import Suite 65');
+  assert.ok(runnerContent.includes('worker-pool-types-and-timeseries-adapter.test'), 'Runner must import Suite 66');
+  assert.ok(runnerContent.includes('cncf-prometheus-otel-and-linux-parity.test'), 'Runner must import Suite 67');
+  assert.ok(runnerContent.includes('gitops-drift-reconciliation-loop.test'), 'Runner must import Suite 68');
 
   // Count registered suites in run-all-tests.js
   const suiteEntries = runnerContent.match(/\{\s*name:\s*['"]\d+\./g) || [];
   assert.strictEqual(
     suiteEntries.length,
-    64,
-    `Expected exactly 64 registered test suites in run-all-tests.js, found ${suiteEntries.length}`
+    68,
+    `Expected exactly 68 registered test suites in run-all-tests.js, found ${suiteEntries.length}`
   );
-  console.log(`  ✓ Exactly 64 suites registered in tests/run-all-tests.js.`);
+  console.log(`  ✓ Exactly 68 suites registered in tests/run-all-tests.js.`);
 
   // [64.3] Canonical Integrity Report Alignment
   console.log('[64.3] Verifying EJII_TEST_EXECUTION_INTEGRITY_REPORT.md consistency...');
@@ -77,18 +81,22 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
     'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must not contain stale All 56 suites executed text'
   );
 
-  // Must reflect 64 suites
+  // Must reflect 68 suites
   assert.ok(
-    /64\s*\/\s*64|64 Suites|Comprehensive 64-Suite Matrix/.test(integrityContent),
-    'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must reflect 64 suites milestone'
+    /68\s*\/\s*68|68 Suites|Comprehensive 68-Suite Matrix/.test(integrityContent),
+    'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must reflect 68 suites milestone'
   );
 
-  // Check table matrix contains rows 61-64
+  // Check table matrix contains rows 61-68
   assert.ok(integrityContent.includes('| **61** |'), 'Integrity matrix must include Suite 61');
   assert.ok(integrityContent.includes('| **62** |'), 'Integrity matrix must include Suite 62');
   assert.ok(integrityContent.includes('| **63** |'), 'Integrity matrix must include Suite 63');
   assert.ok(integrityContent.includes('| **64** |'), 'Integrity matrix must include Suite 64');
-  console.log('  ✓ EJII_TEST_EXECUTION_INTEGRITY_REPORT.md contains zero stale counts and reflects all 64 suites.');
+  assert.ok(integrityContent.includes('| **65** |'), 'Integrity matrix must include Suite 65');
+  assert.ok(integrityContent.includes('| **66** |'), 'Integrity matrix must include Suite 66');
+  assert.ok(integrityContent.includes('| **67** |'), 'Integrity matrix must include Suite 67');
+  assert.ok(integrityContent.includes('| **68** |'), 'Integrity matrix must include Suite 68');
+  console.log('  ✓ EJII_TEST_EXECUTION_INTEGRITY_REPORT.md contains zero stale counts and reflects all 68 suites.');
 
   // [64.4] Canonical Deployment Report Alignment
   console.log('[64.4] Verifying EJII_SECURE_DEPLOYMENT_REPORT.md consistency...');
@@ -97,18 +105,18 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   const deploymentContent = fs.readFileSync(deploymentReportPath, 'utf8');
 
   assert.ok(
-    /64\s*\/\s*64/.test(deploymentContent),
-    'EJII_SECURE_DEPLOYMENT_REPORT.md must reflect 64 / 64 passing suites'
+    /68\s*\/\s*68/.test(deploymentContent),
+    'EJII_SECURE_DEPLOYMENT_REPORT.md must reflect 68 / 68 passing suites'
   );
   assert.ok(
-    /64 Test Suites/.test(deploymentContent),
-    'EJII_SECURE_DEPLOYMENT_REPORT.md must reference 64 Test Suites'
+    /68 Test Suites/.test(deploymentContent),
+    'EJII_SECURE_DEPLOYMENT_REPORT.md must reference 68 Test Suites'
   );
   assert.ok(
     deploymentContent.includes('Clean Working Tree (Audited Baseline)'),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must confirm clean working tree status'
   );
-  console.log('  ✓ EJII_SECURE_DEPLOYMENT_REPORT.md verified with 64/64 suites and clean baseline.\n');
+  console.log('  ✓ EJII_SECURE_DEPLOYMENT_REPORT.md verified with 68/68 suites and clean baseline.\n');
 
   console.log('========================================================================');
   console.log('  SUITE 64 PASSED: MASTER REPORT CONSISTENCY & ZERO STALE COUNTS 100%   ');

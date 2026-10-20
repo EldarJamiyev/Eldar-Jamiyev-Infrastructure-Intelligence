@@ -22,6 +22,15 @@ const hostRemediationRoutes = require('./api/routes-diagnostics-remediation');
 const networkRoutes = require('./api/routes-network');
 const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
+const observabilityRoutes = require('./api/routes-observability');
+const { cncfObservabilityExporter } = require('./integrations/observability/cncf-observability-exporter');
+const { TypeContractValidator } = require('./core/type-contract-validator');
+const { packetAndScanWorkerPool } = require('./network/workers/packet-and-scan-worker-pool');
+const { timeSeriesStorageAdapter } = require('./db/timeseries-storage-adapter');
+const { gitopsReconciliationEngine } = require('./core/gitops-reconciliation-engine');
+const { collectLinuxParityTelemetry } = require('./systems/linux/linux-native-telemetry');
+const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('./network/routing/physical-network-detector');
+const { topologyEngine } = require('./network/topology/topology-engine');
 const { requestCorrelationAndTelemetryMiddleware } = require('./api/middleware');
 
 // Ensure database and baseline seeds are ready
@@ -93,6 +102,18 @@ app.use('/api/diagnostics', diagRoutes);
 app.use('/api/network', networkRoutes);
 app.use('/api/tools', toolsRoutes);
 app.use('/api/rca', rcaRoutes);
+app.use('/api/observability', observabilityRoutes);
+
+// Native Prometheus Exposition Endpoint (/metrics)
+app.get('/metrics', (req, res) => {
+  try {
+    const text = cncfObservabilityExporter.generatePrometheusMetrics();
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(text);
+  } catch (err) {
+    res.status(500).send('# ERROR: ' + err.message);
+  }
+});
 
 // Catch-all fallback middleware for SPA client navigation
 app.use((req, res) => {
@@ -339,6 +360,30 @@ async function pollRegisteredNodes() {
 const pollingInterval = process.env.EJII_AUTO_POLL === 'true'
   ? setInterval(pollRegisteredNodes, 30000)
   : null;
+
+// Continuous Live Location & Subnet Change Watcher (Every 10 seconds)
+let lastNetworkSignatureHash = null;
+const locationWatcherInterval = setInterval(() => {
+  try {
+    const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+    if (netInfo && netInfo.networkSignatureHash) {
+      if (lastNetworkSignatureHash && lastNetworkSignatureHash !== netInfo.networkSignatureHash) {
+        syncTopologyWithCurrentLocation(db);
+        topologyEngine.cachedTopology = null;
+        const newTopo = topologyEngine.getTopology();
+        broadcast('TOPOLOGY_LOCATION_UPDATED', {
+          networkInfo: netInfo,
+          topology: newTopo,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      lastNetworkSignatureHash = netInfo.networkSignatureHash;
+    }
+  } catch (_) {}
+}, 10000);
+if (locationWatcherInterval && typeof locationWatcherInterval.unref === 'function') {
+  locationWatcherInterval.unref();
+}
 
 // Run initial poll 3 seconds after boot (opt-in only)
 const initialPollTimeout = process.env.EJII_AUTO_POLL === 'true'

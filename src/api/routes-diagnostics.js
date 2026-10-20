@@ -450,4 +450,36 @@ router.get('/api-telemetry', authenticate, (req, res) => {
   }
 });
 
+/**
+ * GET /api/diagnostics/worker-pool-telemetry
+ * Returns Multi-Core Worker-Thread Pool and V8 Event Loop Lag telemetry
+ */
+router.get('/worker-pool-telemetry', authenticate, (req, res) => {
+  try {
+    const { packetAndScanWorkerPool } = require('../network/workers/packet-and-scan-worker-pool');
+    res.json({
+      success: true,
+      telemetry: packetAndScanWorkerPool.getEventLoopAndWorkerTelemetry()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/diagnostics/linux-parity
+ * Returns Linux-native kernel /proc, systemd & eBPF telemetry or OS parity state
+ */
+router.get('/linux-parity', authenticate, (req, res) => {
+  try {
+    const { collectLinuxParityTelemetry } = require('../systems/linux/linux-native-telemetry');
+    res.json({
+      success: true,
+      data: collectLinuxParityTelemetry()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

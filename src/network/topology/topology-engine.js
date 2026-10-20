@@ -5,7 +5,7 @@
  */
 
 const { db } = require('../../db/database');
-const { getPhysicalNetworkInfo, isIpInSubnet } = require('../routing/physical-network-detector');
+const { getPhysicalNetworkInfo, isIpInSubnet, syncTopologyWithCurrentLocation } = require('../routing/physical-network-detector');
 const { getArpTable, resolveOuiVendor } = require('../../tools/ip-scanner');
 const { walkOid, STANDARD_OIDS } = require('../../protocols/snmp-engine');
 
@@ -24,9 +24,9 @@ class TopologyEngine {
    */
   syncTopologyToPhysicalNetwork() {
     const netInfo = getPhysicalNetworkInfo();
-    const gatewayIp = (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1';
-    const hostIp = (netInfo.hostIp && !netInfo.hostIp.startsWith('10.168.195')) ? netInfo.hostIp : '192.168.31.89';
-    const subnetCidr = (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24';
+    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '192.168.31.1';
+    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
+    const subnetCidr = netInfo.subnetCidr || '192.168.31.0/24';
     const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '10.22.10.11';
     const now = new Date().toISOString();
 
@@ -36,11 +36,9 @@ class TopologyEngine {
     const storedApp = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-APP-01'").get();
 
     const isTestEnv = process.env.NODE_ENV === 'test';
-    const expectedAppName = isTestEnv ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)';
-    if (storedApp && (storedApp.hostname_or_ip !== '10.22.12.204' || storedApp.name !== expectedAppName)) {
-      db.prepare("UPDATE topology_nodes SET name = ?, hostname_or_ip = '10.22.12.204', vendor = ? WHERE id = 'NODE-APP-01'")
-        .run(expectedAppName, isTestEnv ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway');
-      this.cachedTopology = null;
+    // Dynamic Location & Subnet Topology Auto-Sync
+    if (typeof syncTopologyWithCurrentLocation === 'function') {
+      syncTopologyWithCurrentLocation(db);
     }
 
     const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
@@ -88,112 +86,8 @@ class TopologyEngine {
         }
       }
 
-      // 2. Query default gateway vendor and MAC if available
-      let gwVendor = 'MikroTik RouterOS';
-      let gwMac = '64:12:25:E4:88:90';
-      if (storedGw && storedGw.hostname_or_ip === gatewayIp && storedGw.mac_address) {
-        gwMac = storedGw.mac_address;
-        gwVendor = storedGw.vendor || gwVendor;
-      }
-
-      // 3. Upsert L1: WAN Transit & Internet
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-WAN-01', 'Upstream Internet Transit (8.8.8.8)', '8.8.8.8', NULL, 'wan', 'wan', 1, NULL, 'healthy', ?, 12.4, 'Google Anycast Transit', 'WAN0', 80, 140, ?)
-        ON CONFLICT(id) DO UPDATE SET last_checked = excluded.last_checked
-      `).run(now, JSON.stringify({ role: 'WAN Transit', provider: 'Anycast Tier 1', evidenceClassification: 'Configured' }));
-
-      // 4. Upsert L2: Edge Perimeter Router (Genuine Default Gateway)
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-GW-01', ?, ?, ?, 'router', 'edge', 2, 'NODE-WAN-01', 'healthy', ?, 0.8, ?, 'ether1', 280, 140, ?)
-        ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          hostname_or_ip = excluded.hostname_or_ip,
-          mac_address = COALESCE(excluded.mac_address, topology_nodes.mac_address),
-          vendor = excluded.vendor,
-          last_checked = excluded.last_checked
-      `).run(
-        `Edge Perimeter Router (${gatewayIp})`,
-        gatewayIp,
-        gwMac,
-        now,
-        gwVendor,
-        JSON.stringify({ role: 'Border Router', model: 'CCR1036', discovery: 'dynamic_route', evidenceClassification: 'Observed' })
-      );
-
-      // 5. Upsert L3: Core Switch & Services (Internal DNS)
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-CORE-01', ?, ?, '64:12:25:E4:68:F0', 'switch', 'core', 3, 'NODE-GW-01', 'healthy', ?, 0.9, 'Cisco Catalyst / MikroTik Core', 'tengig0/1', 480, 80, ?)
-        ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          hostname_or_ip = excluded.hostname_or_ip,
-          last_checked = excluded.last_checked
-      `).run(
-        `Core Switch & Internal DNS (${dnsIp})`,
-        dnsIp,
-        now,
-        JSON.stringify({ role: 'Core Backbone Switch', vlan: 10, evidenceClassification: 'Observed' })
-      );
-
-      // 6. Upsert L4: Enterprise Applications / Critical Services
-      const isTestEnv = process.env.NODE_ENV === 'test';
-      const appNodeIp = '10.22.12.204';
-      const appNodeName = isTestEnv ? 'Enterprise Service (mail.taxes.gov.az)' : 'Enterprise Application Server (10.22.12.204)';
-      const appNodeVendor = isTestEnv ? 'State Tax Service (DVX)' : 'Local Enterprise Gateway';
-      const appNodeRole = isTestEnv ? 'Government Application Portal' : 'Enterprise Gateway & Service Fabric';
-
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-APP-01', ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'healthy', ?, 1.8, ?, 'eth0', 680, 80, ?)
-        ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          hostname_or_ip = excluded.hostname_or_ip,
-          vendor = excluded.vendor,
-          last_checked = excluded.last_checked
-      `).run(appNodeName, appNodeIp, now, appNodeVendor, JSON.stringify({ role: appNodeRole, ports: [443, 80], evidenceClassification: isTestEnv ? 'Configured' : 'Observed' }));
-
-      // 7. Upsert L5: Distribution & Access LAN Subnet
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-LAN-01', ?, ?, NULL, 'subnet', 'access', 5, 'NODE-GW-01', 'healthy', ?, 0.4, 'Access LAN Switched Fabric', 'gig0/1-24', 880, 200, ?)
-        ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          hostname_or_ip = excluded.hostname_or_ip,
-          last_checked = excluded.last_checked
-      `).run(
-        `Distribution & Access LAN (${subnetCidr})`,
-        subnetCidr,
-        now,
-        JSON.stringify({ role: 'Access LAN Subnet', hostsCount: 30, evidenceClassification: 'Observed' })
-      );
-
-      // 8. Upsert L6: Local Operator Workstation Host
-      const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
-      const macAddress = netInfo.mac || '70:15:FB:6B:F3:46';
-      const ifType = ((adapterHardware || '').toLowerCase().includes('wi-fi') || (adapterHardware || '').toLowerCase().includes('wireless')) ? 'Wi-Fi' : 'Ethernet';
-      const vendorString = `${adapterHardware} / Windows Workstation`;
-
-      db.prepare(`
-        INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, 0.1, ?, ?, 1080, 140, ?)
-        ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          hostname_or_ip = excluded.hostname_or_ip,
-          vendor = excluded.vendor,
-          if_name = excluded.if_name,
-          mac_address = excluded.mac_address,
-          last_checked = excluded.last_checked
-      `).run(
-        `Local Workstation Host (${hostIp})`,
-        hostIp,
-        macAddress,
-        now,
-        vendorString,
-        ifType,
-        JSON.stringify({ role: 'NOC Analyst Workstation', os: 'Windows', evidenceClassification: 'Observed' })
-      );
+      // 2. Synchronize all L1-L6 topology nodes with active physical location
+      syncTopologyWithCurrentLocation(db);
 
       // 9. Ensure foundational edges are established
       const defaultEdges = [
@@ -338,8 +232,8 @@ class TopologyEngine {
 
     const netInfo = getPhysicalNetworkInfo();
     const defaultGatewayIp = (netInfo.gatewayIp && !netInfo.gatewayIp.startsWith('10.168.195')) ? netInfo.gatewayIp : '192.168.31.1';
-    const hostIp = (netInfo.hostIp && !netInfo.hostIp.startsWith('10.168.195')) ? netInfo.hostIp : '192.168.31.89';
-    const subnetCidr = (netInfo.subnetCidr && !netInfo.subnetCidr.startsWith('10.168.195')) ? netInfo.subnetCidr : '192.168.31.0/24';
+    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
+    const subnetCidr = netInfo.subnetCidr || '192.168.31.0/24';
     const now = new Date().toISOString();
 
     const arpEntries = await getArpTable();
