@@ -268,6 +268,16 @@ class PacketStreamer {
           isDefault: false
         }
       ];
+    } else {
+      const hasLoopback = devices.some(d => d.name === '\\Device\\NPF_Loopback' || (d.description || '').toLowerCase().includes('loopback'));
+      if (!hasLoopback) {
+        devices.push({
+          name: '\\Device\\NPF_Loopback',
+          description: 'Adapter for loopback traffic capture',
+          isPhysical: false,
+          isDefault: false
+        });
+      }
     }
 
     return devices.map(d => {

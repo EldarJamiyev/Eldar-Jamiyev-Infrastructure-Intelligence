@@ -548,6 +548,7 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
   if (content.includes('10.168.195.1')) {
     content = content.replace(/10\.168\.195\.1/g, liveGateway);
   }
+  const activeDir = path.dirname(fullPath);
   const executionType = detectScriptType(scriptName, content);
   const startTime = performance.now();
 
@@ -596,16 +597,29 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
       }
     }, 25000);
 
+    const sysRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
+    const psExe = process.platform === 'win32'
+      ? (fs.existsSync(path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'))
+          ? path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+          : 'powershell.exe')
+      : 'pwsh';
+    const cmdExe = process.platform === 'win32'
+      ? (fs.existsSync(path.join(sysRoot, 'System32', 'cmd.exe'))
+          ? path.join(sysRoot, 'System32', 'cmd.exe')
+          : 'cmd.exe')
+      : 'sh';
+
     if (executionType === 'powershell') {
       // Execute via PowerShell with UTF-8 encoding and ExecutionPolicy Bypass
       const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & { ${content} }`;
-      child = spawn('powershell.exe', [
+      child = spawn(psExe, [
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy', 'Bypass',
         '-Command', psCommand
       ], {
-        cwd: scriptsDir,
+        cwd: activeDir,
+        env: process.env,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
@@ -615,8 +629,9 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
       const sanitizedBatch = content.replace(/^[ \t]*pause[ \t]*$/gmi, 'rem [EJII: non-interactive pause bypassed]');
       fs.writeFileSync(tempBatPath, `@echo off\r\n${sanitizedBatch}\r\n`, 'utf8');
 
-      child = spawn('cmd.exe', ['/c', tempBatPath], {
-        cwd: scriptsDir,
+      child = spawn(cmdExe, ['/c', tempBatPath], {
+        cwd: activeDir,
+        env: process.env,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
