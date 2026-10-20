@@ -123,11 +123,11 @@ async function runDhcpMdnsDissectorAndOfficeLanIntelligenceTests() {
   const deploymentMd = fs.readFileSync(path.join(rootDir, 'EJII_SECURE_DEPLOYMENT_REPORT.md'), 'utf8');
 
   assert.ok(
-    /64\s*\/\s*64|64 Suites|60\s*\/\s*60|60 Suites|56\s*\/\s*56|56 Suites/.test(integrityMd),
+    /68\s*\/\s*68|68 Suites|64\s*\/\s*64|64 Suites|60\s*\/\s*60|60 Suites|56\s*\/\s*56|56 Suites/.test(integrityMd),
     'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must be synchronized to suites matrix'
   );
   assert.ok(
-    /64\s*\/\s*64|64 Test Suites|60\s*\/\s*60|60 Test Suites|56\s*\/\s*56|56 Test Suites/.test(deploymentMd),
+    /68\s*\/\s*68|68 Test Suites|64\s*\/\s*64|64 Test Suites|60\s*\/\s*60|60 Test Suites|56\s*\/\s*56|56 Test Suites/.test(deploymentMd),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must be synchronized to suites matrix'
   );
   console.log('  ✓ Canonical markdown reports synchronized to 56/56 test suites.\n');
