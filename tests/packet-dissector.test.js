@@ -68,11 +68,14 @@ async function runDissectorTests() {
   console.log('[Test 2.2] Verifying TCP Stream Delta & Retransmission Telemetry...');
   packetStreamer.clearBuffer();
 
+  const appNode = topologyEngine.getTopology().nodes.find(n => n.id === 'NODE-APP-01') || { hostname_or_ip: '10.168.195.36' };
+  const targetAppIp = appNode.hostname_or_ip;
+
   const streamFrame1 = {
     frameNumber: 1,
     timestamp: new Date().toISOString(),
     srcIp: '10.168.195.33',
-    dstIp: '10.22.12.204',
+    dstIp: targetAppIp,
     protocol: 'TCP',
     tcp: {
       srcPort: 54321,
@@ -93,7 +96,7 @@ async function runDissectorTests() {
     frameNumber: 2,
     timestamp: new Date().toISOString(),
     srcIp: '10.168.195.33',
-    dstIp: '10.22.12.204',
+    dstIp: targetAppIp,
     protocol: 'TCP',
     tcp: {
       srcPort: 54321,
@@ -122,8 +125,8 @@ async function runDissectorTests() {
   // Test 3: Zero-Copy Capture Filter Engine & BPF Syntax
   console.log('[Test 2.3] Verifying BPF Syntax Filter Compiler & Packet Accounting...');
   packetStreamer.resetCounters();
-  packetStreamer.setCaptureFilter('tcp port 443 and host 10.22.12.204');
-  assert.strictEqual(packetStreamer.bpfFilter, 'tcp port 443 and host 10.22.12.204');
+  packetStreamer.setCaptureFilter(`tcp port 443 and host ${targetAppIp}`);
+  assert.strictEqual(packetStreamer.bpfFilter, `tcp port 443 and host ${targetAppIp}`);
 
   const counters = packetStreamer.getCounters();
   assert.strictEqual(counters.received, 0);
@@ -144,13 +147,13 @@ async function runDissectorTests() {
   console.log('[Test 3.1] Verifying Cross-Module Integration Bridge (Scope Sniffer, Flow Map, Anomaly Pulse)...');
 
   // A. Port-Level Link Capture Scope Trigger
-  const testNode = topologyEngine.getTopology().nodes.find(n => n.hostname_or_ip === '10.22.12.204') || { hostname_or_ip: '10.22.12.204' };
+  const testNode = topologyEngine.getTopology().nodes.find(n => n.id === 'NODE-APP-01') || { hostname_or_ip: targetAppIp };
   const scopedBpf = `host ${testNode.hostname_or_ip}`;
   packetStreamer.setCaptureFilter(scopedBpf);
   assert.strictEqual(packetStreamer.bpfFilter, scopedBpf, 'Right-clicking link must scope BPF filter to link endpoints');
 
   // B. Conversational Flow Route Mapper
-  // Trace route for flow (10.168.195.33 -> 10.22.12.204)
+  // Trace route for flow (10.168.195.33 -> targetAppIp)
   const flowPath = topologyEngine.tracePath('NODE-HOST-01', 'NODE-APP-01');
   assert.ok(flowPath.success, 'Flow route projection onto topology must succeed');
   assert.ok(flowPath.pathNodeIds.length >= 2, 'Flow must map onto physical/logical hops in topology canvas');
