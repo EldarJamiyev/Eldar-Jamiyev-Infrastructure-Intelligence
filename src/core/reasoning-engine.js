@@ -418,6 +418,9 @@ class BayesianReasoningEngine {
       return {
         shannonEntropyBits: 0,
         maxEntropyBits: 0,
+        klDivergenceBits: 0,
+        bayesFactorTop2: 1.0,
+        jeffreysEvidenceScale: 'Decisive',
         normalizedEntropyRatio: 0,
         epistemicCertaintyRatio: 1.0,
         activeHypothesesCount: 0
@@ -426,17 +429,55 @@ class BayesianReasoningEngine {
     const n = hypotheses.length;
     const maxEntropyBits = n > 1 ? Math.log2(n) : 1;
     let entropy = 0;
+    const probs = [];
     for (const h of hypotheses) {
       const conf = h.confidence !== undefined ? h.confidence : (h.probability !== undefined ? h.probability * 100 : 0);
       const p = conf / 100;
+      probs.push(p);
       if (p > 1e-9) {
         entropy -= p * Math.log2(p);
       }
     }
     const normalized = maxEntropyBits > 0 ? Math.min(1.0, Math.max(0.0, entropy / maxEntropyBits)) : 0;
+
+    // Kullback-Leibler Divergence D_KL(P || U) from uniform prior
+    let klDivergence = 0;
+    const uniformP = 1.0 / n;
+    for (const p of probs) {
+      if (p > 1e-9) {
+        klDivergence += p * Math.log2(p / uniformP);
+      }
+    }
+    klDivergence = Math.max(0, klDivergence);
+
+    // Bayes Factor BF_12 between top 2 hypotheses
+    const sortedProbs = [...probs].sort((a, b) => b - a);
+    const top1 = sortedProbs[0] || 0;
+    const top2 = sortedProbs[1] || 0;
+    const bf12 = top2 > 1e-9 ? top1 / top2 : (top1 > 0 ? 100.0 : 1.0);
+
+    // Harold Jeffreys Evidence Scale
+    let jeffreysScale = 'Decisive';
+    if (bf12 < 1.0) {
+      jeffreysScale = 'Negative (Supports H2)';
+    } else if (bf12 < 3.0) {
+      jeffreysScale = 'Barely Worth Mentioning';
+    } else if (bf12 < 10.0) {
+      jeffreysScale = 'Substantial';
+    } else if (bf12 < 30.0) {
+      jeffreysScale = 'Strong';
+    } else if (bf12 < 100.0) {
+      jeffreysScale = 'Very Strong';
+    } else {
+      jeffreysScale = 'Decisive';
+    }
+
     return {
       shannonEntropyBits: Number(entropy.toFixed(4)),
       maxEntropyBits: Number(maxEntropyBits.toFixed(4)),
+      klDivergenceBits: Number(klDivergence.toFixed(4)),
+      bayesFactorTop2: Number(bf12.toFixed(2)),
+      jeffreysEvidenceScale: jeffreysScale,
       normalizedEntropyRatio: Number(normalized.toFixed(4)),
       epistemicCertaintyRatio: Number((1.0 - normalized).toFixed(4)),
       activeHypothesesCount: n

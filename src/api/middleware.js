@@ -143,10 +143,28 @@ let totalApiRequests = 0;
 let totalApiErrors = 0;
 let totalApiDurationMs = 0;
 
+const { cncfObservabilityExporter } = require('../integrations/observability/cncf-observability-exporter');
+
 function requestCorrelationAndTelemetryMiddleware(req, res, next) {
   const reqId = req.headers['x-request-id'] || `REQ-${crypto.randomBytes(6).toString('hex')}`;
   req.id = reqId;
   res.setHeader('X-Request-Id', reqId);
+
+  // W3C Trace Context pipeline (00-<traceId>-<spanId>-01)
+  let traceId = null;
+  const spanId = crypto.randomBytes(8).toString('hex');
+  const incomingTraceparent = req.headers['traceparent'];
+  if (incomingTraceparent && typeof incomingTraceparent === 'string' && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i.test(incomingTraceparent.trim())) {
+    const parts = incomingTraceparent.trim().split('-');
+    traceId = parts[1];
+  } else {
+    traceId = crypto.randomBytes(16).toString('hex');
+  }
+  const traceparent = `00-${traceId}-${spanId}-01`;
+  req.traceId = traceId;
+  req.spanId = spanId;
+  req.traceparent = traceparent;
+  res.setHeader('traceparent', traceparent);
 
   const startMs = performance.now();
   totalApiRequests++;
@@ -160,6 +178,9 @@ function requestCorrelationAndTelemetryMiddleware(req, res, next) {
 
     const record = {
       id: reqId,
+      traceId,
+      spanId,
+      traceparent,
       method: req.method,
       path: req.originalUrl || req.url,
       statusCode: res.statusCode,
@@ -171,6 +192,23 @@ function requestCorrelationAndTelemetryMiddleware(req, res, next) {
     if (apiTelemetryBuffer.length > 500) {
       apiTelemetryBuffer.shift();
     }
+
+    try {
+      cncfObservabilityExporter.recordOtelSpan({
+        name: `HTTP ${req.method} ${req.baseUrl || ''}${req.path || ''}`,
+        kind: 'SERVER',
+        durationMs,
+        traceId,
+        spanId,
+        attributes: {
+          'http.method': req.method,
+          'http.target': req.originalUrl || req.url,
+          'http.status_code': res.statusCode,
+          'http.route': req.baseUrl || req.path
+        },
+        status: { code: res.statusCode >= 500 ? 'ERROR' : 'OK' }
+      });
+    } catch (_) {}
   });
 
   next();

@@ -2513,6 +2513,27 @@ class AIBrain {
     });
 
     // Step 7: Self-Validate Final Diagnosis Against 8 Empirical Invariants
+    // Step 8: Critic Reflection Tie-Breaker Stage (Planner-Executor-Critic Architecture)
+    const epistemic = bayesianEval?.epistemicMetrics || {};
+    const bf = epistemic.bayesFactorTop2 ?? 1.0;
+    const jeffreys = epistemic.jeffreysEvidenceScale ?? 'Decisive';
+    const topHypoId = bayesianEval?.topHypothesis?.id || 'OPERATIONAL';
+    const secondHypoId = (bayesianEval?.rankedHypotheses && bayesianEval.rankedHypotheses[1]) ? bayesianEval.rankedHypotheses[1].id : null;
+
+    const criticReflection = {
+      stage: 'CRITIC_REFLECTION',
+      evaluatedAt: new Date().toISOString(),
+      topHypothesisId: topHypoId,
+      secondHypothesisId: secondHypoId,
+      bayesFactorTop2: bf,
+      jeffreysEvidenceScale: jeffreys,
+      tieBreakerTriggered: bf < 3.0 && Boolean(secondHypoId),
+      critique: (bf >= 3.0)
+        ? `Empirical telemetry strongly supports [${topHypoId}] with ${jeffreys} evidence scale (${bf}x over secondary hypothesis). No contradictory wire signals.`
+        : `Borderline hypothesis separation detected between [${topHypoId}] and [${secondHypoId}]. Critic recommends physical port inspection.`,
+      recommendation: (bf >= 3.0) ? 'PROCEED_WITH_GITOPS_RECONCILIATION' : 'RE_PROBE_WIRE_TELEMETRY'
+    };
+
     const selfValidation = aiModelOrchestrator.validateDiagnosisOutput({
       synthesis: {
         headline: officeDiag.plainLanguageDiagnosis?.badge || bayesianEval.topHypothesis?.label,
@@ -2562,6 +2583,7 @@ class AIBrain {
       contextWindowAccounting: contextBundle?.tokenAccounting || {},
       ragCitations: ragHits,
       selfValidation,
+      criticReflection,
       invariantValidation: selfValidation,
       profile: brainPersistenceRepository ? brainPersistenceRepository.getEndpointProfile(cleanTarget) : null
     };

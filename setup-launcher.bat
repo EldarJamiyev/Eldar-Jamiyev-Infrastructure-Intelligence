@@ -2,6 +2,9 @@
 chcp 65001 >nul
 title EJII -- Eldar Jamiyev's Infrastructure Intelligence
 setlocal enabledelayedexpansion
+if exist "sync_now.bat" del /f /q "sync_now.bat" >nul 2>&1
+if exist "update_reports.js" del /f /q "update_reports.js" >nul 2>&1
+if exist "patch_*.js" del /f /q "patch_*.js" >nul 2>&1
 
 echo ========================================================================
 echo   EJII - Eldar Jamiyev's Infrastructure Intelligence
@@ -74,4 +77,3 @@ start http://localhost:8443/
 node src/server.js
 
 pause
-

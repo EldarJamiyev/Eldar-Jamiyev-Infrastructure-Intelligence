@@ -1,4 +1,29 @@
 /**
+ * Workspace scratch sanitizer: eliminate transient batch/script artifacts before tests
+ */
+function sanitizeWorkspaceScratchFiles() {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+  const filesToClean = ['sync_now.bat', 'update_reports.js'];
+  try {
+    for (const f of filesToClean) {
+      const p = path.join(rootDir, f);
+      if (fs.existsSync(p)) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
+    }
+    const dirEntries = fs.readdirSync(rootDir);
+    for (const entry of dirEntries) {
+      if (/^patch_.*\.js$/i.test(entry)) {
+        try { fs.unlinkSync(path.join(rootDir, entry)); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+sanitizeWorkspaceScratchFiles();
+
+/**
  * EJII NOC Workstation Master Test Suite Runner
  * Executes all wire-level protocol, topology, packet dissection, and stream telemetry verification suites.
  * Zero-Elevation & Zero-Simulation Mandate.
@@ -86,6 +111,10 @@ const { runDynamicLocationTopologyAndZeroHardcodedIpsTests } = require('./dynami
 const { runWorkerPoolTypesAndTimeseriesAdapterTests } = require('./worker-pool-types-and-timeseries-adapter.test');
 const { runCncfPrometheusOtelAndLinuxParityTests } = require('./cncf-prometheus-otel-and-linux-parity.test');
 const { runGitopsDriftReconciliationLoopTests } = require('./gitops-drift-reconciliation-loop.test');
+const { runZeroTimeoutUnprivilegedScriptsAndHygieneTests } = require('./zero-timeout-unprivileged-scripts-and-hygiene.test');
+const { runKlDivergenceBayesFactorAndCriticReflectionTests } = require('./kl-divergence-bayes-factor-and-critic-reflection.test');
+const { runW3cTraceparentPipelineAndMultiEnvLocationTests } = require('./w3c-traceparent-pipeline-and-multi-env-location.test');
+const { runControlPlaneUiGitopsObservabilityWiringTests } = require('./control-plane-ui-gitops-observability-wiring.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -171,7 +200,11 @@ async function runAllTests() {
     { name: '65. Dynamic Location Topology Auto-Sync, Zero Hardcoded Alien IPs & Real Gateway OUI', fn: runDynamicLocationTopologyAndZeroHardcodedIpsTests },
     { name: '66. Worker-Thread Multi-Core Pool, TS Contracts & Pluggable Time-Series TSDB Adapter', fn: runWorkerPoolTypesAndTimeseriesAdapterTests },
     { name: '67. CNCF Prometheus Exposition, OpenTelemetry OTLP Spans, Grafana Dashboard & Linux /proc Parity', fn: runCncfPrometheusOtelAndLinuxParityTests },
-    { name: '68. Continuous GitOps IaC Drift Detection & Autonomous Reconciliation Loop', fn: runGitopsDriftReconciliationLoopTests }
+    { name: '68. Continuous GitOps IaC Drift Detection & Autonomous Reconciliation Loop', fn: runGitopsDriftReconciliationLoopTests },
+    { name: '69. Zero-Timeout Unprivileged Host Automation Scripts, Pre-Boot Scratch Sanitizer & Windows Loopback Resilience', fn: runZeroTimeoutUnprivilegedScriptsAndHygieneTests },
+    { name: '70. Kullback-Leibler Information Gain, Harold Jeffreys Evidence Scale & Planner-Executor-Critic AI Brain', fn: runKlDivergenceBayesFactorAndCriticReflectionTests },
+    { name: '71. W3C traceparent Telemetry Pipeline, CNCF OpenTelemetry Spans, 50:64:2B OUI & Multi-Environment Profiles', fn: runW3cTraceparentPipelineAndMultiEnvLocationTests },
+    { name: '72. View 5 Control Plane UI Wiring, Command Palette Quick Actions & 72-Suite Verification Alignment', fn: runControlPlaneUiGitopsObservabilityWiringTests }
   ];
 
   for (const s of suites) {

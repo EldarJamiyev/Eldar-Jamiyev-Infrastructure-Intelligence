@@ -113,10 +113,12 @@ class CncfObservabilityExporter {
     kind = 'SERVER',
     durationMs = 1.0,
     attributes = {},
-    status = { code: 'OK' }
+    status = { code: 'OK' },
+    traceId: customTraceId = null,
+    spanId: customSpanId = null
   } = {}) {
-    const traceId = crypto.randomBytes(16).toString('hex');
-    const spanId = crypto.randomBytes(8).toString('hex');
+    const traceId = customTraceId || crypto.randomBytes(16).toString('hex');
+    const spanId = customSpanId || crypto.randomBytes(8).toString('hex');
     const startNano = BigInt(Date.now() - Math.round(durationMs)) * 1000000n;
     const endNano = BigInt(Date.now()) * 1000000n;
     const traceparent = `00-${traceId}-${spanId}-01`;
@@ -147,6 +149,10 @@ class CncfObservabilityExporter {
   /**
    * Exports recorded spans in OpenTelemetry OTLP JSON schema
    */
+  getRecentSpans(limit = 50) {
+    return this.spansRingBuffer.slice(-limit).reverse();
+  }
+
   exportOtelTracesJson() {
     return {
       resourceSpans: [

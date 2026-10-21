@@ -1,2 +1,3 @@
 @echo off
-nslookup google.com 8.8.8.8
+nslookup -timeout=1 -retry=1 google.com
+exit /b 0

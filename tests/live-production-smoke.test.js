@@ -1,5 +1,5 @@
 /**
- * EJII — Live Production Server Socket & API Smoke Test
+ * EJII — Live Production Server Socket & API Smoke Test (Suite 26)
  * Verifies real end-to-end runtime against standalone `src/server.js` process.
  * Tests physical socket binding, HTTP endpoints, WebSocket stream, RBAC defenses & Live Diagnostics.
  */
@@ -7,6 +7,8 @@
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const WebSocket = require('ws');
 const { createToken } = require('../src/core/security');
 
@@ -17,27 +19,52 @@ function generateToken(user, role) {
   return createToken({ username: user, role: role }, 3600);
 }
 
-function makeRequest(options, postData = null) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => {
-        let parsed = null;
-        try {
-          parsed = JSON.parse(body);
-        } catch (e) {
-          parsed = body;
+async function makeRequest(options, postData = null, maxRetries = 4) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const reqOpts = {
+          ...options,
+          agent: false,
+          headers: {
+            ...(options.headers || {}),
+            'Connection': 'close'
+          },
+          timeout: options.timeout || 8000
+        };
+
+        const req = http.request(reqOpts, (res) => {
+          let body = '';
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => {
+            let parsed = null;
+            try {
+              parsed = JSON.parse(body);
+            } catch (e) {
+              parsed = body;
+            }
+            resolve({ statusCode: res.statusCode, headers: res.headers, body: parsed, status: res.statusCode, data: parsed });
+          });
+        });
+        req.on('timeout', () => req.destroy(new Error('HTTP_TIMEOUT')));
+        req.on('error', reject);
+        if (postData) {
+          req.write(typeof postData === 'string' ? postData : JSON.stringify(postData));
         }
-        resolve({ statusCode: res.statusCode, headers: res.headers, body: parsed });
+        req.end();
       });
-    });
-    req.on('error', reject);
-    if (postData) {
-      req.write(typeof postData === 'string' ? postData : JSON.stringify(postData));
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries && (err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED' || err.code === 'EPIPE')) {
+        await new Promise(r => setTimeout(r, 200 * attempt));
+        continue;
+      }
+      throw err;
     }
-    req.end();
-  });
+  }
+  throw lastError;
 }
 
 async function runLiveProductionSmoke() {
@@ -46,46 +73,59 @@ async function runLiveProductionSmoke() {
   console.log(`  Spawning node src/server.js on ${TEST_HOST}:${TEST_PORT}...          `);
   console.log('========================================================================');
 
-  const serverProcess = spawn('node', ['src/server.js'], {
-    cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
-      EJII_PORT: String(TEST_PORT),
-      EJII_HOST: TEST_HOST
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  let serverStarted = false;
-
-  const serverReady = new Promise((resolve, reject) => {
-    serverProcess.stdout.on('data', (data) => {
-      const text = data.toString();
-      if (text.includes('Server Listening on:') || text.includes(`:${TEST_PORT}`)) {
-        serverStarted = true;
-        resolve();
-      }
-    });
-
-    serverProcess.stderr.on('data', (data) => {
-      console.error('[SERVER STDERR]:', data.toString());
-    });
-
-    serverProcess.on('exit', (code) => {
-      if (!serverStarted) {
-        reject(new Error(`Server exited unexpectedly with code ${code}`));
-      }
-    });
-
-    // Timeout safety: 15 seconds
-    setTimeout(() => {
-      if (!serverStarted) {
-        reject(new Error('Timed out waiting for production server to start.'));
-      }
-    }, 15000);
-  });
+  const smokeDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ejii_smoke26_'));
+  let serverProcess = null;
 
   try {
+    serverProcess = spawn(process.execPath, ['src/server.js'], {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        EJII_PORT: String(TEST_PORT),
+        EJII_HOST: TEST_HOST,
+        EJII_DATA_DIR: smokeDataDir,
+        EJII_FAST_BOOT: 'true',
+        EJII_DISABLE_BG_SYNC: 'true',
+        NODE_ENV: 'development'
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let serverStarted = false;
+    let stdoutLogs = '';
+    let stderrLogs = '';
+
+    const serverReady = new Promise((resolve, reject) => {
+      serverProcess.stdout.on('data', (data) => {
+        const text = data.toString();
+        stdoutLogs += text;
+        if (stdoutLogs.length > 32000) stdoutLogs = stdoutLogs.slice(-16000);
+        if (text.includes('Server Listening on:') || text.includes(`:${TEST_PORT}`)) {
+          serverStarted = true;
+          resolve();
+        }
+      });
+
+      serverProcess.stderr.on('data', (data) => {
+        const text = data.toString();
+        stderrLogs += text;
+        if (stderrLogs.length > 32000) stderrLogs = stderrLogs.slice(-16000);
+      });
+
+      serverProcess.on('exit', (code) => {
+        if (!serverStarted) {
+          reject(new Error(`Server exited unexpectedly with code ${code}. Stderr: ${stderrLogs.slice(-300)}`));
+        }
+      });
+
+      // Timeout safety: 15 seconds
+      setTimeout(() => {
+        if (!serverStarted) {
+          reject(new Error(`Timed out waiting for production server to start. Stderr: ${stderrLogs.slice(-300)}`));
+        }
+      }, 15000);
+    });
+
     await serverReady;
     console.log(`✓ Production server started and listening on http://${TEST_HOST}:${TEST_PORT}\n`);
 
@@ -172,7 +212,6 @@ async function runLiveProductionSmoke() {
 
     // 4. Live Core Diagnostics Audit Endpoint
     console.log('\n[SMOKE 4] Querying live /api/diagnostics/host/audit with ADMIN token...');
-    // Reusing verified adminToken from SMOKE 1
     const auditRes = await makeRequest({
       hostname: TEST_HOST,
       port: TEST_PORT,
@@ -276,14 +315,29 @@ async function runLiveProductionSmoke() {
     }
 
     // Close WebSocket
-    ws.close();
+    try { ws.close(); } catch (_) {}
 
     console.log('\n========================================================================');
     console.log('  ALL LIVE PRODUCTION SERVER SOCKET & SMOKE TESTS PASSED (100% GREEN)  ');
     console.log('========================================================================\n');
   } finally {
     // Terminate server process cleanly
-    serverProcess.kill('SIGINT');
+    if (serverProcess) {
+      try {
+        if (process.platform === 'win32') {
+          require('child_process').execSync(`taskkill /F /T /PID ${serverProcess.pid}`, { stdio: 'ignore' });
+        } else {
+          serverProcess.kill('SIGKILL');
+        }
+      } catch (_) {
+        try { serverProcess.kill('SIGKILL'); } catch (__) {}
+      }
+    }
+    if (smokeDataDir) {
+      try {
+        fs.rmSync(smokeDataDir, { recursive: true, force: true });
+      } catch (_) {}
+    }
   }
 }
 

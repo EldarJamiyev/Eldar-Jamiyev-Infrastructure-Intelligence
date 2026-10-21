@@ -65,6 +65,8 @@ const OUI_DATABASE = {
   '74:83:C2': 'Ubiquiti Networks Inc.',
 
   // Xiaomi
+  '50:64:2B': 'Xiaomi Communications / Mi Router',
+  '50642B': 'Xiaomi Communications / Mi Router',
   'D8:CB:8A': 'Xiaomi Communications',
   '78:11:DC': 'Xiaomi Communications',
   '50:8A:06': 'Xiaomi Communications',

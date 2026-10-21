@@ -1592,4 +1592,59 @@
     }
   };
 
+
+  /**
+   * View 5 Control Plane UI GitOps Drift Reconciler
+   */
+  window.runGitopsDriftReconcileFromUi = async function() {
+    try {
+      const res = await window.api('/api/rca/gitops/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoHealSafeTopologyDrift: true })
+      });
+      alert(`GitOps Drift Reconciliation:\nStatus: ${res.status || 'OK'}\nRemediated: ${res.reconciledCount || 0} drifts\nSummary: ${res.summary || 'Topology synchronized with GitOps state.'}`);
+      if (typeof window.renderView === 'function') window.renderView('core-diagnostics');
+      return res;
+    } catch (err) {
+      alert('GitOps Reconciliation error: ' + err.message);
+    }
+  };
+
+  /**
+   * View 5 CNCF OpenTelemetry Traces Inspector
+   */
+  window.inspectCncfObservabilityFromUi = async function() {
+    try {
+      const traces = await window.api('/api/observability/otel/v1/traces');
+      const spans = traces.spans || (traces.resourceSpans ? traces.resourceSpans.length : 0);
+      alert(`CNCF OpenTelemetry Spans:\nActive in Ring Buffer: ${Array.isArray(traces) ? traces.length : (traces.spans ? traces.spans.length : spans)} spans\nService: ejii-noc-control-plane\nW3C Trace Context: Enabled`);
+      return traces;
+    } catch (err) {
+      alert('CNCF Observability inspection error: ' + err.message);
+    }
+  };
+
+  /**
+   * View 5 Grafana Dashboard JSON Exporter
+   */
+  window.exportGrafanaDashboardFromUi = async function() {
+    try {
+      const dash = await window.api('/api/observability/grafana-dashboard');
+      const jsonStr = JSON.stringify(dash, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ejii-noc-grafana-dashboard.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      alert('Grafana Unified Dashboard JSON exported successfully!');
+      return dash;
+    } catch (err) {
+      alert('Grafana export error: ' + err.message);
+    }
+  };
 })(window);

@@ -7,6 +7,28 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+
+// Workspace scratch sanitizer: eliminate transient batch/script artifacts before boot
+function sanitizeWorkspaceScratchFiles() {
+  const rootDir = path.join(__dirname, '..');
+  const filesToClean = ['sync_now.bat', 'update_reports.js'];
+  try {
+    for (const f of filesToClean) {
+      const p = path.join(rootDir, f);
+      if (fs.existsSync(p)) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
+    }
+    const dirEntries = fs.readdirSync(rootDir);
+    for (const entry of dirEntries) {
+      if (/^patch_.*\.js$/i.test(entry)) {
+        try { fs.unlinkSync(path.join(rootDir, entry)); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+sanitizeWorkspaceScratchFiles();
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const config = require('./config');
@@ -42,6 +64,14 @@ try {
 
 const app = express();
 const server = http.createServer(app);
+
+// Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+server.on('connection', (socket) => {
+  socket.setNoDelay(true);
+  socket.on('error', () => {});
+});
 const wss = new WebSocketServer({
   server,
   handleProtocols: (protocols, req) => {
@@ -287,7 +317,6 @@ aiBrain.setBroadcastHandler((eventType, payload) => {
 
 // Initialize live packet streamer
 const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
-packetStreamer.startStreaming((type, payload) => broadcast(type, payload));
 
 // Background Telemetry Poller: real dual-protocol polling (ICMP + TCP fallback)
 let isPolling = false;
@@ -360,10 +389,14 @@ async function pollRegisteredNodes() {
 const pollingInterval = process.env.EJII_AUTO_POLL === 'true'
   ? setInterval(pollRegisteredNodes, 30000)
   : null;
+if (pollingInterval && typeof pollingInterval.unref === 'function') {
+  pollingInterval.unref();
+}
 
 // Continuous Live Location & Subnet Change Watcher (Every 10 seconds)
 let lastNetworkSignatureHash = null;
-const locationWatcherInterval = setInterval(() => {
+const locationWatcherInterval = (process.env.NODE_ENV !== 'test' && process.env.EJII_DISABLE_BG_SYNC !== 'true')
+  ? setInterval(() => {
   try {
     const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
     if (netInfo && netInfo.networkSignatureHash) {
@@ -380,7 +413,8 @@ const locationWatcherInterval = setInterval(() => {
       lastNetworkSignatureHash = netInfo.networkSignatureHash;
     }
   } catch (_) {}
-}, 10000);
+}, 10000)
+  : null;
 if (locationWatcherInterval && typeof locationWatcherInterval.unref === 'function') {
   locationWatcherInterval.unref();
 }
@@ -389,6 +423,9 @@ if (locationWatcherInterval && typeof locationWatcherInterval.unref === 'functio
 const initialPollTimeout = process.env.EJII_AUTO_POLL === 'true'
   ? setTimeout(pollRegisteredNodes, 3000)
   : null;
+if (initialPollTimeout && typeof initialPollTimeout.unref === 'function') {
+  initialPollTimeout.unref();
+}
 
 /**
  * Probes whether an active EJII server is already responding on target host:port.
@@ -475,6 +512,20 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
     console.log(`  Access Mode: Unprivileged NOC Operator                        `);
     console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
     console.log(`================================================================`);
+
+    // Fast non-blocking deferred initialization: background sweeps run AFTER port is bound
+    setImmediate(() => {
+      try {
+        if (process.env.NODE_ENV !== 'test' && process.env.EJII_DISABLE_BG_SYNC !== 'true') {
+          syncTopologyWithCurrentLocation(db);
+        }
+      } catch (_) {}
+      try {
+        if (process.env.NODE_ENV !== 'test' && process.env.EJII_DISABLE_BG_SYNC !== 'true') {
+          packetStreamer.startStreaming((type, payload) => broadcast(type, payload));
+        }
+      } catch (_) {}
+    });
   });
 }
 
@@ -482,6 +533,7 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
 async function gracefulShutdown(signal = 'SIGTERM') {
   console.log(`\n[EJII] Gracefully shutting down (${signal})...`);
   if (pollingInterval) clearInterval(pollingInterval);
+  if (locationWatcherInterval) clearInterval(locationWatcherInterval);
   if (initialPollTimeout) clearTimeout(initialPollTimeout);
   try {
     aiBrain.stopContinuousReasoning();

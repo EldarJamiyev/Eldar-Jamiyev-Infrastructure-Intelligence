@@ -19,6 +19,24 @@
     { id: 'view-automation', category: 'Navigation', title: 'Go to Local PC Automation & Safe BAT Execution (Pillar 7)', icon: '⚙️', action: () => window.renderView('pc-automation') },
 
     // Real Operational Actions
+    { id: 'act-gitops-reconcile', category: 'Action', title: 'GitOps IaC Drift Detection & Autonomous Reconciliation', icon: '🔄', action: () => {
+      if (typeof window.runGitopsDriftReconcileFromUi === 'function') window.runGitopsDriftReconcileFromUi();
+    }},
+    { id: 'act-cncf-otel-spans', category: 'Observability', title: 'Inspect CNCF OpenTelemetry Spans & W3C Trace Pipeline', icon: '📡', action: () => {
+      if (typeof window.inspectCncfObservabilityFromUi === 'function') window.inspectCncfObservabilityFromUi();
+    }},
+    { id: 'act-export-grafana', category: 'Observability', title: 'Export Grafana Unified Telemetry Dashboard JSON', icon: '📊', action: () => {
+      if (typeof window.exportGrafanaDashboardFromUi === 'function') window.exportGrafanaDashboardFromUi();
+    }},
+    { id: 'act-prometheus-metrics', category: 'Observability', title: 'View CNCF Prometheus /metrics Exposition Stream', icon: '📈', action: () => {
+      window.open('/metrics', '_blank');
+    }},
+    { id: 'act-loki-logs', category: 'Observability', title: 'Inspect Loki Structured JSON Audit Log Stream', icon: '📝', action: async () => {
+      try {
+        const logs = await window.api('/api/observability/loki-logs');
+        alert(`Loki Audit Stream: ${logs.streams ? logs.streams.length : 0} stream entries captured.`);
+      } catch (e) { alert('Loki logs inspection error: ' + e.message); }
+    }},
     { id: 'act-discover-topology', category: 'Action', title: 'Run L2/L3 Network Topology Auto-Discovery', icon: '🔄', action: async () => {
       try {
         const res = await window.api('/api/network/topology/discover', { method: 'POST' });

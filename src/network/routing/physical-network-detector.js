@@ -28,6 +28,10 @@ const CACHE_TTL_MS = 3000;
  */
 const GATEWAY_OUI_DATABASE = {
   // Xiaomi / Redmi
+  '50:64:2B': 'Xiaomi Communications / Mi Router',
+  '50642B': 'Xiaomi Communications / Mi Router',
+  '78:9A:18': 'MikroTik RouterOS',
+  // Xiaomi / Redmi
   '50:EB:71': 'Xiaomi Communications (Mi WiFi / Router)',
   '00:9E:C8': 'Xiaomi Communications',
   '7C:49:EB': 'Xiaomi Communications',
@@ -497,6 +501,11 @@ function getPhysicalNetworkInfo(options = {}) {
   const sigRaw = `${info.adapterName}|${info.localIp}|${info.subnetCidr}|${info.defaultGateway}|${info.gatewayMac}|${info.primaryDnsIp}`;
   info.locationSignature = sigRaw;
   info.networkSignatureHash = crypto.createHash('sha256').update(sigRaw).digest('hex');
+
+    const isEnterprise = (info.defaultGateway && info.defaultGateway.startsWith('10.')) ||
+    (info.subnetCidr && info.subnetCidr.startsWith('10.')) ||
+    /MikroTik|Cisco|Aruba|Meraki|Enterprise/i.test(info.gatewayVendor || '');
+  info.environmentProfile = isEnterprise ? 'ENTERPRISE_CORPORATE_INTRANET' : 'STANDARD_LAN_OR_WIFI';
 
   cachedPhysicalInfo = info;
   lastCacheTime = now;

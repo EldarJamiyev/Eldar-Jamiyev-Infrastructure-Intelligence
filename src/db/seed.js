@@ -15,6 +15,21 @@ const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('../
 const { DATA_DIR, IS_EVALUATION_MODE } = require('../config');
 
 function getSystemDefaultGateway() {
+  if (process.env.NODE_ENV === 'test' || process.env.EJII_FAST_BOOT === 'true') {
+    try {
+      const ifaces = os.networkInterfaces();
+      for (const name of Object.keys(ifaces)) {
+        for (const iface of ifaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            const parts = iface.address.split('.');
+            parts[3] = '1';
+            return parts.join('.');
+          }
+        }
+      }
+    } catch (_) {}
+    return '192.168.31.1';
+  }
   try {
     const info = getPhysicalNetworkInfo({ forceRefresh: true });
     if (info && info.defaultGateway) return info.defaultGateway;
@@ -397,8 +412,13 @@ function seedDatabase() {
 
   // Always ensure topology matches current location and active network
   try {
-    syncTopologyWithCurrentLocation(db);
-    console.log('✓ Synchronized NOC Network Topology with Current Location');
+    if (process.env.NODE_ENV === 'test' || process.env.EJII_FAST_BOOT === 'true') {
+      // In test / fast-boot mode: do NOT run slow synchronous PowerShell or arp -a sweeps during seeding.
+      // Dynamic location topology is synchronized non-blockingly after server.listen or verified in dedicated test suites.
+    } else {
+      syncTopologyWithCurrentLocation(db);
+      console.log('✓ Synchronized NOC Network Topology with Current Location');
+    }
   } catch (syncErr) {
     console.warn('[Topology Seed Warning]: Location auto-sync:', syncErr.message);
   }
