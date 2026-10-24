@@ -16,9 +16,57 @@ const { PacketDecoder } = require('../packet-decoding/packet-decoder');
 // Target Roster (empty in pure passive wire capture; zero pre-seeded phantom domains)
 const GOVERNMENT_TARGETS = [];
 
+
+/**
+ * High-Speed Fixed-Capacity Zero-GC Packet Ring Buffer
+ * Pre-allocates Float64Array and Uint32Array memory for sustained line-rate frame capture.
+ */
+class HighSpeedPacketRingBuffer {
+  constructor(capacity = 4096) {
+    this.capacity = capacity;
+    this.timestamps = new Float64Array(capacity);
+    this.lengths = new Uint32Array(capacity);
+    this.protocols = new Uint8Array(capacity);
+    this.head = 0;
+    this.tail = 0;
+    this.count = 0;
+    this.droppedOverruns = 0;
+  }
+
+  push(timestamp, length, protoCode = 6) {
+    if (this.count >= this.capacity) {
+      this.tail = (this.tail + 1) % this.capacity;
+      this.droppedOverruns++;
+      this.count--;
+    }
+    this.timestamps[this.head] = timestamp;
+    this.lengths[this.head] = length;
+    this.protocols[this.head] = protoCode;
+    this.head = (this.head + 1) % this.capacity;
+    this.count++;
+  }
+
+  getStats() {
+    return {
+      ringBufferCapacity: this.capacity,
+      ringBufferCount: this.count,
+      ringBufferOverruns: this.droppedOverruns,
+      ringBufferUtilizationPct: Number(((this.count / this.capacity) * 100).toFixed(1))
+    };
+  }
+
+  clear() {
+    this.head = 0;
+    this.tail = 0;
+    this.count = 0;
+    this.droppedOverruns = 0;
+  }
+}
+
 class PacketStreamer {
   constructor() {
     this.frameRingBuffer = [];
+    this.highSpeedRingBuffer = new HighSpeedPacketRingBuffer(4096);
     this.maxBufferSize = 2000;
     this.flowTable = new Map();
     this.isStreaming = false;
@@ -360,6 +408,20 @@ class PacketStreamer {
   /**
    * Addendum 2: Get current packet accounting counters
    */
+  /**
+   * Complete capture statistics including Packet Accounting Invariants & Ring Buffer Utilization
+   */
+  getCaptureStats() {
+    return {
+      counters: this.getCounters(),
+      ringBuffer: this.highSpeedRingBuffer.getStats(),
+      activeFlows: this.flowTable.size,
+      activeStreams: this.tcpStreams.size,
+      isStreaming: this.isStreaming,
+      selectedDevice: this.selectedDevice
+    };
+  }
+
   getCounters() {
     const c = { ...this.counters };
     // Operational & mathematical consistency invariants:
@@ -2139,6 +2201,7 @@ async function troubleshootEndpoint(target, port = 443) {
 }
 
 module.exports = {
+  HighSpeedPacketRingBuffer,
   PacketStreamer,
   packetStreamer: defaultStreamer,
   troubleshootEndpoint

@@ -80,6 +80,171 @@ function extractCharacterTrigrams(text) {
   return trigrams;
 }
 
+
+/**
+ * Ontological GraphRAG Knowledge Engine
+ * In-memory heterogeneous graph linking Protocols <-> Faults <-> RFCs <-> Runbooks <-> Policies.
+ * Executes Personalized PageRank (PPR) multi-hop path extraction and fuses with BM25 and N-gram cosine.
+ */
+class OntologicalKnowledgeGraph {
+  constructor() {
+    this.nodes = new Map();
+    this.edges = new Map(); // fromId -> [{ toId, relation, weight }]
+    this.incomingEdges = new Map(); // toId -> [{ fromId, relation, weight }]
+    this._initializeOntology();
+  }
+
+  addNode(id, type, label, metadata = {}) {
+    this.nodes.set(id, { id, type, label, ...metadata });
+    if (!this.edges.has(id)) this.edges.set(id, []);
+    if (!this.incomingEdges.has(id)) this.incomingEdges.set(id, []);
+  }
+
+  addEdge(fromId, toId, relation, weight = 1.0) {
+    if (!this.nodes.has(fromId)) this.addNode(fromId, 'CONCEPT', fromId);
+    if (!this.nodes.has(toId)) this.addNode(toId, 'CONCEPT', toId);
+
+    const outList = this.edges.get(fromId) || [];
+    outList.push({ toId, relation, weight });
+    this.edges.set(fromId, outList);
+
+    const inList = this.incomingEdges.get(toId) || [];
+    inList.push({ fromId, relation, weight });
+    this.incomingEdges.set(toId, inList);
+  }
+
+  _initializeOntology() {
+    // Protocols
+    this.addNode('PROTO_TCP', 'PROTOCOL', 'TCP Transport Layer (RFC 793)');
+    this.addNode('PROTO_UDP', 'PROTOCOL', 'UDP Datagram Transport (RFC 768)');
+    this.addNode('PROTO_ICMP', 'PROTOCOL', 'ICMP Control Protocol (RFC 792)');
+    this.addNode('PROTO_DNS', 'PROTOCOL', 'DNS Domain Name System (RFC 1035)');
+    this.addNode('PROTO_TLS', 'PROTOCOL', 'TLS Cryptographic Handshake (RFC 8446)');
+    this.addNode('PROTO_ARP', 'PROTOCOL', 'ARP Address Resolution (RFC 826)');
+    this.addNode('PROTO_DHCP', 'PROTOCOL', 'DHCP Dynamic Host Configuration (RFC 2131)');
+
+    // Fault Signatures
+    this.addNode('FAULT_SYN_TIMEOUT', 'FAULT', 'TCP SYN Silent Drop Timeout');
+    this.addNode('FAULT_RST_REJECT', 'FAULT', 'TCP Connection Reset (RST) Rejection');
+    this.addNode('FAULT_SERVFAIL', 'FAULT', 'DNS Resolution SERVFAIL / NXDOMAIN');
+    this.addNode('FAULT_PMTU_BLACKHOLE', 'FAULT', 'Path MTU Discovery Blackhole');
+    this.addNode('FAULT_CERT_EXPIRED', 'FAULT', 'TLS Handshake Certificate Expired or Untrusted');
+    this.addNode('FAULT_APIPA_FALLBACK', 'FAULT', 'APIPA 169.254.x.x Link-Local Fallback');
+
+    // Documents / Standards
+    this.addNode('RFC-793-TCP-RST', 'DOCUMENT', 'RFC 793 Section 3.4 RST Generation');
+    this.addNode('RFC-1122-KEEPALIVE', 'DOCUMENT', 'RFC 1122 Section 4.2.3.6 Keep-Alives');
+    this.addNode('RFC-2979-FIREWALL-DROP', 'DOCUMENT', 'RFC 2979 Stateful Firewall Silent Drop');
+    this.addNode('RFC-1035-DNS-DIAG', 'DOCUMENT', 'RFC 1035 DNS Diagnosis');
+    this.addNode('RFC-8446-TLS13', 'DOCUMENT', 'RFC 8446 TLS 1.3 Handshake');
+    this.addNode('RUNBOOK-WIN-PNP-DEGRADED', 'DOCUMENT', 'RB-04 Windows PnP Remediation');
+    this.addNode('RUNBOOK-UNKNOWN-APP-ENDPOINT', 'DOCUMENT', 'RB-09 Endpoint Discovery');
+
+    // Runbooks & Policies
+    this.addNode('RUNBOOK_FLUSH_DNS', 'RUNBOOK', 'Flush DNS Cache & Rebuild Resolver State');
+    this.addNode('RUNBOOK_RESTART_SERVICE', 'RUNBOOK', 'Restart Target Application Service Daemon');
+    this.addNode('RUNBOOK_FIREWALL_RULE', 'RUNBOOK', 'Inspect Perimeter Firewall Security Group Rules');
+    this.addNode('RUNBOOK_RENEW_DHCP', 'RUNBOOK', 'Release and Renew DHCP Lease');
+    this.addNode('POLICY_SSRF_GUARD', 'POLICY', 'Strict Target Canonicalization & SSRF Defense');
+    this.addNode('POLICY_RBAC_RULE', 'POLICY', 'Role-Based Access Control Sandboxing');
+
+    // Directed Relationships
+    this.addEdge('PROTO_TCP', 'FAULT_SYN_TIMEOUT', 'CAUSES', 1.0);
+    this.addEdge('PROTO_TCP', 'FAULT_RST_REJECT', 'CAUSES', 1.0);
+    this.addEdge('PROTO_DNS', 'FAULT_SERVFAIL', 'CAUSES', 1.0);
+    this.addEdge('PROTO_TLS', 'FAULT_CERT_EXPIRED', 'CAUSES', 1.0);
+    this.addEdge('PROTO_DHCP', 'FAULT_APIPA_FALLBACK', 'CAUSES', 1.0);
+
+    this.addEdge('FAULT_SYN_TIMEOUT', 'RFC-2979-FIREWALL-DROP', 'INDICATES', 1.0);
+    this.addEdge('FAULT_SYN_TIMEOUT', 'RUNBOOK_FIREWALL_RULE', 'REMEDIATED_BY', 0.95);
+    this.addEdge('FAULT_RST_REJECT', 'RFC-793-TCP-RST', 'INDICATES', 1.0);
+    this.addEdge('FAULT_RST_REJECT', 'RUNBOOK_RESTART_SERVICE', 'REMEDIATED_BY', 0.95);
+    this.addEdge('FAULT_SERVFAIL', 'RFC-1035-DNS-DIAG', 'INDICATES', 1.0);
+    this.addEdge('FAULT_SERVFAIL', 'RUNBOOK_FLUSH_DNS', 'REMEDIATED_BY', 0.95);
+    this.addEdge('FAULT_CERT_EXPIRED', 'RFC-8446-TLS13', 'INDICATES', 1.0);
+    this.addEdge('FAULT_APIPA_FALLBACK', 'RUNBOOK_RENEW_DHCP', 'REMEDIATED_BY', 0.95);
+
+    this.addEdge('PROTO_TCP', 'RFC-1122-KEEPALIVE', 'DEFINES', 0.9);
+    this.addEdge('RUNBOOK_FIREWALL_RULE', 'POLICY_RBAC_RULE', 'GOVERNED_BY', 0.85);
+    this.addEdge('RUNBOOK_FLUSH_DNS', 'POLICY_SSRF_GUARD', 'GOVERNED_BY', 0.85);
+  }
+
+  computePPR(seedIds = [], { alpha = 0.85, maxIterations = 20 } = {}) {
+    const nodeCount = this.nodes.size;
+    if (nodeCount === 0 || !Array.isArray(seedIds) || seedIds.length === 0) {
+      return new Map();
+    }
+
+    const validSeeds = seedIds.filter(id => this.nodes.has(id));
+    if (validSeeds.length === 0) return new Map();
+
+    // Preference vector p0
+    const p0 = new Map();
+    const seedWeight = 1.0 / validSeeds.length;
+    for (const id of validSeeds) {
+      p0.set(id, seedWeight);
+    }
+
+    // Initialize probability distribution
+    let p = new Map(p0);
+
+    for (let it = 0; it < maxIterations; it++) {
+      const nextP = new Map();
+      for (const [nodeId] of this.nodes) {
+        nextP.set(nodeId, (1 - alpha) * (p0.get(nodeId) || 0));
+      }
+
+      for (const [fromId, outEdges] of this.edges.entries()) {
+        const fromProb = p.get(fromId) || 0;
+        if (fromProb <= 0 || outEdges.length === 0) continue;
+
+        let totalOutWeight = 0;
+        for (const e of outEdges) totalOutWeight += e.weight;
+        if (totalOutWeight <= 0) totalOutWeight = 1;
+
+        for (const e of outEdges) {
+          const contrib = alpha * fromProb * (e.weight / totalOutWeight);
+          nextP.set(e.toId, (nextP.get(e.toId) || 0) + contrib);
+        }
+      }
+
+      p = nextP;
+    }
+
+    return p;
+  }
+
+  extractExplainingPath(seedId, targetDocId) {
+    if (!seedId || !targetDocId || !this.nodes.has(seedId) || !this.nodes.has(targetDocId)) {
+      return null;
+    }
+    if (seedId === targetDocId) return [seedId];
+
+    // Simple BFS for shortest explaining chain
+    const queue = [[seedId]];
+    const visited = new Set([seedId]);
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+
+      if (current === targetDocId) {
+        return path;
+      }
+
+      const outEdges = this.edges.get(current) || [];
+      for (const e of outEdges) {
+        if (!visited.has(e.toId)) {
+          visited.add(e.toId);
+          queue.push([...path, e.toId]);
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
 class RAGKnowledgeEngine {
   constructor(options = {}) {
     this.rootDir = options.rootDir || path.resolve(__dirname, '../..');
@@ -89,6 +254,7 @@ class RAGKnowledgeEngine {
     this.avgDocLength = 1;
     this.lastIndexedAt = null;
 
+    this.knowledgeGraph = new OntologicalKnowledgeGraph();
     this.rebuildIndex();
   }
 
@@ -303,6 +469,23 @@ class RAGKnowledgeEngine {
     const cosineRankMap = new Map();
     sortedByCosine.forEach(([docId], idx) => cosineRankMap.set(docId, idx + 1));
 
+    // Step 2.5: Map query tokens to Ontological Knowledge Graph seeds & compute PPR
+    const querySeeds = [];
+    const lowerQuery = queryText.toLowerCase();
+    if (lowerQuery.includes('tcp') || lowerQuery.includes('rst') || lowerQuery.includes('syn')) querySeeds.push('PROTO_TCP');
+    if (lowerQuery.includes('udp')) querySeeds.push('PROTO_UDP');
+    if (lowerQuery.includes('icmp') || lowerQuery.includes('ping')) querySeeds.push('PROTO_ICMP');
+    if (lowerQuery.includes('dns') || lowerQuery.includes('servfail') || lowerQuery.includes('nxdomain')) querySeeds.push('PROTO_DNS');
+    if (lowerQuery.includes('tls') || lowerQuery.includes('ssl') || lowerQuery.includes('cert')) querySeeds.push('PROTO_TLS');
+    if (lowerQuery.includes('dhcp') || lowerQuery.includes('apipa')) querySeeds.push('PROTO_DHCP');
+    if (lowerQuery.includes('rst') || lowerQuery.includes('refused')) querySeeds.push('FAULT_RST_REJECT');
+    if (lowerQuery.includes('timeout') || lowerQuery.includes('drop')) querySeeds.push('FAULT_SYN_TIMEOUT');
+
+    const pprMap = this.knowledgeGraph.computePPR(querySeeds);
+    const sortedByPpr = Array.from(pprMap.entries()).sort((a, b) => b[1] - a[1]);
+    const pprRankMap = new Map();
+    sortedByPpr.forEach(([nodeId], idx) => pprRankMap.set(nodeId, idx + 1));
+
     const kRrf = 60;
     const results = [];
 
@@ -314,11 +497,24 @@ class RAGKnowledgeEngine {
 
       const rBm25 = bm25RankMap.get(docId) || 1000;
       const rCosine = cosineRankMap.get(docId) || 1000;
-      const rrfScore = (1 / (kRrf + rBm25)) + (1 / (kRrf + rCosine));
+
+      // Step 2b: GraphRAG PPR Score & Multi-Hop Path Extraction
+      const pprScore = pprMap.get(docId) || 0;
+      const rPpr = pprRankMap.get(docId) || 1000;
+      const rrfScore = (1 / (kRrf + rBm25)) + (1 / (kRrf + rCosine)) + (1 / (kRrf + rPpr));
 
       // Composite relevance score: ensures compatibility with existing BM25 thresholds (> 0.5)
-      // while incorporating character n-gram cosine boost
-      const relevanceScore = bm25Score > 0 ? bm25Score + (cosineSim * 2.5) : (cosineSim * 3.5);
+      // while incorporating character n-gram cosine boost and GraphRAG topological proximity
+      const relevanceScore = bm25Score > 0
+        ? bm25Score + (cosineSim * 2.5) + (pprScore * 1.5)
+        : (cosineSim * 3.5) + (pprScore * 2.0);
+
+      // Extract multi-hop explaining path from active seeds to this document
+      let explainingPath = null;
+      for (const seed of querySeeds) {
+        explainingPath = this.knowledgeGraph.extractExplainingPath(seed, docId);
+        if (explainingPath) break;
+      }
 
       if (relevanceScore >= minScore) {
         results.push({
@@ -330,7 +526,10 @@ class RAGKnowledgeEngine {
           relevanceScore: Number(relevanceScore.toFixed(4)),
           bm25Score: Number(bm25Score.toFixed(4)),
           cosineSimilarity: Number(cosineSim.toFixed(4)),
-          rrfScore: Number(rrfScore.toFixed(6))
+          pprScore: Number(pprScore.toFixed(4)),
+          rrfScore: Number(rrfScore.toFixed(6)),
+          graphRagPath: explainingPath,
+          knowledgeGraphSummary: explainingPath ? explainingPath.join(' -> ') : null
         });
       }
     }
@@ -343,6 +542,7 @@ class RAGKnowledgeEngine {
 const ragKnowledgeEngine = new RAGKnowledgeEngine();
 
 module.exports = {
+  OntologicalKnowledgeGraph,
   RAGKnowledgeEngine,
   ragKnowledgeEngine,
   BUILTIN_RFC_AND_RUNBOOK_CORPUS

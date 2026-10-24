@@ -135,13 +135,17 @@ app.get('/api/system/bootstrap', async (req, res) => {
     const { scriptAutomation } = require('./tools/script-automation');
     const { hostDiagnosticsEngine } = require('./systems/diagnostics/host-diagnostics-engine');
     const { aiBrain } = require('./core/ai-brain');
+    const { getHardwareAnchorStatus } = require('./core/audit-logger');
 
     const topo = topologyEngine.getTopology();
     const inventory = equipmentInventoryRepository.getAllEquipmentRecords();
     const scriptsRes = scriptAutomation.listAutomationScripts();
     const warmDiag = hostDiagnosticsEngine.getWarmSnapshot();
     const brainStatus = aiBrain.getStatus();
+    const liveBrainState = aiBrain.getLiveState();
     const counters = packetStreamer.getCounters();
+    const captureStats = packetStreamer.getCaptureStats();
+    const auditAnchor = getHardwareAnchorStatus();
 
     res.json({
       success: true,
@@ -152,13 +156,21 @@ app.get('/api/system/bootstrap', async (req, res) => {
         selectedDevice: packetStreamer.selectedDevice,
         bpfFilter: packetStreamer.bpfFilter,
         counters,
+        ringBuffer: captureStats.ringBuffer,
         recentFrames: packetStreamer.frameRingBuffer.slice(-50)
       },
       inventory,
       scripts: scriptsRes.scripts || scriptsRes,
       mountMetadata: scriptsRes.mountMetadata || {},
       diagnostics: warmDiag,
-      aiBrain: brainStatus
+      aiBrain: {
+        ...brainStatus,
+        symbolicProofChain: liveBrainState.symbolicProofChain || [],
+        solverStats: liveBrainState.solverStats || {},
+        activeInference: liveBrainState.activeInference || {},
+        worldModelRollout: liveBrainState.worldModelRollout || null
+      },
+      auditAnchor
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

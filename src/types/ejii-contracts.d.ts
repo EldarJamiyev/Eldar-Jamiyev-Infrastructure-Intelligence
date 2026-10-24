@@ -275,3 +275,98 @@ export interface IWorkerPoolTelemetry {
   eventLoopDelayP99Ms: number;
   poolStatus: 'ready' | 'busy' | 'draining' | 'terminated';
 }
+
+export interface ISymbolicProofRule {
+  axiom: string;
+  ruleName: string;
+  head: string;
+  datalog: string;
+  rfc: string;
+  action: 'BOOST' | 'CONTRADICT' | 'ELIMINATE';
+  weight: number;
+  logWeight: number;
+  contradicts?: string[];
+  rationale: string;
+  satisfied: boolean;
+}
+
+export interface IActiveInferenceProbeScore {
+  probeType: string;
+  name: string;
+  expectedFreeEnergy_G: number;
+  epistemicValueBits: number;
+  pragmaticValueScore: number;
+  informationGain: string;
+}
+
+export interface IActiveInferenceMetrics {
+  variationalFreeEnergy: number;
+  complexityTerm: number;
+  accuracyTerm: number;
+  shannonEntropyBits: number;
+  activeHypothesesCount: number;
+  expectedFreeEnergyByProbe: IActiveInferenceProbeScore[];
+  optimalProbe: IActiveInferenceProbeScore | null;
+}
+
+export interface IWorldModelHorizon {
+  step: 't_0' | 't_10s' | 't_1m' | 't_5m' | 't_10m';
+  timeLabel: string;
+  failureRiskPct: number;
+  entropyBits: number;
+  recoveryProbability: number;
+  state: string;
+}
+
+export interface IWorldModelRollout {
+  action: string;
+  rolloutHorizons: IWorldModelHorizon[];
+  mctsStats: {
+    iterations: number;
+    rolloutsCompleted: number;
+    treeDepth: number;
+    uctExplorationConstant: number;
+    convergenceConfidence: number;
+  };
+  trajectoryOutcome: string;
+}
+
+export interface ICausalDirectedEdge {
+  from: string;
+  to: string;
+  causalWeight: number;
+  lagSteps: number;
+  pValue: number;
+}
+
+export interface ICausalDiscoveryGraph {
+  variables: string[];
+  adjacencyMatrix: number[][];
+  acyclicityTraceMetric: number;
+  isDag: boolean;
+  directedEdges: ICausalDirectedEdge[];
+  rootCauseCandidate: string;
+  discoveryAlgorithm: string;
+  timestamp: string;
+}
+
+export interface IPacketFactoryResult {
+  success: boolean;
+  tool: string;
+  rfcCompliance: string;
+  frameSpecification: Record<string, unknown>;
+  hexDump: string;
+  byteLength: number;
+  checksumVerified: boolean;
+  timestamp: string;
+}
+
+export interface IHardwareAnchorStatus {
+  hardwareBound: boolean;
+  algorithm: string;
+  anchorHash: string;
+  platform: string;
+  hostname: string;
+  platformVerified: boolean;
+  sealedAt: string;
+}

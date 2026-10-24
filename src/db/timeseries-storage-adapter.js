@@ -11,11 +11,160 @@
 
 const { db } = require('./database');
 
+
+/**
+ * Columnar Gorilla Time-Series Compression Engine
+ * Implements Facebook Gorilla Delta-of-Delta for timestamps and XOR for Float64 telemetry values.
+ */
+class ColumnarGorillaCompressor {
+  compressSeries(points = []) {
+    if (!Array.isArray(points) || points.length === 0) {
+      return { compressedBuffer: Buffer.alloc(0), pointCount: 0, compressionRatio: 1.0 };
+    }
+
+    const n = points.length;
+    const timestamps = new Float64Array(n);
+    const values = new Float64Array(n);
+
+    for (let i = 0; i < n; i++) {
+      timestamps[i] = Number(points[i].recorded_at_ms || points[i].timestampMs || Date.now());
+      values[i] = Number(points[i].metric_value || points[i].value || 0);
+    }
+
+    const deltaDeltas = new Int32Array(n);
+    let prevT = timestamps[0];
+    let prevDelta = 0;
+    deltaDeltas[0] = 0;
+
+    for (let i = 1; i < n; i++) {
+      const curDelta = Math.round(timestamps[i] - prevT);
+      deltaDeltas[i] = curDelta - prevDelta;
+      prevDelta = curDelta;
+      prevT = timestamps[i];
+    }
+
+    const f64Buf = new Float64Array(1);
+    const u64Buf = new BigUint64Array(f64Buf.buffer);
+    const xorDeltas = new BigUint64Array(n);
+    let prevBits = 0n;
+
+    for (let i = 0; i < n; i++) {
+      f64Buf[0] = values[i];
+      const curBits = u64Buf[0];
+      xorDeltas[i] = curBits ^ prevBits;
+      prevBits = curBits;
+    }
+
+    const headerBuf = Buffer.alloc(12);
+    headerBuf.writeUInt32BE(n, 0);
+    headerBuf.writeDoubleBE(timestamps[0], 4);
+
+    const ddBuf = Buffer.from(deltaDeltas.buffer);
+    const xorBuf = Buffer.from(xorDeltas.buffer);
+
+    const compressedBuffer = Buffer.concat([headerBuf, ddBuf, xorBuf]);
+    const rawByteSize = n * 16;
+    const compressedSize = compressedBuffer.length;
+    const compressionRatio = Number((rawByteSize / Math.max(1, compressedSize)).toFixed(2));
+
+    return {
+      compressedBuffer,
+      pointCount: n,
+      rawByteSize,
+      compressedByteSize: compressedSize,
+      compressionRatio,
+      algorithm: 'Gorilla_DeltaOfDelta_XOR_Float64'
+    };
+  }
+
+  decompressSeries(compressedBuffer) {
+    if (!Buffer.isBuffer(compressedBuffer) || compressedBuffer.length < 12) {
+      return [];
+    }
+
+    const n = compressedBuffer.readUInt32BE(0);
+    const firstT = compressedBuffer.readDoubleBE(4);
+
+    const ddByteLength = n * 4;
+    const xorByteLength = n * 8;
+
+    if (compressedBuffer.length < 12 + ddByteLength + xorByteLength) {
+      return [];
+    }
+
+    const ddSlice = compressedBuffer.slice(12, 12 + ddByteLength);
+    const xorSlice = compressedBuffer.slice(12 + ddByteLength, 12 + ddByteLength + xorByteLength);
+
+    const deltaDeltas = new Int32Array(ddSlice.buffer, ddSlice.byteOffset, n);
+    const xorDeltas = new BigUint64Array(xorSlice.buffer, xorSlice.byteOffset, n);
+
+    const f64Buf = new Float64Array(1);
+    const u64Buf = new BigUint64Array(f64Buf.buffer);
+
+    const result = [];
+    let curT = firstT;
+    let prevDelta = 0;
+    let prevBits = 0n;
+
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        prevDelta += deltaDeltas[i];
+        curT += prevDelta;
+      }
+      const curBits = prevBits ^ xorDeltas[i];
+      prevBits = curBits;
+      u64Buf[0] = curBits;
+      const curVal = f64Buf[0];
+
+      result.push({
+        recorded_at_ms: Math.round(curT),
+        metric_value: curVal
+      });
+    }
+
+    return result;
+  }
+
+  computeRollupWindow(points = [], windowMs = 60000) {
+    if (!Array.isArray(points) || points.length === 0) return [];
+
+    const buckets = new Map();
+    for (const pt of points) {
+      const t = Number(pt.recorded_at_ms || pt.timestampMs || Date.now());
+      const bucketTime = Math.floor(t / windowMs) * windowMs;
+      if (!buckets.has(bucketTime)) {
+        buckets.set(bucketTime, []);
+      }
+      buckets.get(bucketTime).push(Number(pt.metric_value || pt.value || 0));
+    }
+
+    const rollups = [];
+    for (const [bucketTime, vals] of buckets.entries()) {
+      const count = vals.length;
+      const sum = vals.reduce((a, b) => a + b, 0);
+      const avg = sum / count;
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      rollups.push({
+        bucketTimeMs: bucketTime,
+        count,
+        avg: Number(avg.toFixed(3)),
+        min: Number(min.toFixed(3)),
+        max: Number(max.toFixed(3))
+      });
+    }
+
+    rollups.sort((a, b) => a.bucketTimeMs - b.bucketTimeMs);
+    return rollups;
+  }
+}
+
 class TimeSeriesStorageAdapter {
   constructor(options = {}) {
     this.maxBufferSize = options.maxBufferSize || 2000;
     this.batchFlushSize = options.batchFlushSize || 100;
     this.ringBuffer = [];
+    this.columnarGorilla = new ColumnarGorillaCompressor();
     this.stats = {
       pointsIngested: 0,
       batchesFlushedToWal: 0,
@@ -183,6 +332,18 @@ class TimeSeriesStorageAdapter {
     return `INSERT INTO ejii_metrics_hypertable (time, target_host, metric_name, metric_value, tags)\nVALUES\n  ${valuesSql};`;
   }
 
+  compressTimeSeries(points) {
+    return this.columnarGorilla.compressSeries(points);
+  }
+
+  decompressTimeSeries(buffer) {
+    return this.columnarGorilla.decompressSeries(buffer);
+  }
+
+  computeRollupWindow(points, windowMs) {
+    return this.columnarGorilla.computeRollupWindow(points, windowMs);
+  }
+
   getAdapterStatus() {
     return {
       activePrimaryEngine: 'SQLite_WAL_Bulk_WriteBehind_RingBuffer',
@@ -196,6 +357,7 @@ class TimeSeriesStorageAdapter {
 const timeSeriesStorageAdapter = new TimeSeriesStorageAdapter();
 
 module.exports = {
+  ColumnarGorillaCompressor,
   TimeSeriesStorageAdapter,
   timeSeriesStorageAdapter
 };

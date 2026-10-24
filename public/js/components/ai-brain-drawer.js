@@ -182,6 +182,62 @@
             ${legendHtml}
           </div>
         </div>
+
+        <!-- Cognitive Telemetry Strip: Neuro-Symbolic Proof Chain & Active Inference & MCTS World Model -->
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 10px; font-weight: 800; color: #38bdf8; font-family: var(--font-mono);">
+                NEURO-SYMBOLIC PROOF CHAIN (Stratified Datalog / Horn Clauses):
+              </span>
+              <span style="font-size: 9px; color: #94a3b8; font-family: var(--font-mono);">
+                ${(state.symbolicProofChain || []).length} Axioms Fired
+              </span>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${(state.symbolicProofChain && state.symbolicProofChain.length > 0)
+                ? state.symbolicProofChain.map(p => `
+                    <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid ${p.action === 'CONTRADICT' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.2)'}; border-radius: 4px; padding: 2px 8px; font-size: 9px; font-family: var(--font-mono);">
+                      <span style="color: ${p.action === 'CONTRADICT' ? '#ef4444' : '#38bdf8'}; font-weight: 700;">[${escapeHtml(p.axiom)}] ${escapeHtml(p.ruleName)}</span>:
+                      <span style="color: #e2e8f0;"> ${escapeHtml(p.datalog)}</span>
+                      <span style="color: #64748b;"> (${escapeHtml(p.rfc)})</span>
+                    </div>
+                  `).join('')
+                : `<span style="font-size: 9.5px; color: #64748b; font-family: var(--font-mono);">Nominal state verified: zero anomaly axioms triggered.</span>`
+              }
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #10b981; font-family: var(--font-mono); margin-bottom: 2px;">
+                ACTIVE INFERENCE (Friston Free Energy):
+              </div>
+              <div style="font-size: 9px; color: #94a3b8; font-family: var(--font-mono);">
+                VFE: <strong style="color: #38bdf8;">${state.activeInference?.variationalFreeEnergy || 0}</strong> |
+                Complexity: <strong style="color: #f59e0b;">${state.activeInference?.complexityTerm || 0}</strong> |
+                Accuracy: <strong style="color: #10b981;">${state.activeInference?.accuracyTerm || 0}</strong>
+              </div>
+              <div style="font-size: 9px; color: #64748b; font-family: var(--font-mono); margin-top: 2px;">
+                Optimal Epistemic Probe: <span style="color: #e2e8f0;">${escapeHtml(state.activeInference?.optimalProbe?.name || 'ICMP Gateway Echo')}</span>
+              </div>
+            </div>
+
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #8b5cf6; font-family: var(--font-mono); margin-bottom: 2px;">
+                MCTS WORLD MODEL ROLLOUT:
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 8.5px; font-family: var(--font-mono); margin-top: 3px;">
+                ${(state.worldModelRollout?.rolloutHorizons || []).map(h => `
+                  <div style="text-align: center;">
+                    <div style="color: #64748b;">${h.step}</div>
+                    <div style="color: ${h.failureRiskPct > 40 ? '#ef4444' : '#10b981'}; font-weight: 700;">${h.failureRiskPct}%</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
