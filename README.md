@@ -364,7 +364,7 @@ flowchart TD
     ConditionalGate -->|Confidence < 85%| LocalLLM
     Telemetry --> Welford
     Welford --> ChildSandbox
-    ChildSandbox -->|Pass (Exit 0)| CausalBrain
+    ChildSandbox -->|"Pass (Exit 0)"| CausalBrain
     CausalBrain --> Watchdog
 ```
 
