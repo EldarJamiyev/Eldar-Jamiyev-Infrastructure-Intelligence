@@ -129,7 +129,13 @@ function initWebSocket() {
         if (!msg || typeof msg !== 'object') return;
 
         if (msg.type === 'PACKET_STREAM_FRAME' && typeof window.handleLivePacketFrame === 'function') {
-          window.handleLivePacketFrame(msg.payload || msg.frame);
+          const frame = msg.payload || msg.frame;
+          if (frame?.counters && typeof window.handlePacketStats === 'function') {
+            window.handlePacketStats(frame.counters);
+          }
+          window.handleLivePacketFrame(frame);
+        } else if (msg.type === 'PACKET_STATS' && typeof window.handlePacketStats === 'function') {
+          window.handlePacketStats(msg.payload || msg);
         } else if (msg.type === 'CAPTURE_STATUS' && typeof window.handleCaptureStatus === 'function') {
           window.handleCaptureStatus(msg.payload || msg);
         } else if (msg.type === 'FLOW_STREAM_UPDATE' && typeof window.handleLiveFlowUpdate === 'function') {
@@ -389,6 +395,28 @@ function updateUserBadge() {
   }
 }
 
+window.currentRouteGeneration = 0;
+window.EJIIStore = window.EJIIStore || { bootstrap: null, cache: {} };
+
+async function loadWarmBootstrap() {
+  if (!state.token) return null;
+  try {
+    const data = await api('/api/system/bootstrap');
+    if (data && data.ok) {
+      window.EJIIStore.bootstrap = data;
+      if (data.network?.topology && typeof window.setNocTopologyData === 'function') {
+        window.setNocTopologyData(data.network.topology);
+      }
+      if (data.sniffer?.counters && typeof window.handlePacketStats === 'function') {
+        window.handlePacketStats({ counters: data.sniffer.counters });
+      }
+      return data;
+    }
+  } catch (e) {}
+  return null;
+}
+window.loadWarmBootstrap = loadWarmBootstrap;
+
 /**
  * Universal View Renderer for the 4 Dedicated Workstations
  */
@@ -398,6 +426,8 @@ function renderView(viewName = 'topology') {
   if (target === 'ip-scanner') target = 'ultra-ip-scanner';
 
   state.currentView = target;
+  window.currentRouteGeneration = (window.currentRouteGeneration || 0) + 1;
+  const currentGen = window.currentRouteGeneration;
 
   // Highlight active nav link
   document.querySelectorAll('.nav-link').forEach(link => {
@@ -774,7 +804,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Check existing session or show login
   if (state.token) {
     try {
-      const me = await api('/api/auth/me');
+      const [me] = await Promise.all([
+        api('/api/auth/me'),
+        loadWarmBootstrap()
+      ]);
       state.user = me.user;
       hideLoginScreen();
       updateUserBadge();

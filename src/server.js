@@ -126,6 +126,45 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Fast Aggregated Bootstrap Endpoint (Instant 0ms multi-view hydration)
+app.get('/api/system/bootstrap', async (req, res) => {
+  try {
+    const { topologyEngine } = require('./network/topology/topology-engine');
+    const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
+    const { equipmentInventoryRepository } = require('./db/equipment-inventory-repository');
+    const { scriptAutomation } = require('./tools/script-automation');
+    const { hostDiagnosticsEngine } = require('./systems/diagnostics/host-diagnostics-engine');
+    const { aiBrain } = require('./core/ai-brain');
+
+    const topo = topologyEngine.getTopology();
+    const inventory = equipmentInventoryRepository.getAllEquipmentRecords();
+    const scriptsRes = scriptAutomation.listAutomationScripts();
+    const warmDiag = hostDiagnosticsEngine.getWarmSnapshot();
+    const brainStatus = aiBrain.getStatus();
+    const counters = packetStreamer.getCounters();
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      topology: topo,
+      sniffer: {
+        active: packetStreamer.isActive(),
+        selectedDevice: packetStreamer.selectedDevice,
+        bpfFilter: packetStreamer.bpfFilter,
+        counters,
+        recentFrames: packetStreamer.frameRingBuffer.slice(-50)
+      },
+      inventory,
+      scripts: scriptsRes.scripts || scriptsRes,
+      mountMetadata: scriptsRes.mountMetadata || {},
+      diagnostics: warmDiag,
+      aiBrain: brainStatus
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/diagnostics', hostRemediationRoutes);
 app.use('/api/diagnostics', diagRoutes);
@@ -232,7 +271,14 @@ wss.on('connection', (ws, req) => {
           }));
         }
         packetStreamer.startStreaming((t, p) => broadcast(t, p));
-        ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: true }));
+        ws.send(JSON.stringify({
+          type: 'PACKET_STREAM_STATUS',
+          active: true,
+          counters: packetStreamer.getCounters(),
+          device: packetStreamer.selectedDevice,
+          bpf: packetStreamer.bpfFilter,
+          frames: packetStreamer.frameRingBuffer.slice(-50)
+        }));
       } else if (data.type === 'STOP_PACKET_STREAM') {
         packetStreamer.stopStreaming();
         ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: false }));

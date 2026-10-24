@@ -28,33 +28,11 @@ window.escapeAttr = escapeAttr;
     const container = document.getElementById('mainContent');
     if (!container) return;
 
-    container.innerHTML = `
-      <div style="display: flex; align-items: center; justify-content: center; height: 350px;">
-        <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono);">Connecting Section 2: Wireshark-Grade Live Wire Dissector...</span>
-      </div>
-    `;
-
     try {
-      // Ensure sniffer is running and fetch initial frames/flows & interfaces
-      const [statusRes, framesRes, flowsRes, ifaceRes] = await Promise.all([
-        window.api('/api/network/capture/status').catch(() => ({ active: true })),
-        window.api('/api/network/capture/frames?limit=100').catch(() => ({ frames: [] })),
-        window.api('/api/network/capture/flows?limit=100').catch(() => ({ flows: [] })),
-        window.api('/api/network/capture/interfaces').catch(() => ({ interfaces: [], activeDevice: null }))
-      ]);
+      const routeGen = window.currentRouteGeneration;
 
-      if (framesRes?.frames && typeof window.setNocLiveFrames === 'function') {
-        window.setNocLiveFrames(framesRes.frames);
-      }
-      if (flowsRes?.flows && typeof window.setNocLiveFlows === 'function') {
-        window.setNocLiveFlows(flowsRes.flows);
-      }
-
-      currentInterfaces = ifaceRes?.interfaces || [];
-      activeCaptureDevice = ifaceRes?.activeDevice || null;
-
-      // Build interface options
-      const ifaceOptionsHtml = currentInterfaces.map(i => {
+      // Build interface options from cached if available
+      const ifaceOptionsHtml = (currentInterfaces || []).map(i => {
         const isSelected = activeCaptureDevice ? (activeCaptureDevice === i.name) : Boolean(i.isDefault);
         const label = i.ip ? `${i.description} [${i.ip}]` : i.description;
         return `<option value="${escapeAttr(i.name)}" ${isSelected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
@@ -351,10 +329,7 @@ window.escapeAttr = escapeAttr;
         window.flushPacketBatch();
       }
 
-      if (statusRes && typeof window.handleCaptureStatus === 'function') {
-        window.handleCaptureStatus(statusRes);
-      }
-
+      // Mount AI Brain Drawer immediately
       if (typeof window.initAiBrainDrawer === 'function') {
         window.initAiBrainDrawer('snifferAiBrainDrawerContainer');
       }
@@ -363,8 +338,46 @@ window.escapeAttr = escapeAttr;
         window.refreshNocCounters();
       }
 
-      // Auto-inspect first/latest available frame so the 3-pane inspector is immediately populated
-      setTimeout(() => {
+      // Stale-While-Revalidate background hydration (0ms blocking delay)
+      Promise.all([
+        window.api('/api/network/capture/status').catch(() => ({ active: true })),
+        window.api('/api/network/capture/frames?limit=100').catch(() => ({ frames: [] })),
+        window.api('/api/network/capture/flows?limit=100').catch(() => ({ flows: [] })),
+        window.api('/api/network/capture/interfaces').catch(() => ({ interfaces: [], activeDevice: null }))
+      ]).then(([statusRes, framesRes, flowsRes, ifaceRes]) => {
+        if (window.currentRouteGeneration !== routeGen) return;
+
+        if (framesRes?.frames && typeof window.setNocLiveFrames === 'function') {
+          window.setNocLiveFrames(framesRes.frames);
+          const tbody = document.getElementById('livePacketTableBody');
+          if (tbody && typeof window.renderPacketRows === 'function') {
+            tbody.innerHTML = window.renderPacketRows();
+          }
+        }
+        if (flowsRes?.flows && typeof window.setNocLiveFlows === 'function') {
+          window.setNocLiveFlows(flowsRes.flows);
+          const flowBody = document.getElementById('nirsoftFlowTableBody');
+          if (flowBody && typeof window.renderFlowRows === 'function') {
+            flowBody.innerHTML = window.renderFlowRows();
+          }
+        }
+
+        currentInterfaces = ifaceRes?.interfaces || [];
+        activeCaptureDevice = ifaceRes?.activeDevice || null;
+
+        const ifaceSelect = document.getElementById('captureInterfaceSelect');
+        if (ifaceSelect && currentInterfaces.length > 0) {
+          ifaceSelect.innerHTML = currentInterfaces.map(i => {
+            const isSelected = activeCaptureDevice ? (activeCaptureDevice === i.name) : Boolean(i.isDefault);
+            const label = i.ip ? `${i.description} [${i.ip}]` : i.description;
+            return `<option value="${escapeAttr(i.name)}" ${isSelected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('');
+        }
+
+        if (statusRes && typeof window.handleCaptureStatus === 'function') {
+          window.handleCaptureStatus(statusRes);
+        }
+
         const frames = (framesRes?.frames && framesRes.frames.length > 0) ? framesRes.frames : (window.getNocLiveFrames ? window.getNocLiveFrames() : []);
         if (frames.length > 0 && typeof window.inspectPacketFrame === 'function') {
           const targetFrame = frames[frames.length - 1];
@@ -372,7 +385,9 @@ window.escapeAttr = escapeAttr;
             window.inspectPacketFrame(targetFrame.frameNumber);
           }
         }
-      }, 150);
+      }).catch(e => {
+        console.warn('[Sniffer Background Hydration Warning]:', e.message);
+      });
     } catch (err) {
       console.error('[SNIFFER-VIEW-LOAD-ERROR]', err);
       container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Live Packet Sniffer: ${escapeHtml(err.message)}<pre style="margin-top: 10px; font-size: 11px; color: var(--text-muted); white-space: pre-wrap;">${escapeHtml(err.stack || '')}</pre></div>`;

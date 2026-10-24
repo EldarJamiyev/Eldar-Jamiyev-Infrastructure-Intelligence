@@ -17,14 +17,14 @@
     const container = document.getElementById('mainContent');
     if (!container) return;
 
-    container.innerHTML = `
-      <div style="display: flex; align-items: center; justify-content: center; height: 350px;">
-        <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono);">Scanning e:\\Scripts on Host Machine...</span>
-      </div>
-    `;
+    const routeGen = window.currentRouteGeneration;
+    const bootstrapScripts = window.EJIIStore?.bootstrap?.scripts;
+    if (bootstrapScripts?.scripts && discoveredScripts.length === 0) {
+      discoveredScripts = bootstrapScripts.scripts;
+    }
 
     try {
-      const data = await window.api('/api/network/automation/scripts');
+      const data = (discoveredScripts.length > 0) ? { scripts: discoveredScripts, mountMetadata: bootstrapScripts?.mountMetadata } : await window.api('/api/network/automation/scripts');
       discoveredScripts = data?.scripts || [];
 
       container.innerHTML = `
@@ -108,11 +108,9 @@
               <!-- Terminal Header Bar -->
               <div style="background: #0B1120; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #EF4444;"></span>
-                  <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #F59E0B;"></span>
-                  <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #10B981;"></span>
-                  <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #38BDF8; margin-left: 6px;">
-                    ⚡ EJII Execution Console (e:\\Scripts)
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38BDF8; font-family: var(--font-mono); font-size: 11px; font-weight: 800;">&gt;_</span>
+                  <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #E2E8F0; margin-left: 4px;">
+                    EJII Execution Console &bull; Direct Host Automation (e:\\Scripts)
                   </span>
                 </div>
 

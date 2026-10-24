@@ -363,12 +363,38 @@ function resolveScriptPath(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
   return targetPath;
 }
 
+let cachedScriptsList = null;
+let lastScriptsCacheTime = 0;
+const SCRIPTS_CACHE_TTL_MS = 60000;
+let scriptsWatchInitialized = false;
+
+function setupScriptsDirectoryWatch(baseDir) {
+  if (scriptsWatchInitialized) return;
+  try {
+    if (fs.existsSync(baseDir)) {
+      scriptsWatchInitialized = true;
+      fs.watch(baseDir, () => {
+        cachedScriptsList = null;
+        lastScriptsCacheTime = 0;
+      });
+    }
+  } catch (_) {}
+}
+
 /**
  * List all automation scripts from active scripts mount
  * Returns an Array of scripts decorated with thenable resolution for both sync & async callers.
  */
 function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
+  const isDefaultDir = (!scriptsDir || scriptsDir === DEFAULT_SCRIPTS_DIR);
+  if (isDefaultDir && cachedScriptsList && (Date.now() - lastScriptsCacheTime < SCRIPTS_CACHE_TTL_MS)) {
+    return cachedScriptsList;
+  }
+
   const baseDir = ensureScriptsDir(scriptsDir);
+  if (isDefaultDir) {
+    setupScriptsDirectoryWatch(baseDir);
+  }
 
   if (!fs.existsSync(baseDir)) {
     const emptyResult = [];
@@ -495,6 +521,11 @@ function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
       else throw e;
     }
   };
+
+  if (isDefaultDir) {
+    cachedScriptsList = scripts;
+    lastScriptsCacheTime = Date.now();
+  }
 
   return scripts;
 }

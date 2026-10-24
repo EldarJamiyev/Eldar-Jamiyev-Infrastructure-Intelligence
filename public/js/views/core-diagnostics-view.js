@@ -471,17 +471,17 @@
     }
   };
 
-  window.runDeepSystemAudit = async function() {
+  window.runDeepSystemAudit = async function(force = false) {
     if (isAuditing) return;
     isAuditing = true;
     const btn = document.getElementById('btnRunSystemAudit');
-    if (btn) {
+    if (btn && force) {
       btn.disabled = true;
       btn.textContent = '⚡ Running Audit...';
     }
 
-    logConsole('⚡ Triggered deep 4-pillar hardware and OS audit...');
-    hostAuditData = await fetchHostAudit(true);
+    logConsole(force ? '⚡ Triggered deep 4-pillar hardware and OS audit...' : '⚡ Ingested warm hardware diagnostics snapshot (0ms latency)...');
+    hostAuditData = await fetchHostAudit(force);
     await loadProcesses();
     await loadSockets();
 
@@ -491,7 +491,7 @@
       btn.textContent = '⚡ Run Deep System Audit';
     }
     if (hostAuditData) {
-      logConsole(`✓ Deep audit completed in ${hostAuditData.durationMs || 100}ms. Status: ${hostAuditData.overallStatus || 'HEALTHY'}`);
+      logConsole(`✓ Hardware diagnostics active. Status: ${hostAuditData.overallStatus || 'HEALTHY'}`);
       updateUI();
     } else {
       logConsole('❌ Deep audit failed. Check server session authentication.');
@@ -1054,6 +1054,10 @@
     const container = document.getElementById('mainContent');
     if (!container) return;
 
+    if (!hostAuditData && window.EJIIStore?.bootstrap?.diagnostics?.hostAudit) {
+      hostAuditData = window.EJIIStore.bootstrap.diagnostics.hostAudit;
+    }
+
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 14px; padding: 16px 20px;">
         <!-- Header -->
@@ -1435,8 +1439,8 @@
       </div>
     `;
 
-    // Initial data load
-    await window.runDeepSystemAudit();
+    // Initial data load from warm snapshot (0ms latency)
+    await window.runDeepSystemAudit(false);
 
     // Auto-refresh every 12 seconds
     refreshTimer = setInterval(() => {

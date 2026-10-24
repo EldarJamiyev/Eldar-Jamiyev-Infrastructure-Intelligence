@@ -55,3 +55,6 @@ __pycache__/
 # Scratch & Maintenance Batch Files
 sync_now.bat
 
+
+bin/*.exe
+

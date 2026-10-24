@@ -434,6 +434,9 @@ class PacketStreamer {
               if (parsed.received !== undefined) this.counters.received = parsed.received;
               if (parsed.dropped !== undefined) this.counters.dropped = parsed.dropped;
               if (parsed.captured !== undefined) this.counters.accepted = parsed.captured;
+              if (this.broadcastCallback) {
+                this.broadcastCallback('PACKET_STATS', { counters: this.getCounters() });
+              }
             } else if (parsed.frameNumber) {
               this._ingestNpcapFrame(parsed);
             }
@@ -931,6 +934,7 @@ class PacketStreamer {
     }
 
     this.counters.delivered++;
+    rawFrame.counters = { ...this.counters };
 
     // 7. WebSocket broadcast
     if (this.broadcastCallback) {

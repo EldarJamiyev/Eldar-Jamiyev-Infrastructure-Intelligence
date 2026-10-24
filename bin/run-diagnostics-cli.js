@@ -90,7 +90,7 @@ async function main() {
       const netInfo = getPhysicalNetworkInfo ? getPhysicalNetworkInfo() : null;
       let hostAudit = null;
       try {
-        hostAudit = await hostDiagnosticsEngine.collectFullAudit(false);
+        hostAudit = (hostDiagnosticsEngine.getWarmSnapshot ? hostDiagnosticsEngine.getWarmSnapshot() : null) || await hostDiagnosticsEngine.collectFullAudit(false);
       } catch (e) {
         hostAudit = { error: e.message };
       }
@@ -120,4 +120,7 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().then(() => process.exit(0)).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

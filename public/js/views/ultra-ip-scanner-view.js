@@ -214,9 +214,10 @@
             vendor: e.vendor || 'Discovered Host',
             latencyMs: 0.4,
             openServices: [],
-            category: e.ip.endsWith('.1') ? '🌐 Gateway / Router' : '💻 Network Host'
+            category: e.ip.endsWith('.1') ? 'Gateway / Router' : 'Network Host'
           }));
           renderScannerRows();
+          updateEquipmentKpis(currentScanResults);
         }
       }
     } catch (e) {}
@@ -224,23 +225,28 @@
     // Auto-fetch persistent office equipment inventory for KPI strip
     try {
       const invRes = await window.api('/api/network/office-device/inventory').catch(() => null);
-      if (invRes && invRes.records) {
+      if (invRes && invRes.records && invRes.records.length > 0) {
         updateEquipmentKpis(invRes.records);
+      } else {
+        updateEquipmentKpis(currentScanResults);
       }
-    } catch (_) {}
+    } catch (_) {
+      updateEquipmentKpis(currentScanResults);
+    }
   }
 
   function updateEquipmentKpis(records = []) {
-    const list = Array.isArray(records) && records.length > 0 ? records : currentScanResults;
+    const list = Array.isArray(records) && records.length > 0 ? records : (currentScanResults || []);
     const total = list.length;
     let printers = 0, computers = 0, phones = 0, routers = 0, apipa = 0;
     list.forEach(item => {
-      const cat = (item.category || item.equipmentType || '').toLowerCase();
+      const cat = (item.category || item.equipmentType || item.vendor || '').toLowerCase();
       const ip = item.currentIp || item.ip || '';
-      if (/print/i.test(cat)) printers++;
-      else if (/comput|workstation|pc|server/i.test(cat)) computers++;
-      else if (/phone|voip/i.test(cat)) phones++;
-      else if (/router|switch|gateway|ap/i.test(cat)) routers++;
+      if (/print|canon|epson|brother|laserjet/i.test(cat)) printers++;
+      else if (/router|switch|gateway|mikrotik|cisco/i.test(cat) || ip.endsWith('.1')) routers++;
+      else if (/phone|voip|yealink|poly/i.test(cat)) phones++;
+      else if (/comput|workstation|pc|server|host|intel|dell|apple|lenovo/i.test(cat)) computers++;
+      else if (total > 0) computers++;
       if (/^169\.254\./.test(ip) || /apipa/i.test(cat) || item.status === 'FAULT' || item.isApipaFault) apipa++;
     });
 

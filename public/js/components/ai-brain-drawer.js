@@ -31,19 +31,24 @@
     updateDrawerDom(currentBrainState);
   };
 
+  const defaultNominalState = {
+    topHypothesis: {
+      id: 'NORMAL_OPERATION',
+      label: 'Nominal Network Transport Health',
+      confidence: 100,
+      rfc: 'RFC 1122'
+    },
+    rankedHypotheses: [
+      { id: 'NORMAL_OPERATION', label: 'Nominal Network Transport Health', confidence: 100, rfc: 'RFC 1122' }
+    ],
+    recommendedProbe: null
+  };
+
   /**
    * Generates drawer HTML markup from live brain state
    */
-  function renderAiBrainDrawerHtml(state) {
-    if (!state) {
-      return `
-        <div id="aiBrainLiveDrawer" class="ai-brain-live-drawer" style="height: 38px; min-height: 38px; max-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box;">
-          <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
-            <span>🧠 Initializing Autonomous AI Diagnostic Brain (Continuous Bayesian Ingestion)...</span>
-          </div>
-        </div>
-      `;
-    }
+  function renderAiBrainDrawerHtml(rawState) {
+    const state = rawState || defaultNominalState;
 
     const topH = state.topHypothesis || {
       id: 'NORMAL_OPERATION',
@@ -84,23 +89,33 @@
       const pTarget = recommendedProbe.target || '';
       actionBtnHtml = `
         <button id="aiBrainRecommendationBtn" class="btn-trigger-probe" onclick="window.triggerAiBrainProbe('${pType}', '${pTarget}')" title="${recommendedProbe.expectedOutcome || ''}" style="font-size: 10px; padding: 2px 8px;">
-          <span>⚡</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span>Execute: ${recommendedProbe.name || pType}</span>
         </button>
       `;
     } else {
-      actionBtnHtml = '';
+      actionBtnHtml = `
+        <button id="aiBrainRecommendationBtn" class="btn btn-secondary" onclick="window.triggerAiBrainProbe('ICMP_PING_GATEWAY', '')" style="font-size: 10px; padding: 2px 8px; font-family: var(--font-mono); color: var(--text-secondary); border-color: var(--border-subtle);">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>Verify Wire</span>
+        </button>
+      `;
     }
 
     if (!isAiBrainExpanded) {
       return `
         <div id="aiBrainLiveDrawer" class="ai-brain-live-drawer" style="height: 38px; min-height: 38px; max-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; overflow: hidden;">
           <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; white-space: nowrap;">
-            <span style="font-size: 14px;">🧠</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent); flex-shrink: 0;"><path d="M12 2a4 4 0 0 0-4 4c0 1.1.4 2.1 1.1 2.8A6 6 0 0 0 4 14a6 6 0 0 0 6 6h4a6 6 0 0 0 6-6 6 6 0 0 0-5.1-5.2A4 4 0 0 0 16 6a4 4 0 0 0-4-4Z"/></svg>
             <span style="font-weight: 800; font-size: 11px; color: #38bdf8; font-family: var(--font-mono);">AI BRAIN:</span>
-            <span class="ai-brain-confidence-badge ${confClass}" style="font-size: 9.5px; padding: 1px 6px;">${topH.confidence}% CONFIDENCE</span>
-            <span style="font-size: 11px; font-weight: 700; color: #f8fafc; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(topH.label)}</span>
-            <span style="font-size: 10px; color: #94a3b8;">(${escapeHtml(topH.rfc)})</span>
+            <div id="aiBrainVerdict" style="display: inline-flex; align-items: center; gap: 6px; overflow: hidden;">
+              <span class="ai-brain-confidence-badge ${confClass}" style="font-size: 9.5px; padding: 1px 6px;">${topH.confidence}% CONFIDENCE</span>
+              <span style="font-size: 11px; font-weight: 700; color: #f8fafc; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(topH.label)}</span>
+              <span style="font-size: 10px; color: #94a3b8;">(${escapeHtml(topH.rfc)})</span>
+            </div>
+            <div id="aiBrainConfidenceBar" class="ai-brain-prob-bar" style="width: 80px; height: 4px; border-radius: 2px; overflow: hidden; display: inline-flex; margin: 0 4px; flex-shrink: 0;">
+              ${segmentsHtml}
+            </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
             ${actionBtnHtml}

@@ -211,19 +211,19 @@
         <div style="font-size: 10px; font-weight: 700; color: #94A3B8; letter-spacing: 0.5px; margin-bottom: 6px; font-family: var(--font-mono);">WORKSTATION PROFILE</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" id="loginRolePills">
           <button type="button" class="btn btn-secondary login-role-btn active-profile" id="pill-admin" onclick="window.selectLoginProfile('admin', 'admin2026!')" style="font-size: 11px; padding: 6px 8px; font-weight: 700; text-align: left; display: flex; align-items: center; gap: 6px; border: 1px solid var(--accent); background: rgba(56,189,248,0.15); color: #38bdf8;">
-            <span>⭐</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Lead Architect (ADMIN)</span>
           </button>
           <button type="button" class="btn btn-secondary login-role-btn" id="pill-sysadmin" onclick="window.selectLoginProfile('sysadmin', 'sysadmin2026!')" style="font-size: 11px; padding: 6px 8px; font-weight: 600; text-align: left; display: flex; align-items: center; gap: 6px;">
-            <span>⚙️</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Systems Admin</span>
           </button>
           <button type="button" class="btn btn-secondary login-role-btn" id="pill-netadmin" onclick="window.selectLoginProfile('netadmin', 'netadmin2026!')" style="font-size: 11px; padding: 6px 8px; font-weight: 600; text-align: left; display: flex; align-items: center; gap: 6px;">
-            <span>🌐</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Network Admin</span>
           </button>
           <button type="button" class="btn btn-secondary login-role-btn" id="pill-noc" onclick="window.selectLoginProfile('noc', 'noc2026!')" style="font-size: 11px; padding: 6px 8px; font-weight: 600; text-align: left; display: flex; align-items: center; gap: 6px;">
-            <span>👁️</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">NOC Operator</span>
           </button>
         </div>
@@ -352,7 +352,7 @@
     <main class="main-wrapper">
       <header class="topbar">
         <div class="page-title" id="pageTitle" style="display: flex; align-items: center; gap: 8px;">
-          <span>🌐</span> Eldar Jamiyev's Infrastructure Intelligence — NOC Workstation
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent);"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Eldar Jamiyev's Infrastructure Intelligence — NOC Workstation
         </div>
         <div class="topbar-stats">
           <div class="stat-item" title="Active Berkeley Packet Filter">
@@ -368,7 +368,8 @@
             <span class="stat-val" id="topbarNodesCount">6</span>
           </div>
           <button class="btn btn-secondary" onclick="window.toggleJuniorAdminCheatSheet()" style="font-size: 11px; padding: 4px 10px; margin-left: 6px; display: inline-flex; align-items: center; gap: 5px;" title="Rookie Admin Operational Field Manual (Ctrl+H)">
-            <span>📘 Field Manual</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>
+            <span>Field Manual</span>
             <span class="command-palette-kbd" style="font-size: 9px; padding: 1px 3px;">Ctrl+H</span>
           </button>
         </div>
@@ -400,16 +401,20 @@
   <!-- Right-Click Context Menu for Link / Node Sniffing -->
   <div id="nocContextMenu" class="noc-context-menu" style="display: none;">
     <div class="noc-context-item" onclick="window.handleContextMenuAction('sniff')">
-      <span>🦈</span> Sniff Traffic on this Link / Node
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h5l2-8 5 16 3-8h5"/></svg>
+      <span>Sniff Traffic on this Link / Node</span>
     </div>
     <div class="noc-context-item" onclick="window.handleContextMenuAction('blast')">
-      <span>💥</span> Simulate Failure Blast Radius
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span>Simulate Failure Blast Radius</span>
     </div>
     <div class="noc-context-item" onclick="window.handleContextMenuAction('trace')">
-      <span>🧭</span> Trace Hop-by-Hop Path Here
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      <span>Trace Hop-by-Hop Path Here</span>
     </div>
     <div class="noc-context-item" onclick="window.handleContextMenuAction('probe')">
-      <span>⚡</span> Run Immediate Dual Probe
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      <span>Run Immediate Dual Probe</span>
     </div>
   </div>
 
