@@ -217,6 +217,30 @@ class TopologyEngine {
       timestamp: new Date().toISOString()
     };
 
+
+    try {
+      const { computeTopologicalGNNEmbeddings } = require('../../core/rca-engine');
+      const { TypeContractValidator, attachEpistemicEnvelope } = require('../../core/type-contract-validator');
+      const gnnEmbeddings = computeTopologicalGNNEmbeddings(parsedNodes, parsedEdges);
+      parsedNodes.forEach(node => {
+        const gnn = gnnEmbeddings.get(node.id);
+        if (gnn) {
+          node.gnnEmbedding = gnn.embeddingVector;
+          node.structuralCriticality = gnn.structuralCriticality;
+          node.blastRadiusWeight = gnn.blastRadiusWeight;
+          node.hopDistances = gnn.hopDistances;
+        }
+        const livenessState = TypeContractValidator.classifyTemporalLiveness(node.last_seen);
+        node.livenessState = livenessState;
+        attachEpistemicEnvelope(node, {
+          epistemicState: node.evidenceClassification === 'Inferred' ? 'INFERRED' : 'OBSERVED',
+          sourceAdapter: 'ejii.network.topology',
+          observedAt: node.last_seen,
+          livenessState
+        });
+      });
+    } catch (_) {}
+
     this.cachedTopology = result;
     this.lastTopologyTime = now;
     return result;
@@ -716,9 +740,70 @@ class TopologyEngine {
       removed
     };
   }
+
+/**
+   * Synthesize Passive Wire Observation & TTL OS Fingerprinting
+   * Infers operating system family from wire packet TTLs:
+   *   TTL <= 64  -> Linux / POSIX / macOS
+   *   TTL <= 128 -> Windows NT Kernel
+   *   TTL <= 255 -> Network Infrastructure / Router / Switch
+   * Also manages reversible downstream alert grouping under upstream parents.
+   *
+   * @param {object} packetSummary
+   * @returns {object} Updated node inference
+   */
+  synthesizePassiveWireObservation(packetSummary = {}) {
+    const { srcIp, dstIp, ttl, protocol } = packetSummary;
+    if (!srcIp && !dstIp) return null;
+
+    let inferredOs = 'Unknown';
+    let osFamily = 'Unknown';
+    if (typeof ttl === 'number' && ttl > 0) {
+      if (ttl <= 64) {
+        inferredOs = 'Linux / POSIX / macOS (Initial TTL 64)';
+        osFamily = 'POSIX';
+      } else if (ttl <= 128) {
+        inferredOs = 'Windows NT Kernel (Initial TTL 128)';
+        osFamily = 'Windows';
+      } else {
+        inferredOs = 'Network Infrastructure / Router (Initial TTL 255)';
+        osFamily = 'Network';
+      }
+    }
+
+    const targetIp = srcIp || dstIp;
+    const node = db.prepare('SELECT * FROM topology_nodes WHERE hostname_or_ip = ?').get(targetIp);
+    if (node) {
+      const meta = node.metadata ? (typeof node.metadata === 'string' ? JSON.parse(node.metadata) : node.metadata) : {};
+      meta.passiveTtlOs = inferredOs;
+      meta.osFamily = osFamily;
+      meta.observedTtl = ttl;
+      meta.lastPassiveObservation = new Date().toISOString();
+
+      if (node.parent_id) {
+        const parentNode = db.prepare('SELECT * FROM topology_nodes WHERE id = ?').get(node.parent_id);
+        if (parentNode && (parentNode.status === 'critical' || parentNode.status === 'offline')) {
+          meta.groupedUnderUpstreamNodeId = parentNode.id;
+        } else {
+          delete meta.groupedUnderUpstreamNodeId;
+        }
+      }
+
+      db.prepare('UPDATE topology_nodes SET metadata = ?, last_checked = ? WHERE id = ?').run(
+        JSON.stringify(meta),
+        new Date().toISOString(),
+        node.id
+      );
+      this.cachedTopology = null;
+      return { nodeId: node.id, ip: targetIp, inferredOs, osFamily, ttl, metadata: meta };
+    }
+
+    return { ip: targetIp, inferredOs, osFamily, ttl };
+  }
 }
 
 const defaultEngine = new TopologyEngine();
+
 
 function getDependencyTopology() {
   const topo = defaultEngine.getTopology();
@@ -735,5 +820,9 @@ function getDependencyTopology() {
 module.exports = {
   TopologyEngine,
   topologyEngine: defaultEngine,
-  getDependencyTopology
+  getDependencyTopology,
+  computeTopologicalGNNEmbeddings: (nodes, edges) => {
+    const { computeTopologicalGNNEmbeddings } = require('../../core/rca-engine');
+    return computeTopologicalGNNEmbeddings(nodes, edges);
+  }
 };

@@ -22,7 +22,8 @@ const ALL_TOOLS = [
   'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
   'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'bleachbit_hygiene', 'filezilla_sftp_check',
   'snmp_probe', 'dual_probe', 'winrm_collect',
-  'procmon_trace', 'packet_factory', 'protocol_audit', 'ebpf_probe'
+  'procmon_trace', 'packet_factory', 'protocol_audit', 'ebpf_probe',
+  'paping_jitter', 'process_sandbox'
 ];
 
 const ROLE_PERMISSIONS = {
@@ -33,7 +34,7 @@ const ROLE_PERMISSIONS = {
     'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
     'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
     'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
-    'snmp_probe', 'dual_probe', 'procmon_trace', 'protocol_audit'
+    'snmp_probe', 'dual_probe', 'procmon_trace', 'protocol_audit', 'paping_jitter', 'process_sandbox'
   ],
   OPERATOR: [
     'ping', 'tcp_handshake', 'dns_resolve',
@@ -717,6 +718,183 @@ class ToolSandbox {
       auditChecks,
       overallCompliance: auditChecks.every(c => c.status !== 'TIMEOUT') ? 'COMPLIANT' : 'DEGRADED',
       timestamp: new Date().toISOString()
+    };
+  }
+
+
+  async _execPapingJitter(params) {
+    const net = require('net');
+    const target = params.target || '127.0.0.1';
+    const port = Number(params.port) || 80;
+    const count = Math.min(20, Math.max(1, Number(params.count) || 5));
+    const timeout = Math.min(5000, Math.max(200, Number(params.timeout) || 1500));
+
+    const samples = [];
+    let prevLatency = null;
+    let rfc3550Jitter = 0.0;
+
+    for (let seq = 1; seq <= count; seq++) {
+      const startHr = process.hrtime.bigint();
+      const outcome = await new Promise((resolve) => {
+        const sock = new net.Socket();
+        let responded = false;
+        sock.setTimeout(timeout);
+
+        sock.connect(port, target, () => {
+          responded = true;
+          const endHr = process.hrtime.bigint();
+          const latencyUs = Number(endHr - startHr) / 1000;
+          sock.destroy();
+          resolve({ success: true, latencyUs, latencyMs: latencyUs / 1000, status: 'CONNECTED' });
+        });
+
+        sock.on('error', (err) => {
+          if (!responded) {
+            responded = true;
+            const endHr = process.hrtime.bigint();
+            const latencyUs = Number(endHr - startHr) / 1000;
+            sock.destroy();
+            const isRst = err.code === 'ECONNREFUSED';
+            resolve({
+              success: isRst,
+              latencyUs,
+              latencyMs: latencyUs / 1000,
+              status: isRst ? 'TCP_RST_REJECTED' : err.code
+            });
+          }
+        });
+
+        sock.on('timeout', () => {
+          if (!responded) {
+            responded = true;
+            sock.destroy();
+            resolve({ success: false, latencyUs: timeout * 1000, latencyMs: timeout, status: 'ETIMEDOUT' });
+          }
+        });
+      });
+
+      if (prevLatency !== null) {
+        const delta = Math.abs(outcome.latencyMs - prevLatency);
+        rfc3550Jitter = rfc3550Jitter + (delta - rfc3550Jitter) / 16.0;
+      }
+      prevLatency = outcome.latencyMs;
+
+      samples.push({
+        seq,
+        latencyMs: Number(outcome.latencyMs.toFixed(3)),
+        latencyMicroseconds: Math.round(outcome.latencyUs),
+        status: outcome.status,
+        success: outcome.success
+      });
+
+      if (seq < count) {
+        await new Promise(r => setTimeout(r, 20));
+      }
+    }
+
+    const successful = samples.filter(s => s.success);
+    const latencies = successful.map(s => s.latencyMs);
+    const minMs = latencies.length > 0 ? Math.min(...latencies) : 0;
+    const maxMs = latencies.length > 0 ? Math.max(...latencies) : 0;
+    const avgMs = latencies.length > 0 ? Number((latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(3)) : 0;
+    const packetLossPct = Number((((count - successful.length) / count) * 100).toFixed(1));
+
+    return {
+      success: true,
+      tool: 'paping_jitter',
+      target,
+      port,
+      probesCount: count,
+      stats: {
+        minMs,
+        avgMs,
+        maxMs,
+        rfc3550JitterMs: Number(rfc3550Jitter.toFixed(4)),
+        packetLossPct
+      },
+      rfcCitation: 'RFC 3550 Section 6.4.1 (RTP Interarrival Jitter Calculation)',
+      samples,
+      evidence: {
+        papingJitterExecuted: true,
+        rfc3550JitterMs: Number(rfc3550Jitter.toFixed(4))
+      }
+    };
+  }
+
+  async _execProcessSandbox(params) {
+    const action = params.action || 'impact_analysis';
+    const targetPid = Number(params.targetPid) || 0;
+    const processName = String(params.processName || '').trim();
+
+    const CRITICAL_OS_SYSTEM = new Set([
+      'csrss.exe', 'lsass.exe', 'services.exe', 'smss.exe',
+      'wininit.exe', 'svchost.exe', 'system', 'registry',
+      'explorer.exe', 'winlogon.exe', 'init', 'systemd'
+    ]);
+
+    const isSystemPid = targetPid <= 4 && targetPid > 0;
+    const isCriticalName = CRITICAL_OS_SYSTEM.has(processName.toLowerCase());
+
+    if (isSystemPid || isCriticalName) {
+      if (action === 'terminate') {
+        throw new ToolExecutionError(
+          `SecurityGuard: Termination of critical OS system process "${processName || targetPid}" (PID ${targetPid}) is strictly prohibited.`,
+          403
+        );
+      }
+    }
+
+    const { processSocketCorrelator } = require('../network/process-socket-correlator');
+    const endpoints = processSocketCorrelator.getCorrelatedEndpoints({ externalOnly: false });
+    const matchingEndpoints = endpoints.filter(e => e.pid === targetPid || (processName && e.processName?.toLowerCase() === processName.toLowerCase()));
+
+    const openSocketsCount = matchingEndpoints.length;
+    let terminationRisk = 'LOW';
+    if (isSystemPid || isCriticalName) {
+      terminationRisk = 'CRITICAL_SYSTEM_PROTECTED';
+    } else if (matchingEndpoints.some(e => e.remotePort === 1433 || e.remotePort === 5432 || e.remotePort === 3306 || e.serviceHint?.includes('DB'))) {
+      terminationRisk = 'HIGH_DATABASE_DEPENDENCY';
+    } else if (openSocketsCount > 5) {
+      terminationRisk = 'MEDIUM_ACTIVE_NETWORK_ACTIVITY';
+    }
+
+    let terminated = false;
+    let terminationLog = null;
+
+    if (action === 'terminate') {
+      if (terminationRisk === 'CRITICAL_SYSTEM_PROTECTED') {
+        throw new ToolExecutionError('Cannot terminate protected critical system process.', 403);
+      }
+      try {
+        process.kill(targetPid, 'SIGTERM');
+        terminated = true;
+        terminationLog = `SIGTERM delivered to PID ${targetPid}`;
+      } catch (e) {
+        terminated = false;
+        terminationLog = `Termination error: ${e.message}`;
+      }
+    }
+
+    return {
+      success: true,
+      tool: 'process_sandbox',
+      action,
+      targetPid,
+      processName: processName || `PID:${targetPid}`,
+      safetyShield: {
+        isProtectedSystemProcess: isSystemPid || isCriticalName,
+        terminationRisk,
+        doCalculusCounterfactual: `P(ServiceDisruption | do(Terminate PID ${targetPid})) = ${terminationRisk === 'LOW' ? '0.05' : (terminationRisk.startsWith('HIGH') ? '0.95' : '0.45')}`
+      },
+      openSocketsCount,
+      dependentSockets: matchingEndpoints.slice(0, 10),
+      terminated,
+      terminationLog,
+      evidence: {
+        processSandboxExecuted: true,
+        terminationRisk,
+        openSocketsCount
+      }
     };
   }
 

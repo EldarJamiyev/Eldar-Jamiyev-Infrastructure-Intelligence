@@ -318,6 +318,103 @@ class UnifiedInvestigationEngine {
     };
   }
 
+
+  /**
+   * Constructs an Authoritative Shared Investigation Context across all 5 EJII Operational Pillars.
+   * Defeats L2/L3 MAC conflation by strictly distinguishing localLinkMac vs routedNextHopMac:
+   *   - If target is in local subnet: macAddress is localLinkMac (L2 physical host MAC)
+   *   - If target is outside local subnet: macAddress is routedNextHopMac (L2 default gateway router MAC)
+   *
+   * @param {string|object} targetQuery
+   * @param {object} [stageResults={}]
+   * @returns {object} Shared investigation context
+   */
+  buildSharedInvestigationContext(targetQuery, stageResults = {}) {
+    const { getPhysicalNetworkInfo, isIpInSubnet } = require('../network/routing/physical-network-detector');
+    const { attachEpistemicEnvelope } = require('./type-contract-validator');
+
+    const netInfo = getPhysicalNetworkInfo();
+    const localSubnet = netInfo?.subnetCidr || '192.168.31.0/24';
+    const gatewayMac = netInfo?.gatewayMac || netInfo?.mac || '00:00:00:00:00:00';
+    const gatewayIp = netInfo?.gatewayIp || netInfo?.defaultGateway || '192.168.31.1';
+
+    const targetHost = typeof targetQuery === 'string' ? targetQuery : (targetQuery?.host || targetQuery?.targetHost || targetQuery?.targetIp || '127.0.0.1');
+    const targetPort = typeof targetQuery === 'object' && targetQuery?.port ? Number(targetQuery.port) : 443;
+    const processName = typeof targetQuery === 'object' ? targetQuery?.processName : null;
+    const pid = typeof targetQuery === 'object' ? targetQuery?.pid : null;
+
+    const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(targetHost);
+    const isLocal = isIp ? isIpInSubnet(targetHost, localSubnet) : false;
+
+    let macAddress = null;
+    let macType = 'UNKNOWN';
+    if (isIp) {
+      if (isLocal) {
+        const arpMatch = (netInfo?.arpNeighbors || []).find(n => n.ip === targetHost);
+        macAddress = arpMatch ? arpMatch.mac : (netInfo?.macAddress || null);
+        macType = 'LOCAL_LINK_MAC';
+      } else {
+        macAddress = gatewayMac;
+        macType = 'ROUTED_NEXT_HOP_GATEWAY_MAC';
+      }
+    }
+
+    const contextId = `CTX-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const timestamp = new Date().toISOString();
+
+    const sharedContext = {
+      contextId,
+      timestamp,
+      targetHost,
+      targetPort,
+      targetIp: isIp ? targetHost : null,
+      isLocalSubnet: isLocal,
+      macAddress,
+      macType,
+      gatewayIp,
+      gatewayMac,
+      processName: processName || stageResults?.processName || null,
+      pid: pid || stageResults?.pid || null,
+      compositeProcessIdentity: pid ? `pid:${processName || 'proc'}:t0:${pid}` : null,
+      activeViewPivots: {
+        view1Topology: {
+          filterNodeId: isLocal ? `NODE-HOST-${targetHost}` : 'NODE-GW-01',
+          focusLayer: isLocal ? 'endpoint' : 'edge',
+          highlightIp: targetHost
+        },
+        view2Sniffer: {
+          bpfFilter: isIp ? `host ${targetHost}${targetPort ? ` and port ${targetPort}` : ''}` : `port ${targetPort}`,
+          highlightHost: targetHost,
+          highlightPort: targetPort
+        },
+        view3Scanner: {
+          targetSubnet: isLocal ? localSubnet : null,
+          highlightIp: targetHost,
+          autoInspect: true
+        },
+        view4Automation: {
+          recommendedScriptIds: isLocal
+            ? ['clear_arp_cache', 'display_net_stats']
+            : ['flush_dns_renew_ip', 'audit_tcp_ports'],
+          contextTarget: targetHost
+        },
+        view5Diagnostics: {
+          targetHost,
+          targetPort,
+          autoExecuteProbe: false
+        }
+      }
+    };
+
+    attachEpistemicEnvelope(sharedContext, {
+      epistemicState: 'OBSERVED',
+      sourceAdapter: 'ejii.core.unified_investigation',
+      observedAt: timestamp
+    });
+
+    return sharedContext;
+  }
+
   getRecentInvestigations(limit = 10) {
     return Array.from(this.investigations.values()).slice(-limit).reverse();
   }

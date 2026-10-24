@@ -370,3 +370,64 @@ export interface IHardwareAnchorStatus {
   platformVerified: boolean;
   sealedAt: string;
 }
+
+export type EpistemicState = 'OBSERVED' | 'INFERRED' | 'RECOMMENDED' | 'VERIFIED';
+export type LivenessState = 'CURRENTLY_OBSERVED' | 'RECENTLY_OBSERVED' | 'HISTORICAL' | 'UNREACHABLE_UNDER_CURRENT_TEST' | 'UNKNOWN';
+export type ScoreSemantics = 'PHYSICAL_TRUTH' | 'PROBABILITY_MARGIN' | 'BAYESIAN_POSTERIOR' | 'CONFIDENCE_SCORE' | 'FORMAL_VERIFICATION';
+
+export interface IEpistemicMetadata {
+  epistemicState: EpistemicState;
+  sourceAdapter: string;
+  observedAt?: string;
+  inferenceMethod?: string;
+  scoreSemantics: ScoreSemantics;
+  verificationCriterion?: string;
+  verified: boolean;
+  livenessState?: LivenessState;
+}
+
+export interface ISTLFormulaResult {
+  formulaId: string;
+  formulaName: string;
+  specification: string;
+  robustnessDegree: number;
+  satisfied: boolean;
+  evaluationWindowSeconds: number;
+  evaluatedAt: string;
+  sampleCount: number;
+}
+
+export interface ISTLMonitorReport {
+  timestamp: string;
+  slidingWindowSeconds: number;
+  overallSatisfaction: boolean;
+  minRobustness: number;
+  formulas: ISTLFormulaResult[];
+}
+
+export interface IGNNNodeEmbedding {
+  nodeId: string;
+  embeddingVector: number[];
+  structuralCriticality: number;
+  blastRadiusWeight: number;
+  hopDistances: Record<string, number>;
+  layerIndex: number;
+}
+
+export interface IDSRLVaultReport {
+  actionName: string;
+  targetAsset: string;
+  approved: boolean;
+  rejectionReason?: string;
+  safetyChecklist: {
+    scriptRegistryVerified: boolean;
+    symbolicPreconditionProven: boolean;
+    hostCapacityHeadroomOk: boolean;
+    sessionDisconnectGuardOk: boolean;
+    postActionVerificationPlan: boolean;
+  };
+  projectedReward: number;
+  policyConfidence: number;
+  evaluatedAt: string;
+}
+

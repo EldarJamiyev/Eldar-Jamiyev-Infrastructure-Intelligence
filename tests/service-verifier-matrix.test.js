@@ -27,7 +27,7 @@ async function runServiceVerifierMatrixTests() {
   let targetHost = process.env.EJII_TEST_WEB_TARGET || 'taxes.gov.az';
   console.log(`Testing Enterprise Web Verifier on ${targetHost}...`);
   let webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 6000 });
-  if (!webReport || !webReport.tcp || !webReport.tcp.success || !webReport.http || !webReport.http.success || !webReport.http.statusCode) {
+  if (!webReport || !webReport.tcp || !webReport.tcp.success || !webReport.tls || !webReport.tls.success || !webReport.http || !webReport.http.success || !webReport.http.statusCode) {
     console.log(`Endpoint ${targetHost} port 443 / HTTP unreachable or degraded on current network, falling back to google.com...`);
     targetHost = 'google.com';
     webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 8000 });

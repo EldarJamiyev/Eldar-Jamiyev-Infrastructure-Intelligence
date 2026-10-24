@@ -39,7 +39,7 @@ async function getProcessTree() {
   const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, WorkingSetSize';
 
   const procs = await runPowerShellJson(script);
-  if (!procs) return { count: 0, tree: [] };
+  if (!procs) return { count: 0, tree: [], providerMode: getSysinternalsProviderMode() };
 
   const list = Array.isArray(procs) ? procs : [procs];
   const procMap = new Map();
@@ -168,6 +168,11 @@ async function getProcessModules(pid) {
     moduleCount: list.length,
     modules: list
   };
+}
+
+
+function getSysinternalsProviderMode() {
+  return 'WIN32_CIM_KERNEL_FALLBACK';
 }
 
 module.exports = {

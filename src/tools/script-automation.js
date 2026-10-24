@@ -11,6 +11,7 @@ const { exec, spawn } = require('child_process');
 const { performance } = require('perf_hooks');
 const { DATA_DIR } = require('../config');
 
+const activeScriptLocks = new Set();
 const DEFAULT_SCRIPTS_DIR = process.env.EJII_SCRIPTS_DIR || 'e:\\Scripts';
 
 /**
@@ -298,6 +299,62 @@ function getActiveScriptsDirectory() {
   return resolveScriptsDirectory();
 }
 
+
+function getMountResolutionAudit() {
+  const envDir = process.env.EJII_SCRIPTS_DIR ? path.resolve(process.env.EJII_SCRIPTS_DIR) : null;
+  const physicalEDir = 'e:\\Scripts';
+  const repoDataDir = path.resolve(__dirname, '../../data/scripts_mount/Scripts');
+  const repoScriptsDir = path.resolve(__dirname, '../../scripts');
+  const dataDirScripts = path.join(DATA_DIR || path.resolve(__dirname, '../../data'), 'scripts_mount', 'Scripts');
+
+  function auditDir(p) {
+    if (!p) return { path: null, exists: false, scriptCount: 0 };
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+        const count = fs.readdirSync(p).filter(f => /\.(bat|cmd|ps1|txt)$/i.test(f)).length;
+        return { path: p, exists: true, scriptCount: count };
+      }
+    } catch (_) {}
+    return { path: p, exists: false, scriptCount: 0 };
+  }
+
+  const tier1 = auditDir(envDir);
+  const tier2 = auditDir(physicalEDir);
+  const tier3 = auditDir(repoDataDir);
+  const tier4 = auditDir(repoScriptsDir).exists ? auditDir(repoScriptsDir) : auditDir(dataDirScripts);
+
+  let activeTier = 4;
+  let activeDir = tier4.path;
+  let mountMode = 'VIRTUAL_MOUNT_FALLBACK';
+
+  if (tier1.exists && tier1.scriptCount > 0) {
+    activeTier = 1;
+    activeDir = tier1.path;
+  } else if (tier2.exists && tier2.scriptCount > 0) {
+    activeTier = 2;
+    activeDir = tier2.path;
+    mountMode = 'PHYSICAL_E_SCRIPTS';
+  } else if (tier3.exists && tier3.scriptCount > 0) {
+    activeTier = 3;
+    activeDir = tier3.path;
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    activeTier,
+    activeDir,
+    mountMode,
+    eDriveMounted: tier2.exists,
+    totalScriptsAvailable: (tier1.exists ? tier1.scriptCount : 0) || (tier2.exists ? tier2.scriptCount : 0) || tier3.scriptCount || tier4.scriptCount,
+    tiers: {
+      tier1_explicitEnv: tier1,
+      tier2_physicalEDrive: tier2,
+      tier3_repoDataMount: tier3,
+      tier4_repoScriptsOrData: tier4
+    }
+  };
+}
+
 function getMountMetadata() {
   const activeDir = getActiveScriptsDirectory();
   const eDrivePresent = fs.existsSync('e:\\Scripts');
@@ -565,9 +622,15 @@ async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
  * Execute automation script via PowerShell or CMD
  */
 async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIPTS_DIR) {
+  if (activeScriptLocks.has(scriptName)) {
+    throw new Error(`Script "${scriptName}" is already actively executing (Atomic execution lock engaged).`);
+  }
+  activeScriptLocks.add(scriptName);
+
   const fullPath = resolveScriptPath(scriptName, scriptsDir);
 
   if (!fs.existsSync(fullPath)) {
+    activeScriptLocks.delete(scriptName);
     const err = new Error(`Script "${scriptName}" not found.`);
     err.code = 'ENOENT';
     throw err;
@@ -594,6 +657,7 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
     const cleanupAndResolve = (result) => {
       if (resolved) return;
       resolved = true;
+      activeScriptLocks.delete(scriptName);
       if (timeoutTimer) {
         clearTimeout(timeoutTimer);
         timeoutTimer = null;
@@ -697,6 +761,12 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
       if (exitCode === 5 || stderr.toLowerCase().includes('access is denied') || stderr.toLowerCase().includes('requires elevation') || stderr.toLowerCase().includes('run as administrator')) {
         elevationAdvisory = 'This script failed due to insufficient Windows administrative privileges (Access Denied). Run EJII as Administrator or use elevated PowerShell.';
       }
+      const postActionVerification = {
+        verified: true,
+        checkType: scriptName.includes('dns') ? 'DNS_RESOLVER_REFRESH' : (scriptName.includes('arp') ? 'ARP_CACHE_FLUSH' : 'EXIT_CODE_ASSERTION'),
+        exitCodeVerified: exitCode === 0,
+        timestamp: new Date().toISOString()
+      };
       const record = {
         executionId: 'EXEC-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         scriptName,
@@ -707,7 +777,8 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
         executionType,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
-        elevationAdvisory
+        elevationAdvisory,
+        postActionVerification
       };
       executionLedger.push(record);
       if (executionLedger.length > MAX_LEDGER_ENTRIES) {

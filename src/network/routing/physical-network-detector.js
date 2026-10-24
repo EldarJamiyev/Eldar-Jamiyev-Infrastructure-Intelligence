@@ -507,6 +507,38 @@ function getPhysicalNetworkInfo(options = {}) {
     /MikroTik|Cisco|Aruba|Meraki|Enterprise/i.test(info.gatewayVendor || '');
   info.environmentProfile = isEnterprise ? 'ENTERPRISE_CORPORATE_INTRANET' : 'STANDARD_LAN_OR_WIFI';
 
+
+  // Multi-Interface Enumeration across Physical, Wi-Fi, VPN, and Virtual
+  const allActiveIfaces = [];
+  try {
+    const sysIfaces = os.networkInterfaces();
+    for (const [ifName, addrs] of Object.entries(sysIfaces)) {
+      for (const addr of addrs) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          const isVirtual = /vEthernet|WSL|VirtualBox|VMware|Hyper-V/i.test(ifName) || isVirtualHypervisorIp(addr.address);
+          const isWifi = /wi-fi|wireless|wlan/i.test(ifName);
+          const isVpn = /vpn|wireguard|tap|tun|tailscale|zerotier/i.test(ifName);
+          let type = 'Physical Ethernet';
+          if (isWifi) type = 'Wi-Fi 6/802.11';
+          else if (isVpn) type = 'Virtual Private Network (VPN)';
+          else if (isVirtual) type = 'Virtual Hypervisor / Container';
+
+          allActiveIfaces.push({
+            name: ifName,
+            address: addr.address,
+            netmask: addr.netmask,
+            mac: addr.mac ? addr.mac.toUpperCase() : null,
+            cidr: addr.cidr || `${addr.address}/24`,
+            type,
+            isDefault: addr.address === info.localIp,
+            isVirtual
+          });
+        }
+      }
+    }
+  } catch (_) {}
+  info.allActiveInterfaces = allActiveIfaces;
+
   cachedPhysicalInfo = info;
   lastCacheTime = now;
   return info;
@@ -712,8 +744,13 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   };
 }
 
+function getAllActiveInterfaces() {
+  return getPhysicalNetworkInfo().allActiveInterfaces || [];
+}
+
 module.exports = {
   getPhysicalNetworkInfo,
+  getAllActiveInterfaces,
   detectPhysicalNetwork,
   syncTopologyWithCurrentLocation,
   resolveNativeUtf8AdapterName,

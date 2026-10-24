@@ -774,6 +774,220 @@ ${distinguishingTests.map((t, idx) => `[Probe ${idx + 1}] ${t.name} -> Target: $
   /**
    * Expert Diagnostic Mode: RFC protocol dissection, hex dump, sequence tracking
    */
+
+  /**
+   * 3-Layer Spatial Kipf-Welling GCN Topological Message-Passing Embeddings
+   * Computes structural node representations h_v in R^6, topological criticality,
+   * and multi-hop spatial blast-radius weights.
+   *
+   * Formally:
+   *   H^(k+1) = ReLU( D_tilde^(-1/2) * A_tilde * D_tilde^(-1/2) * H^(k) * W^(k) )
+   *
+   * @param {Array<object>} nodes
+   * @param {Array<object>} edges
+   * @returns {Map<string, object>} nodeId -> IGNNNodeEmbedding
+   */
+  computeTopologicalGNNEmbeddings(nodes = [], edges = []) {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+      return new Map();
+    }
+
+    const N = nodes.length;
+    const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+
+    // Degree and adjacency tracking with self-loops (A_tilde = A + I)
+    const adj = Array.from({ length: N }, () => new Float64Array(N));
+    for (let i = 0; i < N; i++) {
+      adj[i][i] = 1.0; // Self-loop
+    }
+
+    for (const edge of edges) {
+      const u = nodeIndex.get(edge.source_id);
+      const v = nodeIndex.get(edge.target_id);
+      if (u !== undefined && v !== undefined) {
+        adj[u][v] = 1.0;
+        adj[v][u] = 1.0; // Undirected spatial propagation
+      }
+    }
+
+    // Degree matrix D_tilde and symmetric normalization A_hat = D^(-1/2) * A * D^(-1/2)
+    const deg = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      let s = 0;
+      for (let j = 0; j < N; j++) s += adj[i][j];
+      deg[i] = s;
+    }
+
+    const aHat = Array.from({ length: N }, () => new Float64Array(N));
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        if (adj[i][j] > 0) {
+          aHat[i][j] = adj[i][j] / Math.sqrt(deg[i] * deg[j]);
+        }
+      }
+    }
+
+    // Initial node feature matrix H0 in R^(N x 6)
+    // Dimension 0: Layer hierarchy (1=WAN to 6=Endpoint) normalized [0, 1]
+    // Dimension 1: Normalized degree centrality
+    // Dimension 2: Normalized bandwidth capacity
+    // Dimension 3: Normalized latency baseline
+    // Dimension 4: Downstream dependency reachability
+    // Dimension 5: Operational status risk (0=healthy, 0.5=warning, 1.0=critical)
+    let H = Array.from({ length: N }, (_, i) => {
+      const node = nodes[i];
+      const layerLevel = typeof node.layer_level === 'number' ? node.layer_level : 3;
+      const degCentrality = (deg[i] - 1) / Math.max(1, N - 1);
+      const bw = node.metadata?.bandwidth_mbps || 1000;
+      const lat = node.last_latency_ms || 2.0;
+      const statusRisk = node.status === 'critical' || node.status === 'offline' ? 1.0 : (node.status === 'warning' ? 0.5 : 0.0);
+
+      const vec = new Float64Array(6);
+      vec[0] = (7 - layerLevel) / 6.0; // Higher weight for core/edge/wan
+      vec[1] = degCentrality;
+      vec[2] = Math.min(1.0, bw / 10000.0);
+      vec[3] = Math.min(1.0, lat / 100.0);
+      vec[4] = deg[i] / Math.max(1, N);
+      vec[5] = statusRisk;
+      return vec;
+    });
+
+    // Orthonormal structured weight matrices W0, W1, W2 for 3-layer message passing
+    const W_LAYERS = [
+      [
+        [0.45, 0.15, 0.10, 0.05, 0.15, 0.10],
+        [0.10, 0.50, 0.15, 0.05, 0.10, 0.10],
+        [0.10, 0.15, 0.45, 0.10, 0.10, 0.10],
+        [0.05, 0.05, 0.10, 0.55, 0.10, 0.15],
+        [0.15, 0.10, 0.10, 0.05, 0.50, 0.10],
+        [0.10, 0.10, 0.10, 0.15, 0.10, 0.45]
+      ],
+      [
+        [0.40, 0.12, 0.12, 0.08, 0.16, 0.12],
+        [0.12, 0.40, 0.16, 0.08, 0.12, 0.12],
+        [0.12, 0.16, 0.40, 0.12, 0.08, 0.12],
+        [0.08, 0.08, 0.12, 0.48, 0.12, 0.12],
+        [0.16, 0.12, 0.08, 0.12, 0.40, 0.12],
+        [0.12, 0.12, 0.12, 0.12, 0.12, 0.40]
+      ],
+      [
+        [0.35, 0.15, 0.15, 0.10, 0.15, 0.10],
+        [0.15, 0.35, 0.15, 0.10, 0.15, 0.10],
+        [0.15, 0.15, 0.35, 0.10, 0.15, 0.10],
+        [0.10, 0.10, 0.10, 0.45, 0.15, 0.10],
+        [0.15, 0.15, 0.15, 0.10, 0.35, 0.10],
+        [0.10, 0.10, 0.10, 0.15, 0.10, 0.45]
+      ]
+    ];
+
+    // Execute 3 rounds of spatial graph convolution: H^(k+1) = ReLU( A_hat * H^(k) * W^(k) )
+    for (let layer = 0; layer < 3; layer++) {
+      const W = W_LAYERS[layer];
+      const nextH = Array.from({ length: N }, () => new Float64Array(6));
+
+      // Step A: Spatial aggregation AH = A_hat * H
+      const AH = Array.from({ length: N }, () => new Float64Array(6));
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          if (aHat[i][j] > 0) {
+            for (let f = 0; f < 6; f++) {
+              AH[i][f] += aHat[i][j] * H[j][f];
+            }
+          }
+        }
+      }
+
+      // Step B: Linear projection & ReLU activation nextH = ReLU( AH * W )
+      for (let i = 0; i < N; i++) {
+        for (let col = 0; col < 6; col++) {
+          let sum = 0;
+          for (let row = 0; row < 6; row++) {
+            sum += AH[i][row] * W[row][col];
+          }
+          nextH[i][col] = Math.max(0, sum); // ReLU
+        }
+      }
+      H = nextH;
+    }
+
+    // Step C: Compute 3-hop powers for spatial blast-radius reachability
+    // A_hat^3
+    function multiplySquareMatrices(M1, M2) {
+      const res = Array.from({ length: N }, () => new Float64Array(N));
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          let s = 0;
+          for (let k = 0; k < N; k++) {
+            s += M1[i][k] * M2[k][j];
+          }
+          res[i][j] = s;
+        }
+      }
+      return res;
+    }
+
+    const aHat2 = multiplySquareMatrices(aHat, aHat);
+    const aHat3 = multiplySquareMatrices(aHat2, aHat);
+
+    // BFS Shortest Hop Distance Matrix
+    function computeBfsHopDistances(rootIndex) {
+      const dist = {};
+      const queue = [{ idx: rootIndex, d: 0 }];
+      const visited = new Set([rootIndex]);
+      while (queue.length > 0) {
+        const { idx, d } = queue.shift();
+        dist[nodes[idx].id] = d;
+        for (let neighbor = 0; neighbor < N; neighbor++) {
+          if (neighbor !== idx && adj[idx][neighbor] > 0 && !visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push({ idx: neighbor, d: d + 1 });
+          }
+        }
+      }
+      return dist;
+    }
+
+    const resultMap = new Map();
+
+    for (let i = 0; i < N; i++) {
+      const node = nodes[i];
+      const h_v = H[i];
+
+      // L2 normalization of embedding vector
+      let norm = 0;
+      for (let f = 0; f < 6; f++) norm += h_v[f] * h_v[f];
+      norm = Math.sqrt(norm) || 1.0;
+      const normalizedVector = Array.from(h_v).map(v => Number((v / norm).toFixed(4)));
+
+      // Structural criticality: calibrated combination of layer level and propagated degree
+      const layerLevel = typeof node.layer_level === 'number' ? node.layer_level : 3;
+      const rawCriticality = (0.5 * normalizedVector[0]) + (0.3 * normalizedVector[1]) + (0.2 * normalizedVector[4]);
+      // Sigmoid squash to [0.10, 0.98]
+      const sigmoidCrit = 1 / (1 + Math.exp(-3 * (rawCriticality - 0.35)));
+      const structuralCriticality = Number(Math.min(0.98, Math.max(0.10, sigmoidCrit)).toFixed(4));
+
+      // Spatial blast-radius: sum of 3-hop influences
+      let blastSum = 0;
+      for (let j = 0; j < N; j++) {
+        blastSum += aHat3[i][j];
+      }
+      const blastRadiusWeight = Number(Math.min(1.0, Math.max(0.05, blastSum / Math.max(1, deg[i]))).toFixed(4));
+
+      const hopDistances = computeBfsHopDistances(i);
+
+      resultMap.set(node.id, {
+        nodeId: node.id,
+        embeddingVector: normalizedVector,
+        structuralCriticality,
+        blastRadiusWeight,
+        hopDistances,
+        layerIndex: layerLevel
+      });
+    }
+
+    return resultMap;
+  }
+
   _buildExpertDiagnosticMode({ incidentType, failureCategory, sourceIp, destIp, destPort, sourcePort, protocol, observedFacts, unobservedFacts, hypotheses, distinguishingTests, rfcReferences, confidence, wireFrames }) {
     return {
       failureCategory,
@@ -891,5 +1105,6 @@ module.exports = {
   getDependencyTopology,
   correlateAndReportIncident,
   resolveIncident,
+  computeTopologicalGNNEmbeddings: (nodes, edges) => defaultReasoningEngine.computeTopologicalGNNEmbeddings(nodes, edges),
   discoverDynamicCausalStructure: (series) => defaultReasoningEngine.discoverDynamicCausalStructure(series)
 };

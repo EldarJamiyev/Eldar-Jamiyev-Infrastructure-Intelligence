@@ -59,6 +59,15 @@ const WELL_KNOWN_SERVICES = {
   27017: 'MongoDB'
 };
 
+
+function buildCompositeProcessIdentity(procInfo = {}) {
+  const pid = procInfo.pid || 0;
+  const name = procInfo.processName || procInfo.name || 'unknown';
+  const startToken = procInfo.startToken || procInfo.startTime || 't0';
+  const exePath = procInfo.exePath || procInfo.path || procInfo.command || 'unknown';
+  return `pid:${name}:${startToken}:${exePath}`;
+}
+
 class ProcessSocketCorrelator {
   constructor(options = {}) {
     this.packetStreamer = options.packetStreamer || null;

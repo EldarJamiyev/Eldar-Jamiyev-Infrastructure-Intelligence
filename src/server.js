@@ -140,6 +140,7 @@ app.get('/api/system/bootstrap', async (req, res) => {
     const topo = topologyEngine.getTopology();
     const inventory = equipmentInventoryRepository.getAllEquipmentRecords();
     const scriptsRes = scriptAutomation.listAutomationScripts();
+    const mountAudit = typeof scriptAutomation.getMountResolutionAudit === 'function' ? scriptAutomation.getMountResolutionAudit() : null;
     const warmDiag = hostDiagnosticsEngine.getWarmSnapshot();
     const brainStatus = aiBrain.getStatus();
     const liveBrainState = aiBrain.getLiveState();
@@ -162,13 +163,16 @@ app.get('/api/system/bootstrap', async (req, res) => {
       inventory,
       scripts: scriptsRes.scripts || scriptsRes,
       mountMetadata: scriptsRes.mountMetadata || {},
+      mountAudit: mountAudit || null,
       diagnostics: warmDiag,
       aiBrain: {
         ...brainStatus,
         symbolicProofChain: liveBrainState.symbolicProofChain || [],
         solverStats: liveBrainState.solverStats || {},
         activeInference: liveBrainState.activeInference || {},
-        worldModelRollout: liveBrainState.worldModelRollout || null
+        worldModelRollout: liveBrainState.worldModelRollout || null,
+        stlReport: liveBrainState.stlReport || null,
+        dsrlVault: liveBrainState.dsrlVault || null
       },
       auditAnchor
     });

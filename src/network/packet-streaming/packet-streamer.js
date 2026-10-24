@@ -108,6 +108,8 @@ class PacketStreamer {
     this.reverseDnsPending = new Set();
     this.dnsCacheInterval = null;
     this._intentionalStop = false;
+    this.captureSessionSeq = 0;
+    this.captureSessionId = `cap_${Date.now()}_0`;
 
     // Pure passive caches (zero pre-seeded domains)
     this.targetDomainsRoster = [];
@@ -188,6 +190,8 @@ class PacketStreamer {
 
     // Clear session caches to guarantee zero contamination across capture restarts
     this.clearAllCaches();
+    this.captureSessionSeq = (this.captureSessionSeq || 0) + 1;
+    this.captureSessionId = `cap_${Date.now()}_${this.captureSessionSeq}`;
 
     // Refresh socket-to-process map immediately
     this._refreshSocketProcessMap();
@@ -661,10 +665,15 @@ class PacketStreamer {
             });
             this.ipToDomainCache.set(ansIp, {
               domain: ansDomain,
+              hostname: ansDomain,
+              ip: ansIp,
               url: `https://${ansDomain}`,
               source: 'Captured DNS Wire Answer',
+              provenanceSource: 'Captured DNS Wire Answer',
               confidence: 'HIGH',
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              observedAt: new Date().toISOString(),
+              captureSessionId: this.captureSessionId || 'cap_init_0'
             });
             if (!this.domainToIpCache.has(ansDomain)) {
               this.domainToIpCache.set(ansDomain, new Set());

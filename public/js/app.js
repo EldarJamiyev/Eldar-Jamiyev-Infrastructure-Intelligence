@@ -31,6 +31,51 @@ window.state = state;
 window.api = api;
 window.renderView = renderView;
 
+// Universal Cross-Pillar Target Context & Investigation Store
+window.EJIIStore = window.EJIIStore || {};
+window.EJIIStore.activeInvestigationContext = null;
+
+window.pivotToTargetContext = function(pivotParams = {}) {
+  const { targetIp, hostname, macAddress, pid, targetView, port } = pivotParams;
+
+  window.EJIIStore.activeInvestigationContext = {
+    targetIp: targetIp || null,
+    hostname: hostname || null,
+    macAddress: macAddress || null,
+    pid: pid || null,
+    port: port || 443,
+    timestamp: new Date().toISOString()
+  };
+
+  const viewAliases = {
+    '1': 'topology',
+    'noc': 'topology',
+    'topology': 'topology',
+    '2': 'packet-sniffer',
+    'sniffer': 'packet-sniffer',
+    'packet-sniffer': 'packet-sniffer',
+    '3': 'ultra-ip-scanner',
+    'scanner': 'ultra-ip-scanner',
+    'ultra-ip-scanner': 'ultra-ip-scanner',
+    '4': 'pc-automation',
+    'automation': 'pc-automation',
+    'pc-automation': 'pc-automation',
+    '5': 'core-diagnostics',
+    'diagnostics': 'core-diagnostics',
+    'core-diagnostics': 'core-diagnostics'
+  };
+
+  const destination = viewAliases[targetView] || 'topology';
+  if (typeof window.renderView === 'function') {
+    window.renderView(destination);
+  }
+
+  window.dispatchEvent(new CustomEvent('ejii:pivot-context', {
+    detail: window.EJIIStore.activeInvestigationContext
+  }));
+};
+
+
 /**
  * Local Time Formatters
  */

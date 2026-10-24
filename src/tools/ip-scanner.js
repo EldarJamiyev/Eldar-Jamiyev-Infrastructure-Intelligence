@@ -1065,6 +1065,21 @@ class UltraIpScanner {
     };
   }
 
+
+  cancelActiveScan(scanId = null) {
+    if (scanId !== null && this.scanId !== scanId) {
+      return { success: false, message: `Scan ID ${scanId} is not active (current active: ${this.scanId})` };
+    }
+    const hadActiveScan = this.status === 'scanning';
+    this.stopScan();
+    return {
+      success: true,
+      scanId: this.scanId,
+      status: this.status,
+      message: hadActiveScan ? `Active scan ${this.scanId} canceled successfully.` : 'No scan was running.'
+    };
+  }
+
   stopScan() {
     if (this.status === 'scanning') {
       this.status = 'stopped';
@@ -1719,6 +1734,81 @@ async function inspectSingleHostDeep(ip) {
 }
 
 const ultraIpScanner = new UltraIpScanner();
+
+
+function compareScanRuns(previousRun = {}, currentRun = {}) {
+  const prevHosts = Array.isArray(previousRun.hosts) ? previousRun.hosts : (Array.isArray(previousRun) ? previousRun : []);
+  const currHosts = Array.isArray(currentRun.hosts) ? currentRun.hosts : (Array.isArray(currentRun) ? currentRun : []);
+
+  const prevMap = new Map(prevHosts.map(h => [h.ip, h]));
+  const currMap = new Map(currHosts.map(h => [h.ip, h]));
+
+  const allIps = new Set([...prevMap.keys(), ...currMap.keys()]);
+
+  const newOnlineHosts = [];
+  const lostOnlineHosts = [];
+  const macDrift = [];
+  const portDrift = [];
+  const coverageExpandedIps = [];
+  const coverageReducedIps = [];
+
+  const prevScannedIps = new Set(previousRun.scannedIps || prevHosts.map(h => h.ip));
+  const currScannedIps = new Set(currentRun.scannedIps || currHosts.map(h => h.ip));
+
+  for (const ip of allIps) {
+    const prev = prevMap.get(ip);
+    const curr = currMap.get(ip);
+
+    const wasScanned = prevScannedIps.has(ip);
+    const isScanned = currScannedIps.has(ip);
+
+    if (isScanned && !wasScanned) {
+      coverageExpandedIps.push(ip);
+    } else if (wasScanned && !isScanned) {
+      coverageReducedIps.push(ip);
+    }
+
+    const prevOnline = prev && (prev.status === 'ONLINE' || prev.status === 'RECENTLY_SEEN');
+    const currOnline = curr && (curr.status === 'ONLINE' || curr.status === 'RECENTLY_SEEN');
+
+    if (!prevOnline && currOnline) {
+      newOnlineHosts.push(curr);
+    } else if (prevOnline && !currOnline) {
+      lostOnlineHosts.push(prev);
+    } else if (prevOnline && currOnline) {
+      if (prev.mac && curr.mac && prev.mac.toLowerCase() !== curr.mac.toLowerCase()) {
+        macDrift.push({ ip, prevMac: prev.mac, currMac: curr.mac });
+      }
+      const prevPorts = new Set((prev.openPorts || []).map(p => typeof p === 'object' ? p.port : p));
+      const currPorts = new Set((curr.openPorts || []).map(p => typeof p === 'object' ? p.port : p));
+      const opened = [...currPorts].filter(p => !prevPorts.has(p));
+      const closed = [...prevPorts].filter(p => !currPorts.has(p));
+      if (opened.length > 0 || closed.length > 0) {
+        portDrift.push({ ip, opened, closed });
+      }
+    }
+  }
+
+  return {
+    comparedAt: new Date().toISOString(),
+    summary: {
+      totalPreviousHosts: prevHosts.length,
+      totalCurrentHosts: currHosts.length,
+      newOnlineCount: newOnlineHosts.length,
+      lostOnlineCount: lostOnlineHosts.length,
+      macDriftCount: macDrift.length,
+      portDriftCount: portDrift.length,
+      coverageExpansionCount: coverageExpandedIps.length,
+      coverageReductionCount: coverageReducedIps.length
+    },
+    newOnlineHosts,
+    lostOnlineHosts,
+    macDrift,
+    portDrift,
+    coverageExpandedIps,
+    coverageReducedIps
+  };
+}
 
 module.exports = {
   resolveOuiVendor,

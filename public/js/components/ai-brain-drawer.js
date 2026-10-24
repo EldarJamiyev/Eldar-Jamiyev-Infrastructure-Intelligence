@@ -208,6 +208,29 @@
             </div>
           </div>
 
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #38bdf8; font-family: var(--font-mono); margin-bottom: 2px;">
+                SIGNAL TEMPORAL LOGIC (STL Donzé-Maler):
+              </div>
+              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #94a3b8;">
+                Min Robustness: <strong style="color: ${(state.stlReport?.minRobustness ?? 0) >= 0 ? '#10b981' : '#ef4444'};">${state.stlReport?.minRobustness ?? 0}</strong> |
+                Formulas: <strong style="color: #e2e8f0;">${(state.stlReport?.formulas || []).filter(f => f.satisfied).length}/${state.stlReport?.formulas?.length || 5}</strong> Satisfied
+              </div>
+            </div>
+
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #f59e0b; font-family: var(--font-mono); margin-bottom: 2px;">
+                DSRL ACTION VAULT SAFETY GATE:
+              </div>
+              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #94a3b8;">
+                Status: <strong style="color: ${state.dsrlVault?.approved ? '#10b981' : '#f59e0b'};">${state.dsrlVault?.approved ? 'APPROVED' : 'GUARDED'}</strong> |
+                Action: <span style="color: #e2e8f0;">${escapeHtml(state.dsrlVault?.actionName || 'ICMP_PING_GATEWAY')}</span>
+              </div>
+            </div>
+          </div>
+
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
               <div style="font-size: 9.5px; font-weight: 700; color: #10b981; font-family: var(--font-mono); margin-bottom: 2px;">

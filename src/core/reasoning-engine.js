@@ -1241,9 +1241,167 @@ class BayesianReasoningEngine {
   }
 }
 
+/**
+ * Signal Temporal Logic (STL) Quantitative Robustness Monitor
+ * Implements Donzé-Maler quantitative robustness semantics rho(phi, x, t) for streaming timelines.
+ * Quantitative robustness rho > 0 implies formula satisfaction; rho < 0 implies formula violation;
+ * |rho| quantifies the margin of safety or violation depth.
+ *
+ * Invariants F1-F5:
+ *   F1: G[0, T] (gatewayLatency <= 50.0 ms)
+ *   F2: G[0, T] (dropRate <= 0.02)
+ *   F3: G[0, T] (cpuUsage <= 0.85 ∧ memUsage <= 0.90)
+ *   F4: G[0, T] (dnsLatency <= 120.0 ms)
+ *   F5: G[0, T] (mtuBlackhole == false)
+ */
+class SignalTemporalLogicMonitor {
+  constructor(options = {}) {
+    this.historyCapacity = options.historyCapacity || 600;
+    this.samples = [];
+  }
+
+  /**
+   * Record a continuous time-series observation sample
+   * @param {object} sample
+   */
+  recordSample(sample = {}) {
+    const point = {
+      timestamp: sample.timestamp || Date.now(),
+      gatewayLatency: typeof sample.gatewayLatency === 'number' ? sample.gatewayLatency : (typeof sample.rttMs === 'number' ? sample.rttMs : 15.0),
+      dropRate: typeof sample.dropRate === 'number' ? sample.dropRate : (sample.packetDrop ? 0.05 : 0.0),
+      cpuUsage: typeof sample.cpuUsage === 'number' ? sample.cpuUsage : 0.25,
+      memUsage: typeof sample.memUsage === 'number' ? sample.memUsage : 0.35,
+      dnsLatency: typeof sample.dnsLatency === 'number' ? sample.dnsLatency : 22.0,
+      mtuBlackhole: Boolean(sample.mtuBlackhole || sample.mtuIssue)
+    };
+    this.samples.push(point);
+    if (this.samples.length > this.historyCapacity) {
+      this.samples.shift();
+    }
+    return point;
+  }
+
+  /**
+   * Evaluate STL quantitative robustness over a sliding temporal window
+   * @param {number} [slidingWindowSeconds=60]
+   * @returns {import('../types/ejii-contracts').ISTLMonitorReport}
+   */
+  evaluate(slidingWindowSeconds = 60) {
+    const now = Date.now();
+    const windowMs = slidingWindowSeconds * 1000;
+    const windowStart = now - windowMs;
+
+    let windowSamples = this.samples.filter(s => s.timestamp >= windowStart);
+    if (windowSamples.length === 0) {
+      const latest = this.samples[this.samples.length - 1] || {
+        timestamp: now,
+        gatewayLatency: 15.0,
+        dropRate: 0.0,
+        cpuUsage: 0.25,
+        memUsage: 0.35,
+        dnsLatency: 22.0,
+        mtuBlackhole: false
+      };
+      windowSamples = [latest];
+    }
+
+    const n = windowSamples.length;
+
+    // F1: G[0, T] (gatewayLatency <= 50.0 ms)
+    const maxGwLatency = Math.max(...windowSamples.map(s => s.gatewayLatency));
+    const rhoF1 = Number((50.0 - maxGwLatency).toFixed(3));
+
+    // F2: G[0, T] (dropRate <= 0.02)
+    const maxDrop = Math.max(...windowSamples.map(s => s.dropRate));
+    const rhoF2 = Number((0.02 - maxDrop).toFixed(4));
+
+    // F3: G[0, T] (cpuUsage <= 0.85 ∧ memUsage <= 0.90)
+    const maxCpu = Math.max(...windowSamples.map(s => s.cpuUsage));
+    const maxMem = Math.max(...windowSamples.map(s => s.memUsage));
+    const rhoF3 = Number(Math.min(0.85 - maxCpu, 0.90 - maxMem).toFixed(3));
+
+    // F4: G[0, T] (dnsLatency <= 120.0 ms)
+    const maxDns = Math.max(...windowSamples.map(s => s.dnsLatency));
+    const rhoF4 = Number((120.0 - maxDns).toFixed(3));
+
+    // F5: G[0, T] (!mtuBlackhole)
+    const hasBlackhole = windowSamples.some(s => s.mtuBlackhole);
+    const rhoF5 = hasBlackhole ? -1.0 : 1.0;
+
+    const evaluatedAt = new Date(now).toISOString();
+
+    const formulas = [
+      {
+        formulaId: 'F1_GATEWAY_LATENCY',
+        formulaName: 'Gateway Latency Upper Bound',
+        specification: 'G[0, T] (gatewayLatency <= 50.0 ms)',
+        robustnessDegree: rhoF1,
+        satisfied: rhoF1 >= 0,
+        evaluationWindowSeconds: slidingWindowSeconds,
+        evaluatedAt,
+        sampleCount: n
+      },
+      {
+        formulaId: 'F2_TCP_DROP_RATE',
+        formulaName: 'TCP Frame Drop Rate Invariant',
+        specification: 'G[0, T] (dropRate <= 0.02)',
+        robustnessDegree: rhoF2,
+        satisfied: rhoF2 >= 0,
+        evaluationWindowSeconds: slidingWindowSeconds,
+        evaluatedAt,
+        sampleCount: n
+      },
+      {
+        formulaId: 'F3_HOST_RESOURCE_HEADROOM',
+        formulaName: 'Host Kernel Resource Headroom',
+        specification: 'G[0, T] (cpuUsage <= 0.85 ∧ memUsage <= 0.90)',
+        robustnessDegree: rhoF3,
+        satisfied: rhoF3 >= 0,
+        evaluationWindowSeconds: slidingWindowSeconds,
+        evaluatedAt,
+        sampleCount: n
+      },
+      {
+        formulaId: 'F4_DNS_LATENCY',
+        formulaName: 'DNS Resolution Latency Bound',
+        specification: 'G[0, T] (dnsLatency <= 120.0 ms)',
+        robustnessDegree: rhoF4,
+        satisfied: rhoF4 >= 0,
+        evaluationWindowSeconds: slidingWindowSeconds,
+        evaluatedAt,
+        sampleCount: n
+      },
+      {
+        formulaId: 'F5_PATH_MTU_INTEGRITY',
+        formulaName: 'Path MTU Blackhole Absence',
+        specification: 'G[0, T] (mtuBlackhole == false)',
+        robustnessDegree: rhoF5,
+        satisfied: rhoF5 >= 0,
+        evaluationWindowSeconds: slidingWindowSeconds,
+        evaluatedAt,
+        sampleCount: n
+      }
+    ];
+
+    const minRobustness = Math.min(...formulas.map(f => f.robustnessDegree));
+    const overallSatisfaction = formulas.every(f => f.satisfied);
+
+    return {
+      timestamp: evaluatedAt,
+      slidingWindowSeconds,
+      overallSatisfaction,
+      minRobustness,
+      formulas
+    };
+  }
+}
+
 const defaultReasoningEngine = new BayesianReasoningEngine();
+const defaultStlMonitor = new SignalTemporalLogicMonitor();
 
 module.exports = {
   BayesianReasoningEngine,
-  reasoningEngine: defaultReasoningEngine
+  reasoningEngine: defaultReasoningEngine,
+  SignalTemporalLogicMonitor,
+  stlMonitor: defaultStlMonitor
 };
