@@ -1,0 +1,40 @@
+[33mcommit a37626b7e52b6963226a6730a3294024d27d0af2[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Eldar Jamiyev <eldarcmiyev@gmail.com>
+Date:   Sun Oct 25 00:52:15 2026 +0400
+
+    feat(arch): evolve neuro-symbolic brain with STL, GNN embeddings and DSRL safety vault
+    
+    Execute the Charter-Governed Principal Architectural Evolution upgrade to replace synthetic assumptions and disconnected diagnostic workflows with mathematically grounded continuous verification, spatial network graph embeddings, and fail-safe autonomic remediation.
+    
+    Key architectural problems addressed and solutions implemented:
+    
+    - Epistemic & Temporal Grounding: Add Universal Epistemic Envelopes (OBSERVED, INFERRED, RECOMMENDED, VERIFIED) and 5-state temporal liveness classification in TypeContractValidator and TypeScript contracts to eliminate ambiguous data provenance.
+    - Signal Temporal Logic (STL) Monitoring: Implement Donzé-Maler quantitative robustness semantics rho(phi, x, t) evaluating sliding-window timelines across formal network invariants (F1-F5: gateway latency, frame drop rate, host kernel headroom, DNS latency, MTU blackhole absence) integrated directly into AI Brain live state.
+    - Topological Graph Neural Network (GNN) Embeddings: Implement a 3-layer spatial Kipf-Welling GCN message-passing pipeline in the RCA and Topology engines to compute structural node criticality (c_v in [0.10, 0.98]) and multi-hop spatial blast-radius weights.
+    - Deep Symbolic Reinforcement Learning (DSRL) Vault: Introduce a deterministic 5-point operational safety gate (script registry verification, symbolic precondition proof, host headroom validation, session disconnect protection, and empirical post-action verification) before approving autonomic remediation.
+    - Process Identity & L2/L3 Disambiguation: Defeat TOCTOU PID-reuse errors with composite identity tokens (pid:{name}:{startToken}:{exePath}) and resolve L2/L3 MAC conflation by strictly distinguishing local link hardware MACs from routed default gateway next-hop MACs.
+    - Capture Session Isolation & Passive Wire Heuristics: Isolate packet capture DNS/SNI cache entries by monotonic session IDs, synthesize passive wire TTL heuristics (POSIX vs Windows NT vs Network Router), and expose multi-adapter enumeration.
+    - Tool Sandbox & Script Automation Hardening: Add paping_jitter (RFC 3550 microsecond jitter profiler) and process_sandbox (Do-Calculus fail-safe impact analyzer with OS shield), enforce 4-tier resilient script mount resolution audits, and add atomic execution locks with guaranteed release on child process termination.
+    - Cross-Pillar UI Context Pivoting: Implement window.pivotToTargetContext and embed live STL robustness and DSRL safety telemetry into the Obsidian Titanium drawer interface.
+    
+    Verified 100% green across all 72 automated test suites (405.86s), with 75/75 source file reachability and 2.09s CLI execution time.
+
+ public/js/app.js                                 |  45 [32m+++++[m
+ public/js/components/ai-brain-drawer.js          |  23 [32m+++[m
+ src/core/ai-brain.js                             |  84 [32m++++++++[m[31m-[m
+ src/core/rca-engine.js                           | 215 [32m+++++++++++++++++++++++[m
+ src/core/reasoning-engine.js                     | 160 [32m++++++++++++++++[m[31m-[m
+ src/core/tool-sandbox.js                         | 182 [32m++++++++++++++++++[m[31m-[m
+ src/core/type-contract-validator.js              | 134 [32m+++++++++++++[m[31m-[m
+ src/core/unified-investigation-engine.js         |  97 [32m++++++++++[m
+ src/network/packet-streaming/packet-streamer.js  |  11 [32m+[m[31m-[m
+ src/network/process-socket-correlator.js         |   9 [32m+[m
+ src/network/routing/physical-network-detector.js |  37 [32m++++[m
+ src/network/topology/topology-engine.js          |  91 [32m+++++++++[m[31m-[m
+ src/server.js                                    |   6 [32m+[m[31m-[m
+ src/tools/ip-scanner.js                          |  90 [32m++++++++++[m
+ src/tools/script-automation.js                   |  73 [32m+++++++[m[31m-[m
+ src/tools/sysinternals-forensics.js              |   7 [32m+[m[31m-[m
+ src/types/ejii-contracts.d.ts                    |  61 [32m+++++++[m
+ tests/service-verifier-matrix.test.js            |   2 [32m+[m[31m-[m
+ 18 files changed, 1315 insertions(+), 12 deletions(-)
