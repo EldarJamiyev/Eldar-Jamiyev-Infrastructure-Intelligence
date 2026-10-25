@@ -35,133 +35,133 @@
 
     container.innerHTML = `
       <div class="ultra-ip-scanner-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">
-        <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+        <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
           <!-- Top Header -->
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border-color); flex-shrink: 0;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 22px;">📡</span>
+              <div style="width: 32px; height: 32px; border-radius: 6px; background: #EFF6FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 16px;">📡</div>
               <div>
-                <div class="card-title" style="margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">
-                  3. Ultra IP &amp; Infrastructure Fleet Scanner
+                <div class="card-title" style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);">
+                  Ultra IP &amp; Infrastructure Fleet Scanner
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+                <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">
                   High-Speed Multi-Threaded Subnet Sweep &bull; NetBIOS / mDNS / Reverse DNS &bull; Port Auditing &bull; Wake-On-LAN
                 </div>
               </div>
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px;">
-              <button class="btn btn-secondary" onclick="window.exportScannerCsv()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Export Excel / Sheets CSV spreadsheet">📄 Export CSV</button>
-              <button class="btn btn-secondary" onclick="window.exportScannerJson()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Export full JSON payload">📋 Export JSON</button>
-              <button class="btn btn-secondary" onclick="window.printScannerReport()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Print official NOC Fleet Inventory Report">🖨️ Print Report</button>
+              <button class="btn btn-secondary" onclick="window.exportScannerCsv()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Export Excel / Sheets CSV spreadsheet">📄 Export CSV</button>
+              <button class="btn btn-secondary" onclick="window.exportScannerJson()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Export full JSON payload">📋 Export JSON</button>
+              <button class="btn btn-secondary" onclick="window.printScannerReport()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Print official NOC Fleet Inventory Report">🖨️ Print Report</button>
             </div>
           </div>
 
           <!-- Target & Scan Control Toolbar -->
-          <div style="background: rgba(15, 23, 42, 0.6); border-bottom: 1px solid var(--border-color); padding: 10px 18px; flex-shrink: 0;">
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
-              <span style="font-weight: 700; font-size: 11px; color: var(--accent); font-family: var(--font-mono); white-space: nowrap;">Target Subnet / Range:</span>
-              <input type="text" id="scannerSubnetInput" class="form-input" value="${defaultSubnet}" placeholder="e.g. 10.168.195.0/24, 192.168.1.1-254" style="width: 220px; font-family: var(--font-mono); font-size: 11px; padding: 4px 8px;">
-              <button class="btn btn-secondary" onclick="window.autoDetectSubnet()" style="font-size: 11px; padding: 4px 8px;" title="Auto-detect active local physical network subnet">⚡ Auto-Detect</button>
+          <div style="background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-default); padding: 10px 18px; flex-shrink: 0;">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;">
+              <span style="font-weight: 700; font-size: 11px; color: var(--text-primary); font-family: var(--font-mono); white-space: nowrap;">Target Subnet:</span>
+              <input type="text" id="scannerSubnetInput" class="form-input" value="${defaultSubnet}" placeholder="e.g. 10.168.195.0/24, 192.168.1.1-254" style="width: 200px; font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 6px;">
+              <button class="btn btn-secondary" onclick="window.autoDetectSubnet()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Auto-detect active local physical network subnet">⚡ Auto-Detect</button>
 
-              <span style="font-weight: 700; font-size: 11px; color: var(--text-dim); margin-left: 8px;">Profile:</span>
-              <select id="scannerProfileSelect" class="form-input" style="width: 220px; font-size: 11px; padding: 4px 6px;">
-                <option value="edr_conservative" selected>🛡️ EDR-Conservative (Neighbor + ICMP + Target)</option>
+              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); margin-left: 8px;">Profile:</span>
+              <select id="scannerProfileSelect" class="form-input" style="width: 210px; font-size: 11px; padding: 4px 6px; border-radius: 6px;">
+                <option value="edr_conservative" selected>🛡️ EDR-Conservative (Safe Scan)</option>
                 <option value="fast">⚡ Fast Audit (Essential 80, 445)</option>
-                <option value="deep">🔍 Deep Audit (Extended Port Check)</option>
+                <option value="deep">🔍 Deep Audit (Extended Ports)</option>
               </select>
 
-              <span style="font-weight: 700; font-size: 11px; color: var(--text-dim); margin-left: 6px;">Workers:</span>
-              <select id="scannerConcurrencySelect" class="form-input" style="width: 85px; font-size: 11px; padding: 4px 6px;">
+              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); margin-left: 6px;">Workers:</span>
+              <select id="scannerConcurrencySelect" class="form-input" style="width: 85px; font-size: 11px; padding: 4px 6px; border-radius: 6px;">
                 <option value="4">4</option>
                 <option value="8" selected>8 (Safe)</option>
                 <option value="12">12</option>
               </select>
 
-              <button id="startScanBtn" class="btn btn-primary" onclick="window.startSubnetScan()" style="font-size: 11px; padding: 4px 14px; font-weight: 700; margin-left: auto;">
+              <button id="startScanBtn" class="btn btn-primary" onclick="window.startSubnetScan()" style="font-size: 11px; padding: 5px 14px; font-weight: 700; margin-left: auto; border-radius: 6px;">
                 ▶ Start Scan ⚡
               </button>
-              <button id="stopScanBtn" class="btn btn-secondary" onclick="window.stopSubnetScan()" style="font-size: 11px; padding: 4px 10px;" disabled>
+              <button id="stopScanBtn" class="btn btn-secondary" onclick="window.stopSubnetScan()" style="font-size: 11px; padding: 5px 10px; border-radius: 6px;" disabled>
                 ⏹ Stop
               </button>
-              <button class="btn btn-secondary" onclick="window.clearScanResults()" style="font-size: 11px; padding: 4px 8px;">
+              <button class="btn btn-secondary" onclick="window.clearScanResults()" style="font-size: 11px; padding: 5px 8px; border-radius: 6px;">
                 Clear
               </button>
             </div>
 
             <!-- Live Progress Bar & Telemetry Counters -->
             <div id="scannerProgressWrap" style="display: none; flex-direction: column; gap: 4px; margin-top: 6px;">
-              <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); flex-wrap: wrap; gap: 8px;">
-                <span>Phase: <b id="progPhase" style="color: #38BDF8;">Idle</b></span>
-                <span>Scanning: <b id="progScannedCount" style="color: var(--accent);">0</b> / <span id="progTotalCount">254</span> hosts</span>
-                <span>Online / Fresh: <b id="progOnlineCount" style="color: var(--success);">0</b></span>
-                <span id="progDeltaWrap" style="display: none;">Delta: <b id="progDeltaBadge" style="color: #38BDF8; font-weight: 700;">0 Changes</b></span>
-                <span>Probes: <b id="progProbesSent" style="color: #F59E0B;">0</b></span>
-                <span>Bytes: <b id="progBytesTransferred" style="color: #A78BFA;">0 KB</b></span>
-                <span>Speed: <b id="progScanRate" style="color: #38BDF8;">0</b> hosts/sec</span>
-                <span>Progress: <b id="progPercent" style="color: var(--accent);">0%</b></span>
+              <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); flex-wrap: wrap; gap: 8px;">
+                <span>Phase: <b id="progPhase" style="color: var(--accent-primary);">Idle</b></span>
+                <span>Scanning: <b id="progScannedCount" style="color: var(--text-primary);">0</b> / <span id="progTotalCount">254</span> hosts</span>
+                <span>Online / Fresh: <b id="progOnlineCount" style="color: var(--status-nominal);">0</b></span>
+                <span id="progDeltaWrap" style="display: none;">Delta: <b id="progDeltaBadge" style="color: var(--accent-primary); font-weight: 700;">0 Changes</b></span>
+                <span>Probes: <b id="progProbesSent" style="color: var(--status-warning);">0</b></span>
+                <span>Bytes: <b id="progBytesTransferred" style="color: #7C3AED;">0 KB</b></span>
+                <span>Speed: <b id="progScanRate" style="color: var(--accent-primary);">0</b> hosts/sec</span>
+                <span>Progress: <b id="progPercent" style="color: var(--accent-primary);">0%</b></span>
               </div>
-              <div style="background: rgba(255,255,255,0.06); height: 6px; border-radius: 3px; overflow: hidden;">
-                <div id="progBarInner" style="background: linear-gradient(90deg, var(--accent), var(--success)); height: 100%; width: 0%; transition: width 0.15s ease;"></div>
+              <div style="background: var(--border-default); height: 4px; border-radius: 2px; overflow: hidden;">
+                <div id="progBarInner" style="background: var(--accent-primary); height: 100%; width: 0%; transition: width 0.15s ease;"></div>
               </div>
             </div>
           </div>
 
           <!-- Filter & Search Chips Bar -->
-          <div style="background: rgba(15, 23, 42, 0.4); border-bottom: 1px solid var(--border-color); padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; flex-shrink: 0;">
+          <div style="background: var(--bg-surface); border-bottom: 1px solid var(--border-default); padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; flex-shrink: 0;">
             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-              <span style="font-size: 11px; font-weight: 700; color: var(--text-dim);">Filter:</span>
-              <button class="btn ${activeFilterChip === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('all')" style="font-size: 10px; padding: 2px 8px;">All (<span id="chipCountAll">0</span>)</button>
-              <button class="btn ${activeFilterChip === 'online' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('online')" style="font-size: 10px; padding: 2px 8px;">Online (<span id="chipCountOnline">0</span>)</button>
-              <button class="btn ${activeFilterChip === 'printers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('printers')" style="font-size: 10px; padding: 2px 8px;">🖨️ Printers</button>
-              <button class="btn ${activeFilterChip === 'computers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('computers')" style="font-size: 10px; padding: 2px 8px;">💻 Computers</button>
-              <button class="btn ${activeFilterChip === 'phones' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('phones')" style="font-size: 10px; padding: 2px 8px;">📞 Phones</button>
-              <button class="btn ${activeFilterChip === 'network_gear' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('network_gear')" style="font-size: 10px; padding: 2px 8px;">🌐 Network Gear</button>
-              <button class="btn ${activeFilterChip === 'apipa_issues' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('apipa_issues')" style="font-size: 10px; padding: 2px 8px;">⚠️ APIPA / Issues</button>
+              <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary);">Filter:</span>
+              <button class="btn ${activeFilterChip === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('all')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">All (<span id="chipCountAll">0</span>)</button>
+              <button class="btn ${activeFilterChip === 'online' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('online')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">Online (<span id="chipCountOnline">0</span>)</button>
+              <button class="btn ${activeFilterChip === 'printers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('printers')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">🖨️ Printers</button>
+              <button class="btn ${activeFilterChip === 'computers' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('computers')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">💻 Computers</button>
+              <button class="btn ${activeFilterChip === 'phones' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('phones')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">📞 Phones</button>
+              <button class="btn ${activeFilterChip === 'network_gear' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('network_gear')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">🌐 Network Gear</button>
+              <button class="btn ${activeFilterChip === 'apipa_issues' ? 'btn-primary' : 'btn-secondary'}" onclick="window.setScannerFilterChip('apipa_issues')" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;">⚠️ APIPA / Issues</button>
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 6px;">
+              <div style="display: flex; align-items: center; gap: 4px; background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 6px; padding: 2px 6px;">
                 <input type="text" id="apipaQuickDiagInput" class="form-input" placeholder="e.g. 169.254.45.12" style="width: 130px; font-size: 11px; padding: 2px 6px; font-family: var(--font-mono); border: none; background: transparent;">
-                <button class="btn btn-secondary" onclick="window.quickDiagnoseOfficeDevice()" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Plain-language problem resolver & visual smart path mapper">🩺 Diagnose</button>
+                <button class="btn btn-secondary" onclick="window.quickDiagnoseOfficeDevice()" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: var(--accent-primary); border: none; background: transparent;" title="Plain-language problem resolver & visual smart path mapper">🩺 Diagnose</button>
               </div>
-              <button class="btn btn-secondary" onclick="window.checkLocalPrintSpoolerModal()" title="Inspect local Windows Print Spooler service, WSD ports, and stuck print jobs">🖨️ Local Print Spooler</button>
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-left: 4px;">
+              <button class="btn btn-secondary" onclick="window.checkLocalPrintSpoolerModal()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Inspect local Windows Print Spooler service, WSD ports, and stuck print jobs">🖨️ Local Print Spooler</button>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); cursor: pointer; user-select: none; margin-left: 4px;">
                 <input type="checkbox" id="hideNoPingCheckbox" onchange="window.toggleHideNoPing(this.checked)">
                 <span>Hide NO PING</span>
               </label>
-              <input type="text" id="scannerSearchInput" class="form-input" placeholder="Search IP, hostname, vendor, port..." style="width: 180px; font-size: 11px; padding: 4px 8px;" oninput="window.onScannerSearchChange(this.value)">
+              <input type="text" id="scannerSearchInput" class="form-input" placeholder="Search IP, hostname, vendor, port..." style="width: 180px; font-size: 11px; padding: 4px 8px; border-radius: 6px;" oninput="window.onScannerSearchChange(this.value)">
             </div>
           </div>
 
           <!-- Visible Scan Delta Summary Banner -->
-          <div id="scannerDeltaSummaryBanner" style="display: none; background: rgba(56, 189, 248, 0.08); border-bottom: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #e2e8f0;"></div>
+          <div id="scannerDeltaSummaryBanner" style="display: none; background: #EFF6FF; border-bottom: 1px solid #BFDBFE; padding: 8px 18px; font-size: 11px; font-family: var(--font-mono); color: #1E3A8A;"></div>
 
           <!-- Interactive Equipment KPI Strip -->
-          <div class="eji-equipment-kpi-strip" id="equipmentKpiStrip" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px 18px; background: rgba(15, 23, 42, 0.5); border-bottom: 1px solid var(--border-color);">
-            <div class="kpi-card" onclick="window.setScannerFilterChip('all')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">📡 Total Active Equipment</div>
-              <div id="kpiTotalActive" style="font-size: 18px; font-weight: 800; color: var(--accent); margin-top: 4px;">0</div>
+          <div class="eji-equipment-kpi-strip" id="equipmentKpiStrip" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px 18px; background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-default);">
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('all')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">📡 Total Active</div>
+              <div id="kpiTotalActive" style="font-size: 18px; font-weight: 800; color: var(--text-primary); margin-top: 4px;">0</div>
             </div>
-            <div class="kpi-card" onclick="window.setScannerFilterChip('printers')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">🖨️ Office Printers &amp; MFPs</div>
-              <div id="kpiPrinters" style="font-size: 18px; font-weight: 800; color: #34D399; margin-top: 4px;">0</div>
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('printers')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">🖨️ Office Printers</div>
+              <div id="kpiPrinters" style="font-size: 18px; font-weight: 800; color: #059669; margin-top: 4px;">0</div>
             </div>
-            <div class="kpi-card" onclick="window.setScannerFilterChip('computers')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">💻 Computers &amp; Servers</div>
-              <div id="kpiComputers" style="font-size: 18px; font-weight: 800; color: #60A5FA; margin-top: 4px;">0</div>
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('computers')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">💻 Computers</div>
+              <div id="kpiComputers" style="font-size: 18px; font-weight: 800; color: var(--accent-primary); margin-top: 4px;">0</div>
             </div>
-            <div class="kpi-card" onclick="window.setScannerFilterChip('phones')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">📞 VoIP Desk Phones</div>
-              <div id="kpiPhones" style="font-size: 18px; font-weight: 800; color: #FBBF24; margin-top: 4px;">0</div>
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('phones')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">📞 VoIP Phones</div>
+              <div id="kpiPhones" style="font-size: 18px; font-weight: 800; color: #D97706; margin-top: 4px;">0</div>
             </div>
-            <div class="kpi-card" onclick="window.setScannerFilterChip('network_gear')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">🌐 Routers, Switches &amp; APs</div>
-              <div id="kpiRouters" style="font-size: 18px; font-weight: 800; color: #A78BFA; margin-top: 4px;">0</div>
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('network_gear')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">🌐 Network Gear</div>
+              <div id="kpiRouters" style="font-size: 18px; font-weight: 800; color: #7C3AED; margin-top: 4px;">0</div>
             </div>
-            <div class="kpi-card" onclick="window.setScannerFilterChip('apipa_issues')" style="cursor: pointer; background: var(--bg-card, #0f172a); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;">
-              <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">⚠️ APIPA (169.254.x.x) / Faults</div>
-              <div id="kpiApipa" style="font-size: 18px; font-weight: 800; color: #EF4444; margin-top: 4px;">0</div>
+            <div class="kpi-card eji-equipment-kpi-card" onclick="window.setScannerFilterChip('apipa_issues')" style="cursor: pointer; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 8px 12px; box-shadow: var(--shadow-sm);">
+              <div style="font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">⚠️ APIPA / Faults</div>
+              <div id="kpiApipa" style="font-size: 18px; font-weight: 800; color: #DC2626; margin-top: 4px;">0</div>
             </div>
           </div>
 
@@ -502,43 +502,44 @@
       let statusDot = '';
       const st = String(h.status || h.detailedStatus || '').toUpperCase();
       if (st === 'ONLINE' || st === 'ACTIVE') {
-        statusDot = `<span class="status-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span> <span style="color: #34D399; font-weight: 700;">● ONLINE</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #059669; font-weight: 700; font-size: 10.5px;"><span class="status-dot" style="background: #059669;"></span> ONLINE</span>`;
       } else if (st === 'RECENTLY_SEEN' || st === 'FRESH_ARP') {
-        statusDot = `<span class="status-dot" style="background: #06B6D4; box-shadow: 0 0 6px #06B6D4;"></span> <span style="color: #38BDF8; font-weight: 700;">FRESH_ARP</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 700; font-size: 10.5px;"><span class="status-dot" style="background: #1D4ED8;"></span> FRESH_ARP</span>`;
       } else if (st === 'CONFIRMED_OFFLINE' || st === 'OFFLINE') {
-        statusDot = `<span class="status-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span> <span style="color: #F87171; font-weight: 700;" title="${escapeAttr(h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)')}">OFFLINE</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #FEF2F2; border: 1px solid #FECACA; color: #DC2626; font-weight: 700; font-size: 10.5px;" title="${escapeAttr(h.probeLimitations || 'Gateway reported Destination Host Unreachable (ICMP Type 3 Code 1)')}"><span class="status-dot" style="background: #DC2626;"></span> OFFLINE</span>`;
       } else if (st === 'NO_ICMP_RESPONSE' || st === 'UNRESPONSIVE' || st === 'NO PING') {
-        statusDot = `<span class="status-dot" style="background: #F59E0B;"></span> <span style="color: #FBBF24; font-weight: 600;" title="No ICMP Echo reply within timeout; host is either unallocated, offline, or dropping ping">NO PING</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #FFFBEB; border: 1px solid #FDE68A; color: #D97706; font-weight: 600; font-size: 10.5px;" title="No ICMP Echo reply within timeout; host is either unallocated, offline, or dropping ping"><span class="status-dot" style="background: #D97706;"></span> NO PING</span>`;
       } else if (st.includes('CACHED') || st.includes('ARP')) {
-        statusDot = `<span class="status-dot" style="background: #64748B;"></span> <span style="color: #94A3B8;">ARP CACHED</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #F1F5F9; border: 1px solid #CBD5E1; color: #475569; font-weight: 600; font-size: 10.5px;"><span class="status-dot" style="background: #64748B;"></span> ARP CACHED</span>`;
       } else {
-        statusDot = `<span class="status-dot" style="background: #475569;"></span> <span style="color: #64748B;">${escapeHtml(h.status || 'UNKNOWN')}</span>`;
+        statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #64748B; font-size: 10.5px;"><span class="status-dot" style="background: #94A3B8;"></span> ${escapeHtml(h.status || 'UNKNOWN')}</span>`;
       }
 
       // Quick connect badges
       let serviceBadges = '';
       if (h.openServices && h.openServices.length > 0) {
         serviceBadges = h.openServices.map(s => {
-          let badgeColor = 'rgba(56, 189, 248, 0.2)';
-          let textColor = '#38BDF8';
+          let badgeColor = '#EFF6FF';
+          let textColor = '#1D4ED8';
+          let borderColor = '#BFDBFE';
           let clickAction = '';
 
           if (s.port === 80) clickAction = `window.open('http://${h.ip}', '_blank')`;
           else if (s.port === 443) clickAction = `window.open('https://${h.ip}', '_blank')`;
           else if (s.port === 445) clickAction = `window.navigator.clipboard.writeText('\\\\\\\\${h.ip}')`;
 
-          if (s.risk === 'warning') { badgeColor = 'rgba(245, 158, 11, 0.2)'; textColor = '#FBBF24'; }
-          if (s.risk === 'danger') { badgeColor = 'rgba(239, 68, 68, 0.2)'; textColor = '#EF4444'; }
+          if (s.risk === 'warning') { badgeColor = '#FFFBEB'; textColor = '#D97706'; borderColor = '#FDE68A'; }
+          if (s.risk === 'danger') { badgeColor = '#FEF2F2'; textColor = '#DC2626'; borderColor = '#FECACA'; }
 
-          return `<span style="display: inline-block; background: ${badgeColor}; color: ${textColor}; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin: 1px 2px; cursor: pointer;" title="Port ${s.port} (${s.name}) - Click to connect" onclick="${clickAction}">${s.name}:${s.port}</span>`;
+          return `<span style="display: inline-block; background: ${badgeColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin: 1px 2px; cursor: pointer;" title="Port ${s.port} (${s.name}) - Click to connect" onclick="${clickAction}">${s.name}:${s.port}</span>`;
         }).join('');
       } else {
-        serviceBadges = '<span style="color: var(--text-dim); font-size: 10px;">None probed</span>';
+        serviceBadges = '<span style="color: var(--text-muted); font-size: 10px;">None probed</span>';
       }
 
       const latencyDisplay = (h.latencyMs !== null && h.latencyMs !== undefined)
-        ? `<div style="color: #34D399; font-weight: 600;">${h.latencyMs} ms</div>${h.latencySource ? `<div style="font-size: 9px; color: #64748B;">[${h.latencySource}]</div>` : ''}`
-        : (h.status === 'UNRESPONSIVE' ? `<span style="color: #64748B; font-size: 10px;">timed out</span>` : `<span style="color: var(--text-dim);">&lt;1 ms</span>`);
+        ? `<div style="color: #059669; font-weight: 600;">${h.latencyMs} ms</div>${h.latencySource ? `<div style="font-size: 9px; color: var(--text-muted);">[${h.latencySource}]</div>` : ''}`
+        : (h.status === 'UNRESPONSIVE' ? `<span style="color: var(--text-muted); font-size: 10px;">timed out</span>` : `<span style="color: var(--text-muted);">&lt;1 ms</span>`);
 
       const hasMac = Boolean(h.macAddress && h.macAddress !== 'Unknown' && h.macAddress !== 'N/A' && h.macAddress !== '00:00:00:00:00:00' && h.macAddress !== '— (No MAC Observed)');
       const macDisplay = hasMac ? escapeHtml(h.macAddress) : '—';
@@ -548,25 +549,25 @@
 
       return `
         <tr>
-          <td class="col-nowrap" style="text-align: center; white-space: nowrap;">${statusDot}</td>
+          <td class="col-nowrap" style="text-align: center; white-space: nowrap; width: 110px; min-width: 110px;">${statusDot}</td>
           <td>
-            <div style="font-weight: 700; color: #E2E8F0;">${escapeHtml(h.hostname || h.ip)}</div>
-            ${h.computerName ? `<div style="font-size: 9.5px; color: #38BDF8;">[${escapeHtml(h.nameSource || (h.reverseDns ? 'PTR' : 'NetBIOS'))}: ${escapeHtml(h.computerName)}]</div>` : ''}
+            <div style="font-weight: 700; color: var(--text-primary);">${escapeHtml(h.hostname || h.ip)}</div>
+            ${h.computerName ? `<div style="font-size: 9.5px; color: var(--accent-primary);">[${escapeHtml(h.nameSource || (h.reverseDns ? 'PTR' : 'NetBIOS'))}: ${escapeHtml(h.computerName)}]</div>` : ''}
           </td>
-          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent);">${escapeHtml(h.ip)}</td>
-          <td class="col-nowrap" style="white-space: nowrap; color: #94A3B8;">${macDisplay}</td>
-          <td style="color: #CBD5E1;">${vendorDisplay}</td>
-          <td class="col-nowrap" style="white-space: nowrap;">${categoryDisplay}</td>
+          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent-primary);">${escapeHtml(h.ip)}</td>
+          <td class="col-nowrap" style="white-space: nowrap; color: var(--text-secondary);">${macDisplay}</td>
+          <td style="color: var(--text-secondary);">${vendorDisplay}</td>
+          <td class="col-nowrap" style="white-space: nowrap; color: var(--text-primary);">${categoryDisplay}</td>
           <td>${serviceBadges}</td>
           <td class="col-nowrap" style="white-space: nowrap;">${latencyDisplay}</td>
           <td class="col-nowrap" style="white-space: nowrap;">
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button class="btn btn-secondary" onclick="window.diagnoseOfficeEquipmentModal('${h.ip}', '${h.equipmentProfile?.equipmentType || ''}', '${escapeAttr(h.hostname || '')}', '${h.macAddress || ''}', '${escapeAttr(h.vendor || '')}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #a78bfa;" title="Plain-language diagnostic & 4-hop visual smart connection map">🩺 Diagnose</button>
-              <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #38bdf8;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
-              <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
-              <button class="btn btn-secondary" onclick="window.addHostToTopology('${h.ip}', '${h.hostname}', '${h.macAddress}', '${h.vendor}')" style="font-size: 10px; padding: 2px 6px;" title="Register host into dynamic Layer 1-6 topology map">🗺️ Map</button>
-              <button class="btn btn-secondary" onclick="window.sendWolToHost('${h.macAddress}')" style="font-size: 10px; padding: 2px 6px;" title="Transmit Wake-on-LAN magic packet">⏰ WOL</button>
-              <button class="btn btn-secondary" onclick="window.copySmbSharePath('${h.ip}')" style="font-size: 10px; padding: 2px 6px;" title="Copy \\\\${h.ip} SMB share path">📂 Share</button>
+              <button class="btn btn-secondary" onclick="window.diagnoseOfficeEquipmentModal('${h.ip}', '${h.equipmentProfile?.equipmentType || ''}', '${escapeAttr(h.hostname || '')}', '${h.macAddress || ''}', '${escapeAttr(h.vendor || '')}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #7C3AED; border-radius: 4px;" title="Plain-language diagnostic & 4-hop visual smart connection map">🩺 Diagnose</button>
+              <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: var(--accent-primary); border-radius: 4px;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
+              <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
+              <button class="btn btn-secondary" onclick="window.addHostToTopology('${h.ip}', '${h.hostname}', '${h.macAddress}', '${h.vendor}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Register host into dynamic Layer 1-6 topology map">🗺️ Map</button>
+              <button class="btn btn-secondary" onclick="window.sendWolToHost('${h.macAddress}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Transmit Wake-on-LAN magic packet">⏰ WOL</button>
+              <button class="btn btn-secondary" onclick="window.copySmbSharePath('${h.ip}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Copy \\\\${h.ip} SMB share path">📂 Share</button>
             </div>
           </td>
         </tr>
@@ -788,23 +789,23 @@
     }
     modal.style.display = 'flex';
     modal.innerHTML = `
-      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px;">
+      <div style="background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E5E7EB); border-radius: 12px; width: 780px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: var(--shadow-lg); color: var(--text-primary, #111827); font-family: var(--font-sans);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default, #E5E7EB); padding-bottom: 12px; margin-bottom: 16px;">
           <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 24px;">🩺</span>
+            <div style="width: 32px; height: 32px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary, #2563EB); display: flex; align-items: center; justify-content: center; font-size: 16px;">🩺</div>
             <div>
-              <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #38bdf8;">Visual Smart Path &amp; Plain-Language Problem Resolver</h3>
-              <div style="font-size: 11px; color: #94a3b8;">Target Device: <b style="color: #38bdf8;">${escapeHtml(ip)}</b> ${name ? `(${escapeHtml(name)})` : ''}</div>
+              <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--text-primary, #111827);">Visual Smart Path &amp; Plain-Language Problem Resolver</h3>
+              <div style="font-size: 11px; color: var(--text-secondary, #4B5563);">Target Device: <b style="color: var(--accent-primary, #2563EB);">${escapeHtml(ip)}</b> ${name ? `(${escapeHtml(name)})` : ''}</div>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <button onclick="window.diagnoseOfficeEquipmentModal('${escapeAttr(ip)}', '${escapeAttr(deviceType)}', '${escapeAttr(name)}', '${escapeAttr(mac)}', '${escapeAttr(vendor)}', true)" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid #0284c7; color: #38bdf8; border-radius: 6px; cursor: pointer;">
+            <button onclick="window.diagnoseOfficeEquipmentModal('${escapeAttr(ip)}', '${escapeAttr(deviceType)}', '${escapeAttr(name)}', '${escapeAttr(mac)}', '${escapeAttr(vendor)}', true)" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; cursor: pointer;">
               ↻ Re-Test Device Now
             </button>
-            <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+            <button onclick="document.getElementById('officeDeviceDiagnoseModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary, #4B5563); font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
           </div>
         </div>
-        <div id="officeDiagLoading" style="text-align: center; padding: 40px; color: #94a3b8;">
+        <div id="officeDiagLoading" style="text-align: center; padding: 40px; color: var(--text-secondary, #4B5563);">
           <div style="font-size: 28px; margin-bottom: 12px;">⚙️</div>
           <div>Tracing 4-hop physical connection path, probing RFC 3927 link-local state, and synthesizing plain-language repair plan...</div>
         </div>
@@ -843,10 +844,10 @@
 
           return `
             <div style="display: flex; align-items: center; gap: 6px;">
-              <div class="${hopClass}" style="background: ${isBroken ? 'rgba(239, 68, 68, 0.15)' : 'rgba(15, 23, 42, 0.8)'}; border: 1px solid ${isBroken ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 10px 12px; min-width: 130px; text-align: center; box-shadow: ${isBroken ? '0 0 12px rgba(239,68,68,0.3)' : 'none'};">
+              <div class="${hopClass}" style="background: ${isBroken ? '#FEF2F2' : (isDegraded ? '#FFFBEB' : '#FFFFFF')}; border: 1px solid ${isBroken ? '#F87171' : (isDegraded ? '#FCD34D' : 'var(--border-default)')}; border-radius: 8px; padding: 10px 14px; min-width: 130px; text-align: center; box-shadow: var(--shadow-sm);">
                 <div style="font-size: 20px; margin-bottom: 4px;">${icon}</div>
-                <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#fca5a5' : '#e2e8f0'};">${escapeHtml(hop.title || hop.name || 'Network Hop')}</div>
-                <div style="font-size: 10px; color: #94a3b8; font-family: var(--font-mono);">${escapeHtml(hop.ip || hop.role || '')}</div>
+                <div style="font-size: 11px; font-weight: 700; color: ${isBroken ? '#DC2626' : (isDegraded ? '#D97706' : 'var(--text-primary)')};">${escapeHtml(hop.title || hop.name || 'Network Hop')}</div>
+                <div style="font-size: 10px; color: var(--text-secondary); font-family: var(--font-mono);">${escapeHtml(hop.ip || hop.role || '')}</div>
                 <span style="display: inline-block; margin-top: 6px; background: ${badgeBg}; color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">${badgeText}</span>
               </div>
               ${arrow}
@@ -857,15 +858,15 @@
         // Section B: Plain Language Summary
         const plain = res.plainLanguageDiagnosis || {};
         const steps = (plain.stepByStepFixPlan || []).map((s, i) => `
-          <li style="margin-bottom: 8px; color: #cbd5e1; font-size: 12px; line-height: 1.5;">
-            <b style="color: #38bdf8;">Step ${i + 1}:</b> ${escapeHtml(s)}
+          <li style="margin-bottom: 8px; color: var(--text-primary); font-size: 12px; line-height: 1.5;">
+            <b style="color: var(--accent-primary);">Step ${i + 1}:</b> ${escapeHtml(s)}
           </li>
         `).join('');
 
         const diffBanner = res.reverificationDiff?.hasPreviousSnapshot ? `
-          <div class="alert alert-info" style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38BDF8; color: #E0F2FE; padding: 10px 14px; border-radius: 6px; font-size: 12px;">
+          <div class="alert alert-info" style="margin-bottom: 12px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E3A8A; padding: 10px 14px; border-radius: 6px; font-size: 12px;">
             <strong>🔄 Re-Verification Comparison:</strong> Previous State: <code>${escapeHtml(res.reverificationDiff.previousScenario)}</code> ➔ Current State: <code>${escapeHtml(res.reverificationDiff.currentScenario)}</code>
-            ${res.reverificationDiff.statusImproved ? ' <span class="badge badge-success" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 700;">FIX SUCCESSFUL / RECOVERED</span>' : ''}
+            ${res.reverificationDiff.statusImproved ? ' <span class="badge badge-success" style="background: #059669; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 700;">FIX SUCCESSFUL / RECOVERED</span>' : ''}
           </div>
         ` : '';
 
@@ -873,8 +874,8 @@
           ${diffBanner}
 
           <!-- Section A: Visual Connection Path -->
-          <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 14px;">
-            <div style="font-size: 12px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+          <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
               Section A: Visual Connection Path (Smart Map)
             </div>
             <div class="eji-hop-pipeline" style="display: flex; align-items: center; justify-content: space-between; overflow-x: auto; padding: 8px 4px;">
@@ -884,26 +885,26 @@
 
           <!-- Section B: Automated Problem Resolver -->
           <div class="eji-plain-resolver-grid" style="display: flex; flex-direction: column; gap: 12px;">
-            <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 4px; padding: 12px 16px;">
-              <div style="font-size: 11px; font-weight: 700; color: #f87171; text-transform: uppercase; margin-bottom: 4px;">
+            <div style="background: #FEF2F2; border-left: 4px solid #DC2626; border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: #DC2626; text-transform: uppercase; margin-bottom: 4px;">
                 1. What the Problem Is
               </div>
-              <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; line-height: 1.4;">
+              <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.4;">
                 ${escapeHtml(plain.whatTheProblemIs || 'Connectivity failure detected on target device.')}
               </div>
             </div>
 
-            <div style="background: rgba(245, 158, 11, 0.08); border-left: 4px solid #f59e0b; border-radius: 4px; padding: 12px 16px;">
-              <div style="font-size: 11px; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 4px;">
+            <div style="background: #FFFBEB; border-left: 4px solid #D97706; border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: #D97706; text-transform: uppercase; margin-bottom: 4px;">
                 2. Why It Happened (Root Cause)
               </div>
-              <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5;">
+              <div style="font-size: 12px; color: var(--text-primary); line-height: 1.5;">
                 ${escapeHtml(plain.whyItHappened || 'Device was unable to complete DHCP handshake or communicate with local gateway.')}
               </div>
             </div>
 
-            <div style="background: rgba(56, 189, 248, 0.08); border-left: 4px solid #38bdf8; border-radius: 4px; padding: 12px 16px;">
-              <div style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 8px;">
+            <div style="background: #EFF6FF; border-left: 4px solid var(--accent-primary); border-radius: 4px; padding: 12px 16px;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--accent-primary); text-transform: uppercase; margin-bottom: 8px;">
                 3. Step-by-Step Plan on How to Fix It
               </div>
               <ol style="margin: 0; padding-left: 18px;">
@@ -913,14 +914,14 @@
           </div>
 
           <!-- Quick Action Buttons -->
-          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; border-top: 1px solid #1e293b; padding-top: 14px;">
-            <button class="btn btn-primary" onclick="window.runQuickScriptAction('restart-print-spooler.ps1')" style="font-size: 11px; padding: 6px 12px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; border-top: 1px solid var(--border-default); padding-top: 14px;">
+            <button class="btn btn-primary" onclick="window.runQuickScriptAction('restart-print-spooler.ps1')" style="font-size: 11px; padding: 6px 12px; border-radius: 6px;">
               🔄 Restart Print Spooler
             </button>
-            <button class="btn btn-secondary" onclick="window.runQuickScriptAction('flush-dns-cache.ps1')" style="font-size: 11px; padding: 6px 12px;">
+            <button class="btn btn-secondary" onclick="window.runQuickScriptAction('flush-dns-cache.ps1')" style="font-size: 11px; padding: 6px 12px; border-radius: 6px;">
               🌐 Flush DNS &amp; Renew IP
             </button>
-            <button class="btn btn-secondary" onclick="window.inspectHostDeep('${escapeAttr(ip)}')" style="font-size: 11px; padding: 6px 12px; color: #38bdf8;">
+            <button class="btn btn-secondary" onclick="window.inspectHostDeep('${escapeAttr(ip)}')" style="font-size: 11px; padding: 6px 12px; color: var(--accent-primary); border-radius: 6px;">
               🔬 Deep 15-Port Host Inspection
             </button>
           </div>

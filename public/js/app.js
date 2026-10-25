@@ -440,16 +440,20 @@ window.selectLoginProfile = function(username, password) {
   if (passInp) passInp.value = password;
 
   document.querySelectorAll('.login-role-btn').forEach(btn => {
-    btn.style.borderColor = 'rgba(255,255,255,0.08)';
-    btn.style.background = 'var(--bg-input)';
-    btn.style.color = 'var(--text-muted)';
+    btn.style.borderColor = 'transparent';
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--text-secondary)';
+    btn.style.boxShadow = 'none';
+    btn.classList.remove('active-profile');
   });
 
   const activeBtn = document.getElementById(`pill-${username}`);
   if (activeBtn) {
-    activeBtn.style.borderColor = 'var(--accent)';
-    activeBtn.style.background = 'rgba(56, 189, 248, 0.15)';
-    activeBtn.style.color = '#38bdf8';
+    activeBtn.style.borderColor = 'var(--border-default)';
+    activeBtn.style.background = '#FFFFFF';
+    activeBtn.style.color = 'var(--accent-primary)';
+    activeBtn.style.boxShadow = 'var(--shadow-xs)';
+    activeBtn.classList.add('active-profile');
   }
 };
 

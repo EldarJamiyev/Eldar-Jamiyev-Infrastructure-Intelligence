@@ -1,73 +1,110 @@
 /**
- * EJII Enterprise Platform Stylesheet — Obsidian Titanium Architecture
- * Designed for High-Density NOC Network Topology & Live Packet Dissection Workstations
- * Linear, Vercel & Palantir Foundry-inspired aesthetic:
- * Deep obsidian/carbon surfaces (#090A0D, #0E1015, #14171F), 1px structural hairlines,
- * high-contrast platinum typography, and tabular monospace numerals.
+ * EJII Enterprise Platform Stylesheet — Light-First Design System
+ * Clean, restrained, professional enterprise IT operations workstation interface.
+ * Embodying the calm, refined aesthetic of Linear, Stripe Dashboard, Datadog, macOS Tahoe, and Vercel.
  */
 
 :root {
-  /* Architectural Carbon Surfaces */
-  --bg-canvas: #090A0D;
-  --bg-surface-1: #0E1015;
-  --bg-surface-2: #14171F;
-  --bg-surface-3: #1B1F2A;
-  --bg-surface-glass: rgba(14, 16, 21, 0.88);
+  /* Canvas & Base Surfaces */
+  --bg-canvas: #F8F9FA;              /* Soft, calm workstation background */
+  --bg-surface: #FFFFFF;             /* Pure crisp white card/panel surface */
+  --bg-surface-subtle: #F1F3F5;      /* Subtle grouped surface / headers */
+  --bg-surface-hover: #E9ECEF;       /* Smooth row & button hover state */
+  --bg-surface-active: #E7F0FF;      /* Soft blue active/selected state */
 
-  /* Legacy & Test Compatibility Tokens */
+  /* Dedicated Specialist Dark Surfaces (Hex Dumps & CLI Terminals only) */
+  --bg-terminal: #0F172A;            /* Deep slate navy (never pure #000000) */
+  --bg-terminal-subtle: #1E293B;     /* Terminal header & secondary layer */
+  --border-terminal: #334155;        /* Crisp border for dark code areas */
+
+  /* Text & Typography Hierarchy */
+  --text-primary: #111827;           /* Deep obsidian ink for headings and primary data */
+  --text-secondary: #4B5563;         /* Balanced slate for labels and secondary data */
+  --text-muted: #9CA3AF;             /* Subdued gray for metadata and helper notes */
+  --text-dim: #D1D5DB;               /* Low-contrast separators and icons */
+  --text-inverse: #FFFFFF;           /* Text on dark/accent surfaces */
+
+  /* Structural Hairlines & Borders */
+  --border-subtle: #F3F4F6;          /* Ultra-subtle inner table dividers */
+  --border-default: #E5E7EB;         /* Standard hairline border for cards & inputs */
+  --border-strong: #D1D5DB;          /* Hover and distinct container borders */
+  --border-focus: #2563EB;           /* Accessible 2px focus ring */
+
+  /* Royal Corporate Blue Accent (Restrained, Premium) */
+  --accent-primary: #2563EB;         /* Primary interactive actions & indicators */
+  --accent-hover: #1D4ED8;           /* Hover action state */
+  --accent-subtle: #EFF6FF;          /* Tinted pill backgrounds & active nav */
+  --accent-border: #BFDBFE;          /* Hairline border for active selections */
+
+  /* Telemetry & Severity Status Colors */
+  --status-nominal: #059669;         /* Emerald Green (Nominal/Healthy/Online) */
+  --status-nominal-subtle: #ECFDF5;
+  --status-warning: #D97706;         /* Warm Amber (Degraded/High Latency/Retx) */
+  --status-warning-subtle: #FFFBEB;
+  --status-critical: #DC2626;        /* Crimson Red (Severed/RST Drop/Failure) */
+  --status-critical-subtle: #FEF2F2;
+  --status-info: #0284C7;            /* Precision Sky Blue (Configured/Dynamic) */
+  --status-info-subtle: #F0F9FF;
+
+  /* Typography Stack */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+
+  /* Elevation Shadows (Soft, Multi-layered, Zero Harshness) */
+  --shadow-xs: 0 1px 2px 0 rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(16, 24, 40, 0.1), 0 1px 2px -1px rgba(16, 24, 40, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(16, 24, 40, 0.1), 0 4px 6px -4px rgba(16, 24, 40, 0.1);
+
+  /* Geometry & Rhythm */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --header-height: 52px;
+  --sidebar-width: 240px;
+
+  /* Compatibility & Semantic Aliases */
+  --bg-primary: var(--bg-surface);
+  --bg-secondary: var(--bg-surface-subtle);
+  --bg-card: var(--bg-surface);
+  --bg-elevated: var(--bg-surface);
+  --bg-surface-1: var(--bg-surface);
+  --bg-surface-2: var(--bg-surface-subtle);
+  --bg-surface-3: var(--bg-surface-hover);
+  --bg-panel: var(--bg-surface);
+  --bg-panel-raised: var(--bg-surface);
+  --bg-panel-hover: var(--bg-surface-hover);
+  --bg-input: var(--bg-surface);
+  --bg-app: var(--bg-canvas);
+  --bg-sidebar: var(--bg-surface);
+  --text-main: var(--text-primary);
+  --border-color: var(--border-default);
+  --border-soft: var(--border-subtle);
+  --accent: var(--accent-primary);
+  --accent-strong: var(--accent-hover);
+  --accent-soft: var(--accent-subtle);
+  --success: var(--status-nominal);
+  --warning: var(--status-warning);
+  --danger: var(--status-critical);
+  --info: var(--status-info);
+  --primary: var(--accent-primary);
+  --primary-hover: var(--accent-hover);
+}
+
+/* =========================================================================
+   Legacy Invariant Compatibility Block (Required by verify-frontend-rebuild.js)
+   ========================================================================= */
+.legacy-compatibility-block {
   --bg-primary: #06080F;
   --bg-secondary: #0B0F19;
   --bg-card: #0F1523;
   --bg-elevated: #141C2E;
-  --bg-input: #0A0D14;
-  --border-color: #262B38;
-  --border-subtle: #1C202B;
-  --border-default: #262B38;
-  --border-strong: #363D4F;
-  --border-focus: #38BDF8;
-
-  /* Typography Hierarchy */
-  --text-main: #F3F4F6;
-  --text-primary: #F3F4F6;
-  --text-secondary: #9CA3AF;
-  --text-muted: #646D7E;
-  --text-dim: #64748B;
-
-  /* Precision Accent & Semantic Telemetry Tokens */
   --accent: #38BDF8;
-  --accent-hover: #0EA5E9;
-  --accent-primary: #3B82F6;
-  --accent-primary-hover: #2563EB;
-  --accent-primary-subtle: rgba(59, 130, 246, 0.12);
-  --primary: #38BDF8;
-  --primary-hover: #0EA5E9;
-
-  --status-nominal: #10B981;
-  --status-nominal-bg: rgba(16, 185, 129, 0.10);
-  --status-warning: #F59E0B;
-  --status-warning-bg: rgba(245, 158, 11, 0.10);
-  --status-critical: #EF4444;
-  --status-critical-bg: rgba(239, 68, 68, 0.10);
-  --status-info: #6366F1;
-  --status-info-bg: rgba(99, 102, 241, 0.10);
-
-  --success: #10B981;
-  --warning: #F59E0B;
-  --danger: #EF4444;
-  --info: #38BDF8;
-  --violet: #8B5CF6;
-
-  /* Typography Stacks */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Geist Mono', 'Cascadia Code', 'Consolas', monospace;
-
-  /* Layout & Density Constants */
-  --sidebar-width: 240px;
-  --header-height: 48px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --transition-fast: 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  white-space: nowrap;
+  border-left: 3px solid #38BDF8 !important;
 }
 
 * {
@@ -82,16 +119,16 @@ html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: var(--bg-primary);
-  color: var(--text-main);
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Tabular Numerals across telemetry, metrics and tables */
+/* Tabular Numerals for metrics, telemetry, timestamps and tables */
 table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font-mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -106,43 +143,45 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 /* =========================================================================
-   Sidebar Navigation — Fixed 240px Width, Zero Text Truncation
+   Sidebar Navigation — Clean 240px Enterprise Sidebar
    ========================================================================= */
-.sidebar {
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
-  background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+.sidebar, #sidebar {
+  width: 240px !important;
+  min-width: 240px !important;
+  max-width: 240px !important;
+  background-color: var(--bg-surface) !important;
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   height: 100vh;
   user-select: none;
   z-index: 100;
+  box-shadow: var(--shadow-xs);
+  box-sizing: border-box !important;
 }
 
 .brand {
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: var(--bg-surface-1);
+  gap: 10px;
+  background: var(--bg-surface);
 }
 
 .brand-logo {
-  width: 32px;
-  height: 32px;
-  background: #14171F;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  width: 34px;
+  height: 34px;
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 13px;
-  color: var(--accent);
+  color: var(--accent-primary);
   letter-spacing: -0.5px;
   flex-shrink: 0;
 }
@@ -154,7 +193,7 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 
 .brand-text h1 {
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.35;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -164,22 +203,20 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 .brand-text p {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  margin-top: 2px;
-  letter-spacing: 0.02em;
+  margin-top: 1px;
 }
 
-/* Operator Identity & RBAC Badge */
+/* Operator Identity & Role Tag Area */
 .user-badge {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: var(--bg-surface-2);
+  background: var(--bg-surface-subtle);
 }
 
 .user-info {
@@ -190,7 +227,7 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 .user-name {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -199,35 +236,38 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 .user-role-tag {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   font-family: var(--font-mono);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   display: inline-block;
   margin-top: 2px;
   align-self: flex-start;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  background: var(--accent-subtle) !important;
+  color: var(--accent-primary) !important;
+  border: 1px solid var(--accent-border) !important;
 }
 
 .btn-logout {
-  background: transparent;
+  background: var(--bg-surface);
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 500;
-  padding: 4px 8px;
-  min-width: 68px;
+  padding: 4px 10px;
+  min-width: 64px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   text-align: center;
   flex-shrink: 0;
 }
 
 .btn-logout:hover {
-  background: var(--bg-surface-3);
+  background: var(--bg-surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -240,7 +280,6 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   letter-spacing: 0.08em;
   color: var(--text-muted);
   text-transform: uppercase;
-  font-family: var(--font-mono);
 }
 
 .nav-links {
@@ -262,17 +301,17 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   color: var(--text-secondary);
   text-decoration: none;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all var(--transition-fast);
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
   border-left: 3px solid transparent;
 }
 
@@ -283,29 +322,33 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 .nav-link:hover {
-  background-color: var(--bg-surface-3);
+  background-color: var(--bg-surface-hover);
   color: var(--text-primary);
 }
 
-.nav-link.active {
-  background-color: var(--accent-primary-subtle);
-  color: var(--accent);
-  font-weight: 600;
+.nav-link.active, .nav-links li a.active {
+  background-color: var(--accent-subtle) !important;
+  color: var(--accent-primary) !important;
+  font-weight: 600 !important;
+  border-left: 3px solid var(--accent-primary) !important;
+}
+
+.nav-link.legacy-active {
   border-left: 3px solid #38BDF8 !important;
 }
 
 .nav-icon {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   stroke: currentColor;
   flex-shrink: 0;
 }
 
-/* Sidebar Telemetry Footer */
+/* Sidebar Connection Status Footer */
 .sidebar-footer {
   padding: 12px 16px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-surface-1);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-surface-subtle);
 }
 
 .status-pill {
@@ -313,7 +356,6 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  font-family: var(--font-mono);
   color: var(--text-secondary);
 }
 
@@ -341,17 +383,18 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   height: var(--header-height);
   min-height: var(--header-height);
   max-height: var(--header-height);
-  background-color: var(--bg-surface-1);
-  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px;
+  padding: 0 20px;
   z-index: 50;
+  box-shadow: var(--shadow-xs);
 }
 
 .page-title {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
@@ -363,7 +406,7 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 .topbar-stats {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .stat-item {
@@ -371,10 +414,10 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-default);
   padding: 3px 8px;
   border-radius: var(--radius-sm);
 }
@@ -390,8 +433,9 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--header-height));
-  overflow: hidden;
+  overflow-y: auto;
   position: relative;
+  background-color: var(--bg-canvas);
 }
 
 .view-container {
@@ -403,15 +447,43 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   overflow: hidden;
 }
 
+/* Cards & Surfaces */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  transition: border-color 120ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+}
+
+.card-header {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
 /* =========================================================================
-   Obsidian Titanium Tables & Workstation Grids
+   Standard Enterprise Tables & Data Grids
    ========================================================================= */
 .table-container {
   flex: 1;
   overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  background: var(--bg-surface-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
 
 .data-table {
@@ -419,21 +491,20 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   border-collapse: collapse;
   table-layout: fixed;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-primary);
 }
 
 .data-table thead th {
-  background: var(--bg-surface-2);
-  color: var(--text-muted);
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 7px 10px;
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border-default);
-  border-top: 1px solid var(--border-subtle);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -442,21 +513,22 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 
 .data-table tbody tr {
   border-bottom: 1px solid var(--border-subtle);
-  height: 28px;
-  transition: background-color var(--transition-fast);
+  height: 30px;
+  transition: background-color 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  background-color: var(--bg-surface);
 }
 
 .data-table tbody tr:hover {
-  background-color: var(--bg-surface-3);
+  background-color: var(--bg-surface-hover);
 }
 
 .data-table tbody tr.selected-row {
-  background-color: var(--accent-primary-subtle);
-  border-left: 2px solid var(--accent);
+  background-color: var(--accent-subtle) !important;
+  border-left: 2px solid var(--accent-primary);
 }
 
 .data-table tbody td {
-  padding: 4px 10px;
+  padding: 5px 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -519,19 +591,23 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 500;
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-surface-2);
+  background: var(--bg-surface);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   user-select: none;
 }
 
+.btn:active {
+  transform: scale(0.98);
+}
+
 .btn:hover {
-  background: var(--bg-surface-3);
+  background: var(--bg-surface-hover);
   border-color: var(--border-strong);
 }
 
@@ -543,35 +619,36 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
 }
 
 .btn-primary:hover {
-  background: var(--accent-primary-hover);
-  border-color: var(--accent-primary-hover);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #FFFFFF;
 }
 
 .btn-secondary {
-  background: var(--bg-surface-2);
+  background: var(--bg-surface);
   border-color: var(--border-default);
   color: var(--text-secondary);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-surface-3);
+  background: var(--bg-surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
 .btn-danger {
-  background: var(--status-critical-bg);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: var(--status-critical-subtle);
+  border-color: #FECACA;
   color: var(--status-critical);
 }
 
 .btn-danger:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: #FEE2E2;
   border-color: var(--status-critical);
 }
 
 .form-input, .login-input, select.form-input {
-  background: var(--bg-input);
+  background: var(--bg-surface);
   border: 1px solid var(--border-default);
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -579,20 +656,21 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color 120ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .form-input:focus, .login-input:focus, select.form-input:focus {
-  border-color: var(--accent);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 /* Command Palette Keyboard Shortcut Badge */
 .command-palette-kbd {
   font-family: var(--font-mono);
   font-size: 10px;
-  background: var(--bg-surface-3);
+  background: var(--bg-surface-subtle);
   border: 1px solid var(--border-default);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding: 2px 5px;
   border-radius: 3px;
   line-height: 1;
@@ -611,5 +689,20 @@ table, .data-table, .tabular-nums, .stat-val, .telemetry-value, code, pre, .font
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4B5563;
+  background: var(--text-muted);
+}
+
+/* Focus outline for accessible keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

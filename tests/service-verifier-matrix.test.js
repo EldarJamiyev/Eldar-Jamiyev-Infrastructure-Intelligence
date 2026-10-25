@@ -26,11 +26,21 @@ async function runServiceVerifierMatrixTests() {
 
   let targetHost = process.env.EJII_TEST_WEB_TARGET || 'taxes.gov.az';
   console.log(`Testing Enterprise Web Verifier on ${targetHost}...`);
-  let webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 6000 });
-  if (!webReport || !webReport.tcp || !webReport.tcp.success || !webReport.tls || !webReport.tls.success || !webReport.http || !webReport.http.success || !webReport.http.statusCode) {
-    console.log(`Endpoint ${targetHost} port 443 / HTTP unreachable or degraded on current network, falling back to google.com...`);
-    targetHost = 'google.com';
-    webReport = await verifyWebEndpoint(targetHost, { timeoutMs: 8000 });
+  let webReport = null;
+  const candidateTargets = [targetHost, 'google.com', 'cloudflare.com'];
+  for (const candidate of candidateTargets) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      webReport = await verifyWebEndpoint(candidate, { timeoutMs: 8000 });
+      if (webReport && webReport.tcp && webReport.tcp.success && webReport.tls && webReport.tls.success && webReport.http && webReport.http.success && webReport.http.statusCode) {
+        targetHost = candidate;
+        break;
+      }
+      if (attempt < 3) await new Promise(r => setTimeout(r, 600));
+    }
+    if (webReport && webReport.tcp && webReport.tcp.success && webReport.tls && webReport.tls.success && webReport.http && webReport.http.success && webReport.http.statusCode) {
+      break;
+    }
+    console.log(`Endpoint ${candidate} port 443 / HTTP unreachable or degraded on current network, falling back to next candidate...`);
   }
   assert.ok(webReport, 'Web report must exist');
   assert.strictEqual(webReport.hostname, targetHost);

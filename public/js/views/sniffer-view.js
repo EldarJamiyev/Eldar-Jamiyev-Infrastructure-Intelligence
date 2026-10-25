@@ -43,47 +43,47 @@ window.escapeAttr = escapeAttr;
           <!-- Autonomous AI Diagnostic Brain Live Drawer -->
           <div id="snifferAiBrainDrawerContainer" class="ai-brain-drawer-mount" style="flex-shrink: 0;"></div>
 
-          <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+          <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
             <!-- Header Stream & Profile Bar -->
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--border-color); flex-shrink: 0;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 22px;">🦈</span>
+                <div style="width: 32px; height: 32px; border-radius: 6px; background: #EFF6FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 16px;">🦈</div>
                 <div>
-                  <div class="card-title" style="margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">
-                    2. Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector
+                  <div class="card-title" style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);">
+                    Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector
                   </div>
-                  <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">
                     Physical Npcap Wire Driver &bull; L2-L7 RFC Binary Tree &bull; TCP Stream Delta &amp; Retransmission Engine
                   </div>
                 </div>
-                <span id="captureLiveIndicator" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: rgba(52, 211, 153, 0.15); color: var(--success); margin-left: 8px;">
-                  <span class="status-dot" style="background: var(--success);"></span>
+                <span id="captureLiveIndicator" style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 12px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #059669; margin-left: 8px;">
+                  <span class="status-dot" style="background: #059669;"></span>
                   <span id="captureStatusLabel">STREAMING</span>
                 </span>
-                <span id="packetFilterCounterBadge" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; font-family: var(--font-mono); margin-left: 8px;">
-                  Visible: 0 frames | Noise/Keep-Alives Hidden: 0
+                <span id="packetFilterCounterBadge" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 12px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-family: var(--font-mono); margin-left: 8px;">
+                  Visible: 0 frames | Hidden: 0
                 </span>
               </div>
 
               <!-- Stream Controls & Hardware Interface Selector -->
               <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                 <!-- Physical Network Interface Selector -->
-                <div style="display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 6px;">
-                  <span style="font-size: 11px; font-family: var(--font-mono); color: #38bdf8; font-weight: 700;">📡 NIC:</span>
-                  <select id="captureInterfaceSelect" class="form-input" style="max-width: 210px; font-size: 11px; padding: 3px 6px; font-family: var(--font-mono); border: none; background: transparent; color: var(--text-main);" onchange="window.onCaptureInterfaceChange(this.value)">
+                <div style="display: flex; align-items: center; gap: 4px; background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 6px; padding: 3px 8px;">
+                  <span style="font-size: 11px; font-family: var(--font-mono); color: var(--text-primary); font-weight: 700;">📡 NIC:</span>
+                  <select id="captureInterfaceSelect" class="form-input" style="max-width: 210px; font-size: 11px; padding: 2px 6px; font-family: var(--font-mono); border: none; background: transparent; color: var(--text-primary);" onchange="window.onCaptureInterfaceChange(this.value)">
                     ${ifaceOptionsHtml || '<option value="">Default Physical NIC</option>'}
                   </select>
                 </div>
 
-                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color); flex-wrap: wrap;">
-                  <button id="viewModeImportantBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('important')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="Handshakes, HTTP, DNS, TLS SNI, Anomaly Frames">⭐ Important</button>
-                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="Bi-directional Conversations & Flow Matrix">💬 Conversations</button>
-                  <button id="viewModeFinderBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('finder')" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #38bdf8;" title="App Server & Port Finder (Correlate Process to Remote Server)">🖥️ App Finder</button>
-                  <button id="viewModeFailuresBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('failures')" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #f87171;" title="TCP RST, Retransmissions, Zero-Window, ICMP Unreachable">⚠️ Failures Only</button>
-                  <button id="viewModePacketsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 4px 8px; font-weight: 600;" title="All Unfiltered Raw Packets">📜 All Packets</button>
+                <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default); flex-wrap: wrap;">
+                  <button id="viewModeImportantBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('important')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;" title="Handshakes, HTTP, DNS, TLS SNI, Anomaly Frames">⭐ Important</button>
+                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="Bi-directional Conversations & Flow Matrix">💬 Conversations</button>
+                  <button id="viewModeFinderBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('finder')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #0284C7;" title="App Server & Port Finder (Correlate Process to Remote Server)">🖥️ App Finder</button>
+                  <button id="viewModeFailuresBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('failures')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #DC2626;" title="TCP RST, Retransmissions, Zero-Window, ICMP Unreachable">⚠️ Failures Only</button>
+                  <button id="viewModePacketsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="All Unfiltered Raw Packets">📜 All Packets</button>
                 </div>
 
-                <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px;" onchange="window.onPacketProtocolFilterChange(this.value)">
+                <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px; border-radius: 6px;" onchange="window.onPacketProtocolFilterChange(this.value)">
                   <option value="ALL">All Proto</option>
                   <option value="TCP">TCP</option>
                   <option value="UDP">UDP</option>
@@ -97,52 +97,52 @@ window.escapeAttr = escapeAttr;
                   <option value="MDNS">mDNS</option>
                 </select>
 
-                <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, host..." style="width: 140px; padding: 4px 8px; font-size: 11px;" oninput="window.onPacketSearchChange(this.value)">
+                <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, host..." style="width: 140px; padding: 4px 8px; font-size: 11px; border-radius: 6px;" oninput="window.onPacketSearchChange(this.value)">
 
-                <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none;">
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); cursor: pointer; user-select: none;">
                   <input type="checkbox" id="hideInternalEjiCheckbox" checked onchange="window.toggleHideInternalEji(this.checked)">
                   <span>Hide 8443</span>
                 </label>
 
-                <button id="freezeStreamBtn" class="btn btn-secondary" onclick="window.toggleFreezeStreamView()" style="font-size: 11px; padding: 4px 8px;">⏸ Freeze</button>
-                <button id="toggleCaptureBtn" class="btn btn-secondary" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px;">⏸ Pause</button>
-                <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px;">Clear</button>
+                <button id="freezeStreamBtn" class="btn btn-secondary" onclick="window.toggleFreezeStreamView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">⏸ Freeze</button>
+                <button id="toggleCaptureBtn" class="btn btn-secondary" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">⏸ Pause</button>
+                <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">Clear</button>
 
                 <!-- Dedicated Direct PCAP I/O Controls -->
-                <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #38BDF8;" title="Export standard libpcap binary file for Wireshark">⬇ PCAP</button>
+                <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: var(--accent-primary); border-radius: 6px;" title="Export standard libpcap binary file for Wireshark">⬇ PCAP</button>
                 <input type="file" id="pcapFileInput" style="display: none;" accept=".pcap,.cap" onchange="window.handlePcapFileChosen(this)">
-                <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #A78BFA;" title="Import offline PCAP file for forensic dissection">⬆ Import</button>
+                <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #7C3AED; border-radius: 6px;" title="Import offline PCAP file for forensic dissection">⬆ Import</button>
 
                 <!-- Inspector Drawer Toggle -->
-                <button class="btn btn-secondary" onclick="window.togglePacketInspectorDrawer()" style="font-size: 11px; padding: 4px 8px;" title="Toggle 3-Pane Inspection Drawer">◫ Inspector</button>
-                <button class="btn btn-secondary" onclick="window.openWireDiagnosticsModal()" style="font-size: 11px; padding: 4px 8px;" title="Open Wire Diagnostics Hub">🛠️</button>
+                <button class="btn btn-secondary" onclick="window.togglePacketInspectorDrawer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Toggle 3-Pane Inspection Drawer">◫ Inspector</button>
+                <button class="btn btn-secondary" onclick="window.openWireDiagnosticsModal()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Open Wire Diagnostics Hub">🛠️</button>
               </div>
             </div>
 
             <!-- BPF Capture Filter & Hardware Accounting Counters Bar -->
-            <div style="background: rgba(15, 23, 42, 0.6); border-bottom: 1px solid var(--border-color); padding: 6px 18px; flex-shrink: 0;">
+            <div style="background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-default); padding: 6px 18px; flex-shrink: 0;">
               <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;">
-                <span style="font-weight: 700; font-size: 11px; color: var(--accent); white-space: nowrap; font-family: var(--font-mono);">⚡ Kernel BPF Filter:</span>
-                <input type="text" id="nocBpfInput" class="form-input" placeholder="e.g. tcp port 443 and host 192.168.31.89, icmp or arp" style="flex: 1; min-width: 200px; font-family: var(--font-mono); font-size: 11px; padding: 3px 8px;">
-                <button class="btn btn-primary" onclick="window.applyNocBpfFilter()" style="font-size: 11px; padding: 3px 10px; font-weight: 700;">Apply BPF</button>
-                <button class="btn btn-secondary" onclick="window.clearNocBpfFilter()" style="font-size: 11px; padding: 3px 8px;">Clear</button>
+                <span style="font-weight: 700; font-size: 11px; color: var(--accent-primary); white-space: nowrap; font-family: var(--font-mono);">⚡ Kernel BPF Filter:</span>
+                <input type="text" id="nocBpfInput" class="form-input" placeholder="e.g. tcp port 443 and host 192.168.31.89, icmp or arp" style="flex: 1; min-width: 200px; font-family: var(--font-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px;">
+                <button class="btn btn-primary" onclick="window.applyNocBpfFilter()" style="font-size: 11px; padding: 3px 10px; font-weight: 700; border-radius: 6px;">Apply BPF</button>
+                <button class="btn btn-secondary" onclick="window.clearNocBpfFilter()" style="font-size: 11px; padding: 3px 8px; border-radius: 6px;">Clear</button>
               </div>
-              <div id="nocCountersBar" style="display: flex; gap: 14px; align-items: center; font-size: 10px; font-family: var(--font-mono); flex-wrap: wrap;">
-                <span><b>Driver Received:</b> <span id="cntReceived" style="color: var(--accent); font-weight: 700;">0</span></span>
-                <span><b>Accepted (BPF):</b> <span id="cntAccepted" style="color: var(--success); font-weight: 700;">0</span></span>
-                <span><b>Dropped:</b> <span id="cntDropped" style="color: var(--danger); font-weight: 700;">0</span></span>
-                <span><b>Decoded:</b> <span id="cntDecoded" style="color: #38bdf8; font-weight: 700;">0</span></span>
-                <span><b>Delivered:</b> <span id="cntDelivered" style="color: #a78bfa; font-weight: 700;">0</span></span>
+              <div id="nocCountersBar" style="display: flex; gap: 14px; align-items: center; font-size: 10px; font-family: var(--font-mono); flex-wrap: wrap; color: var(--text-secondary);">
+                <span><b>Driver Received:</b> <span id="cntReceived" style="color: var(--accent-primary); font-weight: 700;">0</span></span>
+                <span><b>Accepted (BPF):</b> <span id="cntAccepted" style="color: var(--status-nominal); font-weight: 700;">0</span></span>
+                <span><b>Dropped:</b> <span id="cntDropped" style="color: var(--status-critical); font-weight: 700;">0</span></span>
+                <span><b>Decoded:</b> <span id="cntDecoded" style="color: #0284C7; font-weight: 700;">0</span></span>
+                <span><b>Delivered:</b> <span id="cntDelivered" style="color: #7C3AED; font-weight: 700;">0</span></span>
                 <span style="margin-left: auto;">
-                  <button class="btn btn-secondary" onclick="window.refreshNocCounters()" style="font-size: 10px; padding: 1px 6px;">↻ Counters</button>
+                  <button class="btn btn-secondary" onclick="window.refreshNocCounters()" style="font-size: 10px; padding: 1px 6px; border-radius: 4px;">↻ Counters</button>
                 </span>
               </div>
             </div>
 
             <!-- Dynamic Wireshark Display Filter Bar (AST Evaluator) + AI Assistant -->
-            <div style="background: rgba(10, 16, 30, 0.85); border-bottom: 1px solid var(--border-color); padding: 6px 18px; flex-shrink: 0;">
+            <div style="background: var(--bg-surface); border-bottom: 1px solid var(--border-default); padding: 6px 18px; flex-shrink: 0;">
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <span style="font-weight: 700; font-size: 11px; color: #38BDF8; white-space: nowrap; font-family: var(--font-mono);">🔍 Display Filter (Wireshark AST):</span>
+                <span style="font-weight: 700; font-size: 11px; color: var(--text-primary); white-space: nowrap; font-family: var(--font-mono);">🔍 Display Filter (Wireshark AST):</span>
                 <div style="position: relative; flex: 1; min-width: 240px; display: flex; align-items: center;">
                   <input type="text" id="displayFilterInput" class="form-input"
                          placeholder='e.g. ip.addr == 192.168.31.1 && tcp.port == 443, !tcp.flags.syn, dns, http.response.code >= 400'
@@ -287,28 +287,28 @@ window.escapeAttr = escapeAttr;
             </div>
 
             <!-- LOWER 3-PANE DEEP PACKET INSPECTION (DPI) DRAWER -->
-            <div id="packetDetailsPane" style="display: none; height: 280px; min-height: 180px; max-height: 440px; border-top: 2px solid var(--border-color); background: #0A0E1A; flex-direction: column; flex-shrink: 0;">
-              <div style="background: rgba(15, 23, 42, 0.95); padding: 6px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
-                <span id="dpiSummaryHeader" style="font-weight: 700; font-size: 11px; color: var(--accent); font-family: var(--font-mono);">
+            <div id="packetDetailsPane" style="display: none; height: 280px; min-height: 180px; max-height: 440px; border-top: 1px solid var(--border-default); background: var(--bg-surface); flex-direction: column; flex-shrink: 0;">
+              <div style="background: var(--bg-surface-subtle); padding: 6px 16px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                <span id="dpiSummaryHeader" style="font-weight: 700; font-size: 11px; color: var(--text-primary); font-family: var(--font-mono);">
                   🔍 3-Pane Deep Packet Inspector (Frame Summary &bull; RFC Protocol Tree &bull; Synchronized Hex/ASCII)
                 </span>
                 <div style="display: flex; gap: 6px; align-items: center;">
                   <!-- AI Frame Explainer Button -->
-                  <button id="btnAiExplainPacket" class="btn btn-primary" onclick="window.aiExplainCurrentPacket()" style="font-size: 11px; padding: 2px 10px; font-weight: 700; background: linear-gradient(135deg, #4f46e5, #0284c7); border: none;">🧠 Explain with AI</button>
-                  <button id="followStreamBtn" class="btn btn-secondary" onclick="window.followTcpStream()" style="font-size: 10px; padding: 2px 8px; display: none;">🌊 Follow Stream</button>
-                  <button class="btn btn-secondary" onclick="window.closePacketDetails()" style="font-size: 10px; padding: 2px 6px;">✕ Close</button>
+                  <button id="btnAiExplainPacket" class="btn btn-primary" onclick="window.aiExplainCurrentPacket()" style="font-size: 11px; padding: 3px 10px; font-weight: 700; border-radius: 4px;">🧠 Explain with AI</button>
+                  <button id="followStreamBtn" class="btn btn-secondary" onclick="window.followTcpStream()" style="font-size: 10px; padding: 3px 8px; border-radius: 4px; display: none;">🌊 Follow Stream</button>
+                  <button class="btn btn-secondary" onclick="window.closePacketDetails()" style="font-size: 10px; padding: 3px 8px; border-radius: 4px;">✕ Close</button>
                 </div>
               </div>
 
               <div style="display: grid; grid-template-columns: 1fr 1fr; flex: 1; overflow: hidden;">
                 <!-- Pane 2: RFC Protocol Dissection Tree -->
-                <div id="protocolTreePane" style="border-right: 1px solid var(--border-color); overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; scrollbar-gutter: stable;">
-                  <div style="color: var(--text-dim); padding: 12px; text-align: center;">Select a frame from the packet table to inspect its RFC protocol decode tree.</div>
+                <div id="protocolTreePane" style="border-right: 1px solid var(--border-default); background: var(--bg-surface); overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; scrollbar-gutter: stable; color: var(--text-primary);">
+                  <div style="color: var(--text-muted); padding: 12px; text-align: center;">Select a frame from the packet table to inspect its RFC protocol decode tree.</div>
                 </div>
 
                 <!-- Pane 3: Hexdump & ASCII Synchronized Inspector -->
-                <div id="hexDumpPane" style="overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; background: #060911; scrollbar-gutter: stable;">
-                  <div style="color: var(--text-dim); padding: 12px; text-align: center;">Raw payload bytes will be dissected here in synchronized Hex &amp; ASCII format.</div>
+                <div id="hexDumpPane" style="overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-terminal, #0F172A); border-left: 1px solid var(--border-terminal, #334155); color: #E2E8F0; scrollbar-gutter: stable;">
+                  <div style="color: #94A3B8; padding: 12px; text-align: center;">Raw payload bytes will be dissected here in synchronized Hex &amp; ASCII format.</div>
                 </div>
               </div>
             </div>

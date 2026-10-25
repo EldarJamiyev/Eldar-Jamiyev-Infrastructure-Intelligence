@@ -1135,95 +1135,95 @@
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 14px; padding: 16px 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default); padding-bottom: 12px;">
           <div>
-            <div style="font-size: 18px; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <div style="font-size: 18px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
               <span>🔍</span> Core Diagnostics &amp; Autonomous Remediation
-              <span style="font-size: 10px; background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px;">SYSINTERNALS GRADE</span>
+              <span style="font-size: 10px; background: #EFF6FF; color: var(--accent-primary); border: 1px solid #BFDBFE; padding: 2px 6px; border-radius: 4px; font-weight: 700;">SYSINTERNALS GRADE</span>
             </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
               Real Windows Hardware Ingestion &bull; 4-Pillar Health Triage &bull; Audited Remediation Recipes &bull; Zero Simulation
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button id="btnToggleSelfHealing" class="btn btn-secondary" onclick="window.toggleSelfHealing()" style="font-size: 11px;">⚙️ Autonomous Healing: OFF</button>
-            <button id="btnRunSystemAudit" class="btn btn-primary" onclick="window.runDeepSystemAudit()" style="font-size: 11px; font-weight: 700;">⚡ Run Deep System Audit</button>
+            <button id="btnToggleSelfHealing" class="btn btn-secondary" onclick="window.toggleSelfHealing()" style="font-size: 11px; border-radius: 6px;">⚙️ Autonomous Healing: OFF</button>
+            <button id="btnRunSystemAudit" class="btn btn-primary" onclick="window.runDeepSystemAudit()" style="font-size: 11px; font-weight: 700; border-radius: 6px;">⚡ Run Deep System Audit</button>
           </div>
         </div>
 
         <!-- Multi-Model AI Orchestrator & Air-Gapped Privacy Policy Bar -->
-        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-size: 18px;">🧠</span>
             <div>
-              <span style="font-size: 12px; font-weight: 800; color: #38bdf8;">Multi-Model AI Brain Orchestrator:</span>
-              <span style="font-size: 11px; font-weight: 700; color: #34d399; margin-left: 6px;">[ Local Ollama / Qwen2.5-Coder:14b ]</span>
+              <span style="font-size: 12px; font-weight: 700; color: var(--text-primary);">Multi-Model AI Brain Orchestrator:</span>
+              <span style="font-size: 11px; font-weight: 700; color: #059669; margin-left: 6px;">[ Local Ollama / Qwen2.5-Coder:14b ]</span>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <span style="font-size: 10px; font-family: var(--font-mono); color: #94a3b8; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px;">🛡️ localOnlyPolicy: ACTIVE (Air-Gapped &bull; Zero Cloud Egress)</span>
-            <span style="font-size: 10px; font-family: var(--font-mono); color: #a78bfa; background: rgba(167, 139, 250, 0.1); border: 1px solid rgba(167, 139, 250, 0.3); padding: 2px 8px; border-radius: 12px;">⚡ Gate: Deterministic Bayesian Bypass (&ge;85%)</span>
+            <span style="font-size: 10px; font-family: var(--font-mono); color: #059669; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 2px 8px; border-radius: 12px; font-weight: 600;">🛡️ localOnlyPolicy: ACTIVE (Air-Gapped &bull; Zero Cloud Egress)</span>
+            <span style="font-size: 10px; font-family: var(--font-mono); color: #7C3AED; background: #F5F3FF; border: 1px solid #DDD6FE; padding: 2px 8px; border-radius: 12px; font-weight: 600;">⚡ Gate: Deterministic Bayesian Bypass (&ge;85%)</span>
           </div>
         </div>
 
         <!-- Correlated Target Troubleshooting Banner (Prefilled from App Finder) -->
-        <div id="activeTroubleshootTargetBanner" style="${window.troubleshootTarget ? 'display: flex;' : 'display: none;'} background: rgba(2, 132, 199, 0.15); border: 1px solid #0284c7; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div id="activeTroubleshootTargetBanner" style="${window.troubleshootTarget ? 'display: flex;' : 'display: none;'} background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 16px;">🎯</span>
-            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">Correlated Endpoint from App Finder:</span>
-            <span id="troubleshootTargetBadge" style="font-family: var(--font-mono); font-size: 12px; font-weight: 800; color: #f8fafc; background: #0369a1; padding: 2px 8px; border-radius: 4px;">${window.troubleshootTarget ? `${window.troubleshootTarget.host}:${window.troubleshootTarget.port}` : ''}</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">Correlated Endpoint from App Finder:</span>
+            <span id="troubleshootTargetBadge" style="font-family: var(--font-mono); font-size: 12px; font-weight: 800; color: #FFFFFF; background: var(--accent-primary); padding: 2px 8px; border-radius: 4px;">${window.troubleshootTarget ? `${window.troubleshootTarget.host}:${window.troubleshootTarget.port}` : ''}</span>
           </div>
           <div style="display: flex; gap: 6px;">
-            <button class="btn btn-primary" onclick="window.executeTroubleshootProbe()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: #0284c7; border-color: #38bdf8;">🚀 Execute Instant Dual Probe</button>
-            <button class="btn btn-secondary" onclick="window.troubleshootTarget = null; document.getElementById('activeTroubleshootTargetBanner').style.display = 'none';" style="font-size: 11px; padding: 4px 8px;">✕ Clear</button>
+            <button class="btn btn-primary" onclick="window.executeTroubleshootProbe()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; border-radius: 4px;">🚀 Execute Instant Dual Probe</button>
+            <button class="btn btn-secondary" onclick="window.troubleshootTarget = null; document.getElementById('activeTroubleshootTargetBanner').style.display = 'none';" style="font-size: 11px; padding: 4px 8px; border-radius: 4px;">✕ Clear</button>
           </div>
         </div>
 
         <!-- Guided Cross-Section Incident Investigator Bar -->
-        <div id="unifiedInvestigatorBar" style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+        <div id="unifiedInvestigatorBar" style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; box-shadow: var(--shadow-sm);">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 16px;">🔬</span>
-              <span style="font-size: 13px; font-weight: 800; color: #38bdf8;">Unified Cross-Section Incident Investigator:</span>
-              <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">5-Stage End-to-End Troubleshooting Pipeline (App Finder &bull; Wire &bull; Topology &bull; RAG &bull; Re-Verification)</span>
+              <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">Unified Cross-Section Incident Investigator:</span>
+              <span style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">5-Stage End-to-End Troubleshooting Pipeline</span>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
-              <input type="text" id="unifiedInvestigateInput" class="form-input" placeholder="Enter process or endpoint (e.g. chrome.exe, 192.168.31.1:443)..." style="font-size: 11px; padding: 4px 10px; width: 280px;">
-              <button class="btn btn-primary" onclick="window.runUnifiedInvestigation()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; background: linear-gradient(135deg, #0284c7, #38bdf8); border: none;">🚀 Investigate</button>
+              <input type="text" id="unifiedInvestigateInput" class="form-input" placeholder="Enter process or endpoint (e.g. chrome.exe, 192.168.31.1:443)..." style="font-size: 11px; padding: 4px 10px; width: 280px; border-radius: 6px;">
+              <button class="btn btn-primary" onclick="window.runUnifiedInvestigation()" style="font-size: 11px; padding: 4px 12px; font-weight: 700; border-radius: 6px;">🚀 Investigate</button>
             </div>
           </div>
-          <div id="unifiedInvestigationResultsArea" style="display: none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px; margin-top: 8px;"></div>
+          <div id="unifiedInvestigationResultsArea" style="display: none; border-top: 1px solid var(--border-default); padding-top: 10px; margin-top: 8px;"></div>
         </div>
 
         <!-- 3-PANEL COMMAND WORKBENCH -->
         <div style="display: grid; grid-template-columns: 280px 1fr 300px; gap: 14px;">
           
           <!-- Panel 1: Machine X-Ray -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
-            <div style="font-size: 12px; font-weight: 800; color: var(--accent); border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 6px;">
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow-sm);">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); border-bottom: 1px solid var(--border-default); padding-bottom: 6px;">
               1. THE MACHINE X-RAY
             </div>
 
-            <div id="diagHostBadge" style="background: var(--bg-input); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color);">
-              <div style="font-size: 11px; color: var(--text-muted);">Loading host hardware...</div>
+            <div id="diagHostBadge" style="background: var(--bg-surface-subtle); padding: 10px; border-radius: 6px; border: 1px solid var(--border-default);">
+              <div style="font-size: 11px; color: var(--text-secondary);">Loading host hardware...</div>
             </div>
 
             <div>
-              <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">4 CORE HEALTH PILLARS</div>
+              <div style="font-size: 10px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px;">4 CORE HEALTH PILLARS</div>
               <div style="display: flex; flex-direction: column; gap: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-primary);">
                   <span>📡 1. Network Layer</span>
                   <span id="badgePillarNet">...</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-primary);">
                   <span>💾 2. Storage &amp; SMART</span>
                   <span id="badgePillarStorage">...</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-primary);">
                   <span>⚙️ 3. Resource Allocation</span>
                   <span id="badgePillarRes">...</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-primary);">
                   <span>🔌 4. Peripherals &amp; Drivers</span>
                   <span id="badgePillarPeriph">...</span>
                 </div>
@@ -1231,89 +1231,89 @@
             </div>
 
             <div>
-              <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">QUICK GAUGES</div>
+              <div style="font-size: 10px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px;">QUICK GAUGES</div>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                <div style="background: var(--bg-input); padding: 8px; border-radius: 4px; text-align: center;">
-                  <div style="font-size: 9px; color: var(--text-muted);">CPU LOAD</div>
-                  <div id="gaugeCpuLoad" style="font-size: 13px; font-weight: 800; color: var(--text-main); margin-top: 2px;">--</div>
+                <div style="background: var(--bg-surface-subtle); padding: 8px; border-radius: 6px; text-align: center; border: 1px solid var(--border-default);">
+                  <div style="font-size: 9px; color: var(--text-secondary); font-weight: 600;">CPU LOAD</div>
+                  <div id="gaugeCpuLoad" style="font-size: 14px; font-weight: 800; color: var(--text-primary); margin-top: 2px;">--</div>
                 </div>
-                <div style="background: var(--bg-input); padding: 8px; border-radius: 4px; text-align: center;">
-                  <div style="font-size: 9px; color: var(--text-muted);">DISK QUEUE</div>
-                  <div id="gaugeDiskQueue" style="font-size: 13px; font-weight: 800; color: var(--text-main); margin-top: 2px;">--</div>
+                <div style="background: var(--bg-surface-subtle); padding: 8px; border-radius: 6px; text-align: center; border: 1px solid var(--border-default);">
+                  <div style="font-size: 9px; color: var(--text-secondary); font-weight: 600;">DISK QUEUE</div>
+                  <div id="gaugeDiskQueue" style="font-size: 14px; font-weight: 800; color: var(--text-primary); margin-top: 2px;">--</div>
                 </div>
               </div>
-              <div style="background: var(--bg-input); padding: 8px; border-radius: 4px; margin-top: 6px; text-align: center;">
-                <div style="font-size: 9px; color: var(--text-muted);">PHYSICAL RAM USAGE</div>
-                <div id="gaugeRamUsed" style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-top: 2px;">--</div>
+              <div style="background: var(--bg-surface-subtle); padding: 8px; border-radius: 6px; margin-top: 6px; text-align: center; border: 1px solid var(--border-default);">
+                <div style="font-size: 9px; color: var(--text-secondary); font-weight: 600;">PHYSICAL RAM USAGE</div>
+                <div id="gaugeRamUsed" style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-top: 2px;">--</div>
               </div>
-              <div id="gaugeTrendAnalysis" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); padding: 8px; border-radius: 4px; margin-top: 6px; text-align: center; display: none;">
-                <div style="font-size: 9px; color: var(--text-muted);">TELEMETRY VELOCITY &amp; TREND</div>
+              <div id="gaugeTrendAnalysis" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-default); padding: 8px; border-radius: 6px; margin-top: 6px; text-align: center; display: none;">
+                <div style="font-size: 9px; color: var(--text-secondary);">TELEMETRY VELOCITY &amp; TREND</div>
                 <div id="gaugeTrendBadge" style="font-size: 11px; font-weight: 700; color: #38BDF8; margin-top: 2px;">--</div>
               </div>
             </div>
           </div>
 
           <!-- Panel 2: The Diagnosis Feed -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; display: flex; flex-direction: column;">
-            <div style="font-size: 12px; font-weight: 800; color: var(--accent); border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 6px; margin-bottom: 10px;">
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow-sm);">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); border-bottom: 1px solid var(--border-default); padding-bottom: 6px; margin-bottom: 10px;">
               2. THE DIAGNOSIS FEED &amp; ANOMALY TRIAGE
             </div>
 
             <div id="diagAnomaliesFeed" style="flex: 1; max-height: 280px; overflow-y: auto; scrollbar-gutter: stable; padding-right: 6px;">
-              <div style="text-align: center; padding: 20px; color: var(--text-muted);">Loading diagnosis feed...</div>
+              <div style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading diagnosis feed...</div>
             </div>
 
-            <div id="diagAiBrainSynthesis" style="margin-top: 10px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 4px; padding: 10px;">
-              <div style="font-size: 11px; color: var(--text-muted);">AI Causal Reasoning initializing...</div>
+            <div id="diagAiBrainSynthesis" style="margin-top: 10px; background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px;">
+              <div style="font-size: 11px; color: var(--text-secondary);">AI Causal Reasoning initializing...</div>
             </div>
           </div>
 
           <!-- Panel 3: Action Center & Live Console -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; display: flex; flex-direction: column;">
-            <div style="font-size: 12px; font-weight: 800; color: var(--accent); border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 6px; margin-bottom: 10px;">
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow-sm);">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); border-bottom: 1px solid var(--border-default); padding-bottom: 6px; margin-bottom: 10px;">
               3. ACTION CENTER &amp; CONSOLE
             </div>
 
-            <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">STAGED REMEDIATION QUEUE</div>
+            <div style="font-size: 10px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">STAGED REMEDIATION QUEUE</div>
             <div id="diagStagedQueue" style="margin-bottom: 12px; max-height: 120px; overflow-y: auto;">
-              <div style="color: var(--text-muted); font-size: 11px;">No staged fixes.</div>
+              <div style="color: var(--text-secondary); font-size: 11px;">No staged fixes.</div>
             </div>
 
-            <div style="font-size: 10px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">LIVE REMEDIATION CONSOLE</div>
-            <div id="diagLiveConsole" style="flex: 1; background: #060913; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 8px; font-family: var(--font-mono); font-size: 10px; min-height: 120px; max-height: 140px; overflow-y: auto;">
-              <div style="color: var(--text-muted);">[Ready] Awaiting user diagnostic trigger.</div>
+            <div style="font-size: 10px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">LIVE REMEDIATION CONSOLE</div>
+            <div id="diagLiveConsole" style="flex: 1; background: var(--bg-terminal, #0F172A); border: 1px solid var(--border-terminal, #334155); border-radius: 6px; padding: 8px; font-family: var(--font-mono); font-size: 10px; min-height: 120px; max-height: 140px; overflow-y: auto; color: #F8FAFC;">
+              <div style="color: #94A3B8;">[Ready] Awaiting user diagnostic trigger.</div>
             </div>
           </div>
         </div>
 
         <!-- GRANULAR INSPECTION TABS (BOTTOM PANE) -->
-        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; box-shadow: var(--shadow-sm);">
           <!-- Tabs Header -->
-          <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-            <button class="btn btn-secondary diag-tab-btn active" data-tab="processes" onclick="window.switchDiagTab('processes')" style="font-size: 11px; font-weight: 700;">⚙️ Process Explorer</button>
-            <button class="btn btn-secondary diag-tab-btn" data-tab="sockets" onclick="window.switchDiagTab('sockets')" style="font-size: 11px; font-weight: 700;">📡 Network Sockets</button>
-            <button class="btn btn-secondary diag-tab-btn" data-tab="brainGovernance" onclick="window.switchDiagTab('brainGovernance')" style="font-size: 11px; font-weight: 700;">🤖 AI Brain Self-Tuning &amp; Governance</button>
-            <button class="btn btn-secondary diag-tab-btn" data-tab="counterfactual" onclick="window.switchDiagTab('counterfactual')" style="font-size: 11px; font-weight: 700;">🎲 Causal Do-Calculus Simulator</button>
-            <button class="btn btn-secondary diag-tab-btn" data-tab="autonomousWorkflow" onclick="window.switchDiagTab('autonomousWorkflow')" style="font-size: 11px; font-weight: 700;">🎯 Autonomous AI Workflow Planner</button>
+          <div style="display: flex; gap: 6px; border-bottom: 1px solid var(--border-default); padding-bottom: 10px; margin-bottom: 12px; flex-wrap: wrap;" class="segmented-control">
+            <button class="btn btn-secondary diag-tab-btn active" data-tab="processes" onclick="window.switchDiagTab('processes')" style="font-size: 11px; font-weight: 700; border-radius: 6px;">⚙️ Process Explorer</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="sockets" onclick="window.switchDiagTab('sockets')" style="font-size: 11px; font-weight: 700; border-radius: 6px;">📡 Network Sockets</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="brainGovernance" onclick="window.switchDiagTab('brainGovernance')" style="font-size: 11px; font-weight: 700; border-radius: 6px;">🤖 AI Brain Self-Tuning &amp; Governance</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="counterfactual" onclick="window.switchDiagTab('counterfactual')" style="font-size: 11px; font-weight: 700; border-radius: 6px;">🎲 Causal Do-Calculus Simulator</button>
+            <button class="btn btn-secondary diag-tab-btn" data-tab="autonomousWorkflow" onclick="window.switchDiagTab('autonomousWorkflow')" style="font-size: 11px; font-weight: 700; border-radius: 6px;">🎯 Autonomous AI Workflow Planner</button>
           </div>
 
           <!-- Tab Content: Process Explorer -->
           <div id="tabContent_processes" class="diag-tab-content">
-            <div style="max-height: 320px; overflow-y: auto; scrollbar-gutter: stable;">
+            <div style="max-height: 320px; overflow-y: auto; scrollbar-gutter: stable; border: 1px solid var(--border-default); border-radius: 6px;">
               <table style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
-                  <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 10px;">
-                    <th style="padding: 6px 8px;">PID</th>
-                    <th style="padding: 6px 8px;">PROCESS NAME</th>
-                    <th style="padding: 6px 8px;">CPU %</th>
-                    <th style="padding: 6px 8px;">WORKING SET</th>
-                    <th style="padding: 6px 8px;">PRIVATE BYTES</th>
-                    <th style="padding: 6px 8px;">HANDLES</th>
-                    <th style="padding: 6px 8px; text-align: right;">ACTION</th>
+                  <tr style="border-bottom: 1px solid var(--border-default); background: var(--bg-surface-subtle); color: var(--text-secondary); font-size: 10px; font-weight: 700;">
+                    <th style="padding: 8px 10px;">PID</th>
+                    <th style="padding: 8px 10px;">PROCESS NAME</th>
+                    <th style="padding: 8px 10px;">CPU %</th>
+                    <th style="padding: 8px 10px;">WORKING SET</th>
+                    <th style="padding: 8px 10px;">PRIVATE BYTES</th>
+                    <th style="padding: 8px 10px;">HANDLES</th>
+                    <th style="padding: 8px 10px; text-align: right;">ACTION</th>
                   </tr>
                 </thead>
                 <tbody id="diagProcessTableBody">
-                  <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 14px;">Loading processes...</td></tr>
+                  <tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 14px;">Loading processes...</td></tr>
                 </tbody>
               </table>
             </div>

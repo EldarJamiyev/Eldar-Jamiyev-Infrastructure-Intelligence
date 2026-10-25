@@ -125,48 +125,50 @@ window.escapeAttr = escapeAttr;
           ${outageBannerHtml}
 
           <!-- UPPER PANE: NOC NETWORK TOPOLOGY & DEPENDENCY GRAPH -->
-          <div class="noc-pane-upper card" style="margin: 0;">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px;">
+          <div class="noc-pane-upper card" style="margin: 0; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface);">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 20px;">🌐</span>
+                <div style="width: 28px; height: 28px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 14px;">🌐</div>
                 <div>
-                  <div class="card-title" style="margin: 0; font-size: 14px;">Pillar 1: NOC Network Topology &amp; Dependency Graph</div>
-                  <div style="font-size: 11px; color: var(--text-muted);">
-                    Hierarchical Physical/Logical Link Fabric: Upstream WAN ➔ Edge Gateway ➔ Core Backbone ➔ Enterprise Services ➔ Access LAN ➔ Workstation
+                  <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary);">Pillar 1: NOC Network Topology &amp; Dependency Graph</div>
+                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">
+                    Hierarchical Fabric: Upstream WAN ➔ Edge Gateway ➔ Core Backbone ➔ Enterprise Services ➔ Access LAN ➔ Workstation
                   </div>
                 </div>
               </div>
 
               <!-- Topology Controls -->
               <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
-                  <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600;">🗺️ Topology Map</button>
-                  <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600;">📋 Node Fleet (${topologyData.nodes.length})</button>
+                <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">🗺️ Topology Map</button>
+                  <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">📋 Node Fleet (${topologyData.nodes.length})</button>
                 </div>
-                <button id="topoFleetToggleBtn" class="btn ${topoFleetExpanded ? 'btn-primary' : 'btn-secondary'}" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 3px 8px; font-weight: 600;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
+                <button id="topoFleetToggleBtn" class="btn ${topoFleetExpanded ? 'btn-primary' : 'btn-secondary'}" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
                   ${topoFleetExpanded ? '🛡️ Focus Infrastructure' : '🌐 Expand Fleet (' + (topologyData.nodes.length) + ')'}
                 </button>
-                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px;" title="Zoom In">➕</button>
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px;" title="Zoom Out">➖</button>
-                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
+                <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom In">➕</button>
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom Out">➖</button>
+                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
                 </div>
-                <button class="btn btn-warning" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 10px; font-weight: 700;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">📍 Sync Location &amp; Subnet IPs</button>
-                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover Network</button>
-                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px;" title="Reset highlight overlays">↺ Reset</button>
-                <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px;" title="Refresh topology from database">↻</button>
+                <button class="btn btn-warning" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">📍 Sync Location &amp; Subnet IPs</button>
+                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover Network</button>
+                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺ Reset</button>
+                <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
               </div>
             </div>
 
             <!-- View A: Interactive Visual Topology Canvas -->
             <div id="nocTopologyMapView" style="display: ${currentTopologyMode === 'map' ? 'block' : 'none'}; padding: 12px 16px;">
-              <div id="nocTopologyCanvasWrap" style="background: #080D1A; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); padding: 14px; position: relative; overflow: hidden; user-select: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 6px; font-size: 10px; font-family: var(--font-mono); color: var(--text-dim); flex-wrap: wrap; gap: 8px;">
+              <div id="nocTopologyCanvasWrap" class="topology-light-canvas" style="background: var(--bg-canvas, #F8F9FA); border-radius: 8px; border: 1px solid var(--border-default, #E5E7EB); position: relative; overflow: hidden; user-select: none;">
+                <!-- Floating Semi-Transparent Telemetry Legend & Controls Guide -->
+                <div class="topology-floating-legend" style="position: absolute; bottom: 12px; left: 14px; z-index: 10; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(8px); border: 1px solid var(--border-default, #E5E7EB); border-radius: 6px; padding: 4px 12px; font-size: 10.5px; font-family: var(--font-mono); color: var(--text-secondary); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                   <div>
-                    <span><b>HEATMAP CONGESTION:</b> <span style="color: #10B981;">● Smooth Green (&lt;50%)</span> | <span style="color: #F59E0B;">● Amber (50-85%)</span> | <span style="color: #EF4444;">● Flashing Red (&gt;85%)</span></span>
+                    <span style="font-weight: 700; color: var(--text-primary); margin-right: 4px;">CONGESTION:</span>
+                    <span style="color: #059669; font-weight: 600;">● Smooth (&lt;50%)</span> | <span style="color: #D97706; font-weight: 600;">● Moderate (50-85%)</span> | <span style="color: #DC2626; font-weight: 600;">● Critical (&gt;85%)</span>
                   </div>
-                  <div>
-                    <span><b>CONTROLS:</b> Drag to Pan | Scroll to Zoom | Click Node: Blast Radius | Right-Click: Context Menu</span>
+                  <div style="color: var(--text-muted); font-size: 10px;">
+                    Drag to Pan • Wheel to Zoom • Click: Blast Radius
                   </div>
                 </div>
 
@@ -175,10 +177,10 @@ window.escapeAttr = escapeAttr;
                 </div>
 
                 <!-- Floating Node HUD Tooltip -->
-                <div id="topoNodeTooltip" style="display: none; position: absolute; z-index: 1050; background: #0F172A; border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); padding: 10px 14px; font-size: 11px; font-family: var(--font-mono); pointer-events: none; max-width: 320px; color: #E2E8F0;"></div>
+                <div id="topoNodeTooltip" style="display: none; position: absolute; z-index: 1050; background: #0F172A; border: 1px solid #334155; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); padding: 10px 14px; font-size: 11px; font-family: var(--font-mono); pointer-events: none; max-width: 320px; color: #F8FAFC;"></div>
 
                 <!-- Simulation & Path Trace Overlay Banner -->
-                <div id="topologyOverlayBanner" style="display: none; margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono);"></div>
+                <div id="topologyOverlayBanner" style="display: none; position: absolute; top: 12px; left: 14px; right: 14px; z-index: 15; padding: 8px 12px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); background: var(--bg-surface); border: 1px solid var(--accent-primary); box-shadow: var(--shadow-md);"></div>
               </div>
             </div>
 
@@ -224,12 +226,12 @@ window.escapeAttr = escapeAttr;
 
               <!-- Stream Controls -->
               <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
-                  <button id="viewModePacketsBtn" class="btn ${currentSnifferMode === 'packets' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 3px 8px; font-weight: 600;">📋 Live Frames</button>
-                  <button id="viewModeFlowsBtn" class="btn ${currentSnifferMode === 'flows' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 3px 8px; font-weight: 600;">📊 Flow Matrix (35 Cols)</button>
+                <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button id="viewModePacketsBtn" class="btn ${currentSnifferMode === 'packets' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">📋 Live Frames</button>
+                  <button id="viewModeFlowsBtn" class="btn ${currentSnifferMode === 'flows' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">📊 Flow Matrix (35 Cols)</button>
                 </div>
 
-                <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px;" onchange="window.onPacketProtocolFilterChange(this.value)">
+                <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px; border-radius: 6px;" onchange="window.onPacketProtocolFilterChange(this.value)">
                   <option value="ALL">All Proto</option>
                   <option value="TCP">TCP</option>
                   <option value="UDP">UDP</option>
@@ -242,46 +244,46 @@ window.escapeAttr = escapeAttr;
                   <option value="MDNS">mDNS</option>
                 </select>
 
-                <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, URL, host..." style="width: 150px; padding: 4px 6px; font-size: 11px;" oninput="window.onPacketSearchChange(this.value)">
+                <input type="text" id="packetSearchInput" class="form-input" placeholder="Search IP, port, URL, host..." style="width: 150px; padding: 4px 6px; font-size: 11px; border-radius: 6px;" oninput="window.onPacketSearchChange(this.value)">
 
-                <label style="display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-dim); cursor: pointer; user-select: none;">
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); cursor: pointer; user-select: none;">
                   <input type="checkbox" id="hideInternalEjiCheckbox" ${hideInternalEji ? 'checked' : ''} onchange="window.toggleHideInternalEji(this.checked)">
                   <span>Hide Loopback/8443</span>
                 </label>
 
-                <button id="autoScrollToggleBtn" class="btn ${autoScrollFrames ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleAutoScroll()" style="font-size: 11px; padding: 4px 8px;" title="Toggle automatic scrolling on incoming frames">
+                <button id="autoScrollToggleBtn" class="btn ${autoScrollFrames ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleAutoScroll()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Toggle automatic scrolling on incoming frames">
                   ${autoScrollFrames ? '📜 Auto-Scroll: ON' : '⏸ Auto-Scroll: PAUSED'}
                 </button>
-                <button id="freezeStreamBtn" class="btn btn-secondary" onclick="window.toggleFreezeStreamView()" style="font-size: 11px; padding: 4px 8px;">⏸ Freeze</button>
-                <button id="toggleCaptureBtn" class="btn ${isCapturing ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px;">
+                <button id="freezeStreamBtn" class="btn btn-secondary" onclick="window.toggleFreezeStreamView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">⏸ Freeze</button>
+                <button id="toggleCaptureBtn" class="btn ${isCapturing ? 'btn-secondary' : 'btn-primary'}" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">
                   ${isCapturing ? '⏸ Pause' : '▶ Resume'}
                 </button>
-                <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px;">Clear</button>
-                <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px;" title="Export standard libpcap binary file">⬇ PCAP</button>
+                <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">Clear</button>
+                <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Export standard libpcap binary file">⬇ PCAP</button>
                 <input type="file" id="pcapFileInput" style="display: none;" accept=".pcap,.cap" onchange="window.handlePcapFileChosen(this)">
-                <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px;" title="Import offline PCAP file">⬆ Import</button>
-                <span id="packetFilterCounterBadge" style="font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; font-weight: 600; white-space: nowrap;">
+                <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Import offline PCAP file">⬆ Import</button>
+                <span id="packetFilterCounterBadge" style="font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 6px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 600; white-space: nowrap;">
                   Displayed: ${Math.min(liveFrames.length, 60)} / Captured: ${liveFrames.length} | Hidden: 0
                 </span>
               </div>
             </div>
 
             <!-- BPF Capture Filter & Hardware Accounting Counters Bar -->
-            <div style="background: rgba(15, 23, 42, 0.6); border-bottom: 1px solid var(--border-color); padding: 8px 16px;">
+            <div style="background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-default); padding: 8px 16px;">
               <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap;">
-                <span style="font-weight: 700; font-size: 11px; color: var(--accent); white-space: nowrap;">⚡ Kernel BPF Capture Filter:</span>
-                <input type="text" id="nocBpfInput" class="form-input" placeholder="e.g. tcp port 443 and host 10.22.12.204, icmp or arp" style="flex: 1; min-width: 180px; font-family: var(--font-mono); font-size: 11px; padding: 4px 8px;">
-                <button class="btn btn-primary" onclick="window.applyNocBpfFilter()" style="font-size: 11px; padding: 4px 10px;">Apply BPF</button>
-                <button class="btn btn-secondary" onclick="window.clearNocBpfFilter()" style="font-size: 11px; padding: 4px 8px;">Clear</button>
+                <span style="font-weight: 700; font-size: 11px; color: var(--accent-primary); white-space: nowrap;">⚡ Kernel BPF Capture Filter:</span>
+                <input type="text" id="nocBpfInput" class="form-input" placeholder="e.g. tcp port 443 and host 10.22.12.204, icmp or arp" style="flex: 1; min-width: 180px; font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 6px;">
+                <button class="btn btn-primary" onclick="window.applyNocBpfFilter()" style="font-size: 11px; padding: 4px 10px; border-radius: 6px;">Apply BPF</button>
+                <button class="btn btn-secondary" onclick="window.clearNocBpfFilter()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">Clear</button>
               </div>
-              <div id="nocCountersBar" style="display: flex; gap: 14px; align-items: center; font-size: 11px; font-family: var(--font-mono); flex-wrap: wrap;">
-                <span><b>Driver Received:</b> <span id="cntReceived" style="color: var(--accent); font-weight: 700;">0</span></span>
-                <span><b>Accepted (BPF):</b> <span id="cntAccepted" style="color: var(--success); font-weight: 700;">0</span></span>
-                <span><b>Dropped:</b> <span id="cntDropped" style="color: var(--danger); font-weight: 700;">0</span></span>
-                <span><b>Decoded:</b> <span id="cntDecoded" style="color: #38bdf8; font-weight: 700;">0</span></span>
-                <span><b>Delivered:</b> <span id="cntDelivered" style="color: #a78bfa; font-weight: 700;">0</span></span>
+              <div id="nocCountersBar" style="display: flex; gap: 14px; align-items: center; font-size: 11px; font-family: var(--font-mono); flex-wrap: wrap; color: var(--text-secondary);">
+                <span><b>Driver Received:</b> <span id="cntReceived" style="color: var(--accent-primary); font-weight: 700;">0</span></span>
+                <span><b>Accepted (BPF):</b> <span id="cntAccepted" style="color: var(--status-nominal); font-weight: 700;">0</span></span>
+                <span><b>Dropped:</b> <span id="cntDropped" style="color: var(--status-critical); font-weight: 700;">0</span></span>
+                <span><b>Decoded:</b> <span id="cntDecoded" style="color: #0284C7; font-weight: 700;">0</span></span>
+                <span><b>Delivered:</b> <span id="cntDelivered" style="color: #7C3AED; font-weight: 700;">0</span></span>
                 <span style="margin-left: auto;">
-                  <button class="btn btn-secondary" onclick="window.refreshNocCounters()" style="font-size: 10px; padding: 2px 6px;">↻ Counters</button>
+                  <button class="btn btn-secondary" onclick="window.refreshNocCounters()" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;">↻ Counters</button>
                 </span>
               </div>
             </div>
@@ -528,7 +530,7 @@ window.escapeAttr = escapeAttr;
       if (i < 5) {
         const divX = colX + colWidth + colGap / 2;
         dividerLinesSvg += `
-          <line x1="${divX}" y1="30" x2="${divX}" y2="${canvasHeight - 10}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3"/>
+          <line x1="${divX}" y1="30" x2="${divX}" y2="${canvasHeight - 10}" stroke="#E1E6ED" stroke-dasharray="3,3"/>
         `;
       }
     }
@@ -633,13 +635,13 @@ window.escapeAttr = escapeAttr;
 
       nodesSvg += `
         <g id="svgNode-${n.id}" class="topology-svg-node" transform="translate(${item.x}, ${item.y})" style="cursor: pointer;" onclick="${clickHandler}" oncontextmenu="window.handleNodeContextMenu(event, '${n.id}', '${n.hostname_or_ip}')" onmouseenter="window.showTopologyTooltip(event, '${n.id}')" onmouseleave="window.hideTopologyTooltip()">
-          <rect width="${item.width}" height="${item.height}" rx="8" fill="#0F1424" stroke="${isCluster ? '#34D399' : layer.color}" stroke-width="${isCluster ? '2' : '1.6'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}"/>
-          <circle cx="16" cy="19" r="4.5" fill="${isHealthy ? '#34D399' : '#EF4444'}"/>
+          <rect width="${item.width}" height="${item.height}" rx="8" fill="#FFFFFF" stroke="${isCluster ? '#218653' : (n.status === 'healthy' ? '#E1E6ED' : '#C43F45')}" stroke-width="${isCluster ? '2' : '1.5'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
+          <circle cx="16" cy="19" r="4.5" fill="${isHealthy ? '#218653' : '#C43F45'}"/>
           <text x="26" y="23" font-size="11" style="filter: none; text-shadow: none;">${roleIcon}</text>
-          <text x="44" y="23" font-size="11" font-weight="700" fill="#E2E8F0" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
-          <text x="14" y="43" font-size="10" font-family="monospace" font-weight="700" fill="${isCluster ? '#34D399' : layer.color}" style="filter: none; text-shadow: none;">${escapeHtml(n.hostname_or_ip)}</text>
-          <text x="14" y="59" font-size="9" fill="#94A3B8" style="filter: none; text-shadow: none;">${escapeHtml(vendorStr)}</text>
-          <text x="14" y="73" font-size="9" fill="${isCluster ? '#FBBF24' : '#34D399'}" style="filter: none; text-shadow: none;">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
+          <text x="44" y="23" font-size="11" font-weight="700" fill="#182230" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
+          <text x="14" y="43" font-size="10" font-family="monospace" font-weight="700" fill="${isCluster ? '#218653' : '#365FCB'}" style="filter: none; text-shadow: none;">${escapeHtml(n.hostname_or_ip)}</text>
+          <text x="14" y="59" font-size="9" fill="#566273" style="filter: none; text-shadow: none;">${escapeHtml(vendorStr)}</text>
+          <text x="14" y="73" font-size="9" fill="${isCluster ? '#A96B12' : '#218653'}" style="filter: none; text-shadow: none;">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
           <rect x="12" y="79" width="${badgeW}" height="15" rx="3" fill="${badge.bg}"/>
           <text x="${12 + badgeW / 2}" y="90" font-size="8" font-family="monospace" font-weight="700" fill="${badge.color}" text-anchor="middle" style="filter: none; text-shadow: none;">[${badge.text}]</text>
         </g>
@@ -650,26 +652,30 @@ window.escapeAttr = escapeAttr;
       <svg id="nocTopologySvg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" style="width: 100%; min-width: 980px; height: 100%; min-height: 480px; display: block;" oncontextmenu="window.handleSvgContextMenu(event)">
         <defs>
           <linearGradient id="linkGradWan" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#8B5CF6"/>
-            <stop offset="100%" stop-color="#3B82F6"/>
+            <stop offset="0%" stop-color="#5B45B0"/>
+            <stop offset="100%" stop-color="#365FCB"/>
           </linearGradient>
           <linearGradient id="flowGlowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#38BDF8"/>
-            <stop offset="100%" stop-color="#F43F5E"/>
+            <stop offset="0%" stop-color="#365FCB"/>
+            <stop offset="100%" stop-color="#C43F45"/>
           </linearGradient>
-          <filter id="nodeGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.6"/>
+          <filter id="nodeCardShadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#101828" flood-opacity="0.06"/>
+          </filter>
+          <filter id="nodeGlow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="#365FCB" flood-opacity="0.2"/>
           </filter>
           <pattern id="nocGridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255, 255, 255, 0.025)" stroke-width="1"/>
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(225, 230, 237, 0.6)" stroke-width="1"/>
           </pattern>
           <style>
-            .flow-active-pulse { stroke-dasharray: 8, 8; animation: flowTrace 1.2s linear infinite; stroke: #38BDF8 !important; stroke-width: 3.5px !important; }
+            .flow-active-pulse { stroke-dasharray: 8, 8; animation: flowTrace 1.2s linear infinite; stroke: #365FCB !important; stroke-width: 3.5px !important; }
             @keyframes flowTrace { from { stroke-dashoffset: 32; } to { stroke-dashoffset: 0; } }
           </style>
         </defs>
 
-        <!-- Subtle NOC Cyber Grid Background -->
+        <!-- Clean Subtle Neutral Grid Background -->
+        <rect width="${canvasWidth}" height="${canvasHeight}" fill="#F8FAFC"/>
         <rect width="${canvasWidth}" height="${canvasHeight}" fill="url(#nocGridPattern)"/>
 
         <!-- Interactive Pan/Zoom Viewport -->
