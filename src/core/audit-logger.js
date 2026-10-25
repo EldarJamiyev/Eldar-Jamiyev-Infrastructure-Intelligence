@@ -12,9 +12,46 @@ const path = require('path');
 const crypto = require('crypto');
 const { DATA_DIR, HMAC_SECRET } = require('../config');
 
-const AUDIT_DIR = path.join(DATA_DIR, 'audit');
-const AUDIT_FILE = path.join(AUDIT_DIR, 'audit-trail.jsonl');
-const CHAIN_HEAD_FILE = path.join(AUDIT_DIR, '.chain_head');
+let dynamicAuditFilePath = null;
+let dynamicAnchorFilePath = null;
+let sqliteReplicationFailureCount = 0;
+
+function getAuditDir() {
+  if (dynamicAuditFilePath) return path.dirname(dynamicAuditFilePath);
+  if (process.env.EJII_TEST_DATA_DIR) return process.env.EJII_TEST_DATA_DIR;
+  if (process.env.EJII_AUDIT_DIR) return process.env.EJII_AUDIT_DIR;
+  return path.join(DATA_DIR, 'audit');
+}
+
+function getAuditFilePath() {
+  if (dynamicAuditFilePath) return dynamicAuditFilePath;
+  if (process.env.EJII_AUDIT_FILE_PATH) return process.env.EJII_AUDIT_FILE_PATH;
+  return path.join(getAuditDir(), 'audit-trail.jsonl');
+}
+
+function getChainHeadFilePath() {
+  if (dynamicAnchorFilePath) return dynamicAnchorFilePath;
+  if (process.env.EJII_AUDIT_ANCHOR_PATH) return process.env.EJII_AUDIT_ANCHOR_PATH;
+  return path.join(getAuditDir(), '.chain_head');
+}
+
+function configureAuditPaths(options = {}) {
+  if (options.auditFilePath) dynamicAuditFilePath = options.auditFilePath;
+  if (options.anchorFilePath) dynamicAnchorFilePath = options.anchorFilePath;
+}
+
+function resetAuditPaths() {
+  dynamicAuditFilePath = null;
+  dynamicAnchorFilePath = null;
+}
+
+function getSqliteReplicationFailureCount() {
+  return sqliteReplicationFailureCount;
+}
+
+const AUDIT_DIR = getAuditDir();
+const AUDIT_FILE = getAuditFilePath();
+const CHAIN_HEAD_FILE = getChainHeadFilePath();
 const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 
 // Ensure audit storage directory exists
@@ -37,10 +74,11 @@ function computeRecordHash(prevHash, timestamp, userId, action, resource, detail
 /**
  * Read and verify external .chain_head anchor
  */
-function readChainHeadAnchor() {
-  if (!fs.existsSync(CHAIN_HEAD_FILE)) return null;
+function readChainHeadAnchor(targetAnchorFile) {
+  const anchorPath = targetAnchorFile || getChainHeadFilePath();
+  if (!fs.existsSync(anchorPath)) return null;
   try {
-    const raw = fs.readFileSync(CHAIN_HEAD_FILE, 'utf8');
+    const raw = fs.readFileSync(anchorPath, 'utf8');
     const parsed = JSON.parse(raw);
     const expectedSig = crypto.createHmac('sha256', HMAC_SECRET)
       .update(`${parsed.lastSeq}|${parsed.lastHash}|${parsed.lastTimestamp}`)
@@ -59,7 +97,8 @@ function readChainHeadAnchor() {
 /**
  * Write signed external .chain_head anchor atomically
  */
-function writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp) {
+function writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp, targetAnchorFile) {
+  const anchorPath = targetAnchorFile || getChainHeadFilePath();
   const signature = crypto.createHmac('sha256', HMAC_SECRET)
     .update(`${lastSeq}|${lastHash}|${lastTimestamp}`)
     .digest('hex');
@@ -69,19 +108,33 @@ function writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp) {
     lastTimestamp,
     signature
   };
-  fs.writeFileSync(CHAIN_HEAD_FILE, JSON.stringify(anchor, null, 2), 'utf8');
+  const dir = path.dirname(anchorPath);
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  }
+  const tmpPath = `${anchorPath}.${process.pid}.${Date.now()}.tmp`;
+  const data = JSON.stringify(anchor, null, 2);
+  const fd = fs.openSync(tmpPath, 'w');
+  try {
+    fs.writeFileSync(fd, data, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, anchorPath);
 }
 
 /**
  * Retrieve the hash of the most recent audit record in the chain
  */
-function getLastRecordHash() {
-  if (!fs.existsSync(AUDIT_FILE)) {
+function getLastRecordHash(targetAuditFile) {
+  const auditFile = targetAuditFile || getAuditFilePath();
+  if (!fs.existsSync(auditFile)) {
     return GENESIS_HASH;
   }
 
   try {
-    const fileContent = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    const fileContent = fs.readFileSync(auditFile, 'utf8').trim();
     if (!fileContent) return GENESIS_HASH;
 
     const lines = fileContent.split('\n');
@@ -103,7 +156,10 @@ function getLastRecordHash() {
  * FAIL-CLOSED: If writing to the audit log or updating the external anchor fails,
  * this method throws an error to abort privileged operations.
  */
-function logAction({ userId, username, role, action, resource, details }) {
+function logAction({ userId, username, role, action, resource, details }, targetAuditFile, targetAnchorFile) {
+  const activeAuditFile = targetAuditFile || getAuditFilePath();
+  const activeAnchorFile = targetAnchorFile || getChainHeadFilePath();
+  const activeAuditDir = path.dirname(activeAuditFile);
   const timestamp = new Date().toISOString();
   const id = crypto.randomUUID ? crypto.randomUUID() : ('AUD-' + crypto.randomBytes(8).toString('hex'));
 
@@ -113,9 +169,9 @@ function logAction({ userId, username, role, action, resource, details }) {
 
   // Count current records to derive continuous sequence number
   let currentSeq = 0;
-  if (fs.existsSync(AUDIT_FILE)) {
+  if (fs.existsSync(activeAuditFile)) {
     try {
-      const fileData = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+      const fileData = fs.readFileSync(activeAuditFile, 'utf8').trim();
       if (fileData) {
         currentSeq = fileData.split('\n').filter(l => l.trim().length > 0).length;
       }
@@ -123,7 +179,7 @@ function logAction({ userId, username, role, action, resource, details }) {
   }
   const newSeq = currentSeq + 1;
 
-  const prevHash = getLastRecordHash();
+  const prevHash = getLastRecordHash(activeAuditFile);
   const hash = computeRecordHash(prevHash, timestamp, userId, action, resource, details);
 
   const record = {
@@ -143,15 +199,17 @@ function logAction({ userId, username, role, action, resource, details }) {
   const line = JSON.stringify(record) + '\n';
 
   try {
-    fs.appendFileSync(AUDIT_FILE, line, { encoding: 'utf8', flag: 'a' });
-    writeChainHeadAnchor(newSeq, hash, timestamp);
+    fs.appendFileSync(activeAuditFile, line, { encoding: 'utf8', flag: 'a' });
+    writeChainHeadAnchor(newSeq, hash, timestamp, activeAnchorFile);
   } catch (err) {
     const fatalMsg = `CRITICAL AUDIT FAILURE: Could not persist audit record for action '${action}'. Operation aborted: ${err.message}`;
     console.error(fatalMsg);
     throw new Error(fatalMsg);
   }
 
-  // Also persist to SQLite audit_logs table for dual-layer durability
+  // Also persist to SQLite audit_logs table for dual-layer durability (F-73)
+  let sqliteReplicated = true;
+  let replicationError = null;
   try {
     const { db } = require('../db/database');
     const lastEntry = db.prepare('SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1').get();
@@ -173,14 +231,21 @@ function logAction({ userId, username, role, action, resource, details }) {
       dbPrevHash,
       dbHash
     );
-  } catch (e) {}
+  } catch (e) {
+    sqliteReplicated = false;
+    replicationError = e.message;
+    sqliteReplicationFailureCount++;
+  }
 
   return {
     success: true,
     id: record.id,
     seq: record.seq,
     timestamp: record.timestamp,
-    hash: record.hash
+    hash: record.hash,
+    durableFileWritten: true,
+    sqliteReplicated,
+    replicationError
   };
 }
 
@@ -189,9 +254,11 @@ function logAction({ userId, username, role, action, resource, details }) {
  * Traverses every record, confirms prevHash links, verifies HMAC-SHA256 signatures,
  * and verifies external .chain_head anchor to defeat tail truncation attacks.
  */
-function verifyAuditLogIntegrity() {
-  if (!fs.existsSync(AUDIT_FILE)) {
-    if (fs.existsSync(CHAIN_HEAD_FILE)) {
+function verifyAuditLogIntegrity(targetAuditFile, targetAnchorFile) {
+  const activeAuditFile = targetAuditFile || getAuditFilePath();
+  const activeAnchorFile = targetAnchorFile || getChainHeadFilePath();
+  if (!fs.existsSync(activeAuditFile)) {
+    if (fs.existsSync(activeAnchorFile)) {
       return {
         valid: false,
         error: 'CRITICAL_CHAIN_TRUNCATION: Audit trail file is missing but external chain head anchor exists! Complete log deletion detected.'
@@ -205,9 +272,9 @@ function verifyAuditLogIntegrity() {
   }
 
   try {
-    const content = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    const content = fs.readFileSync(activeAuditFile, 'utf8').trim();
     if (!content) {
-      if (fs.existsSync(CHAIN_HEAD_FILE)) {
+      if (fs.existsSync(activeAnchorFile)) {
         return {
           valid: false,
           error: 'CRITICAL_CHAIN_TRUNCATION: Audit trail file is empty but external chain head anchor exists! Log file wiped.'
@@ -265,7 +332,7 @@ function verifyAuditLogIntegrity() {
     }
 
     // 3. Verify against external .chain_head anchor (detects tail truncation & file replacement)
-    if (fs.existsSync(CHAIN_HEAD_FILE)) {
+    if (fs.existsSync(activeAnchorFile)) {
       const anchor = readChainHeadAnchor();
       if (!anchor) {
         return {
@@ -327,7 +394,7 @@ function verifyAuditLogIntegrity() {
  * Retrieve recent audit records
  */
 function getAuditLogs(limit = 50) {
-  if (!fs.existsSync(AUDIT_FILE)) {
+  if (!fs.existsSync(activeAuditFile)) {
     return [];
   }
 
@@ -432,7 +499,36 @@ function getHardwareAnchorStatus() {
   };
 }
 
+
+class AuditLogger {
+  constructor(options = {}) {
+    this.auditFilePath = options.auditFilePath || getAuditFilePath();
+    this.anchorFilePath = options.anchorFilePath || getChainHeadFilePath();
+  }
+  logAction(params) {
+    return logAction(params, this.auditFilePath, this.anchorFilePath);
+  }
+  verifyAuditLogIntegrity() {
+    return verifyAuditLogIntegrity(this.auditFilePath, this.anchorFilePath);
+  }
+  readChainHeadAnchor() {
+    return readChainHeadAnchor(this.anchorFilePath);
+  }
+  writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp) {
+    return writeChainHeadAnchor(lastSeq, lastHash, lastTimestamp, this.anchorFilePath);
+  }
+  getLastRecordHash() {
+    return getLastRecordHash(this.auditFilePath);
+  }
+}
+
 module.exports = {
+  AuditLogger,
+  configureAuditPaths,
+  resetAuditPaths,
+  getAuditFilePath,
+  getChainHeadFilePath,
+  getSqliteReplicationFailureCount,
   getHardwareAnchorStatus,
   logAction,
   verifyAuditLogIntegrity,

@@ -431,3 +431,75 @@ export interface IDSRLVaultReport {
   evaluatedAt: string;
 }
 
+export type EvidenceClass = 'Observed' | 'OS' | 'Management' | 'Inferred' | 'Configured' | 'Unknown';
+export type CollectionOutcome = 'SUCCESS' | 'PARTIAL' | 'TIMEOUT' | 'PERMISSION_DENIED' | 'UNSUPPORTED_PLATFORM' | 'COLLECTION_ERROR' | 'PROVISIONAL_WARM_STATE';
+
+export interface EvidenceRecord<T = unknown> {
+  evidenceId: string;
+  metricKey: string;
+  value: T | null; // Must be null when outcome !== 'SUCCESS'
+  unit?: string;
+  evidenceClass: EvidenceClass;
+  collectorId: string; // e.g., 'host-diagnostics:collectStoragePillar', 'wire-diagnostics:tcpSynProbe'
+  collectionMethod: string; // e.g., 'PowerShell:Get-CimInstance', 'Node:tls.connect', 'npcap:raw_socket'
+  timestampIso: string;
+  freshnessMs: number;
+  targetIdentity: {
+    host?: string;
+    pinnedIp?: string | null;
+    pid?: number | null;
+    processName?: string | null;
+    interfaceId?: string | null;
+  };
+  outcome: CollectionOutcome;
+  errorDetails?: string | null;
+  measurementUncertainty?: number | null; // [0.0, 1.0]
+  isAuthoritative: boolean; // False for warm snapshots, defaults, or unverified inputs
+  supportsHypotheses: string[];
+  contradictsHypotheses: string[];
+}
+
+export type HypothesisStatus = 'SUPPORTED' | 'CONTRADICTED' | 'INSUFFICIENT_EVIDENCE' | 'PLAUSIBLE_UNVERIFIED';
+
+export interface HypothesisEvaluation {
+  hypothesisId: string;
+  title: string;
+  status: HypothesisStatus;
+  priorProbability: number; // Explicit domain prior; never silently fabricated
+  rawLikelihood: number | null; // 0.0 is preserved strictly for contradicted hypotheses
+  normalizedPosterior: number; // Mathematical Bayes posterior in [0.0, 1.0]
+  displayPercentage: number; // Hare-Niemeyer integer formatting only; explicitly labeled as normalized share
+  calibratedConfidence: number | null; // Empirically calibrated probability or null if uncalibrated heuristic
+  confidenceType: 'EMPIRICALLY_CALIBRATED' | 'RULE_HEURISTIC' | 'INSUFFICIENT_DATA';
+  supportingEvidenceIds: string[];
+  contradictingEvidenceIds: string[];
+  missingDistinguishingEvidence: string[]; // Next measurements required to disambiguate
+  symbolicViolations: string[]; // Explicit Horn-clause / constraint violations
+}
+
+export interface ModelOrchestrationResult {
+  invocationDecision: 'INVOKED' | 'BYPASSED_HIGH_EVIDENCE_CONFIDENCE' | 'BLOCKED_PRIVACY_POLICY' | 'PROVIDER_UNAVAILABLE' | 'DETERMINISTIC_CONFIG_DEFAULT';
+  providerId: 'OLLAMA' | 'OPENAI' | 'ANTHROPIC' | 'NONE'; // Normalize 'local_ollama' -> 'OLLAMA'
+  privacyGate: {
+    policyId: string; // e.g., 'POL-01-LOCAL_ONLY'
+    permitted: boolean;
+    redactionApplied: boolean;
+    redactedFields: string[];
+  };
+  transportState: {
+    attempted: boolean;
+    connected: boolean;
+    httpStatus?: number | null;
+    latencyMs?: number | null;
+    transportError?: string | null; // e.g., 'ECONNREFUSED 127.0.0.1:11434'
+  };
+  inferenceState: {
+    liveResponse: boolean; // True ONLY if HTTP request succeeded, payload parsed, and schema validated
+    synthesisMode: 'LIVE_NEURAL_INFERENCE' | 'DETERMINISTIC_TEMPLATE_FALLBACK';
+    schemaValid: boolean;
+    incorporatedIntoDiagnosis: boolean;
+  };
+  outputPayload: Record<string, unknown> | null;
+}
+
+

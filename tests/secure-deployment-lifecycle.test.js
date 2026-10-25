@@ -28,6 +28,15 @@ async function runSecureDeploymentLifecycleTests() {
   const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'ejii-lifecycle-test-'));
 
   try {
+  function makeIsolatedEnv(customEnv = {}) {
+    const e = { ...process.env, ...customEnv };
+    delete e.EJII_TEST_DATA_DIR;
+    delete e.EJII_AUDIT_FILE_PATH;
+    delete e.EJII_AUDIT_ANCHOR_PATH;
+    delete e.EJII_AUDIT_DIR;
+    return e;
+  }
+
     // -------------------------------------------------------------------------
     // TEST 1: Fail-Closed Production Secret Enforcement
     // -------------------------------------------------------------------------
@@ -115,12 +124,7 @@ async function runSecureDeploymentLifecycleTests() {
       'src/db/seed.js'
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir,
-        EJII_ADMIN_PASSWORD: customAdminPassword
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir, EJII_ADMIN_PASSWORD: customAdminPassword }),
       encoding: 'utf8'
     });
 
@@ -185,11 +189,7 @@ async function runSecureDeploymentLifecycleTests() {
       'src/db/seed.js'
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir }),
       encoding: 'utf8'
     });
 
@@ -235,11 +235,7 @@ async function runSecureDeploymentLifecycleTests() {
       '-e', testScript
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir }),
       encoding: 'utf8'
     });
 
@@ -277,11 +273,7 @@ async function runSecureDeploymentLifecycleTests() {
       '-e', replayScript, actionToken
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir }),
       encoding: 'utf8'
     });
 
@@ -306,11 +298,7 @@ async function runSecureDeploymentLifecycleTests() {
       '-e', verifyAuditScript
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir }),
       encoding: 'utf8'
     });
 
@@ -331,11 +319,7 @@ async function runSecureDeploymentLifecycleTests() {
       '-e', verifyAuditScript
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        EJII_DATA_DIR: isolatedDataDir
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'test', EJII_DATA_DIR: isolatedDataDir }),
       encoding: 'utf8'
     });
 
@@ -390,14 +374,7 @@ async function runSecureDeploymentLifecycleTests() {
       '-e', dynamicTokenCheckScript
     ], {
       cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        EJII_EVALUATION_MODE: 'false',
-        EJII_DATA_DIR: prodDataDir,
-        EJII_HMAC_SECRET: 'SUPER-SECURE-PRODUCTION-HMAC-KEY-OF-HIGH-ENTROPY-2026',
-        EJII_JWT_SECRET: 'SUPER-SECURE-PRODUCTION-JWT-SECRET-OF-HIGH-ENTROPY-2026'
-      },
+      env: makeIsolatedEnv({ NODE_ENV: 'production', EJII_EVALUATION_MODE: 'false', EJII_DATA_DIR: prodDataDir, EJII_HMAC_SECRET: 'SUPER-SECURE-PRODUCTION-HMAC-KEY-OF-HIGH-ENTROPY-2026', EJII_JWT_SECRET: 'SUPER-SECURE-PRODUCTION-JWT-SECRET-OF-HIGH-ENTROPY-2026' }),
       encoding: 'utf8'
     });
     assert.equal(procDynamicTokens.status, 0);

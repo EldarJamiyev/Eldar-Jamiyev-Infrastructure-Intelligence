@@ -4,6 +4,32 @@
  */
 
 const tls = require('tls');
+const net = require('net');
+const { resolveAndValidateTarget } = require('../core/security');
+
+function parseHostAndPort(rawHost, defaultPort = 443) {
+  if (!rawHost) return { host: '', port: defaultPort };
+  let str = String(rawHost).trim().replace(/^https?:\/\//i, '').split('/')[0];
+  if (str.startsWith('[')) {
+    const closeBracket = str.indexOf(']');
+    if (closeBracket !== -1) {
+      const hostPart = str.slice(1, closeBracket);
+      const after = str.slice(closeBracket + 1);
+      const portPart = after.startsWith(':') ? parseInt(after.slice(1), 10) : defaultPort;
+      return { host: hostPart, port: isNaN(portPart) ? defaultPort : portPart };
+    }
+  }
+  if (net.isIPv6(str)) {
+    return { host: str, port: defaultPort };
+  }
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    const portPart = parseInt(parts[1], 10);
+    return { host: parts[0], port: isNaN(portPart) ? defaultPort : portPart };
+  }
+  return { host: str, port: defaultPort };
+}
+
 
 /**
  * Perform a real TLS audit on a target host and port
@@ -11,32 +37,45 @@ const tls = require('tls');
  * @param {number} port 
  * @param {number} timeoutMs 
  */
-function auditTls(host, port = 443, timeoutMs = 4000) {
+async function auditTls(host, port = 443, timeoutMs = 4000, servernameOverride = null) {
+  const parsed = parseHostAndPort(host, port);
+  const cleanHost = parsed.host;
+  const safePort = parsed.port;
+
+  if (!cleanHost) {
+    return { success: false, host, port, error: 'Target host is required.' };
+  }
+
+  if (isNaN(safePort) || safePort < 1 || safePort > 65535) {
+    return {
+      success: false,
+      host: cleanHost,
+      port,
+      error: `Invalid port number [${port}]. Port must be between 1 and 65535.`
+    };
+  }
+
+  const validated = await resolveAndValidateTarget(cleanHost);
+  if (!validated.valid) {
+    return {
+      success: false,
+      host: cleanHost,
+      port: safePort,
+      error: validated.error || 'Target rejected by SSRF defense policy'
+    };
+  }
+  const pinnedIp = validated.pinnedIp;
+  const originalHostname = servernameOverride || (validated.isIpLiteral ? undefined : cleanHost);
+
   return new Promise((resolve) => {
     const startTime = performance.now();
-    const cleanHost = (host || '').trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
-    const safePort = parseInt(port, 10);
-
-    if (!cleanHost) {
-      return resolve({ success: false, host, port, error: 'Target host is required.' });
-    }
-
-    if (isNaN(safePort) || safePort < 1 || safePort > 65535) {
-      return resolve({
-        success: false,
-        host: cleanHost,
-        port,
-        error: `Invalid port number [${port}]. Port must be between 1 and 65535.`
-      });
-    }
-
     try {
       const socket = tls.connect(
         {
-          host: cleanHost,
+          host: pinnedIp,
           port: safePort,
-          servername: cleanHost,
-          rejectUnauthorized: false, // Allow inspection of expired or self-signed certs for diagnosis
+          servername: originalHostname,
+          rejectUnauthorized: false,
           timeout: timeoutMs
         },
         () => {

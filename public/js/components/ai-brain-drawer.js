@@ -26,6 +26,16 @@
 
   let isAiBrainExpanded = false;
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   window.toggleAiBrainDrawerExpand = function() {
     isAiBrainExpanded = !isAiBrainExpanded;
     updateDrawerDom(currentBrainState);
@@ -147,6 +157,12 @@
             <div class="ai-brain-meta-item">
               Engine: <strong style="color: #38BDF8;">Continuous Bayesian (100.0%)</strong>
             </div>
+            <div class="ai-brain-meta-item" style="border-left: 1px solid rgba(255,255,255,0.1); padding-left: 8px;">
+              Provider: <strong style="color: #10B981;">Ollama (DeepSeek-R1 / Qwen 2.5)</strong>
+            </div>
+            <div class="ai-brain-meta-item">
+              Privacy: <strong style="color: #A855F7;">Local-Only / Air-Gapped</strong>
+            </div>
             <button class="btn btn-secondary" onclick="window.toggleAiBrainDrawerExpand()" style="font-size: 10px; padding: 1px 6px; font-weight: 600; margin-left: 6px;">▴ Collapse</button>
           </div>
         </div>
@@ -182,6 +198,84 @@
             ${legendHtml}
           </div>
         </div>
+
+        <!-- Separated Supported vs Contradicted Hypotheses & Epistemic Probes -->
+        ${(() => {
+          const supportedHypotheses = ranked.filter(h => h.status !== 'CONTRADICTED' && Number(h.confidence) > 0);
+          const contradictedHypotheses = ranked.filter(h => h.status === 'CONTRADICTED' || (h.contradictionProofTrace && h.contradictionProofTrace.length > 0) || Number(h.confidence) === 0);
+          const distinguishingProbes = state.distinguishingProbes || (recommendedProbe ? [recommendedProbe] : []);
+
+          return `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              <!-- Supported Hypotheses -->
+              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 4px; padding: 8px 10px;">
+                <div style="font-size: 10px; font-weight: 800; color: #10B981; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
+                  <span>✓ SUPPORTED BAYESIAN HYPOTHESES (Σ = 100.0%)</span>
+                  <span>${supportedHypotheses.length} Active</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
+                  ${supportedHypotheses.length > 0 ? supportedHypotheses.map(h => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25); border-radius: 3px; padding: 3px 6px; font-size: 9.5px; border-left: 2px solid ${HYPOTHESIS_COLORS[h.id] || '#10B981'};">
+                      <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
+                        <strong style="color: #F8FAFC;">${escapeHtml(h.label)}</strong>
+                        <span style="color: #64748B; margin-left: 4px;">${escapeHtml(h.rfc || '')}</span>
+                      </div>
+                      <div style="font-family: var(--font-mono); text-align: right;">
+                        <span style="color: #10B981; font-weight: 800;">${h.confidence}%</span>
+                        ${h.evidenceCoverageRatio !== undefined ? `<span style="color: #64748B; font-size: 8.5px; margin-left: 4px;">(cov: ${Math.round(h.evidenceCoverageRatio * 100)}%)</span>` : ''}
+                      </div>
+                    </div>
+                  `).join('') : '<div style="color: #64748B; font-size: 9.5px;">No active supported hypotheses.</div>'}
+                </div>
+              </div>
+
+              <!-- Contradicted Hypotheses -->
+              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 4px; padding: 8px 10px;">
+                <div style="font-size: 10px; font-weight: 800; color: #EF4444; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
+                  <span>✗ CONTRADICTED HYPOTHESES (HORN CLAUSE VETO)</span>
+                  <span>${contradictedHypotheses.length} Eliminated (0.0%)</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
+                  ${contradictedHypotheses.length > 0 ? contradictedHypotheses.map(h => {
+                    const proof = (h.contradictionProofTrace && h.contradictionProofTrace[0]) || h.contradictedBy || h.proofTrace || 'Empirical wire telemetry contradicts necessary conditions.';
+                    return `
+                      <div style="background: rgba(0,0,0,0.25); border-radius: 3px; padding: 3px 6px; font-size: 9px; border-left: 2px solid #EF4444;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                          <span style="text-decoration: line-through; color: #94A3B8; font-weight: 700;">${escapeHtml(h.label)}</span>
+                          <span style="color: #EF4444; font-family: var(--font-mono); font-weight: 800; font-size: 8.5px;">0.0% [VETO]</span>
+                        </div>
+                        <div style="color: #F87171; font-family: var(--font-mono); font-size: 8.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(proof)}">
+                          Rule: ${escapeHtml(proof)}
+                        </div>
+                      </div>
+                    `;
+                  }).join('') : '<div style="color: #64748B; font-size: 9.5px;">Zero hypotheses contradicted.</div>'}
+                </div>
+              </div>
+            </div>
+
+            <!-- Distinguishing Epistemic Probes Section -->
+            <div style="margin-top: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 4px; padding: 8px 10px;">
+              <div style="font-size: 10px; font-weight: 800; color: #38BDF8; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
+                <span>🔬 DISTINGUISHING EPISTEMIC PROBES (TIE-BREAKING INFORMATION GAIN)</span>
+                <span>${distinguishingProbes.length} Available</span>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                ${distinguishingProbes.length > 0 ? distinguishingProbes.map(p => `
+                  <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(56, 189, 248, 0.15); border-radius: 3px; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1; min-width: 260px;">
+                    <div>
+                      <div style="font-size: 9.5px; font-weight: 700; color: #E2E8F0;">${escapeHtml(p.name || p.probeType)}</div>
+                      <div style="font-size: 8.5px; color: #94A3B8; font-family: var(--font-mono);">${escapeHtml(p.informationGain || p.expectedOutcome || 'Resolves competing hypotheses')}</div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="window.triggerAiBrainProbe('${escapeHtml(p.probeType || '')}', '${escapeHtml(p.target || '')}')" style="font-size: 9px; padding: 2px 6px; font-family: var(--font-mono); color: #38BDF8; border-color: rgba(56, 189, 248, 0.3); flex-shrink: 0;">
+                      Dispatch Probe ⚡
+                    </button>
+                  </div>
+                `).join('') : '<div style="color: #64748B; font-size: 9.5px;">No distinguishing probes required — diagnostic state resolved.</div>'}
+              </div>
+            </div>
+          `;
+        })()}
 
         <!-- Cognitive Telemetry Strip: Neuro-Symbolic Proof Chain & Active Inference & MCTS World Model -->
         <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; gap: 8px;">

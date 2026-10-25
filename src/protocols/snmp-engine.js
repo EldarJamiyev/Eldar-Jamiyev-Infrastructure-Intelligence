@@ -4,6 +4,7 @@
  */
 
 const snmp = require('net-snmp');
+const { resolveAndValidateTarget } = require('../core/security');
 
 const STANDARD_OIDS = {
   sysDescr: '1.3.6.1.2.1.1.1.0',
@@ -26,9 +27,28 @@ const STANDARD_OIDS = {
  * @param {number} port 
  * @param {number} timeoutMs 
  */
-function getSystemInfo(host, community = 'public', port = 161, timeoutMs = 2500) {
+async function getSystemInfo(host, community = 'public', port = 161, timeoutMs = 2500) {
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd && community === 'public' && !process.env.EJII_ALLOW_DEFAULT_SNMP_COMMUNITY) {
+    return {
+      success: false,
+      host,
+      error: 'SECURITY_VIOLATION: Default community \'public\' is prohibited in production mode. Explicit community credentials required.'
+    };
+  }
+
+  const val = await resolveAndValidateTarget(host);
+  if (!val.valid) {
+    return {
+      success: false,
+      host,
+      error: val.error || 'Target rejected by SSRF defense policy'
+    };
+  }
+  const targetIp = val.pinnedIp;
+
   return new Promise((resolve) => {
-    const cleanHost = host.trim();
+    const cleanHost = targetIp;
     const options = {
       port,
       retries: 1,

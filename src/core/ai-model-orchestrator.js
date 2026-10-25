@@ -411,10 +411,10 @@ class AIModelOrchestrator {
    * @param {Object} evaluation Bayesian incident evaluation
    * @param {Object} rawTelemetry Wire & host telemetry
    */
-  async orchestrateDiagnosis(evaluation = {}, rawTelemetry = {}) {
+  orchestrateDiagnosis(evaluation = {}, rawTelemetry = {}) {
     const topHypothesis = evaluation.topHypothesis || { id: 'UNKNOWN', confidence: 0 };
     const confidence = topHypothesis.confidence || 0;
-    const isConclusive = confidence >= this.confidenceThreshold && !evaluation.allHypothesesContradicted;
+    const isConclusive = (confidence >= this.confidenceThreshold || evaluation.canDeterministicBypass) && !evaluation.allHypothesesContradicted;
 
     // 1. High-Confidence Deterministic Bayesian Gate Bypass
     if (isConclusive) {
@@ -474,8 +474,9 @@ class AIModelOrchestrator {
   async invokeModelProvider(providerName, promptText, { timeoutMs = 4500 } = {}) {
     const http = require('http');
     const https = require('https');
+    const normProvider = String(providerName || '').toUpperCase();
 
-    if (providerName === 'OLLAMA') {
+    if (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA') {
       return new Promise((resolve) => {
         try {
           const parsedUrl = new URL('/api/generate', this.ollamaUrl || 'http://127.0.0.1:11434');
@@ -508,12 +509,12 @@ class AIModelOrchestrator {
               });
             }
           );
-          req.on('timeout', () => { req.destroy(); resolve({ liveResponse: false, provider: 'OLLAMA', reason: 'TIMEOUT' }); });
-          req.on('error', (err) => resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.code || err.message }));
+          req.on('timeout', () => { req.destroy(); resolve({ liveResponse: false, provider: 'OLLAMA', reason: 'TIMEOUT', status: 'TIMEOUT' }); });
+          req.on('error', (err) => resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.code || err.message, status: 'OFFLINE' }));
           req.write(body);
           req.end();
         } catch (err) {
-          resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.message });
+          resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.message, status: 'OFFLINE' });
         }
       });
     }

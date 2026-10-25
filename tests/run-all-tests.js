@@ -1,27 +1,4 @@
-/**
- * Workspace scratch sanitizer: eliminate transient batch/script artifacts before tests
- */
-function sanitizeWorkspaceScratchFiles() {
-  const fs = require('fs');
-  const path = require('path');
-  const rootDir = path.join(__dirname, '..');
-  const filesToClean = ['sync_now.bat', 'update_reports.js'];
-  try {
-    for (const f of filesToClean) {
-      const p = path.join(rootDir, f);
-      if (fs.existsSync(p)) {
-        try { fs.unlinkSync(p); } catch (_) {}
-      }
-    }
-    const dirEntries = fs.readdirSync(rootDir);
-    for (const entry of dirEntries) {
-      if (/^patch_.*\.js$/i.test(entry)) {
-        try { fs.unlinkSync(path.join(rootDir, entry)); } catch (_) {}
-      }
-    }
-  } catch (_) {}
-}
-sanitizeWorkspaceScratchFiles();
+
 
 /**
  * EJII NOC Workstation Master Test Suite Runner
@@ -30,6 +7,14 @@ sanitizeWorkspaceScratchFiles();
  */
 
 process.env.NODE_ENV = 'test';
+process.env.EJII_SAFE_TEST_MODE = '1';
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ejii-test-run-'));
+process.env.EJII_TEST_DATA_DIR = testTmpDir;
+process.env.EJII_AUDIT_FILE_PATH = path.join(testTmpDir, 'audit-trail.jsonl');
+process.env.EJII_AUDIT_ANCHOR_PATH = path.join(testTmpDir, '.chain_head');
 
 process.on('unhandledRejection', (reason) => {
   console.error('\n❌ CRITICAL ERROR: Unhandled Promise Rejection in Test Runner:');
@@ -119,10 +104,7 @@ const { runControlPlaneUiGitopsObservabilityWiringTests } = require('./control-p
 async function runAllTests() {
   const fs = require('fs');
   const path = require('path');
-  const testCfg = path.join(__dirname, '..', 'data', 'brain-config.test.json');
-  if (fs.existsSync(testCfg)) {
-    try { fs.unlinkSync(testCfg); } catch (_) {}
-  }
+  // Isolated test environment configured in testTmpDir
 
   console.log('========================================================================');
   console.log("  EJII — Eldar Jamiyev's Infrastructure Intelligence Workstation       ");
@@ -222,7 +204,7 @@ async function runAllTests() {
   const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log('========================================================================');
   console.log(`  ALL ${passedSuites}/${suites.length} NOC TEST SUITES PASSED PERFECTLY IN ${durationSec}s`);
-  console.log('  100% Real Physical Wire & Network I/O Verified — Zero Mock Data Confirmed');
+  console.log('  Evidence-Grounded Suite Verification Completed — Local OS Telemetry & Isolated Test Sandboxes');
   console.log('  EJII NOC Topology & Packet Dissection Workstation is 100% OPERATIONAL');
   console.log('========================================================================\n');
 }

@@ -29,6 +29,8 @@ class HostDiagnosticsEngine {
     this.maxHistoryPoints = 60;
     this._isAuditingBackground = false;
     this._bgWorkerStarted = false;
+    this.lastWorkerError = null;
+    this.workerErrorCount = 0;
 
     // Seed ultra-fast warm baseline snapshot at millisecond 0
     this.cachedAudit = this._createWarmBaselineAudit();
@@ -44,122 +46,99 @@ class HostDiagnosticsEngine {
    */
   _createWarmBaselineAudit() {
     const now = Date.now();
-    const cpus = os.cpus();
+    const cpus = os.cpus() || [];
     const totalMemBytes = os.totalmem();
     const freeMemBytes = os.freemem();
     const usedMemBytes = totalMemBytes - freeMemBytes;
     const memPct = Number(((usedMemBytes / totalMemBytes) * 100).toFixed(1));
-    const loadAvg = os.loadavg();
-    const cpuLoad = (loadAvg && loadAvg[0] && loadAvg[0] > 0)
-      ? Number(Math.min(100, (loadAvg[0] / Math.max(1, cpus.length)) * 100).toFixed(1))
-      : 12.0;
 
-    const netIfaces = os.networkInterfaces();
-    const adapterList = [];
-    for (const [name, addrs] of Object.entries(netIfaces)) {
-      const v4 = (addrs || []).find(a => (a.family === 'IPv4' || a.family === 4) && !a.internal);
-      if (v4) {
-        adapterList.push({
-          Name: name,
-          InterfaceDescription: `${name} (${v4.address})`,
-          Status: 'Up',
-          LinkSpeed: '1 Gbps',
-          MacAddress: v4.mac || '00:00:00:00:00:00'
-        });
-      }
-    }
-    if (adapterList.length === 0) {
-      adapterList.push({
-        Name: 'Primary Ethernet / Wi-Fi',
-        InterfaceDescription: 'Physical Active Network Adapter',
-        Status: 'Up',
-        LinkSpeed: '1 Gbps',
-        MacAddress: '00:1A:2B:3C:4D:5E'
-      });
-    }
-
+    // Zero-Simulation & Zero-Fabrication (F-50, F-54, F-55, F-56, F-58)
     const network = {
-      status: 'HEALTHY',
-      summary: `Network Layer operational: ${adapterList.length} active adapter(s) detected.`,
+      status: 'UNKNOWN',
+      summary: 'Network telemetry initializing. Deep CIM inspection pending.',
       details: {
-        adapters: adapterList,
-        routes: [{ DestinationPrefix: '0.0.0.0/0', NextHop: '192.168.31.1', InterfaceAlias: adapterList[0]?.Name || 'Ethernet', RouteMetric: 25 }],
-        socketCounts: { ESTABLISHED: 14, LISTEN: 8, TIME_WAIT: 4, CLOSE_WAIT: 0, OTHER: 2 },
-        dnsCacheCount: 32,
-        gatewayIp: '192.168.31.1'
+        adapters: [],
+        routes: [],
+        socketCounts: null,
+        dnsCacheCount: null,
+        gatewayIp: null
       },
       anomalies: [],
       recipes: [],
       metadata: {
         collectedAt: new Date(now).toISOString(),
-        durationMs: 1,
-        collector: 'os.networkInterfaces (Warm Native Baseline)',
-        success: true
+        durationMs: 0,
+        collector: 'os.networkInterfaces (Provisional)',
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
       }
     };
 
     const storage = {
-      status: 'HEALTHY',
-      summary: 'Storage Subsystem: System Primary Volume nominal (SMART: OK).',
+      status: 'UNKNOWN',
+      summary: 'Storage telemetry initializing. Volume and SMART inspection pending.',
       details: {
-        drives: [{
-          DeviceID: 'C:',
-          VolumeName: 'OS_PRIMARY',
-          SizeGB: Number((totalMemBytes * 16 / (1024 ** 3)).toFixed(1)),
-          FreeGB: Number((totalMemBytes * 8 / (1024 ** 3)).toFixed(1)),
-          UsedPct: 50.0,
-          percentUsed: 50.0
-        }],
-        smartStatus: 'OK'
+        volumes: [],
+        smartStatus: 'UNKNOWN',
+        vssStatus: 'UNKNOWN',
+        tempDumpCount: null
       },
       anomalies: [],
       recipes: [],
       metadata: {
         collectedAt: new Date(now).toISOString(),
-        durationMs: 1,
-        collector: 'native.storage (Warm Native Baseline)',
-        success: true
+        durationMs: 0,
+        collector: 'native.storage (Provisional)',
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
       }
     };
 
     const resource = {
-      status: 'HEALTHY',
-      summary: `Resource Allocation nominal: CPU ${cpuLoad}%, RAM ${memPct}%.`,
+      status: 'UNKNOWN',
+      summary: `Resource telemetry initializing: RAM ${memPct}% observed via os.freemem.`,
       details: {
-        cpuPercent: cpuLoad,
-        loadAverage1m: cpuLoad,
-        diskQueueLength: 0,
-        ramUsedPercent: memPct,
-        topProcesses: [
-          { Name: 'node.exe', Id: process.pid, cpu: 1.2, cpuTotalSeconds: 14.5, WorkingSetMB: 92 },
-          { Name: 'System', Id: 4, cpu: 0.2, cpuTotalSeconds: 65.2, WorkingSetMB: 16 },
-          { Name: 'explorer.exe', Id: 1240, cpu: 0.6, cpuTotalSeconds: 28.1, WorkingSetMB: 120 }
-        ]
+        cpuModel: cpus[0]?.model ? cpus[0].model.trim() : 'Unknown CPU',
+        cores: cpus.length,
+        cpuLoadPct: null,
+        totalRamGB: Number((totalMemBytes / (1024 ** 3)).toFixed(1)),
+        usedRamGB: Number((usedMemBytes / (1024 ** 3)).toFixed(1)),
+        freeRamGB: Number((freeMemBytes / (1024 ** 3)).toFixed(1)),
+        ramUsedPct: memPct,
+        diskQueueLength: null,
+        topProcesses: []
       },
       anomalies: [],
       recipes: [],
       metadata: {
         collectedAt: new Date(now).toISOString(),
-        durationMs: 1,
-        collector: 'os.native (Warm Native Baseline)',
-        success: true
+        durationMs: 0,
+        collector: 'os.native (Provisional)',
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
       }
     };
 
     const peripherals = {
-      status: 'HEALTHY',
-      summary: 'Peripherals & Drivers nominal. Print Spooler service running.',
+      status: 'UNKNOWN',
+      summary: 'Peripherals telemetry initializing. PnP and Spooler queries pending.',
       details: {
-        spooler: { status: 'Running', pendingJobs: 0 },
-        pnpDevices: []
+        degradedDevices: [],
+        spoolerStatus: 'UNKNOWN',
+        spoolerPendingJobs: null
       },
       anomalies: [],
       recipes: [],
       metadata: {
         collectedAt: new Date(now).toISOString(),
-        durationMs: 1,
-        collector: 'native.peripherals (Warm Native Baseline)',
-        success: true
+        durationMs: 0,
+        collector: 'native.peripherals (Provisional)',
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
       }
     };
 
@@ -170,15 +149,20 @@ class HostDiagnosticsEngine {
         arch: os.arch(),
         uptimeDays: Number((os.uptime() / 86400).toFixed(1)),
         cpuCores: cpus.length,
-        cpuModel: cpus[0]?.model ? cpus[0].model.trim() : 'Intel Core Processor',
+        cpuModel: cpus[0]?.model ? cpus[0].model.trim() : 'Unknown CPU',
         totalRamGB: Number((totalMemBytes / (1024 ** 3)).toFixed(1)),
         freeRamGB: Number((freeMemBytes / (1024 ** 3)).toFixed(1)),
         usedRamGB: Number((usedMemBytes / (1024 ** 3)).toFixed(1)),
         ramUsedPercent: memPct,
-        cpuLoadPct: cpuLoad
+        cpuLoadPct: null
       },
-      overallStatus: 'HEALTHY',
-      durationMs: 1,
+      overallStatus: 'INITIALIZING',
+      compositeHealth: {
+        worstCondition: 'UNKNOWN',
+        telemetryCompleteness: 'PROVISIONAL_WARM_STATE'
+      },
+      isProvisional: true,
+      durationMs: 0,
       pillars: {
         network,
         storage,
@@ -187,7 +171,12 @@ class HostDiagnosticsEngine {
       },
       anomalies: [],
       stagedRecipes: [],
-      timestamp: new Date(now).toISOString()
+      timestamp: new Date(now).toISOString(),
+      metadata: {
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
+      }
     };
   }
 
@@ -202,7 +191,14 @@ class HostDiagnosticsEngine {
       this._isAuditingBackground = true;
       try {
         await this.collectFullAudit(true);
-      } catch (_) {} finally {
+      } catch (err) {
+        this.lastWorkerError = {
+          timestamp: new Date().toISOString(),
+          message: err.message,
+          stack: err.stack
+        };
+        this.workerErrorCount = (this.workerErrorCount || 0) + 1;
+      } finally {
         this._isAuditingBackground = false;
       }
     };
@@ -239,21 +235,38 @@ class HostDiagnosticsEngine {
         if (err) {
           return resolve({
             success: false,
+            outcome: 'COLLECTION_ERROR',
             data: null,
             error: err.message || stderr,
             code: err.code,
             durationMs
           });
         }
+        if (stderr && stderr.trim() && !stdout) {
+          return resolve({
+            success: false,
+            outcome: 'COLLECTION_ERROR',
+            data: null,
+            error: stderr.trim(),
+            durationMs
+          });
+        }
         if (!stdout || !stdout.trim()) {
-          return resolve({ success: true, data: null, durationMs });
+          return resolve({
+            success: false,
+            outcome: 'COLLECTION_ERROR',
+            data: null,
+            error: 'EMPTY_OUTPUT: PowerShell returned empty stdout when data was expected',
+            durationMs
+          });
         }
         try {
           const parsed = JSON.parse(stdout.trim());
-          resolve({ success: true, data: parsed, durationMs });
+          resolve({ success: true, outcome: 'SUCCESS', data: parsed, durationMs });
         } catch (e) {
           resolve({
             success: false,
+            outcome: 'COLLECTION_ERROR',
             data: null,
             error: `JSON_PARSE_ERROR: ${e.message}`,
             durationMs
@@ -276,8 +289,8 @@ class HostDiagnosticsEngine {
         details: {
           adapters: [],
           routes: [],
-          socketCounts: { ESTABLISHED: 0, LISTEN: 0, TIME_WAIT: 0, CLOSE_WAIT: 0, OTHER: 0 },
-          dnsCacheCount: 0,
+          socketCounts: null,
+          dnsCacheCount: null,
           gatewayIp: null
         },
         anomalies: [],
@@ -287,8 +300,10 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'os.networkInterfaces',
           success: false,
+          outcome: 'UNSUPPORTED_PLATFORM',
           platform: process.platform,
-          error: 'UNSUPPORTED_PLATFORM'
+          error: 'UNSUPPORTED_PLATFORM',
+          isAuthoritative: false
         }
       };
     }
@@ -301,16 +316,24 @@ class HostDiagnosticsEngine {
         this._runPowerShell('Get-DnsClientCache -ErrorAction SilentlyContinue | Select-Object -First 30 Entry, Status')
       ]);
 
-      if (!adapterRes.success && !socketRes.success) {
+      const subResults = {
+        adapters: adapterRes.success,
+        routes: routeRes.success,
+        sockets: socketRes.success,
+        dnsCache: dnsRes.success
+      };
+
+      const allFailed = !adapterRes.success && !routeRes.success && !socketRes.success && !dnsRes.success;
+      if (allFailed || (!adapterRes.success && !socketRes.success)) {
         return {
           status: 'COLLECTION_ERROR',
           summary: `Network telemetry collection failed: ${adapterRes.error || socketRes.error}`,
-          details: { adapters: [], routes: [], socketCounts: {}, dnsCacheCount: 0, gatewayIp: null },
+          details: { adapters: [], routes: [], socketCounts: null, dnsCacheCount: null, gatewayIp: null },
           anomalies: [{
             severity: 'WARNING',
             title: 'Network Telemetry Collector Failure',
             plainEnglish: `PowerShell Get-NetAdapter returned an error: ${adapterRes.error || socketRes.error}`,
-            rawProof: String(adapterRes.error)
+            rawProof: String(adapterRes.error || socketRes.error)
           }],
           recipes: [],
           metadata: {
@@ -318,10 +341,16 @@ class HostDiagnosticsEngine {
             durationMs: Date.now() - startTime,
             collector: 'Get-NetAdapter / Get-NetTCPConnection',
             success: false,
-            error: adapterRes.error || socketRes.error
+            outcome: 'COLLECTION_ERROR',
+            subResults,
+            error: adapterRes.error || socketRes.error,
+            isAuthoritative: false
           }
         };
       }
+
+      const anyFailed = !adapterRes.success || !routeRes.success || !socketRes.success || !dnsRes.success;
+      const outcome = anyFailed ? 'PARTIAL' : 'SUCCESS';
 
       const adapters = adapterRes.data;
       const routes = routeRes.data;
@@ -334,25 +363,28 @@ class HostDiagnosticsEngine {
       const dnsList = Array.isArray(dnsCache) ? dnsCache : (dnsCache ? [dnsCache] : []);
 
       // Socket state counts
-      const counts = { ESTABLISHED: 0, LISTEN: 0, TIME_WAIT: 0, CLOSE_WAIT: 0, OTHER: 0 };
-      for (const s of socketList) {
-        const state = String(s.State || '').toUpperCase();
-        if (state.includes('ESTABLISHED')) counts.ESTABLISHED++;
-        else if (state.includes('LISTEN')) counts.LISTEN++;
-        else if (state.includes('TIMEWAIT') || state.includes('TIME_WAIT')) counts.TIME_WAIT++;
-        else if (state.includes('CLOSEWAIT') || state.includes('CLOSE_WAIT')) counts.CLOSE_WAIT++;
-        else counts.OTHER++;
+      let counts = null;
+      if (socketRes.success) {
+        counts = { ESTABLISHED: 0, LISTEN: 0, TIME_WAIT: 0, CLOSE_WAIT: 0, OTHER: 0 };
+        for (const s of socketList) {
+          const state = String(s.State || '').toUpperCase();
+          if (state.includes('ESTABLISHED')) counts.ESTABLISHED++;
+          else if (state.includes('LISTEN')) counts.LISTEN++;
+          else if (state.includes('TIMEWAIT') || state.includes('TIME_WAIT')) counts.TIME_WAIT++;
+          else if (state.includes('CLOSEWAIT') || state.includes('CLOSE_WAIT')) counts.CLOSE_WAIT++;
+          else counts.OTHER++;
+        }
       }
 
       const defaultRoute = routeList.find(r => r.DestinationPrefix === '0.0.0.0/0');
-      const gatewayIp = defaultRoute?.NextHop || 'Unknown';
+      const gatewayIp = defaultRoute?.NextHop || (routeRes.success ? 'Unknown' : null);
 
       const anomalies = [];
       const recipes = [];
       let status = 'HEALTHY';
 
-      // Detect anomalies
-      if (counts.CLOSE_WAIT > 100) {
+      // Anomaly detection
+      if (counts && counts.CLOSE_WAIT > 100) {
         status = 'DEGRADED';
         anomalies.push({
           severity: 'WARNING',
@@ -365,7 +397,7 @@ class HostDiagnosticsEngine {
       }
 
       const activeAdapters = adapterList.filter(a => String(a.Status || '').toLowerCase() === 'up');
-      if (adapterList.length > 0 && activeAdapters.length === 0) {
+      if (adapterRes.success && adapterList.length > 0 && activeAdapters.length === 0) {
         status = 'CRITICAL';
         anomalies.push({
           severity: 'CRITICAL',
@@ -377,9 +409,13 @@ class HostDiagnosticsEngine {
         recipes.push('renew_dhcp');
       }
 
+      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
+        status = 'DEGRADED';
+      }
+
       const summary = anomalies.length > 0
-        ? `${anomalies.length} network issue(s) detected. Default gateway: ${gatewayIp}.`
-        : `Network healthy: ${activeAdapters.length} active adapter(s), ${counts.ESTABLISHED} active connections.`;
+        ? `${anomalies.length} network issue(s) detected. Default gateway: ${gatewayIp || 'UNKNOWN'}.`
+        : `Network healthy: ${activeAdapters.length} active adapter(s)${counts ? `, ${counts.ESTABLISHED} active connections` : ''}.`;
 
       return {
         status,
@@ -388,7 +424,7 @@ class HostDiagnosticsEngine {
           adapters: adapterList,
           routes: routeList,
           socketCounts: counts,
-          dnsCacheCount: dnsList.length,
+          dnsCacheCount: dnsRes.success ? dnsList.length : null,
           gatewayIp
         },
         anomalies,
@@ -397,14 +433,17 @@ class HostDiagnosticsEngine {
           collectedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
           collector: 'Get-NetAdapter / Get-NetRoute / Get-NetTCPConnection',
-          success: true
+          success: true,
+          outcome,
+          subResults,
+          isAuthoritative: !anyFailed
         }
       };
     } catch (err) {
       return {
         status: 'COLLECTION_ERROR',
         summary: `Error collecting network pillar: ${err.message}`,
-        details: { adapters: [], routes: [], socketCounts: {}, dnsCacheCount: 0, gatewayIp: null },
+        details: { adapters: [], routes: [], socketCounts: null, dnsCacheCount: null, gatewayIp: null },
         anomalies: [],
         recipes: [],
         metadata: {
@@ -412,7 +451,9 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'Get-NetAdapter',
           success: false,
-          error: err.message
+          outcome: 'COLLECTION_ERROR',
+          error: err.message,
+          isAuthoritative: false
         }
       };
     }
@@ -431,8 +472,9 @@ class HostDiagnosticsEngine {
         details: {
           volumes: [],
           smartStatus: 'UNKNOWN',
+          smartVerification: 'UNKNOWN',
           vssStatus: 'UNKNOWN',
-          tempDumpCount: 0
+          tempDumpCount: null
         },
         anomalies: [],
         recipes: [],
@@ -441,8 +483,10 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'CIM_LogicalDisk',
           success: false,
+          outcome: 'UNSUPPORTED_PLATFORM',
           platform: process.platform,
-          error: 'UNSUPPORTED_PLATFORM'
+          error: 'UNSUPPORTED_PLATFORM',
+          isAuthoritative: false
         }
       };
     }
@@ -455,11 +499,18 @@ class HostDiagnosticsEngine {
         this._runPowerShell('(Get-ChildItem -Path C:\\Windows\\Minidump -ErrorAction SilentlyContinue | Measure-Object).Count')
       ]);
 
+      const subResults = {
+        volumes: volRes.success,
+        smart: smartRes.success,
+        vss: vssRes.success,
+        minidumps: dumpRes.success
+      };
+
       if (!volRes.success) {
         return {
           status: 'COLLECTION_ERROR',
           summary: `Storage volume telemetry collection failed: ${volRes.error}`,
-          details: { volumes: [], smartStatus: 'COLLECTION_ERROR', vssStatus: 'COLLECTION_ERROR', tempDumpCount: 0 },
+          details: { volumes: [], smartStatus: 'UNKNOWN', smartVerification: 'UNKNOWN', vssStatus: 'UNKNOWN', tempDumpCount: null },
           anomalies: [{
             severity: 'WARNING',
             title: 'Storage Volume Collector Error',
@@ -472,10 +523,16 @@ class HostDiagnosticsEngine {
             durationMs: Date.now() - startTime,
             collector: 'Get-Volume / MSStorageDriver_FailurePredictStatus',
             success: false,
-            error: volRes.error
+            outcome: 'COLLECTION_ERROR',
+            subResults,
+            error: volRes.error,
+            isAuthoritative: false
           }
         };
       }
+
+      const anyFailed = !smartRes.success || !vssRes.success || !dumpRes.success;
+      const outcome = anyFailed ? 'PARTIAL' : 'SUCCESS';
 
       const volumes = volRes.data;
       const smart = smartRes.data;
@@ -499,9 +556,12 @@ class HostDiagnosticsEngine {
       });
 
       const smartObj = Array.isArray(smart) ? smart[0] : smart;
-      const smartStatus = smartObj && smartObj.PredictFailure === true ? 'PREDICT_FAILURE' : (smartRes.success ? 'OK' : 'UNKNOWN');
-      const vssStatus = vss?.Status || (vssRes.success ? 'Stopped' : 'UNKNOWN');
-      const tempDumpCount = typeof minidumps === 'number' ? minidumps : 0;
+      const smartStatus = smartRes.success
+        ? (smartObj && smartObj.PredictFailure === true ? 'PREDICT_FAILURE' : 'OK')
+        : 'UNKNOWN';
+      const smartVerification = smartRes.success ? 'VERIFIED' : 'UNKNOWN';
+      const vssStatus = vssRes.success ? (vss?.Status || 'Stopped') : 'UNKNOWN';
+      const tempDumpCount = dumpRes.success && typeof minidumps === 'number' ? minidumps : null;
 
       const anomalies = [];
       const recipes = [];
@@ -538,6 +598,10 @@ class HostDiagnosticsEngine {
         }
       }
 
+      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
+        status = 'DEGRADED';
+      }
+
       const summary = anomalies.length > 0
         ? `${anomalies.length} storage issue(s) detected. SMART Status: ${smartStatus}.`
         : `All ${formattedVols.length} volume(s) healthy. SMART status ${smartStatus}.`;
@@ -548,6 +612,7 @@ class HostDiagnosticsEngine {
         details: {
           volumes: formattedVols,
           smartStatus,
+          smartVerification,
           vssStatus,
           tempDumpCount
         },
@@ -557,14 +622,18 @@ class HostDiagnosticsEngine {
           collectedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
           collector: 'Get-Volume / MSStorageDriver_FailurePredictStatus / Get-Service VSS',
-          success: true
+          success: true,
+          outcome,
+          smartVerification,
+          subResults,
+          isAuthoritative: !anyFailed
         }
       };
     } catch (err) {
       return {
         status: 'COLLECTION_ERROR',
         summary: `Error collecting storage pillar: ${err.message}`,
-        details: { volumes: [], smartStatus: 'COLLECTION_ERROR', vssStatus: 'COLLECTION_ERROR', tempDumpCount: 0 },
+        details: { volumes: [], smartStatus: 'UNKNOWN', smartVerification: 'UNKNOWN', vssStatus: 'UNKNOWN', tempDumpCount: null },
         anomalies: [],
         recipes: [],
         metadata: {
@@ -572,7 +641,9 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'Get-Volume',
           success: false,
-          error: err.message
+          outcome: 'COLLECTION_ERROR',
+          error: err.message,
+          isAuthoritative: false
         }
       };
     }
@@ -595,12 +666,12 @@ class HostDiagnosticsEngine {
         details: {
           cpuModel: os.cpus()[0]?.model || 'Generic CPU',
           cores: os.cpus().length,
-          cpuLoadPct: 0,
+          cpuLoadPct: null,
           totalRamGB: Number((totalMem / (1024 ** 3)).toFixed(1)),
           usedRamGB: Number((usedMem / (1024 ** 3)).toFixed(1)),
           freeRamGB: Number((freeMem / (1024 ** 3)).toFixed(1)),
           ramUsedPct: memPct,
-          diskQueueLength: 0,
+          diskQueueLength: null,
           topProcesses: []
         },
         anomalies: [],
@@ -610,8 +681,10 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'os.cpus / os.totalmem',
           success: false,
+          outcome: 'UNSUPPORTED_PLATFORM',
           platform: process.platform,
-          error: 'UNSUPPORTED_PLATFORM'
+          error: 'UNSUPPORTED_PLATFORM',
+          isAuthoritative: false
         }
       };
     }
@@ -625,6 +698,14 @@ class HostDiagnosticsEngine {
         this._runPowerShell('Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "Idle" } | Select-Object IDProcess, PercentProcessorTime')
       ]);
 
+      const subResults = {
+        cpu: cpuRes.success,
+        mem: memRes.success,
+        diskQueue: diskRes.success,
+        processes: procRes.success,
+        cimProcesses: cimProcRes.success
+      };
+
       if (!procRes.success && !cpuRes.success) {
         return {
           status: 'COLLECTION_ERROR',
@@ -637,18 +718,24 @@ class HostDiagnosticsEngine {
             durationMs: Date.now() - startTime,
             collector: 'Win32_Processor / Get-Process',
             success: false,
-            error: cpuRes.error || procRes.error
+            outcome: 'COLLECTION_ERROR',
+            subResults,
+            error: cpuRes.error || procRes.error,
+            isAuthoritative: false
           }
         };
       }
 
-      let cpuLoadPct = 0;
-      if (cpuRes.data?.Average != null) {
+      const anyFailed = !cpuRes.success || !diskRes.success || !procRes.success;
+      const outcome = anyFailed ? 'PARTIAL' : 'SUCCESS';
+
+      let cpuLoadPct = null;
+      if (cpuRes.success && cpuRes.data?.Average != null) {
         cpuLoadPct = Number(cpuRes.data.Average.toFixed(1));
       }
 
-      let diskQueueLength = 0;
-      if (diskRes.data?.CurrentDiskQueueLength != null) {
+      let diskQueueLength = null;
+      if (diskRes.success && diskRes.data?.CurrentDiskQueueLength != null) {
         diskQueueLength = Number(diskRes.data.CurrentDiskQueueLength);
       }
 
@@ -689,7 +776,7 @@ class HostDiagnosticsEngine {
       let status = 'HEALTHY';
 
       // High CPU Check (> 90%)
-      if (cpuLoadPct > 90) {
+      if (cpuLoadPct !== null && cpuLoadPct > 90) {
         status = 'CRITICAL';
         anomalies.push({
           severity: 'CRITICAL',
@@ -715,7 +802,7 @@ class HostDiagnosticsEngine {
       }
 
       // High Disk Queue Depth (> 4.0)
-      if (diskQueueLength > 4) {
+      if (diskQueueLength !== null && diskQueueLength > 4) {
         status = status === 'CRITICAL' ? 'CRITICAL' : 'DEGRADED';
         anomalies.push({
           severity: 'WARNING',
@@ -726,9 +813,13 @@ class HostDiagnosticsEngine {
         });
       }
 
+      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
+        status = 'DEGRADED';
+      }
+
       const summary = anomalies.length > 0
-        ? `${anomalies.length} performance issue(s) identified. CPU: ${cpuLoadPct}%, RAM: ${memPct}%.`
-        : `Optimal resource performance. CPU: ${cpuLoadPct}%, RAM: ${memPct}%, Queue: ${diskQueueLength}.`;
+        ? `${anomalies.length} performance issue(s) identified. CPU: ${cpuLoadPct !== null ? cpuLoadPct + '%' : 'UNKNOWN'}, RAM: ${memPct}%.`
+        : `Optimal resource performance. CPU: ${cpuLoadPct !== null ? cpuLoadPct + '%' : 'UNKNOWN'}, RAM: ${memPct}%${diskQueueLength !== null ? `, Queue: ${diskQueueLength}` : ''}.`;
 
       return {
         status,
@@ -750,7 +841,10 @@ class HostDiagnosticsEngine {
           collectedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
           collector: 'Win32_Processor / Win32_PerfFormattedData_PerfDisk_PhysicalDisk / Get-Process',
-          success: true
+          success: true,
+          outcome,
+          subResults,
+          isAuthoritative: !anyFailed
         }
       };
     } catch (err) {
@@ -765,7 +859,9 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'Win32_Processor',
           success: false,
-          error: err.message
+          outcome: 'COLLECTION_ERROR',
+          error: err.message,
+          isAuthoritative: false
         }
       };
     }
@@ -784,7 +880,7 @@ class HostDiagnosticsEngine {
         details: {
           degradedDevices: [],
           spoolerStatus: 'UNKNOWN',
-          spoolerPendingJobs: 0
+          spoolerPendingJobs: null
         },
         anomalies: [],
         recipes: [],
@@ -793,8 +889,10 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'Win32_PnPEntity / Win32_Service',
           success: false,
+          outcome: 'UNSUPPORTED_PLATFORM',
           platform: process.platform,
-          error: 'UNSUPPORTED_PLATFORM'
+          error: 'UNSUPPORTED_PLATFORM',
+          isAuthoritative: false
         }
       };
     }
@@ -806,11 +904,17 @@ class HostDiagnosticsEngine {
         this._runPowerShell('(Get-ChildItem -Path C:\\Windows\\System32\\spool\\PRINTERS -ErrorAction SilentlyContinue | Measure-Object).Count')
       ]);
 
+      const subResults = {
+        pnp: pnpRes.success,
+        spooler: spoolerRes.success,
+        jobs: jobsRes.success
+      };
+
       if (!spoolerRes.success && !pnpRes.success) {
         return {
           status: 'COLLECTION_ERROR',
           summary: `Peripheral telemetry collection failed: ${spoolerRes.error || pnpRes.error}`,
-          details: { degradedDevices: [], spoolerStatus: 'COLLECTION_ERROR', spoolerPendingJobs: 0 },
+          details: { degradedDevices: [], spoolerStatus: 'COLLECTION_ERROR', spoolerPendingJobs: null },
           anomalies: [],
           recipes: [],
           metadata: {
@@ -818,30 +922,38 @@ class HostDiagnosticsEngine {
             durationMs: Date.now() - startTime,
             collector: 'Win32_PnPEntity / Get-Service Spooler',
             success: false,
-            error: spoolerRes.error || pnpRes.error
+            outcome: 'COLLECTION_ERROR',
+            subResults,
+            error: spoolerRes.error || pnpRes.error,
+            isAuthoritative: false
           }
         };
       }
 
-      const pnp = pnpRes.data;
-      const spooler = spoolerRes.data;
-      const jobs = jobsRes.data;
+      const anyFailed = !spoolerRes.success || !pnpRes.success || !jobsRes.success;
+      const outcome = anyFailed ? 'PARTIAL' : 'SUCCESS';
+
+      const pnp = pnpRes.success ? pnpRes.data : null;
+      const spooler = spoolerRes.success ? spoolerRes.data : null;
+      const jobs = jobsRes.success ? jobsRes.data : null;
 
       const degradedList = Array.isArray(pnp) ? pnp : (pnp ? [pnp] : []);
-      const spoolerStatus = spooler?.Status === 4 ? 'Running' : String(spooler?.Status || 'Stopped');
-      const pendingJobs = typeof jobs === 'number' ? jobs : 0;
+      const spoolerStatus = spoolerRes.success
+        ? (spooler?.Status === 4 ? 'Running' : String(spooler?.Status || 'Stopped'))
+        : 'UNKNOWN';
+      const pendingJobs = spoolerRes.success && typeof jobs === 'number' ? jobs : null;
 
       const anomalies = [];
       const recipes = [];
       let status = 'HEALTHY';
 
       // Print Spooler deadlock check
-      if (spoolerStatus !== 'Running' || pendingJobs > 10) {
+      if (spoolerRes.success && (spoolerStatus !== 'Running' || (pendingJobs !== null && pendingJobs > 10))) {
         status = 'DEGRADED';
         anomalies.push({
           severity: 'WARNING',
           title: 'Windows Print Spooler Deadlock / Backlog',
-          plainEnglish: `Print Spooler service status is '${spoolerStatus}' with ${pendingJobs} queued job(s). Deadlocked spooler queues can cause Explorer lockups.`,
+          plainEnglish: `Print Spooler service status is '${spoolerStatus}' with ${pendingJobs ?? 'unknown'} queued job(s). Deadlocked spooler queues can cause Explorer lockups.`,
           rawProof: `Status: ${spoolerStatus}, Queue backlog: ${pendingJobs}`,
           recipeId: 'repair_print_spooler'
         });
@@ -849,7 +961,7 @@ class HostDiagnosticsEngine {
       }
 
       // Degraded PnP devices check
-      if (degradedList.length > 0) {
+      if (pnpRes.success && degradedList.length > 0) {
         status = 'DEGRADED';
         anomalies.push({
           severity: 'WARNING',
@@ -859,6 +971,10 @@ class HostDiagnosticsEngine {
           recipeId: 'rescan_pnp_devices'
         });
         recipes.push('rescan_pnp_devices');
+      }
+
+      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
+        status = 'DEGRADED';
       }
 
       const summary = anomalies.length > 0
@@ -879,14 +995,17 @@ class HostDiagnosticsEngine {
           collectedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
           collector: 'Win32_PnPEntity / Get-Service Spooler',
-          success: true
+          success: true,
+          outcome,
+          subResults,
+          isAuthoritative: !anyFailed
         }
       };
     } catch (err) {
       return {
         status: 'COLLECTION_ERROR',
         summary: `Error collecting peripheral pillar: ${err.message}`,
-        details: { degradedDevices: [], spoolerStatus: 'COLLECTION_ERROR', spoolerPendingJobs: 0 },
+        details: { degradedDevices: [], spoolerStatus: 'COLLECTION_ERROR', spoolerPendingJobs: null },
         anomalies: [],
         recipes: [],
         metadata: {
@@ -894,7 +1013,9 @@ class HostDiagnosticsEngine {
           durationMs: Date.now() - startTime,
           collector: 'Win32_PnPEntity',
           success: false,
-          error: err.message
+          outcome: 'COLLECTION_ERROR',
+          error: err.message,
+          isAuthoritative: false
         }
       };
     }
@@ -935,18 +1056,53 @@ class HostDiagnosticsEngine {
       ...peripherals.recipes
     ]));
 
-    // 5-State Overall Status Resolution
+    // 6-State Health & Composite Resolution (F-57, F-66)
     const pillarStatuses = [network.status, storage.status, resource.status, peripherals.status];
-    let overallStatus = 'HEALTHY';
+    const pillarOutcomes = [
+      network.metadata?.outcome || 'SUCCESS',
+      storage.metadata?.outcome || 'SUCCESS',
+      resource.metadata?.outcome || 'SUCCESS',
+      peripherals.metadata?.outcome || 'SUCCESS'
+    ];
 
-    if (pillarStatuses.includes('CRITICAL')) {
-      overallStatus = 'CRITICAL';
-    } else if (pillarStatuses.includes('COLLECTION_ERROR')) {
-      overallStatus = 'COLLECTION_ERROR';
-    } else if (pillarStatuses.includes('DEGRADED')) {
-      overallStatus = 'DEGRADED';
+    // WorstConditionStatus evaluation
+    let worstCondition = 'HEALTHY';
+    if (pillarStatuses.includes('CRITICAL') || allAnomalies.some(a => a.severity === 'CRITICAL')) {
+      worstCondition = 'CRITICAL';
+    } else if (pillarStatuses.includes('DEGRADED') || allAnomalies.some(a => a.severity === 'WARNING' || a.severity === 'DEGRADED')) {
+      worstCondition = 'DEGRADED';
+    } else if (pillarStatuses.includes('WARNING')) {
+      worstCondition = 'WARNING';
     } else if (pillarStatuses.every(s => s === 'UNKNOWN')) {
+      worstCondition = 'UNKNOWN';
+    } else if (pillarStatuses.every(s => s === 'COLLECTION_ERROR')) {
+      worstCondition = 'COLLECTION_ERROR';
+    }
+
+    // TelemetryCompletenessStatus evaluation
+    let telemetryCompleteness = 'COMPLETE';
+    if (pillarStatuses.every(s => s === 'UNKNOWN')) {
+      telemetryCompleteness = 'UNKNOWN';
+    } else if (pillarStatuses.every(s => s === 'COLLECTION_ERROR')) {
+      telemetryCompleteness = 'COLLECTION_ERROR';
+    } else if (pillarOutcomes.some(o => o === 'PARTIAL' || o === 'COLLECTION_ERROR') || pillarStatuses.some(s => s === 'COLLECTION_ERROR' || s === 'UNKNOWN')) {
+      telemetryCompleteness = 'PARTIAL_TELEMETRY';
+    }
+
+    // Overall Status Resolution
+    let overallStatus = worstCondition;
+    if (worstCondition === 'CRITICAL') {
+      overallStatus = 'CRITICAL';
+    } else if (worstCondition === 'COLLECTION_ERROR' && telemetryCompleteness === 'COLLECTION_ERROR') {
+      overallStatus = 'COLLECTION_ERROR';
+    } else if (worstCondition === 'UNKNOWN' && telemetryCompleteness === 'UNKNOWN') {
       overallStatus = 'UNKNOWN';
+    } else if (telemetryCompleteness === 'PARTIAL_TELEMETRY') {
+      overallStatus = worstCondition === 'CRITICAL' ? 'CRITICAL' : 'DEGRADED';
+    } else if (worstCondition === 'DEGRADED') {
+      overallStatus = 'DEGRADED';
+    } else if (worstCondition === 'WARNING') {
+      overallStatus = 'WARNING';
     } else {
       overallStatus = 'HEALTHY';
     }
@@ -961,6 +1117,11 @@ class HostDiagnosticsEngine {
         totalRamGB: Number((os.totalmem() / (1024 ** 3)).toFixed(1))
       },
       overallStatus,
+      compositeHealth: {
+        worstCondition,
+        telemetryCompleteness
+      },
+      isProvisional: false,
       durationMs: Date.now() - now,
       pillars: {
         network,
@@ -991,7 +1152,7 @@ class HostDiagnosticsEngine {
       this.recordTelemetryPoint({
         cpuPercent: cpuUsagePct,
         memoryPercent: memUsagePct,
-        diskPercent: storage?.details?.drives?.[0]?.percentUsed || 0.0,
+        diskPercent: storage?.details?.volumes?.[0]?.UsedPct || 0.0,
         timestamp: now
       });
       auditResult.trendAnalysis = this.computeTrendDelta();
@@ -1016,8 +1177,9 @@ class HostDiagnosticsEngine {
     if (!IS_WINDOWS) {
       return [];
     }
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
     const [procRes, cimRes] = await Promise.all([
-      this._runPowerShell(`Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First ${limit} Id, ProcessName, CPU, WorkingSet64, PM, Handles, Path`),
+      this._runPowerShell(`Get-Process | Sort-Object -Descending WorkingSet64 | Select-Object -First ${safeLimit} Id, ProcessName, CPU, WorkingSet64, PM, Handles, Path`),
       this._runPowerShell('Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $_.Name -ne "_Total" -and $_.Name -ne "Idle" } | Select-Object IDProcess, PercentProcessorTime')
     ]);
     if (!procRes.success || !procRes.data) return [];

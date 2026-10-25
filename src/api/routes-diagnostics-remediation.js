@@ -15,7 +15,7 @@ const { authenticate, requireRole, requirePermission } = require('./middleware')
 const { verifyAuditLogIntegrity, getAuditLogs } = require('../core/audit-logger');
 
 // Full 4-Pillar Host Diagnostic Audit
-router.get('/host/audit', async (req, res) => {
+router.get('/host/audit', authenticate, async (req, res) => {
   try {
     const forceFresh = req.query.fresh === 'true';
     const audit = await hostDiagnosticsEngine.collectFullAudit(forceFresh);
@@ -59,7 +59,7 @@ router.get('/host/sockets', authenticate, async (req, res) => {
 });
 
 // Recipe Catalog
-router.get('/remediation/recipes', (req, res) => {
+router.get('/remediation/recipes', authenticate, (req, res) => {
   try {
     const recipes = autonomousRemediationEngine.getRecipeCatalog();
     res.json({
@@ -146,7 +146,7 @@ router.get('/remediation/audit-verify', authenticate, requireRole('ADMIN', 'SYSA
 });
 
 // Rolling Telemetry Trends & Velocity Analysis (Section 5)
-router.get(['/host/trends', '/trends'], (req, res) => {
+router.get(['/host/trends', '/trends'], authenticate, (req, res) => {
   try {
     const windowSec = parseInt(req.query.window || 300, 10);
     const analysis = hostDiagnosticsEngine.getTrendAnalysis(windowSec);

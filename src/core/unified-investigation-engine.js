@@ -51,12 +51,13 @@ class UnifiedInvestigationEngine {
 
       if (processQuery && discoveredEndpoints.length > 0) {
         const q = processQuery.toLowerCase();
+        // F-01: Strict process match; NEVER fallback to arbitrary discoveredEndpoints[0]
         matchedProcess = discoveredEndpoints.find(
           (e) =>
             String(e.processName || '').toLowerCase().includes(q) ||
             String(e.pid || '') === q ||
             String(e.domain || '').toLowerCase().includes(q)
-        ) || discoveredEndpoints[0];
+        ) || null;
 
         if (matchedProcess && !resolvedTargetHost && matchedProcess.remoteIp && matchedProcess.remoteIp !== '0.0.0.0') {
           resolvedTargetHost = matchedProcess.remoteIp;
@@ -64,22 +65,70 @@ class UnifiedInvestigationEngine {
         }
       }
 
+      // F-04: Process-socket correlation validation
+      const processFound = Boolean(matchedProcess);
+      const stage1Status = processQuery
+        ? (processFound ? 'COMPLETED' : (resolvedTargetHost ? 'PARTIAL' : 'ENDPOINT_NOT_FOUND_FOR_PROCESS'))
+        : (resolvedTargetHost ? 'COMPLETED' : 'PARTIAL');
+
+      let stage1Summary = '';
+      if (processQuery && !processFound) {
+        if (resolvedTargetHost) {
+          stage1Summary = `Scanned ${discoveredEndpoints.length} OS sockets; no socket matched process "${processQuery}". Proceeding with explicitly specified target ${resolvedTargetHost}:${resolvedTargetPort}.`;
+        } else {
+          stage1Summary = `ENDPOINT_NOT_FOUND_FOR_PROCESS: No active network sockets or endpoints found matching process query "${processQuery}".`;
+        }
+      } else if (matchedProcess) {
+        stage1Summary = `Discovered process ${matchedProcess.processName} (PID ${matchedProcess.pid}) communicating with ${matchedProcess.remoteIp || '0.0.0.0'}:${matchedProcess.remotePort || resolvedTargetPort} (${matchedProcess.state || 'ACTIVE'}).`;
+      } else if (resolvedTargetHost) {
+        stage1Summary = `Targeting explicitly supplied endpoint ${resolvedTargetHost}:${resolvedTargetPort} (${discoveredEndpoints.length} active host sockets scanned).`;
+      } else {
+        stage1Summary = `Scanned ${discoveredEndpoints.length} OS sockets; no specific remote endpoint provided.`;
+      }
+
       stages.push({
         stageNumber: 1,
         stageId: 'ENDPOINT_DISCOVERY',
         section: 'Section 2: App Server & Port Finder',
-        status: matchedProcess || resolvedTargetHost ? 'COMPLETED' : 'PARTIAL',
-        summary: matchedProcess
-          ? `Discovered process ${matchedProcess.processName} (PID ${matchedProcess.pid}) communicating with ${matchedProcess.remoteIp}:${matchedProcess.remotePort} (${matchedProcess.state || 'ACTIVE'}).`
-          : resolvedTargetHost
-            ? `Targeting explicitly supplied endpoint ${resolvedTargetHost}:${resolvedTargetPort} (${discoveredEndpoints.length} active host sockets scanned).`
-            : `Scanned ${discoveredEndpoints.length} OS sockets; no specific remote endpoint matched "${processQuery}". Defaulting to perimeter gateway check.`,
+        status: stage1Status,
+        summary: stage1Summary,
         evidence: {
           matchedProcess,
+          processQuery: processQuery || null,
           totalOsSocketsScanned: discoveredEndpoints.length,
           sampleEndpoints: discoveredEndpoints.slice(0, 5)
         }
       });
+
+      // F-01 & F-04: If process query was specified without targetHost and no matching process socket exists, do not proceed
+      if (processQuery && !processFound && !targetHost) {
+        const record = {
+          investigationId,
+          symptom,
+          processQuery,
+          targetHost: null,
+          targetPort: null,
+          initiatedBy,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          overallVerdict: 'ENDPOINT_NOT_FOUND_FOR_PROCESS',
+          confidence: 100,
+          uncertaintyWarning: false,
+          stages,
+          diagnosis: null,
+          secondOpinion: null,
+          recommendedActions: [
+            {
+              actionType: 'START_PROCESS_OR_VERIFY_NAME',
+              label: `Verify process "${processQuery}" is running with active network bindings`,
+              targetView: 'scripts'
+            }
+          ],
+          reverificationHistory: []
+        };
+        this.investigations.set(investigationId, record);
+        return record;
+      }
     } catch (err) {
       stages.push({
         stageNumber: 1,
@@ -137,11 +186,15 @@ class UnifiedInvestigationEngine {
       (n) => n.hostname_or_ip === resolvedTargetHost || (n.name || '').includes(resolvedTargetHost)
     ) || null;
     const hostTrends = hostDiagnosticsEngine.getTrendAnalysis();
-    const hostContext = aiBrain.lastHostHealthSnapshot || {
-      overallStatus: 'HEALTHY',
-      localHostSaturated: false,
-      localNicDegraded: false
-    };
+    // F-02: Treat null or provisional warm baseline as UNKNOWN (Zero Silent Healthy Fallbacks)
+    const snapshot = aiBrain.lastHostHealthSnapshot;
+    const isProvisional = snapshot?.isProvisional || snapshot?.overallStatus === 'INITIALIZING';
+    const hostContext = (!snapshot || isProvisional) ? {
+      overallStatus: 'UNKNOWN',
+      localHostSaturated: null,
+      localNicDegraded: null,
+      isProvisional: Boolean(isProvisional)
+    } : snapshot;
 
     stages.push({
       stageNumber: 3,
@@ -162,7 +215,8 @@ class UnifiedInvestigationEngine {
     const tlsStage = (endpointDiag?.stages || []).find((s) => s.stage === 'L6_TLS_HANDSHAKE');
 
     const tcpOk = tcpStage?.status === 'PASS' || tcpStage?.status === 'HEALTHY';
-    const dnsOk = dnsStage?.status !== 'FAIL';
+    // F-03: Strict positive check for DNS pass; missing or unobserved stage is NOT pass
+    const dnsOk = dnsStage?.status === 'PASS' || dnsStage?.status === 'SUCCESS' || dnsStage?.status === 'HEALTHY';
     const observedRst = /ECONNREFUSED|RST/i.test(JSON.stringify(tcpStage || {}));
 
     let incidentType = 'NORMAL_OPERATION';

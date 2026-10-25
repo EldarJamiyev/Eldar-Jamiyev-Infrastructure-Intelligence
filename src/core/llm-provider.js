@@ -90,13 +90,20 @@ class IncidentBriefingProvider {
   }
 
   _buildLlmPrompt(evaluation, context) {
+    const facts = evaluation.observedFacts || context.observedFacts || evaluation.telemetry?.observedFacts || [];
+    const contradictions = evaluation.contradictoryEvidence || context.contradictoryEvidence || [];
+    const targetHost = context.destIp || evaluation.destIp || context.targetHost || '127.0.0.1';
+    const targetPort = context.destPort || evaluation.destPort || context.targetPort || 443;
+    const incidentType = evaluation.incidentType || context.incidentType || 'NETWORK_ANOMALY';
+    const topHypothesis = evaluation.topHypothesis || {};
+
     return `You are an elite NOC Network Systems Architect.
 Analyze this verified physical wire telemetry and emit an executive incident briefing:
-Target: ${context.destIp || evaluation.destIp}:${context.destPort || evaluation.destPort}
-Incident: ${evaluation.incidentType || context.incidentType}
-Top Hypothesis: ${evaluation.topHypothesis?.label} (${evaluation.topHypothesis?.confidence}% confidence)
-Facts: ${JSON.stringify(evaluation.observedFacts || [])}
-Contradictions: ${JSON.stringify(evaluation.contradictoryEvidence || [])}
+Target: ${targetHost}:${targetPort}
+Incident: ${incidentType}
+Top Hypothesis: ${topHypothesis.label || 'Unknown'} (${topHypothesis.confidence || 0}% confidence)
+Facts: ${JSON.stringify(facts)}
+Contradictions: ${JSON.stringify(contradictions)}
 Produce Simple Operator Mode summary and Expert Diagnostic Mode recommendations with RFC citations.`;
   }
 

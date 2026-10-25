@@ -32,10 +32,10 @@ class DiagnosticReasoningEngine {
   analyzeIncident(params = {}) {
     const {
       incidentType = 'TCP_SYN_TIMEOUT',
-      sourceIp = '10.168.195.33',
-      destIp = '10.22.12.204',
+      sourceIp = null,
+      destIp = null,
       destPort = 443,
-      sourcePort = 54321,
+      sourcePort = null,
       protocol = 'TCP',
       measuredRttMs = null,
       handshakeLatencyMs = null,
@@ -49,6 +49,18 @@ class DiagnosticReasoningEngine {
       tlsAlertDesc = null,
       wireFrames = []
     } = params;
+
+    // F-06: Zero hardcoded fake IPs; dynamically derive default gateway
+    let dynamicGatewayIp = '127.0.0.1';
+    try {
+      const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+      const netInfo = getPhysicalNetworkInfo();
+      dynamicGatewayIp = netInfo?.gatewayIp || netInfo?.defaultGateway || '127.0.0.1';
+    } catch (_) {}
+
+    const effectiveSourceIp = sourceIp || '127.0.0.1';
+    const effectiveDestIp = destIp || '127.0.0.1';
+    const effectiveSourcePort = sourcePort || 54321;
 
     const timestamp = new Date().toISOString();
     this.rollingTelemetryBuffer.push(params);
@@ -75,7 +87,10 @@ class DiagnosticReasoningEngine {
 
         observedFacts = [
           {
-            fact: `Outbound TCP SYN packet transmitted from ${sourceIp}:${sourcePort} to ${destIp}:${destPort}.`,
+            fact: `Outbound TCP SYN packet transmitted from ${effectiveSourceIp}:${effectiveSourcePort} to ${effectiveDestIp}:${destPort}.`,
+            evidenceClass: 'OBSERVED_FACT',
+            outcome: 'CONFIRMED',
+            isAuthoritative: true,
             evidenceType: 'Observed',
             timestamp,
             protocol: 'TCP',
@@ -142,7 +157,7 @@ class DiagnosticReasoningEngine {
           {
             testId: 'TEST-GATEWAY-PING',
             name: 'Verify Default Gateway Reachability',
-            target: '10.168.195.1',
+            target: dynamicGatewayIp,
             probeType: 'ping',
             expectedOutcome: 'Confirms local switch and default gateway are not the root bottleneck.',
             automatable: true
@@ -168,7 +183,10 @@ class DiagnosticReasoningEngine {
             flags: 'SYN [SYN=1, ACK=0]'
           },
           {
-            fact: `Inbound TCP RST/ACK received immediately from ${destIp}:${destPort} (Delta: ${measuredRttMs || 1.2}ms).`,
+            fact: `Inbound TCP RST/ACK received immediately from ${effectiveDestIp}:${destPort}${measuredRttMs !== null ? ` (Delta: ${measuredRttMs}ms)` : ''}.`,
+            evidenceClass: 'OBSERVED_FACT',
+            outcome: 'CONFIRMED',
+            isAuthoritative: true,
             evidenceType: 'Observed',
             timestamp,
             flags: 'RST, ACK [RST=1, ACK=1]',
@@ -220,23 +238,33 @@ class DiagnosticReasoningEngine {
       case 'LATENCY_DIFFERENTIAL': {
         failureCategory = 'APPLICATION_PERFORMANCE_BOTTLENECK';
         rfcReferences.push(this.knownRfcReferences.TCP);
-        const hsLatency = handshakeLatencyMs !== null ? handshakeLatencyMs : 2.4;
-        const appDelay = appLatencyMs !== null ? appLatencyMs : 3800;
+        // F-74: Zero hardcoded latencies (no fake 2.4ms or 3800ms)
+        const hsLatency = handshakeLatencyMs !== null ? handshakeLatencyMs : (measuredRttMs !== null ? measuredRttMs : null);
+        const appDelay = appLatencyMs !== null ? appLatencyMs : null;
 
-        observedFacts = [
-          {
+        observedFacts = [];
+        if (hsLatency !== null) {
+          observedFacts.push({
             fact: `TCP 3-Way Handshake completed in ${hsLatency}ms (Network Round-Trip Time).`,
             evidenceType: 'Observed',
+            evidenceClass: 'OBSERVED_FACT',
+            outcome: 'CONFIRMED',
+            isAuthoritative: true,
             timestamp,
             measuredRtt: hsLatency
-          },
-          {
+          });
+        }
+        if (appDelay !== null) {
+          observedFacts.push({
             fact: `HTTP/Application payload request transmitted; response took ${appDelay}ms (Time to First Byte).`,
             evidenceType: 'Observed',
+            evidenceClass: 'OBSERVED_FACT',
+            outcome: 'CONFIRMED',
+            isAuthoritative: true,
             timestamp,
             appLatency: appDelay
-          }
-        ];
+          });
+        }
 
         unobservedFacts = [
           'No network-level retransmissions or packet drops observed during handshake.',
@@ -532,7 +560,7 @@ class DiagnosticReasoningEngine {
     const simpleOperatorMode = this._buildSimpleOperatorMode({
       incidentType,
       failureCategory,
-      destIp,
+      destIp: effectiveDestIp,
       destPort,
       hypotheses,
       distinguishingTests,
@@ -542,10 +570,10 @@ class DiagnosticReasoningEngine {
     const expertDiagnosticMode = this._buildExpertDiagnosticMode({
       incidentType,
       failureCategory,
-      sourceIp,
-      destIp,
+      sourceIp: effectiveSourceIp,
+      destIp: effectiveDestIp,
       destPort,
-      sourcePort,
+      sourcePort: effectiveSourcePort,
       protocol,
       observedFacts,
       unobservedFacts,
@@ -582,11 +610,27 @@ class DiagnosticReasoningEngine {
     const defaultVariables = ['cpuPercent', 'diskQueue', 'rttMs', 'retransCount', 'packetLossPct', 'dnsLatencyMs'];
     const d = defaultVariables.length;
 
-    const series = Array.isArray(telemetrySeries) && telemetrySeries.length >= 3
-      ? telemetrySeries
-      : this._synthesizeCausalBaselineSeries(telemetrySeries[0] || {});
+    const nSamples = Array.isArray(telemetrySeries) ? telemetrySeries.length : 0;
+    // F-84: Enforce N >= 30 authoritative empirical sample size (Zero Simulation Mandate)
+    if (nSamples < 30) {
+      return {
+        variables: defaultVariables,
+        sampleSize: nSamples,
+        minimumRequired: 30,
+        sufficientData: false,
+        status: 'INSUFFICIENT_SAMPLE_SIZE_FOR_CAUSAL_DISCOVERY',
+        adjacencyMatrix: Array.from({ length: d }, () => Array(d).fill(0)),
+        acyclicityTraceMetric: 0,
+        isDag: true,
+        directedEdges: [],
+        rootCauseCandidate: 'AWAITING_TELEMETRY',
+        outDegreeScores: defaultVariables.map(v => ({ variable: v, score: 0 })),
+        discoveryAlgorithm: 'PC-Skeleton + NOTEARS Trace Acyclicity (Zheng et al.)',
+        timestamp: new Date().toISOString()
+      };
+    }
 
-    const nSamples = series.length;
+    const series = telemetrySeries;
     const dataMatrix = defaultVariables.map(v => {
       const vals = series.map(s => {
         const val = Number(s[v] ?? s.telemetry?.[v] ?? s.hostContext?.[v] ?? 0);

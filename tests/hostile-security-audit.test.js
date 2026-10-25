@@ -26,6 +26,22 @@ async function runHostileSecurityAuditTests() {
   console.log('  Cross-Role RBAC, Action Token Binding, Injection & HMAC Audit Chain   ');
   console.log('========================================================================');
 
+  // Configure isolated temporary audit directory (F-69)
+  const os = require('os');
+  const tempAuditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ejii-hostile-audit-'));
+  const isolatedAuditFile = path.join(tempAuditDir, 'audit-trail.jsonl');
+  const isolatedAnchorFile = path.join(tempAuditDir, '.chain_head');
+  const { configureAuditPaths, resetAuditPaths, getAuditFilePath } = require('../src/core/audit-logger');
+  configureAuditPaths({ auditFilePath: isolatedAuditFile, anchorFilePath: isolatedAnchorFile });
+
+  // Inject non-destructive sandbox executor for safe test execution (F-68)
+  autonomousRemediationEngine.allowLiveOsMutation = false;
+  autonomousRemediationEngine.osExecutor = async (recipe, params) => ({
+    success: true,
+    output: `[SAFE_SANDBOX_MOCK] Non-destructive execution for ${recipe.id}`,
+    error: null
+  });
+
   // -------------------------------------------------------------------------
   // TEST 1: Cross-Role Privilege Escalation Defense (Fixing F-01 & F-03)
   // -------------------------------------------------------------------------
@@ -169,12 +185,13 @@ async function runHostileSecurityAuditTests() {
   console.log(`  ✓ Audit trail verified unbroken: ${initialVerification.count} records chained with HMAC-SHA256.`);
 
   // Attack: Modify one record in the audit file
-  const originalContent = fs.readFileSync(AUDIT_FILE, 'utf8');
+  const activeAuditPath = getAuditFilePath();
+  const originalContent = fs.readFileSync(activeAuditPath, 'utf8');
   const lines = originalContent.trim().split('\n');
   const lastLineObj = JSON.parse(lines[lines.length - 1]);
   lastLineObj.action = 'forged_malicious_action'; // Modify field without recomputing HMAC
   lines[lines.length - 1] = JSON.stringify(lastLineObj);
-  fs.writeFileSync(AUDIT_FILE, lines.join('\n') + '\n', 'utf8');
+  fs.writeFileSync(activeAuditPath, lines.join('\n') + '\n', 'utf8');
 
   // Verify that tamper detector catches the modification
   const tamperedVerification = verifyAuditLogIntegrity();
@@ -182,7 +199,7 @@ async function runHostileSecurityAuditTests() {
   console.log(`  ✓ Tamper detection proven: verifyAuditLogIntegrity() successfully flagged modified record.`);
 
   // Restore pristine audit file
-  fs.writeFileSync(AUDIT_FILE, originalContent, 'utf8');
+  fs.writeFileSync(activeAuditPath, originalContent, 'utf8');
   const restoredVerification = verifyAuditLogIntegrity();
   assert.equal(restoredVerification.valid, true, 'Restored audit chain must verify valid.');
 
@@ -232,7 +249,10 @@ async function runHostileSecurityAuditTests() {
   assert.equal(inMemoryReplayBlocked, true, 'Immediate replay against current engine must be blocked.');
 
   // Simulate server restart: create completely fresh engine instance reading from disk ledger
-  const restartedEngine = new AutonomousRemediationEngine();
+  const restartedEngine = new AutonomousRemediationEngine({
+    allowLiveOsMutation: false,
+    osExecutor: async (recipe) => ({ success: true, output: `[SAFE_MOCK] ${recipe.id}` })
+  });
   let crossRestartReplayBlocked = false;
   try {
     await restartedEngine.executeRemediation({ actionToken: persistentPreview.actionToken }, sysadminContext);
@@ -292,11 +312,11 @@ async function runHostileSecurityAuditTests() {
 
   // Attack: Read audit log, remove the last line, and write back without updating .chain_head
   // (Internal HMACs remain valid, but external anchor detects tail truncation!)
-  const preTruncationContent = fs.readFileSync(AUDIT_FILE, 'utf8');
+  const preTruncationContent = fs.readFileSync(getAuditFilePath(), 'utf8');
   const auditLines = preTruncationContent.trim().split('\n');
   assert.ok(auditLines.length >= 2, 'Must have at least 2 lines to test truncation');
   const truncatedContent = auditLines.slice(0, -1).join('\n') + '\n';
-  fs.writeFileSync(AUDIT_FILE, truncatedContent, 'utf8');
+  fs.writeFileSync(getAuditFilePath(), truncatedContent, 'utf8');
 
   // Run integrity verification: Must detect truncation via .chain_head anchor!
   const truncationCheck = verifyAuditLogIntegrity();
@@ -305,7 +325,7 @@ async function runHostileSecurityAuditTests() {
   console.log(`  ✓ Tail truncation attack flagged: ${truncationCheck.error}`);
 
   // Restore audit file
-  fs.writeFileSync(AUDIT_FILE, preTruncationContent, 'utf8');
+  fs.writeFileSync(getAuditFilePath(), preTruncationContent, 'utf8');
   const restoredCheck = verifyAuditLogIntegrity();
   assert.equal(restoredCheck.valid, true, 'Restored audit chain must verify valid.');
   console.log('  ✓ External .chain_head anchor verified: tail truncation and line deletion attacks detected (S-02 resolved).');

@@ -20,6 +20,31 @@ const VALID_SCORE_SEMANTICS = Object.freeze([
   'FORMAL_VERIFICATION'
 ]);
 
+const VALID_EVIDENCE_CLASSES = Object.freeze(['Observed', 'OS', 'Management', 'Inferred', 'Configured', 'Unknown']);
+const VALID_COLLECTION_OUTCOMES = Object.freeze([
+  'SUCCESS',
+  'PARTIAL',
+  'TIMEOUT',
+  'PERMISSION_DENIED',
+  'UNSUPPORTED_PLATFORM',
+  'COLLECTION_ERROR',
+  'PROVISIONAL_WARM_STATE'
+]);
+const VALID_HYPOTHESIS_STATUSES = Object.freeze([
+  'SUPPORTED',
+  'CONTRADICTED',
+  'INSUFFICIENT_EVIDENCE',
+  'PLAUSIBLE_UNVERIFIED'
+]);
+const VALID_INVOCATION_DECISIONS = Object.freeze([
+  'INVOKED',
+  'BYPASSED_HIGH_EVIDENCE_CONFIDENCE',
+  'BLOCKED_PRIVACY_POLICY',
+  'PROVIDER_UNAVAILABLE',
+  'DETERMINISTIC_CONFIG_DEFAULT'
+]);
+const VALID_PROVIDER_IDS = Object.freeze(['OLLAMA', 'OPENAI', 'ANTHROPIC', 'NONE']);
+
 class TypeContractValidator {
   /**
    * Validate ITopologyNode
@@ -203,6 +228,152 @@ class TypeContractValidator {
     target._epistemic = envelope;
     return target;
   }
+
+  /**
+   * Validate EvidenceRecord (Section 2.1)
+   * @param {object} record
+   * @returns {{ valid: boolean, error?: string }}
+   */
+  static validateEvidenceRecord(record) {
+    if (!record || typeof record !== 'object') {
+      return { valid: false, error: 'EvidenceRecord must be a non-null object' };
+    }
+    if (typeof record.evidenceId !== 'string' || !record.evidenceId) {
+      return { valid: false, error: 'Missing or empty evidenceId' };
+    }
+    if (typeof record.metricKey !== 'string' || !record.metricKey) {
+      return { valid: false, error: 'Missing or empty metricKey' };
+    }
+    if (!VALID_COLLECTION_OUTCOMES.includes(record.outcome)) {
+      return { valid: false, error: `Invalid collection outcome: ${record.outcome}` };
+    }
+    // Strict Contract Rule: value must be null when outcome !== 'SUCCESS'
+    if (record.outcome !== 'SUCCESS' && record.value !== null) {
+      return { valid: false, error: `Value must be null when outcome is ${record.outcome}` };
+    }
+    if (!VALID_EVIDENCE_CLASSES.includes(record.evidenceClass)) {
+      return { valid: false, error: `Invalid evidenceClass: ${record.evidenceClass}` };
+    }
+    if (typeof record.collectorId !== 'string' || !record.collectorId) {
+      return { valid: false, error: 'Missing or empty collectorId' };
+    }
+    if (typeof record.collectionMethod !== 'string' || !record.collectionMethod) {
+      return { valid: false, error: 'Missing or empty collectionMethod' };
+    }
+    if (typeof record.timestampIso !== 'string' || !record.timestampIso) {
+      return { valid: false, error: 'Missing or empty timestampIso' };
+    }
+    if (typeof record.isAuthoritative !== 'boolean') {
+      return { valid: false, error: 'isAuthoritative must be a boolean' };
+    }
+    if (!Array.isArray(record.supportsHypotheses)) {
+      return { valid: false, error: 'supportsHypotheses must be an array' };
+    }
+    if (!Array.isArray(record.contradictsHypotheses)) {
+      return { valid: false, error: 'contradictsHypotheses must be an array' };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Create an authoritative or provisional EvidenceRecord conforming strictly to Section 2.1
+   */
+  static createEvidenceRecord(params = {}) {
+    const outcome = VALID_COLLECTION_OUTCOMES.includes(params.outcome) ? params.outcome : 'SUCCESS';
+    const evidenceClass = VALID_EVIDENCE_CLASSES.includes(params.evidenceClass) ? params.evidenceClass : 'Observed';
+    const nowIso = params.timestampIso || new Date().toISOString();
+    const nowMs = Date.now();
+    const timeMs = new Date(nowIso).getTime();
+    const freshnessMs = typeof params.freshnessMs === 'number' ? params.freshnessMs : Math.max(0, nowMs - (isNaN(timeMs) ? nowMs : timeMs));
+    
+    // Strict value enforcement: null when outcome !== 'SUCCESS'
+    const value = outcome === 'SUCCESS' ? (params.value !== undefined ? params.value : null) : null;
+
+    const record = {
+      evidenceId: params.evidenceId || ('ev_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36)),
+      metricKey: params.metricKey || 'unknown.metric',
+      value,
+      unit: params.unit || undefined,
+      evidenceClass,
+      collectorId: params.collectorId || 'core:generic-collector',
+      collectionMethod: params.collectionMethod || 'runtime:direct',
+      timestampIso: nowIso,
+      freshnessMs,
+      targetIdentity: params.targetIdentity && typeof params.targetIdentity === 'object'
+        ? {
+            host: params.targetIdentity.host,
+            pinnedIp: params.targetIdentity.pinnedIp || null,
+            pid: params.targetIdentity.pid || null,
+            processName: params.targetIdentity.processName || null,
+            interfaceId: params.targetIdentity.interfaceId || null
+          }
+        : { host: undefined, pinnedIp: null, pid: null, processName: null, interfaceId: null },
+      outcome,
+      errorDetails: params.errorDetails || null,
+      measurementUncertainty: typeof params.measurementUncertainty === 'number' ? params.measurementUncertainty : null,
+      isAuthoritative: typeof params.isAuthoritative === 'boolean' ? params.isAuthoritative : (outcome === 'SUCCESS' && evidenceClass !== 'Inferred' && evidenceClass !== 'Unknown'),
+      supportsHypotheses: Array.isArray(params.supportsHypotheses) ? params.supportsHypotheses : [],
+      contradictsHypotheses: Array.isArray(params.contradictsHypotheses) ? params.contradictsHypotheses : []
+    };
+
+    return record;
+  }
+
+  /**
+   * Validate HypothesisEvaluation (Section 2.2)
+   */
+  static validateHypothesisEvaluation(hypo) {
+    if (!hypo || typeof hypo !== 'object') {
+      return { valid: false, error: 'HypothesisEvaluation must be a non-null object' };
+    }
+    if (typeof hypo.hypothesisId !== 'string' || !hypo.hypothesisId) {
+      return { valid: false, error: 'Missing or empty hypothesisId' };
+    }
+    if (typeof hypo.title !== 'string' || !hypo.title) {
+      return { valid: false, error: 'Missing or empty title' };
+    }
+    if (!VALID_HYPOTHESIS_STATUSES.includes(hypo.status)) {
+      return { valid: false, error: `Invalid status: ${hypo.status}` };
+    }
+    if (typeof hypo.priorProbability !== 'number') {
+      return { valid: false, error: 'priorProbability must be a number' };
+    }
+    if (typeof hypo.normalizedPosterior !== 'number') {
+      return { valid: false, error: 'normalizedPosterior must be a number' };
+    }
+    if (hypo.status === 'CONTRADICTED' && hypo.normalizedPosterior !== 0) {
+      return { valid: false, error: 'Contradicted hypothesis must have normalizedPosterior exactly 0' };
+    }
+    if (!['EMPIRICALLY_CALIBRATED', 'RULE_HEURISTIC', 'INSUFFICIENT_DATA'].includes(hypo.confidenceType)) {
+      return { valid: false, error: `Invalid confidenceType: ${hypo.confidenceType}` };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate ModelOrchestrationResult (Section 2.3)
+   */
+  static validateModelOrchestrationResult(res) {
+    if (!res || typeof res !== 'object') {
+      return { valid: false, error: 'ModelOrchestrationResult must be a non-null object' };
+    }
+    if (!VALID_INVOCATION_DECISIONS.includes(res.invocationDecision)) {
+      return { valid: false, error: `Invalid invocationDecision: ${res.invocationDecision}` };
+    }
+    if (!VALID_PROVIDER_IDS.includes(res.providerId)) {
+      return { valid: false, error: `Invalid providerId: ${res.providerId}` };
+    }
+    if (!res.privacyGate || typeof res.privacyGate !== 'object') {
+      return { valid: false, error: 'Missing privacyGate object' };
+    }
+    if (!res.transportState || typeof res.transportState !== 'object') {
+      return { valid: false, error: 'Missing transportState object' };
+    }
+    if (!res.inferenceState || typeof res.inferenceState !== 'object') {
+      return { valid: false, error: 'Missing inferenceState object' };
+    }
+    return { valid: true };
+  }
 }
 
 function attachEpistemicEnvelope(target, meta = {}) {
@@ -213,11 +384,36 @@ function classifyTemporalLiveness(timestamp, failed = false, now = Date.now()) {
   return TypeContractValidator.classifyTemporalLiveness(timestamp, failed, now);
 }
 
+function createEvidenceRecord(params = {}) {
+  return TypeContractValidator.createEvidenceRecord(params);
+}
+
+function validateEvidenceRecord(record) {
+  return TypeContractValidator.validateEvidenceRecord(record);
+}
+
+function validateHypothesisEvaluation(hypo) {
+  return TypeContractValidator.validateHypothesisEvaluation(hypo);
+}
+
+function validateModelOrchestrationResult(res) {
+  return TypeContractValidator.validateModelOrchestrationResult(res);
+}
+
 module.exports = {
   TypeContractValidator,
   VALID_EPISTEMIC_STATES,
   VALID_LIVENESS_STATES,
   VALID_SCORE_SEMANTICS,
+  VALID_EVIDENCE_CLASSES,
+  VALID_COLLECTION_OUTCOMES,
+  VALID_HYPOTHESIS_STATUSES,
+  VALID_INVOCATION_DECISIONS,
+  VALID_PROVIDER_IDS,
   attachEpistemicEnvelope,
-  classifyTemporalLiveness
+  classifyTemporalLiveness,
+  createEvidenceRecord,
+  validateEvidenceRecord,
+  validateHypothesisEvaluation,
+  validateModelOrchestrationResult
 };

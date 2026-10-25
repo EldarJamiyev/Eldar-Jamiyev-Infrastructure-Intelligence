@@ -28,8 +28,7 @@ function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.slice(7).trim();
-  } else if (req.query && req.query.token) {
-    token = String(req.query.token).trim();
+
   } else if (req.cookies && req.cookies.eji_session) {
     token = req.cookies.eji_session;
   } else if (req.headers.cookie) {
@@ -65,7 +64,7 @@ function authenticate(req, res, next) {
       id: user.id,
       username: user.username,
       full_name: user.full_name,
-      role: (decoded.role || user.role || 'READONLY').toUpperCase()
+      role: String(user.role || 'READONLY').toUpperCase()
     };
   } else {
     // Cryptographically verified token for system or service accounts

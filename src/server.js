@@ -53,7 +53,7 @@ const { gitopsReconciliationEngine } = require('./core/gitops-reconciliation-eng
 const { collectLinuxParityTelemetry } = require('./systems/linux/linux-native-telemetry');
 const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('./network/routing/physical-network-detector');
 const { topologyEngine } = require('./network/topology/topology-engine');
-const { requestCorrelationAndTelemetryMiddleware } = require('./api/middleware');
+const { requestCorrelationAndTelemetryMiddleware, authenticate } = require('./api/middleware');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -127,7 +127,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Fast Aggregated Bootstrap Endpoint (Instant 0ms multi-view hydration)
-app.get('/api/system/bootstrap', async (req, res) => {
+app.get('/api/system/bootstrap', authenticate, async (req, res) => {
   try {
     const { topologyEngine } = require('./network/topology/topology-engine');
     const { packetStreamer } = require('./network/packet-streaming/packet-streamer');

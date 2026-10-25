@@ -432,12 +432,16 @@ class BayesianReasoningEngine {
       priors[hId] = priors[hId] / priorSum;
     }
 
+    // F-15, F-78, F-79: Hard Contradiction Veto & Exclusion from Mass Distribution
+    const nonContradictedHypotheses = activeHypotheses.filter(hId => !contradictedMap.has(hId));
+    const allHypothesesContradicted = activeHypotheses.length > 0 && nonContradictedHypotheses.length === 0;
+
     // Compute likelihoods P(Evidence | Hi)
     const likelihoods = {};
     for (const hId of activeHypotheses) {
       if (contradictedMap.has(hId)) {
-        // Hard disproof: likelihood clamped to near-zero
-        likelihoods[hId] = 0.000001;
+        // Hard contradiction veto: exact 0.0 likelihood and posterior
+        likelihoods[hId] = 0.0;
       } else {
         likelihoods[hId] = this._calculateLikelihood(hId, safeTelemetry);
       }
@@ -451,13 +455,17 @@ class BayesianReasoningEngine {
     const posteriors = {};
     let totalEvidenceWeight = 0;
     for (const hId of activeHypotheses) {
+      if (contradictedMap.has(hId)) {
+        posteriors[hId] = 0.0;
+        continue;
+      }
       let weight = likelihoods[hId] * priors[hId];
-      if (!contradictedMap.has(hId) && calibrationWeights[hId] !== undefined) {
+      if (calibrationWeights[hId] !== undefined) {
         const cal = Math.min(2.0, Math.max(0.5, Number(calibrationWeights[hId]) || 1.0));
         weight *= cal;
       }
       // Neuro-Symbolic Markov Logic Network (MLN) potential boost
-      if (!contradictedMap.has(hId) && solverResult.mlnMultipliers && solverResult.mlnMultipliers[hId]) {
+      if (solverResult.mlnMultipliers && solverResult.mlnMultipliers[hId]) {
         weight *= solverResult.mlnMultipliers[hId];
       }
       // Cross-layer host correlation: boost local host/interface bottleneck weight by 1.45x
@@ -469,36 +477,78 @@ class BayesianReasoningEngine {
     }
 
     // Exact 100% normalization guarantee using Largest Remainder Method (Hare-Niemeyer)
+    // Contradicted hypotheses are completely excluded: only surviving hypotheses share the 100% mass
+    const integerParts = new Array(activeHypotheses.length).fill(0);
     const validWeight = totalEvidenceWeight > 0 && !isNaN(totalEvidenceWeight) && isFinite(totalEvidenceWeight);
-    const rawPcts = activeHypotheses.map(hId => {
-      const prob = validWeight ? (posteriors[hId] / totalEvidenceWeight) : (1 / activeHypotheses.length);
-      return prob * 100;
-    });
 
-    const integerParts = rawPcts.map(p => Math.floor(p));
-    const remainders = rawPcts.map((p, idx) => ({ hId: activeHypotheses[idx], rem: p - integerParts[idx], idx }));
-    remainders.sort((a, b) => {
-      // Prioritize non-contradicted hypotheses for remainder distribution
-      const aContradicted = contradictedMap.has(a.hId) ? 1 : 0;
-      const bContradicted = contradictedMap.has(b.hId) ? 1 : 0;
-      if (aContradicted !== bContradicted) return aContradicted - bContradicted;
+    if (allHypothesesContradicted) {
+      // Inconclusive fallback: equal distribution across all contradicted hypotheses
+      const baseShare = Math.floor(100 / activeHypotheses.length);
+      for (let i = 0; i < activeHypotheses.length; i++) integerParts[i] = baseShare;
+      let diff = 100 - integerParts.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < diff; i++) integerParts[i] += 1;
+    } else {
+      // Allocate 100% integer mass strictly across nonContradictedHypotheses
+      const nonContradictedIndices = [];
+      const rawNonContradictedPcts = [];
+      for (let i = 0; i < activeHypotheses.length; i++) {
+        const hId = activeHypotheses[i];
+        if (!contradictedMap.has(hId)) {
+          nonContradictedIndices.push(i);
+          const prob = validWeight ? (posteriors[hId] / totalEvidenceWeight) : (1 / nonContradictedHypotheses.length);
+          rawNonContradictedPcts.push(prob * 100);
+        }
+      }
 
-      const diff = b.rem - a.rem;
-      if (Math.abs(diff) > 1e-9) return diff;
-      const priorDiff = (priors[b.hId] || 0) - (priors[a.hId] || 0);
-      if (Math.abs(priorDiff) > 1e-9) return priorDiff;
-      const idDiff = a.hId.localeCompare(b.hId);
-      if (idDiff !== 0) return idDiff;
-      return a.idx - b.idx;
-    });
+      const nonContradictedFloors = rawNonContradictedPcts.map(p => Math.floor(p));
+      const nonContradictedRemainders = rawNonContradictedPcts.map((p, idx) => ({
+        activeIdx: nonContradictedIndices[idx],
+        hId: activeHypotheses[nonContradictedIndices[idx]],
+        rem: p - nonContradictedFloors[idx]
+      }));
 
-    let difference = 100 - integerParts.reduce((a, b) => a + b, 0);
-    difference = Math.max(0, Math.min(difference, remainders.length));
-    for (let i = 0; i < difference; i++) {
-      integerParts[remainders[i].idx] += 1;
+      nonContradictedRemainders.sort((a, b) => {
+        const diff = b.rem - a.rem;
+        if (Math.abs(diff) > 1e-9) return diff;
+        const priorDiff = (priors[b.hId] || 0) - (priors[a.hId] || 0);
+        if (Math.abs(priorDiff) > 1e-9) return priorDiff;
+        return a.hId.localeCompare(b.hId);
+      });
+
+      for (let k = 0; k < nonContradictedIndices.length; k++) {
+        integerParts[nonContradictedIndices[k]] = nonContradictedFloors[k];
+      }
+
+      let difference = 100 - nonContradictedFloors.reduce((a, b) => a + b, 0);
+      difference = Math.max(0, Math.min(difference, nonContradictedRemainders.length));
+      for (let d = 0; d < difference; d++) {
+        integerParts[nonContradictedRemainders[d].activeIdx] += 1;
+      }
     }
 
-    const allHypothesesContradicted = activeHypotheses.length > 0 && activeHypotheses.every(hId => contradictedMap.has(hId));
+    // F-81 & F-82: Evidence Coverage & Sufficiency Metrics
+    const possibleDimensions = [
+      'gatewayReachable',
+      'targetPingReachable',
+      'altPortReachable',
+      'targetPortReachable',
+      'dnsResolved',
+      'tlsHandshakeSuccess',
+      'tcpRstObserved',
+      'hostContext'
+    ];
+    let observedCount = 0;
+    if (gatewayReachable !== null && gatewayReachable !== undefined) observedCount++;
+    if (targetPingReachable !== null && targetPingReachable !== undefined) observedCount++;
+    if (altPortReachable !== null && altPortReachable !== undefined) observedCount++;
+    if (targetPortReachable !== null && targetPortReachable !== undefined) observedCount++;
+    if (dnsResolved !== null && dnsResolved !== undefined) observedCount++;
+    if (tlsHandshakeSuccess !== null && tlsHandshakeSuccess !== undefined) observedCount++;
+    if (tcpRstObserved === true) observedCount++;
+    if (hostContext !== null && !hostContext.isProvisional) observedCount++;
+
+    const evidenceCoverageRatio = Number(Math.min(1.0, observedCount / possibleDimensions.length).toFixed(3));
+    const evidenceSufficiencyScore = Number(Math.min(1.0, Math.max(0.2, (observedCount >= 3 ? 1.0 : (observedCount === 2 ? 0.75 : 0.5)))).toFixed(3));
 
     const rankedHypotheses = [];
     activeHypotheses.forEach((hId, idx) => {
@@ -515,20 +565,33 @@ class BayesianReasoningEngine {
         ? Math.min(2.0, Math.max(0.5, Number(calibrationWeights[hId]) || 1.0))
         : 1.0;
 
+      // F-78: Extract Horn clause deductive proof trace for contradiction
+      const proofTrace = solverResult.proofChain
+        ? solverResult.proofChain.filter(p => p.contradicts?.includes(hId) || (p.action === 'CONTRADICT' && hId === 'GATEWAY_UNREACHABLE'))
+        : [];
+
+      // F-80, F-83: Normalized share pct & calibrated confidence
+      const calibratedConf = isContradicted ? 0 : Math.min(100, Math.round(confidencePct * evidenceSufficiencyScore));
+
       rankedHypotheses.push({
         id: hId,
         hypothesis: def.description,
         label: def.label,
         category: def.category,
         rfc: def.rfc,
-        confidence: confidencePct,
-        likelihoodScore: Number((likelihoods[hId] || 0.1).toFixed(3)),
+        confidence: isContradicted && !allHypothesesContradicted ? 0 : confidencePct,
+        normalizedSharePct: isContradicted && !allHypothesesContradicted ? 0 : confidencePct,
+        calibratedConfidence: calibratedConf,
+        evidenceSufficiencyScore,
+        evidenceCoverageRatio,
+        likelihoodScore: Number((likelihoods[hId] || 0.0).toFixed(3)),
         priorScore: Number((priors[hId] || 0.1).toFixed(3)),
         calibrationWeight: Number(appliedCal.toFixed(2)),
         status: isContradicted ? 'CONTRADICTED' : (confidencePct >= 60 ? 'PROMOTED' : (confidencePct <= 10 ? 'ELIMINATED' : 'CONSIDERED')),
         isContradicted,
         contradictionRule: contradiction?.rule || null,
         contradictionReason: contradiction?.reason || null,
+        contradictionProofTrace: proofTrace.length > 0 ? proofTrace : (contradiction ? [{ axiom: 'CONTRADICTION_PROOF', rule: contradiction.rule, reason: contradiction.reason }] : []),
         crossLayerEvidence: (hId === 'LOCAL_HOST_RESOURCE_EXHAUSTION' || hId === 'LOCAL_NIC_STACK_ERROR') && isHostSaturated ? 'Correlated with host telemetry saturation' : null
       });
     });
@@ -583,10 +646,20 @@ class BayesianReasoningEngine {
       crossLayerNotes = `Cross-layer telemetry active: Host CPU=${hostContext.cpuPercent || 0}%, RAM=${hostContext.memPercent || 0}%, NicDegraded=${Boolean(hostContext.localNicDegraded)}, HostSaturated=${Boolean(hostContext.localHostSaturated)}. Local host bottlenecks prioritized over remote link delay.`;
     }
 
+    // F-85: Deterministic bypass gate evaluation
+    const topHypothesis = rankedHypotheses[0];
+    const canDeterministicBypass = Boolean(
+      topHypothesis &&
+      topHypothesis.confidence >= 85 &&
+      evidenceSufficiencyScore >= 0.75 &&
+      !allHypothesesContradicted &&
+      !contradictedMap.has(topHypothesis.id)
+    );
+
     return {
       incidentType,
       telemetry: safeTelemetry,
-      topHypothesis: rankedHypotheses[0],
+      topHypothesis,
       rankedHypotheses,
       allHypothesesContradicted,
       diagnosticState,
@@ -594,6 +667,10 @@ class BayesianReasoningEngine {
       symbolicProofChain: solverResult.proofChain || [],
       solverStats: solverResult.stats || {},
       distinguishingProbes,
+      evidenceSufficiencyScore,
+      evidenceCoverageRatio,
+      calibratedConfidence: topHypothesis?.calibratedConfidence || 0,
+      canDeterministicBypass,
       helpdeskSummary: allHypothesesContradicted
         ? 'INCONCLUSIVE: All candidate hypotheses contradict empirical wire evidence. Observed telemetry indicates an anomalous multi-layer conflict or complex edge case. Further manual investigation or additional packet capture required.'
         : helpdeskSummary,

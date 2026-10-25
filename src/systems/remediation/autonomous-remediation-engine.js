@@ -43,9 +43,13 @@ const PROTECTED_OS_PROCESSES = new Set([
 ]);
 
 class AutonomousRemediationEngine {
-  constructor() {
+  constructor(options = {}) {
     this.remediationLog = [];
     this.maxLogSize = 500;
+    this.osExecutor = options.osExecutor || null;
+    this.allowLiveOsMutation = typeof options.allowLiveOsMutation === 'boolean'
+      ? options.allowLiveOsMutation
+      : !(process.env.NODE_ENV === 'test' || process.env.EJII_SAFE_TEST_MODE === '1');
     this.usedActionTokens = this._loadConsumedTokens();
   }
 
@@ -617,7 +621,16 @@ class AutonomousRemediationEngine {
     // Execute PowerShell command with validated parameters (zero injection)
     let execOutcome = { success: false, output: '', error: null };
     try {
-      if (IS_WINDOWS) {
+      if (this.osExecutor && typeof this.osExecutor === 'function') {
+        execOutcome = await this.osExecutor(recipe, validatedParams);
+      } else if (!this.allowLiveOsMutation && (recipe.id === 'trim_working_set' || recipe.id === 'reset_winsock' || recipe.id === 'renew_dhcp_lease' || recipe.id === 'repair_component_store' || recipe.id === 'repair_print_spooler')) {
+        // Safe sandbox / test mode: suppress live destructive OS mutations (F-68)
+        execOutcome = {
+          success: true,
+          output: `[SAFE_TEST_MODE] Non-destructive execution for recipe '${recipe.id}'. Live OS mutation suppressed.`,
+          error: null
+        };
+      } else if (IS_WINDOWS) {
         let psCmd;
         if (validatedParams.pid && (recipe.id === 'lower_process_priority' || recipe.id === 'kill_process')) {
           // Single Atomic PowerShell Invocation: Verify PID identity, name, start time, and mutate priority class / kill in a single script on the same process handle $p (Zero TOCTOU window)

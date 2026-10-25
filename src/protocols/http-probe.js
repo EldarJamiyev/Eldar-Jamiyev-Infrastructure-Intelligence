@@ -6,7 +6,7 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { isSafeNetworkTarget } = require('../core/ai-brain');
+const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../core/security');
 
 /**
  * Execute real HTTP/HTTPS synthetic probe with waterfall timing
@@ -14,8 +14,8 @@ const { isSafeNetworkTarget } = require('../core/ai-brain');
  * @param {string} method ('GET', 'HEAD', 'POST')
  * @param {number} timeoutMs 
  */
-function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
-  return new Promise((resolve) => {
+async function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
+  return new Promise(async (resolve) => {
     let parsedUrl;
     try {
       const normalized = targetUrl.startsWith('http://') || targetUrl.startsWith('https://')
@@ -67,6 +67,27 @@ function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
       resolve(result);
     }
 
+    let pinnedIp = parsedUrl.hostname;
+    let addressFamily = 4;
+    try {
+      const val = await resolveAndValidateTarget(parsedUrl.hostname);
+      if (!val.valid) {
+        return finish({
+          success: false,
+          url: targetUrl,
+          error: val.error || 'Target rejected by SSRF defense policy'
+        });
+      }
+      pinnedIp = val.pinnedIp;
+      addressFamily = val.addressFamily || 4;
+    } catch (e) {
+      return finish({
+        success: false,
+        url: targetUrl,
+        error: e.message
+      });
+    }
+
     const options = {
       protocol: parsedUrl.protocol,
       hostname: parsedUrl.hostname,
@@ -74,12 +95,27 @@ function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
       path: parsedUrl.pathname + parsedUrl.search,
       method,
       timeout: timeoutMs,
+      lookup: (hostname, opts, cb) => {
+        if (typeof opts === 'function') {
+          cb = opts;
+          opts = {};
+        }
+        if (opts && opts.all) {
+          return cb(null, [{ address: pinnedIp, family: addressFamily }]);
+        }
+        cb(null, pinnedIp, addressFamily);
+      },
       headers: {
         'User-Agent': 'EJII-Infrastructure-Intelligence/1.0 (+https://ejii.internal)',
-        'Accept': '*/*'
+        'Accept': '*/*',
+        'Host': parsedUrl.host
       },
-      rejectUnauthorized: false // Inspect invalid cert sites as well
+      rejectUnauthorized: false
     };
+
+    if (isHttps) {
+      options.servername = parsedUrl.hostname;
+    }
 
     const req = client.request(options);
 

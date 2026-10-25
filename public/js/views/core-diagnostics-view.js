@@ -610,9 +610,10 @@
   }
 
   function getStatusBadge(status) {
-    if (status === 'HEALTHY') return '<span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">HEALTHY</span>';
+    if (status === 'HEALTHY' || status === 'PASS' || status === 'SUCCESS') return '<span style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">HEALTHY</span>';
     if (status === 'DEGRADED') return '<span style="background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">DEGRADED</span>';
     if (status === 'UNKNOWN') return '<span style="background: rgba(107, 114, 128, 0.15); color: #9CA3AF; border: 1px solid rgba(107, 114, 128, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">UNKNOWN</span>';
+    if (status === 'INITIALIZING') return '<span style="background: rgba(56, 189, 248, 0.15); color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">INITIALIZING</span>';
     if (status === 'COLLECTION_ERROR') return '<span style="background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">COLLECTION ERROR</span>';
     return '<span style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px;">CRITICAL</span>';
   }
@@ -623,32 +624,66 @@
     // 1. Machine X-Ray
     const host = hostAuditData.host || {};
     const p = hostAuditData.pillars || {};
+    const isProvisional = Boolean(hostAuditData.isProvisional);
+    const outcome = hostAuditData.outcome || (isProvisional ? 'PROVISIONAL_WARM_STATE' : 'FULL');
+    const completeness = hostAuditData.telemetryCompleteness || (isProvisional ? 'PROVISIONAL' : 'COMPLETE');
+    const isAuth = hostAuditData.isAuthoritative !== false && !isProvisional;
 
     const hostBadge = document.getElementById('diagHostBadge');
     if (hostBadge) {
+      const provBanner = isProvisional
+        ? `<div style="margin-top: 6px; padding: 3px 8px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 3px; font-size: 9.5px; color: #F59E0B; font-weight: 700;">⚠️ PROVISIONAL SNAPSHOT &bull; RUN DEEP AUDIT FOR REALTIME SAMPLING</div>`
+        : `<div style="margin-top: 6px; padding: 3px 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 3px; font-size: 9.5px; color: #10B981; font-weight: 700;">✓ AUTHORITATIVE SAMPLING &bull; PROVENANCE VERIFIED</div>`;
+
       hostBadge.innerHTML = `
-        <div style="font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 2px;">🖥️ ${host.hostname || 'LOCALHOST'}</div>
-        <div style="font-size: 10px; color: var(--text-muted);">${host.platform || 'win32'} (${host.arch || 'x64'}) &bull; ${host.cpuCores || 4} Cores &bull; ${host.totalRamGB || 16} GB RAM &bull; Uptime ${host.uptimeDays || 1}d</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <div style="font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 2px;">🖥️ ${escapeHtml(host.hostname || 'LOCALHOST')}</div>
+            <div style="font-size: 10px; color: var(--text-muted);">${escapeHtml(host.platform || 'win32')} (${escapeHtml(host.arch || 'x64')}) &bull; ${host.cpuCores || 4} Cores &bull; ${host.totalRamGB || 16} GB RAM &bull; Uptime ${host.uptimeDays || 1}d</div>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 9px; font-family: var(--font-mono); padding: 1px 6px; border-radius: 3px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); color: ${isAuth ? '#10B981' : '#F59E0B'}; font-weight: 700;">${outcome}</span>
+          </div>
+        </div>
+        ${provBanner}
       `;
     }
 
     const netBadge = document.getElementById('badgePillarNet');
-    if (netBadge) netBadge.innerHTML = getStatusBadge(p.network?.status || 'HEALTHY');
+    if (netBadge) netBadge.innerHTML = getStatusBadge(p.network?.status || 'UNKNOWN');
     const storageBadge = document.getElementById('badgePillarStorage');
-    if (storageBadge) storageBadge.innerHTML = getStatusBadge(p.storage?.status || 'HEALTHY');
+    if (storageBadge) storageBadge.innerHTML = getStatusBadge(p.storage?.status || 'UNKNOWN');
     const resBadge = document.getElementById('badgePillarRes');
-    if (resBadge) resBadge.innerHTML = getStatusBadge(p.resource?.status || 'HEALTHY');
+    if (resBadge) resBadge.innerHTML = getStatusBadge(p.resource?.status || 'UNKNOWN');
     const periphBadge = document.getElementById('badgePillarPeriph');
-    if (periphBadge) periphBadge.innerHTML = getStatusBadge(p.peripherals?.status || 'HEALTHY');
+    if (periphBadge) periphBadge.innerHTML = getStatusBadge(p.peripherals?.status || 'UNKNOWN');
 
     // Quick Gauges
     const resDet = p.resource?.details || {};
     const cpuEl = document.getElementById('gaugeCpuLoad');
-    if (cpuEl) cpuEl.textContent = `${resDet.cpuLoadPct || 0}%`;
+    if (cpuEl) {
+      if (isProvisional || resDet.cpuLoadPct === null || resDet.cpuLoadPct === undefined) {
+        cpuEl.textContent = '-- (INITIALIZING)';
+      } else {
+        cpuEl.textContent = `${resDet.cpuLoadPct}%`;
+      }
+    }
     const ramEl = document.getElementById('gaugeRamUsed');
-    if (ramEl) ramEl.textContent = `${resDet.ramUsedPct || 0}% (${resDet.usedRamGB || 0}/${resDet.totalRamGB || 0} GB)`;
+    if (ramEl) {
+      if (isProvisional || resDet.ramUsedPct === null || resDet.ramUsedPct === undefined) {
+        ramEl.textContent = '-- (INITIALIZING)';
+      } else {
+        ramEl.textContent = `${resDet.ramUsedPct}% (${resDet.usedRamGB || 0}/${resDet.totalRamGB || 0} GB)`;
+      }
+    }
     const qEl = document.getElementById('gaugeDiskQueue');
-    if (qEl) qEl.textContent = `${resDet.diskQueueLength || 0}`;
+    if (qEl) {
+      if (isProvisional || resDet.diskQueueLength === null || resDet.diskQueueLength === undefined) {
+        qEl.textContent = '-- (INITIALIZING)';
+      } else {
+        qEl.textContent = `${resDet.diskQueueLength}`;
+      }
+    }
 
     const trendBox = document.getElementById('gaugeTrendAnalysis');
     const trendBadge = document.getElementById('gaugeTrendBadge');

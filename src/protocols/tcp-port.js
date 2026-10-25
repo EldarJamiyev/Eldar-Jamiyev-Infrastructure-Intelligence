@@ -41,7 +41,36 @@ const COMMON_PORTS = [
  * @param {number} timeoutMs 
  * @returns {Promise<Object>}
  */
-function checkPort(host, port, timeoutMs = 2500) {
+const { resolveAndValidateTarget } = require('../core/security');
+
+async function checkPort(host, port, timeoutMs = 2500) {
+  let pinnedIp = host;
+  try {
+    const val = await resolveAndValidateTarget(host);
+    if (!val.valid) {
+      return {
+        host,
+        port,
+        status: 'SECURITY_BLOCKED',
+        open: false,
+        connectLatencyMs: 0,
+        banner: null,
+        error: val.error || 'Target rejected by SSRF defense policy'
+      };
+    }
+    pinnedIp = val.pinnedIp;
+  } catch (err) {
+    return {
+      host,
+      port,
+      status: 'SECURITY_BLOCKED',
+      open: false,
+      connectLatencyMs: 0,
+      banner: null,
+      error: err.message
+    };
+  }
+
   return new Promise((resolve) => {
     const startTime = performance.now();
     const socket = new net.Socket();
@@ -130,7 +159,7 @@ function checkPort(host, port, timeoutMs = 2500) {
     });
 
     try {
-      socket.connect(port, host);
+      socket.connect(port, pinnedIp);
     } catch (err) {
       finish({
         host,

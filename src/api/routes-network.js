@@ -34,6 +34,22 @@ const { isSafeNetworkTarget } = require('../core/ai-brain');
  */
 router.get('/physical-info', (req, res) => {
   try {
+    let isAuthenticated = false;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const { verifyToken } = require('../core/security');
+      const decoded = verifyToken(authHeader.slice(7).trim());
+      if (decoded) isAuthenticated = true;
+    } else if (req.cookies && req.cookies.eji_session) {
+      const { verifyToken } = require('../core/security');
+      if (verifyToken(req.cookies.eji_session)) isAuthenticated = true;
+    }
+    
+    if (!isAuthenticated) {
+      // Unauthenticated caller: return minimal status without exposing adapter, gateway, or subnet internals (F-44)
+      return res.json({ status: 'ONLINE', authenticated: false });
+    }
+
     const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
     const info = getPhysicalNetworkInfo();
     res.json(info);
@@ -738,8 +754,10 @@ router.post('/port-scan', async (req, res) => {
   try {
     const { host, ports, concurrency = 10, timeoutMs = 2000 } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
-    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
-    const result = await scanPorts(host, ports, concurrency, timeoutMs);
+    const { resolveAndValidateTarget } = require('../core/security');
+    const validated = await resolveAndValidateTarget(host);
+    if (!validated.valid) return res.status(400).json({ error: validated.error || 'Target rejected by SSRF defense policy' });
+    const result = await scanPorts(validated.pinnedIp || host, ports, concurrency, timeoutMs);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: 'Port scan failed: ' + err.message });
@@ -750,8 +768,10 @@ router.post('/tls-audit', async (req, res) => {
   try {
     const { host, port = 443, timeoutMs = 4000 } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
-    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
-    const result = await auditTls(host, port, timeoutMs);
+    const { resolveAndValidateTarget } = require('../core/security');
+    const validated = await resolveAndValidateTarget(host);
+    if (!validated.valid) return res.status(400).json({ error: validated.error || 'Target rejected by SSRF defense policy' });
+    const result = await auditTls(validated.pinnedIp || host, port, timeoutMs, validated.hostname || host);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: 'TLS audit failed: ' + err.message });
@@ -762,12 +782,15 @@ router.post('/snmp', async (req, res) => {
   try {
     const { host, community = 'public', port = 161, mode = 'system', rootOid = null } = req.body;
     if (!host) return res.status(400).json({ error: 'host is required.' });
-    if (!isSafeNetworkTarget(host)) return res.status(400).json({ error: 'Target rejected by SSRF defense policy' });
+    const { resolveAndValidateTarget } = require('../core/security');
+    const validated = await resolveAndValidateTarget(host);
+    if (!validated.valid) return res.status(400).json({ error: validated.error || 'Target rejected by SSRF defense policy' });
+    const targetIp = validated.pinnedIp || host;
     let result;
     if (mode === 'walk') {
-      result = await walkOid(host, rootOid || STANDARD_OIDS.ifDescr, community, port);
+      result = await walkOid(targetIp, rootOid || STANDARD_OIDS.ifDescr, community, port);
     } else {
-      result = await getSystemInfo(host, community, port);
+      result = await getSystemInfo(targetIp, community, port);
     }
     res.json(result);
   } catch (err) {
