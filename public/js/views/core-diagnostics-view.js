@@ -662,24 +662,30 @@
     const resDet = p.resource?.details || {};
     const cpuEl = document.getElementById('gaugeCpuLoad');
     if (cpuEl) {
-      if (isProvisional || resDet.cpuLoadPct === null || resDet.cpuLoadPct === undefined) {
-        cpuEl.textContent = '-- (INITIALIZING)';
+      if (isProvisional) {
+        cpuEl.textContent = 'WARMUP / PROVISIONAL';
+      } else if (resDet.cpuLoadPct === null || resDet.cpuLoadPct === undefined) {
+        cpuEl.textContent = 'N/A (Unobserved)';
       } else {
         cpuEl.textContent = `${resDet.cpuLoadPct}%`;
       }
     }
     const ramEl = document.getElementById('gaugeRamUsed');
     if (ramEl) {
-      if (isProvisional || resDet.ramUsedPct === null || resDet.ramUsedPct === undefined) {
-        ramEl.textContent = '-- (INITIALIZING)';
+      if (isProvisional) {
+        ramEl.textContent = 'WARMUP / PROVISIONAL';
+      } else if (resDet.ramUsedPct === null || resDet.ramUsedPct === undefined) {
+        ramEl.textContent = 'N/A (Unobserved)';
       } else {
         ramEl.textContent = `${resDet.ramUsedPct}% (${resDet.usedRamGB || 0}/${resDet.totalRamGB || 0} GB)`;
       }
     }
     const qEl = document.getElementById('gaugeDiskQueue');
     if (qEl) {
-      if (isProvisional || resDet.diskQueueLength === null || resDet.diskQueueLength === undefined) {
-        qEl.textContent = '-- (INITIALIZING)';
+      if (isProvisional) {
+        qEl.textContent = 'WARMUP / PROVISIONAL';
+      } else if (resDet.diskQueueLength === null || resDet.diskQueueLength === undefined) {
+        qEl.textContent = 'N/A (Unobserved)';
       } else {
         qEl.textContent = `${resDet.diskQueueLength}`;
       }

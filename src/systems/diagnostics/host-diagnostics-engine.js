@@ -98,6 +98,8 @@ class HostDiagnosticsEngine {
 
     const resource = {
       status: 'UNKNOWN',
+      cpuLoadPct: null,
+      ramUsedPct: null,
       summary: `Resource telemetry initializing: RAM ${memPct}% observed via os.freemem.`,
       details: {
         cpuModel: cpus[0]?.model ? cpus[0].model.trim() : 'Unknown CPU',
@@ -142,6 +144,26 @@ class HostDiagnosticsEngine {
       }
     };
 
+    const osKernel = {
+      status: 'UNKNOWN',
+      summary: 'OS and Kernel telemetry initializing.',
+      details: {
+        kernelVersion: os.release(),
+        uptimeSeconds: os.uptime(),
+        bootTime: null
+      },
+      anomalies: [],
+      recipes: [],
+      metadata: {
+        collectedAt: new Date(now).toISOString(),
+        durationMs: 0,
+        collector: 'native.kernel (Provisional)',
+        success: false,
+        outcome: 'PROVISIONAL_WARM_STATE',
+        isAuthoritative: false
+      }
+    };
+
     return {
       host: {
         hostname: os.hostname(),
@@ -157,17 +179,23 @@ class HostDiagnosticsEngine {
         cpuLoadPct: null
       },
       overallStatus: 'INITIALIZING',
+      conditionStatus: 'UNKNOWN',
+      telemetryCompletenessStatus: 'PROVISIONAL_WARM_STATE',
+      evidenceCompletenessRatio: 0.0,
       compositeHealth: {
         worstCondition: 'UNKNOWN',
         telemetryCompleteness: 'PROVISIONAL_WARM_STATE'
       },
       isProvisional: true,
+      isAuthoritative: false,
       durationMs: 0,
       pillars: {
         network,
         storage,
         resource,
-        peripherals
+        resources: resource,
+        peripherals,
+        osKernel
       },
       anomalies: [],
       stagedRecipes: [],

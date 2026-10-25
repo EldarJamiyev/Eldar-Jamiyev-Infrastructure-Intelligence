@@ -537,6 +537,10 @@ class RAGKnowledgeEngine {
     results.sort((a, b) => b.relevanceScore - a.relevanceScore);
     return results.slice(0, topK);
   }
+
+  queryKnowledge(queryText, options = {}) {
+    return this.retrieveRelevantContext(queryText, options);
+  }
 }
 
 const ragKnowledgeEngine = new RAGKnowledgeEngine();

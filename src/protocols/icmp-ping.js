@@ -5,6 +5,7 @@
 
 const { exec } = require('child_process');
 const { IS_WINDOWS } = require('../config');
+const { isSafeNetworkTarget } = require('../core/security');
 
 /**
  * Perform a real ICMP ping against a target host
@@ -15,6 +16,16 @@ const { IS_WINDOWS } = require('../config');
  */
 function realPing(host, count = 4, timeoutMs = 2000) {
   return new Promise((resolve) => {
+    if (!host || typeof host !== 'string' || !isSafeNetworkTarget(host)) {
+      return resolve({
+        success: false,
+        host: host || '',
+        error: 'Target rejected by SSRF defense policy or invalid format',
+        raw: '',
+        status: 'SECURITY_BLOCKED'
+      });
+    }
+
     // Sanitize host input to prevent command injection
     const sanitizedHost = host.trim().replace(/[^a-zA-Z0-9.-]/g, '');
     if (!sanitizedHost) {

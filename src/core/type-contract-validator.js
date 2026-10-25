@@ -20,8 +20,8 @@ const VALID_SCORE_SEMANTICS = Object.freeze([
   'FORMAL_VERIFICATION'
 ]);
 
-const VALID_EVIDENCE_CLASSES = Object.freeze(['Observed', 'OS', 'Management', 'Inferred', 'Configured', 'Unknown']);
-const VALID_COLLECTION_OUTCOMES = Object.freeze([
+const VALID_EVIDENCE_CLASSES = new Set(['Observed', 'OS', 'Management', 'Inferred', 'Configured', 'Unknown']);
+const VALID_COLLECTION_OUTCOMES = new Set([
   'SUCCESS',
   'PARTIAL',
   'TIMEOUT',
@@ -30,20 +30,20 @@ const VALID_COLLECTION_OUTCOMES = Object.freeze([
   'COLLECTION_ERROR',
   'PROVISIONAL_WARM_STATE'
 ]);
-const VALID_HYPOTHESIS_STATUSES = Object.freeze([
+const VALID_HYPOTHESIS_STATUSES = new Set([
   'SUPPORTED',
   'CONTRADICTED',
   'INSUFFICIENT_EVIDENCE',
   'PLAUSIBLE_UNVERIFIED'
 ]);
-const VALID_INVOCATION_DECISIONS = Object.freeze([
+const VALID_INVOCATION_DECISIONS = new Set([
   'INVOKED',
   'BYPASSED_HIGH_EVIDENCE_CONFIDENCE',
   'BLOCKED_PRIVACY_POLICY',
   'PROVIDER_UNAVAILABLE',
   'DETERMINISTIC_CONFIG_DEFAULT'
 ]);
-const VALID_PROVIDER_IDS = Object.freeze(['OLLAMA', 'OPENAI', 'ANTHROPIC', 'NONE']);
+const VALID_PROVIDER_IDS = new Set(['OLLAMA', 'OPENAI', 'ANTHROPIC', 'NONE']);
 
 class TypeContractValidator {
   /**
@@ -230,29 +230,39 @@ class TypeContractValidator {
   }
 
   /**
+   * Validate EvidenceRecord strictly
+   * @param {object} record
+   * @returns {{ valid: boolean, errors: string[] }}
+   */
+  static validateEvidenceRecordStrict(record) {
+    const errors = [];
+    if (!record || typeof record !== 'object') {
+      return { valid: false, errors: ['RECORD_NOT_OBJECT'] };
+    }
+    if (!record.evidenceId || typeof record.evidenceId !== 'string') errors.push('INVALID_EVIDENCE_ID');
+    if (!VALID_EVIDENCE_CLASSES.has(record.evidenceClass)) errors.push(`INVALID_EVIDENCE_CLASS:${record.evidenceClass}`);
+    if (!VALID_COLLECTION_OUTCOMES.has(record.outcome)) errors.push(`INVALID_OUTCOME:${record.outcome}`);
+    if (record.outcome !== 'SUCCESS' && record.outcome !== 'PARTIAL' && record.value !== null) {
+      errors.push('NON_NULL_VALUE_ON_FAILED_COLLECTION');
+    }
+    if (record.outcome === 'PROVISIONAL_WARM_STATE' && record.isAuthoritative === true) {
+      errors.push('PROVISIONAL_WARM_STATE_CANNOT_BE_AUTHORITATIVE');
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  /**
    * Validate EvidenceRecord (Section 2.1)
    * @param {object} record
-   * @returns {{ valid: boolean, error?: string }}
+   * @returns {{ valid: boolean, error?: string, errors?: string[] }}
    */
   static validateEvidenceRecord(record) {
-    if (!record || typeof record !== 'object') {
-      return { valid: false, error: 'EvidenceRecord must be a non-null object' };
-    }
-    if (typeof record.evidenceId !== 'string' || !record.evidenceId) {
-      return { valid: false, error: 'Missing or empty evidenceId' };
+    const strict = TypeContractValidator.validateEvidenceRecordStrict(record);
+    if (!strict.valid) {
+      return { valid: false, error: strict.errors[0], errors: strict.errors };
     }
     if (typeof record.metricKey !== 'string' || !record.metricKey) {
       return { valid: false, error: 'Missing or empty metricKey' };
-    }
-    if (!VALID_COLLECTION_OUTCOMES.includes(record.outcome)) {
-      return { valid: false, error: `Invalid collection outcome: ${record.outcome}` };
-    }
-    // Strict Contract Rule: value must be null when outcome !== 'SUCCESS'
-    if (record.outcome !== 'SUCCESS' && record.value !== null) {
-      return { valid: false, error: `Value must be null when outcome is ${record.outcome}` };
-    }
-    if (!VALID_EVIDENCE_CLASSES.includes(record.evidenceClass)) {
-      return { valid: false, error: `Invalid evidenceClass: ${record.evidenceClass}` };
     }
     if (typeof record.collectorId !== 'string' || !record.collectorId) {
       return { valid: false, error: 'Missing or empty collectorId' };
@@ -279,44 +289,38 @@ class TypeContractValidator {
    * Create an authoritative or provisional EvidenceRecord conforming strictly to Section 2.1
    */
   static createEvidenceRecord(params = {}) {
-    const outcome = VALID_COLLECTION_OUTCOMES.includes(params.outcome) ? params.outcome : 'SUCCESS';
-    const evidenceClass = VALID_EVIDENCE_CLASSES.includes(params.evidenceClass) ? params.evidenceClass : 'Observed';
-    const nowIso = params.timestampIso || new Date().toISOString();
-    const nowMs = Date.now();
-    const timeMs = new Date(nowIso).getTime();
-    const freshnessMs = typeof params.freshnessMs === 'number' ? params.freshnessMs : Math.max(0, nowMs - (isNaN(timeMs) ? nowMs : timeMs));
-    
-    // Strict value enforcement: null when outcome !== 'SUCCESS'
-    const value = outcome === 'SUCCESS' ? (params.value !== undefined ? params.value : null) : null;
+    const outcome = VALID_COLLECTION_OUTCOMES.has(params.outcome) ? params.outcome : 'COLLECTION_ERROR';
+    const isProvisional = outcome === 'PROVISIONAL_WARM_STATE' || Boolean(params.isProvisional);
+    const isAuthoritative = outcome === 'SUCCESS' && !isProvisional && params.isAuthoritative !== false;
+    const value = (outcome === 'SUCCESS' || outcome === 'PARTIAL') && !isProvisional ? (params.value ?? null) : null;
 
-    const record = {
-      evidenceId: params.evidenceId || ('ev_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36)),
-      metricKey: params.metricKey || 'unknown.metric',
+    return Object.freeze({
+      evidenceId: String(params.evidenceId || `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+      metricKey: String(params.metricKey || 'unknown_metric'),
       value,
-      unit: params.unit || undefined,
-      evidenceClass,
-      collectorId: params.collectorId || 'core:generic-collector',
-      collectionMethod: params.collectionMethod || 'runtime:direct',
-      timestampIso: nowIso,
-      freshnessMs,
-      targetIdentity: params.targetIdentity && typeof params.targetIdentity === 'object'
-        ? {
-            host: params.targetIdentity.host,
-            pinnedIp: params.targetIdentity.pinnedIp || null,
-            pid: params.targetIdentity.pid || null,
-            processName: params.targetIdentity.processName || null,
-            interfaceId: params.targetIdentity.interfaceId || null
-          }
-        : { host: undefined, pinnedIp: null, pid: null, processName: null, interfaceId: null },
+      unit: params.unit ? String(params.unit) : null,
+      evidenceClass: VALID_EVIDENCE_CLASSES.has(params.evidenceClass) ? params.evidenceClass : 'Unknown',
+      collectorId: String(params.collectorId || 'unspecified_collector'),
+      collectionMethod: String(params.collectionMethod || 'unspecified_method'),
+      timestampIso: params.timestampIso || new Date().toISOString(),
+      freshnessMs: Number.isFinite(params.freshnessMs) ? Math.max(0, params.freshnessMs) : 0,
+      targetIdentity: {
+        host: params.targetIdentity?.host ?? null,
+        pinnedIp: params.targetIdentity?.pinnedIp ?? null,
+        pid: Number.isInteger(params.targetIdentity?.pid) ? params.targetIdentity.pid : null,
+        processName: params.targetIdentity?.processName ?? null,
+        interfaceId: params.targetIdentity?.interfaceId ?? null
+      },
       outcome,
-      errorDetails: params.errorDetails || null,
-      measurementUncertainty: typeof params.measurementUncertainty === 'number' ? params.measurementUncertainty : null,
-      isAuthoritative: typeof params.isAuthoritative === 'boolean' ? params.isAuthoritative : (outcome === 'SUCCESS' && evidenceClass !== 'Inferred' && evidenceClass !== 'Unknown'),
-      supportsHypotheses: Array.isArray(params.supportsHypotheses) ? params.supportsHypotheses : [],
-      contradictsHypotheses: Array.isArray(params.contradictsHypotheses) ? params.contradictsHypotheses : []
-    };
-
-    return record;
+      errorDetails: params.errorDetails ? String(params.errorDetails) : null,
+      measurementUncertainty: Number.isFinite(params.measurementUncertainty)
+        ? Math.min(1, Math.max(0, params.measurementUncertainty))
+        : null,
+      isProvisional,
+      isAuthoritative,
+      supportsHypotheses: Array.isArray(params.supportsHypotheses) ? [...params.supportsHypotheses] : [],
+      contradictsHypotheses: Array.isArray(params.contradictsHypotheses) ? [...params.contradictsHypotheses] : []
+    });
   }
 
   /**
@@ -329,14 +333,14 @@ class TypeContractValidator {
     if (typeof hypo.hypothesisId !== 'string' || !hypo.hypothesisId) {
       return { valid: false, error: 'Missing or empty hypothesisId' };
     }
-    if (typeof hypo.title !== 'string' || !hypo.title) {
-      return { valid: false, error: 'Missing or empty title' };
-    }
-    if (!VALID_HYPOTHESIS_STATUSES.includes(hypo.status)) {
+    if (!VALID_HYPOTHESIS_STATUSES.has(hypo.status)) {
       return { valid: false, error: `Invalid status: ${hypo.status}` };
     }
     if (typeof hypo.priorProbability !== 'number') {
       return { valid: false, error: 'priorProbability must be a number' };
+    }
+    if (hypo.status === 'CONTRADICTED' && hypo.rawLikelihood !== 0.0 && hypo.rawLikelihood !== null && hypo.rawLikelihood !== undefined) {
+      return { valid: false, error: 'Contradicted hypothesis must have rawLikelihood exactly 0.0' };
     }
     if (typeof hypo.normalizedPosterior !== 'number') {
       return { valid: false, error: 'normalizedPosterior must be a number' };
@@ -344,23 +348,43 @@ class TypeContractValidator {
     if (hypo.status === 'CONTRADICTED' && hypo.normalizedPosterior !== 0) {
       return { valid: false, error: 'Contradicted hypothesis must have normalizedPosterior exactly 0' };
     }
+    if (hypo.normalizedSharePct !== undefined) {
+      if (!Number.isInteger(hypo.normalizedSharePct) || hypo.normalizedSharePct < 0 || hypo.normalizedSharePct > 100) {
+        return { valid: false, error: 'normalizedSharePct must be an integer between 0 and 100' };
+      }
+      if (hypo.status === 'CONTRADICTED' && hypo.normalizedSharePct !== 0) {
+        return { valid: false, error: 'Contradicted hypothesis must have normalizedSharePct exactly 0' };
+      }
+    }
+    if (hypo.calibratedConfidence !== null && hypo.calibratedConfidence !== undefined && typeof hypo.calibratedConfidence !== 'number') {
+      return { valid: false, error: 'calibratedConfidence must be a number or null' };
+    }
     if (!['EMPIRICALLY_CALIBRATED', 'RULE_HEURISTIC', 'INSUFFICIENT_DATA'].includes(hypo.confidenceType)) {
       return { valid: false, error: `Invalid confidenceType: ${hypo.confidenceType}` };
+    }
+    if (hypo.symbolicProofTrace && !Array.isArray(hypo.symbolicProofTrace)) {
+      return { valid: false, error: 'symbolicProofTrace must be an array' };
+    }
+    if (hypo.supportingEvidenceIds && !Array.isArray(hypo.supportingEvidenceIds)) {
+      return { valid: false, error: 'supportingEvidenceIds must be an array' };
+    }
+    if (hypo.contradictingEvidenceIds && !Array.isArray(hypo.contradictingEvidenceIds)) {
+      return { valid: false, error: 'contradictingEvidenceIds must be an array' };
     }
     return { valid: true };
   }
 
   /**
-   * Validate ModelOrchestrationResult (Section 2.3)
+   * Validate Orchestration Envelope / ModelOrchestrationResult (Section 2.3)
    */
-  static validateModelOrchestrationResult(res) {
+  static validateOrchestrationEnvelope(res) {
     if (!res || typeof res !== 'object') {
-      return { valid: false, error: 'ModelOrchestrationResult must be a non-null object' };
+      return { valid: false, error: 'OrchestrationEnvelope must be a non-null object' };
     }
-    if (!VALID_INVOCATION_DECISIONS.includes(res.invocationDecision)) {
+    if (!VALID_INVOCATION_DECISIONS.has(res.invocationDecision)) {
       return { valid: false, error: `Invalid invocationDecision: ${res.invocationDecision}` };
     }
-    if (!VALID_PROVIDER_IDS.includes(res.providerId)) {
+    if (!VALID_PROVIDER_IDS.has(res.providerId)) {
       return { valid: false, error: `Invalid providerId: ${res.providerId}` };
     }
     if (!res.privacyGate || typeof res.privacyGate !== 'object') {
@@ -372,7 +396,17 @@ class TypeContractValidator {
     if (!res.inferenceState || typeof res.inferenceState !== 'object') {
       return { valid: false, error: 'Missing inferenceState object' };
     }
+    // liveResponse must be false whenever transportState.connected === false or httpStatus !== 200
+    if (res.transportState.connected === false || (res.transportState.httpStatus && res.transportState.httpStatus !== 200)) {
+      if (res.inferenceState.liveResponse === true) {
+        return { valid: false, error: 'liveResponse must be false whenever transportState.connected is false or httpStatus !== 200' };
+      }
+    }
     return { valid: true };
+  }
+
+  static validateModelOrchestrationResult(res) {
+    return TypeContractValidator.validateOrchestrationEnvelope(res);
   }
 }
 
@@ -388,12 +422,20 @@ function createEvidenceRecord(params = {}) {
   return TypeContractValidator.createEvidenceRecord(params);
 }
 
+function validateEvidenceRecordStrict(record) {
+  return TypeContractValidator.validateEvidenceRecordStrict(record);
+}
+
 function validateEvidenceRecord(record) {
   return TypeContractValidator.validateEvidenceRecord(record);
 }
 
 function validateHypothesisEvaluation(hypo) {
   return TypeContractValidator.validateHypothesisEvaluation(hypo);
+}
+
+function validateOrchestrationEnvelope(res) {
+  return TypeContractValidator.validateOrchestrationEnvelope(res);
 }
 
 function validateModelOrchestrationResult(res) {
@@ -413,7 +455,9 @@ module.exports = {
   attachEpistemicEnvelope,
   classifyTemporalLiveness,
   createEvidenceRecord,
+  validateEvidenceRecordStrict,
   validateEvidenceRecord,
   validateHypothesisEvaluation,
+  validateOrchestrationEnvelope,
   validateModelOrchestrationResult
 };

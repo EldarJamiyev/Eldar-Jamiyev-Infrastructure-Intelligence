@@ -274,23 +274,166 @@ function getRoleCapabilities(role) {
 }
 
 
+const IPV4_RESTRICTED_CIDRS = [
+  { name: 'THIS_NETWORK', base: 0x00000000, mask: 0xFF000000, category: 'RESERVED' },       // 0.0.0.0/8
+  { name: 'LOOPBACK', base: 0x7F000000, mask: 0xFF000000, category: 'LOOPBACK' },           // 127.0.0.0/8
+  { name: 'RFC1918_10', base: 0x0A000000, mask: 0xFF000000, category: 'PRIVATE' },          // 10.0.0.0/8
+  { name: 'RFC1918_172', base: 0xAC100000, mask: 0xFFF00000, category: 'PRIVATE' },         // 172.16.0.0/12
+  { name: 'RFC1918_192', base: 0xC0A80000, mask: 0xFFFF0000, category: 'PRIVATE' },         // 192.168.0.0/16
+  { name: 'LINK_LOCAL_APIPA', base: 0xA9FE0000, mask: 0xFFFF0000, category: 'LINK_LOCAL' }, // 169.254.0.0/16
+  { name: 'CLOUD_METADATA', base: 0xA9FEA9FE, mask: 0xFFFFFFFF, category: 'METADATA' },     // 169.254.169.254/32
+  { name: 'CGNAT', base: 0x64400000, mask: 0xFFC00000, category: 'SHARED_CGNAT' },          // 100.64.0.0/10
+  { name: 'MULTICAST', base: 0xE0000000, mask: 0xF0000000, category: 'MULTICAST' },         // 224.0.0.0/4
+  { name: 'BROADCAST', base: 0xFFFFFFFF, mask: 0xFFFFFFFF, category: 'BROADCAST' }          // 255.255.255.255/32
+];
+
+/**
+ * Parses standard, octal, hex, or integer-encoded IPv4 strings into an unsigned 32-bit integer.
+ * Returns null if the input is not an IPv4 representation.
+ */
+function parseAnyIPv4EncodingToUint32(rawHost) {
+  if (typeof rawHost !== 'string') return null;
+  const trimmed = rawHost.trim();
+  if (!trimmed) return null;
+
+  // Pure single integer (e.g., "2130706433") or single hex (e.g., "0x7f000001")
+  if (/^(0x[0-9a-fA-F]+|\d+)$/.test(trimmed)) {
+    const val = trimmed.startsWith('0x') || trimmed.startsWith('0X')
+      ? Number.parseInt(trimmed, 16)
+      : Number.parseInt(trimmed, 10);
+    if (Number.isInteger(val) && val >= 0 && val <= 0xFFFFFFFF) {
+      return val >>> 0;
+    }
+    return null;
+  }
+
+  const parts = trimmed.split('.');
+  if (parts.length < 2 || parts.length > 4) return null;
+
+  const parsedParts = [];
+  for (const part of parts) {
+    if (!/^(0x[0-9a-fA-F]+|0[0-7]+|\d+)$/.test(part)) return null;
+    let num;
+    if (part.startsWith('0x') || part.startsWith('0X')) {
+      num = Number.parseInt(part, 16);
+    } else if (part.length > 1 && part.startsWith('0')) {
+      num = Number.parseInt(part, 8);
+    } else {
+      num = Number.parseInt(part, 10);
+    }
+    if (!Number.isInteger(num) || num < 0) return null;
+    parsedParts.push(num);
+  }
+
+  if (parsedParts.length === 4) {
+    if (parsedParts.some((p) => p > 255)) return null;
+    return (((parsedParts[0] << 24) | (parsedParts[1] << 16) | (parsedParts[2] << 8) | parsedParts[3]) >>> 0);
+  }
+  if (parsedParts.length === 3) {
+    if (parsedParts[0] > 255 || parsedParts[1] > 255 || parsedParts[2] > 0xFFFF) return null;
+    return (((parsedParts[0] << 24) | (parsedParts[1] << 16) | parsedParts[2]) >>> 0);
+  }
+  if (parsedParts.length === 2) {
+    if (parsedParts[0] > 255 || parsedParts[1] > 0xFFFFFF) return null;
+    return (((parsedParts[0] << 24) | parsedParts[1]) >>> 0);
+  }
+  return null;
+}
+
+function uint32ToCanonicalIPv4(uint32) {
+  return [
+    (uint32 >>> 24) & 0xFF,
+    (uint32 >>> 16) & 0xFF,
+    (uint32 >>> 8) & 0xFF,
+    uint32 & 0xFF
+  ].join('.');
+}
+
+function classifyIPv4Uint32(uint32, policy = {}) {
+  // Cloud metadata is unconditionally blocked regardless of allowPrivate/allowLoopback
+  if ((uint32 >>> 0) === 0xA9FEA9FE || (uint32 >>> 0) === 0x646464C8) {
+    return { allowed: false, reason: 'CLOUD_METADATA_PROHIBITED', range: 'CLOUD_METADATA' };
+  }
+  for (const cidr of IPV4_RESTRICTED_CIDRS) {
+    if (((uint32 & cidr.mask) >>> 0) === (cidr.base >>> 0)) {
+      if (cidr.category === 'LOOPBACK' && policy.allowLoopback !== false) continue;
+      if (cidr.category === 'PRIVATE' && policy.allowPrivate !== false) continue;
+      if (cidr.category === 'LINK_LOCAL' && policy.allowLinkLocal === true) continue;
+      return { allowed: false, reason: `RESTRICTED_RANGE_${cidr.name}`, range: cidr.name };
+    }
+  }
+  return { allowed: true, reason: null, range: 'PUBLIC_UNICAST' };
+}
+
+function classifyIPv6Address(ipv6Str, policy = {}) {
+  const normalized = ipv6Str.trim().toLowerCase().replace(/%.+$/, ''); // Strip zone index
+  if (normalized === '::' || normalized === '0:0:0:0:0:0:0:0') {
+    return { allowed: false, reason: 'IPV6_UNSPECIFIED_PROHIBITED' };
+  }
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
+    return policy.allowLoopback !== false
+      ? { allowed: true, reason: null, range: 'IPV6_LOOPBACK' }
+      : { allowed: false, reason: 'IPV6_LOOPBACK_PROHIBITED' };
+  }
+  if (normalized.startsWith('fd00:ec2:') || normalized.startsWith('fe80::169.254.169.254') || normalized.includes('169.254.169.254')) {
+    return { allowed: false, reason: 'IPV6_CLOUD_METADATA_PROHIBITED' };
+  }
+  // Extract embedded IPv4 from ::ffff:a.b.c.d or ::ffff:xxxx:yyyy
+  if (normalized.startsWith('::ffff:')) {
+    const tail = normalized.slice(7);
+    const v4Int = parseAnyIPv4EncodingToUint32(tail);
+    if (v4Int !== null) {
+      return classifyIPv4Uint32(v4Int, policy);
+    }
+    const hexMatch = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMatch) {
+      const hi = Number.parseInt(hexMatch[1], 16);
+      const lo = Number.parseInt(hexMatch[2], 16);
+      const mappedUint32 = (((hi << 16) | lo) >>> 0);
+      return classifyIPv4Uint32(mappedUint32, policy);
+    }
+  }
+  if (normalized.startsWith('fe80:') && policy.allowLinkLocal !== true) {
+    return { allowed: false, reason: 'IPV6_LINK_LOCAL_PROHIBITED' };
+  }
+  if ((normalized.startsWith('fc') || normalized.startsWith('fd')) && policy.allowPrivate === false) {
+    return { allowed: false, reason: 'IPV6_ULA_PRIVATE_PROHIBITED' };
+  }
+  if (normalized.startsWith('ff')) {
+    return { allowed: false, reason: 'IPV6_MULTICAST_PROHIBITED' };
+  }
+  return { allowed: true, reason: null, range: 'IPV6_UNICAST' };
+}
+
+/**
+ * Creates a custom DNS lookup callback bound to a pre-validated IP and address family.
+ * Conforms strictly to Node.js v24 lookup options contracts (both opts.all = true and false).
+ */
+function createPinnedLookup(pinnedIp, addressFamily = 4) {
+  const family = Number(addressFamily) === 6 ? 6 : 4;
+  return function pinnedLookup(hostname, options, callback) {
+    let cb = callback;
+    let opts = options;
+    if (typeof opts === 'function') {
+      cb = opts;
+      opts = {};
+    }
+    if (typeof cb !== 'function') return;
+
+    if (opts && opts.all === true) {
+      return process.nextTick(() => cb(null, [{ address: pinnedIp, family }]));
+    }
+    return process.nextTick(() => cb(null, pinnedIp, family));
+  };
+}
+
 /**
  * Helper to validate an IPv4 32-bit unsigned integer against SSRF / non-routable ranges.
  * Preserves RFC 1918 (10/8, 172.16/12, 192.168/16) and Loopback (127/8) for NOC diagnostics.
  */
 function isAllowedIPv4Int(ipInt) {
-  const unsigned = ipInt >>> 0;
-  const b1 = (unsigned >>> 24) & 0xff;
-  const b2 = (unsigned >>> 16) & 0xff;
-
-  // Block 0.0.0.0/8 ("this" network)
-  if (b1 === 0) return false;
-  // Block 169.254.0.0/16 (RFC 3927 Link-Local & Cloud Metadata 169.254.169.254)
-  if (b1 === 169 && b2 === 254) return false;
-  // Block 224.0.0.0/4 (Multicast) and 240.0.0.0/4 (Reserved / Broadcast 255.255.255.255)
-  if (b1 >= 224) return false;
-
-  return true;
+  const classification = classifyIPv4Uint32(ipInt, { allowLoopback: true, allowPrivate: true });
+  return classification.allowed;
 }
 
 /**
@@ -319,7 +462,7 @@ function parseStrictIPv4ToInt(ipv4Str) {
  * and IPv4-mapped/compatible IPv6 addresses.
  * Strictly preserves RFC 1918 private subnets and loopback (127.0.0.1, ::1).
  */
-function isSafeNetworkTarget(rawTarget) {
+function isSafeNetworkTarget(rawTarget, policy = {}) {
   if (typeof rawTarget !== 'string') return false;
   const trimmed = rawTarget.trim();
   if (trimmed.length === 0 || trimmed.length > 253) return false;
@@ -335,8 +478,13 @@ function isSafeNetworkTarget(rawTarget) {
 
   const lower = unbracketed.toLowerCase();
 
-  // 2. Block pure integer / dword IPs (e.g. 2852039166) and hex literals (e.g. 0xa9fea9fe)
-  if (/^\d+$/.test(lower) || /^0x[0-9a-f]+$/i.test(lower)) return false;
+  // 2. Check for multi-encoding IPv4 (octal, hex, dword, shortened)
+  const v4Int = parseAnyIPv4EncodingToUint32(unbracketed);
+  if (v4Int !== null) {
+    // If input was octal, hex, or pure integer, verify it doesn't try to evade standard dot-decimal checks
+    const classification = classifyIPv4Uint32(v4Int, policy);
+    return classification.allowed;
+  }
 
   // 3. Block cloud metadata hostnames
   const blockedHostnames = new Set([
@@ -351,52 +499,13 @@ function isSafeNetworkTarget(rawTarget) {
     return false;
   }
 
-  // 4. If it looks like a dotted-quad (all segments numeric/hex/octal), validate strictly as IPv4
-  if (/^[0-9a-fx.]+$/i.test(lower) && lower.includes('.')) {
-    const ipInt = parseStrictIPv4ToInt(lower);
-    if (ipInt === null) return false;
-    return isAllowedIPv4Int(ipInt);
+  // 4. Check IPv6 addresses (including IPv4-mapped and IPv4-compatible IPv6)
+  if (unbracketed.includes(':') || net.isIPv6(unbracketed)) {
+    const classification = classifyIPv6Address(unbracketed, policy);
+    return classification.allowed;
   }
 
-  // 5. Check IPv6 addresses (including IPv4-mapped and IPv4-compatible IPv6)
-  const ipVersion = net.isIP(unbracketed);
-  if (ipVersion === 4) {
-    const ipInt = parseStrictIPv4ToInt(unbracketed);
-    return ipInt !== null && isAllowedIPv4Int(ipInt);
-  }
-
-  if (ipVersion === 6) {
-    // Allow IPv6 loopback ::1
-    if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true;
-    // Block unspecified ::
-    if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return false;
-    // Block AWS IPv6 IMDS (fd00:ec2::254)
-    if (lower.startsWith('fd00:ec2:') || lower === 'fd00:ec2::254') return false;
-    // Block IPv6 link-local (fe80::/10 -> fe80..febf) and multicast (ff00::/8)
-    if (/^fe[89ab][0-9a-f]:/.test(lower) || lower.startsWith('fe80:') || lower.startsWith('ff')) return false;
-
-    // Extract embedded IPv4 from ::ffff:w.x.y.z or ::w.x.y.z
-    const lastColonIdx = lower.lastIndexOf(':');
-    const tail = lower.slice(lastColonIdx + 1);
-    if (tail.includes('.')) {
-      const embeddedInt = parseStrictIPv4ToInt(tail);
-      if (embeddedInt === null || !isAllowedIPv4Int(embeddedInt)) return false;
-    }
-
-    // Extract hex-encoded IPv4 from ::ffff:a9fe:a9fe or 0:0:0:0:0:ffff:a9fe:a9fe
-    const hexMappedMatch = lower.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hexMappedMatch) {
-      const high16 = parseInt(hexMappedMatch[1], 16);
-      const low16 = parseInt(hexMappedMatch[2], 16);
-      const mappedInt = (((high16 << 16) | low16) >>> 0);
-      if (!isAllowedIPv4Int(mappedInt)) return false;
-    }
-
-    return true;
-  }
-
-  // 6. Validate as strict RFC-1123 hostname
-  if (unbracketed.includes(':')) return false;
+  // 5. Validate as strict RFC-1123 hostname
   const labels = lower.split('.');
   for (const label of labels) {
     if (!label || label.length > 63) return false;
@@ -411,9 +520,9 @@ function isSafeNetworkTarget(rawTarget) {
 /**
  * Centralized Target Resolver, Validator & DNS IP-Pinning (F-05).
  * Resolves a target hostname or IP, verifies all resolved IPs against SSRF policy,
- * and returns { valid, hostname, safeTarget, pinnedIp, addressFamily, resolvedIps, isIpLiteral, error }.
+ * and returns { valid, hostname, safeTarget, pinnedIp, addressFamily, resolvedIps, isIpLiteral, lookup, error }.
  */
-async function resolveAndValidateTarget(rawTarget) {
+async function resolveAndValidateTarget(rawTarget, policy = {}) {
   if (typeof rawTarget !== 'string' || !rawTarget.trim()) {
     return {
       valid: false,
@@ -423,6 +532,7 @@ async function resolveAndValidateTarget(rawTarget) {
       addressFamily: null,
       resolvedIps: [],
       isIpLiteral: false,
+      lookup: null,
       error: 'TARGET_REQUIRED: Target host or IP address is empty.'
     };
   }
@@ -430,7 +540,7 @@ async function resolveAndValidateTarget(rawTarget) {
   const clean = rawTarget.trim().replace(/^https?:\/\//i, '').split('/')[0];
   const unbracketed = clean.replace(/^\[|\]$/g, '');
 
-  if (!isSafeNetworkTarget(unbracketed)) {
+  if (!isSafeNetworkTarget(unbracketed, policy)) {
     return {
       valid: false,
       hostname: clean,
@@ -439,7 +549,24 @@ async function resolveAndValidateTarget(rawTarget) {
       addressFamily: null,
       resolvedIps: [],
       isIpLiteral: false,
+      lookup: null,
       error: `SECURITY_VIOLATION: Target "${clean}" rejected by SSRF defense policy.`
+    };
+  }
+
+  const v4Int = parseAnyIPv4EncodingToUint32(unbracketed);
+  if (v4Int !== null) {
+    const canonical = uint32ToCanonicalIPv4(v4Int);
+    return {
+      valid: true,
+      hostname: unbracketed,
+      safeTarget: canonical,
+      pinnedIp: canonical,
+      addressFamily: 4,
+      resolvedIps: [canonical],
+      isIpLiteral: true,
+      lookup: createPinnedLookup(canonical, 4),
+      error: null
     };
   }
 
@@ -453,6 +580,7 @@ async function resolveAndValidateTarget(rawTarget) {
       addressFamily: ipVersion,
       resolvedIps: [unbracketed],
       isIpLiteral: true,
+      lookup: createPinnedLookup(unbracketed, ipVersion),
       error: null
     };
   }
@@ -493,13 +621,14 @@ async function resolveAndValidateTarget(rawTarget) {
       addressFamily: null,
       resolvedIps: [],
       isIpLiteral: false,
+      lookup: null,
       error: 'DNS_RESOLUTION_FAILED: Hostname does not resolve to any IPv4 or IPv6 address.'
     };
   }
 
   // Check every resolved address against SSRF policy (DNS Rebinding defense)
   for (const ip of resolvedIps) {
-    if (!isSafeNetworkTarget(ip)) {
+    if (!isSafeNetworkTarget(ip, policy)) {
       return {
         valid: false,
         hostname: unbracketed,
@@ -508,6 +637,7 @@ async function resolveAndValidateTarget(rawTarget) {
         addressFamily: null,
         resolvedIps,
         isIpLiteral: false,
+        lookup: null,
         error: `SECURITY_VIOLATION: Hostname "${unbracketed}" resolved to forbidden address "${ip}" (DNS Rebinding SSRF blocked).`
       };
     }
@@ -525,6 +655,7 @@ async function resolveAndValidateTarget(rawTarget) {
     addressFamily: family,
     resolvedIps,
     isIpLiteral: false,
+    lookup: createPinnedLookup(preferredIp, family),
     error: null
   };
 }
@@ -546,5 +677,11 @@ module.exports = {
   isSafeNetworkTarget,
   isAllowedIPv4Int,
   parseStrictIPv4ToInt,
-  resolveAndValidateTarget
+  resolveAndValidateTarget,
+  IPV4_RESTRICTED_CIDRS,
+  parseAnyIPv4EncodingToUint32,
+  uint32ToCanonicalIPv4,
+  classifyIPv4Uint32,
+  classifyIPv6Address,
+  createPinnedLookup
 };

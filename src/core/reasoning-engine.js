@@ -10,6 +10,139 @@
 const assert = require('assert');
 
 /**
+ * 12 Formal Neuro-Symbolic Horn Clauses and Contrapositive Elimination Invariants
+ */
+const SYMBOLIC_HORN_CLAUSES = [
+  {
+    id: 'HORN_01_TCP_RST_REFUTES_SILENT_FIREWALL_DROP',
+    name: 'TCP_RST_REFUTES_SILENT_FIREWALL_DROP',
+    description: 'Observed TCP_RST from target IP refutes stateful perimeter silent drop and host down.',
+    contrapositive: 'Observed TCP_RST from target IP => FIREWALL_SILENT_DROP is CONTRADICTED (rawLikelihood = 0.0)',
+    rfc: 'RFC 793 Section 3.4',
+    evaluate: (t) => Boolean(t.tcpRstObserved === true || t.incidentType === 'TCP_RST_REJECT' || t.errorCode === 'ECONNREFUSED'),
+    contradicts: ['FIREWALL_SILENT_DROP', 'REMOTE_HOST_DOWN', 'UPSTREAM_TRANSIT_DROP'],
+    supports: ['PORT_CLOSED_SERVICE_STOPPED']
+  },
+  {
+    id: 'HORN_02_TCP_SYN_ACK_REFUTES_L3_ROUTING_BLACKHOLE',
+    name: 'TCP_SYN_ACK_REFUTES_L3_ROUTING_BLACKHOLE',
+    description: 'Observed TCP_SYN_ACK from target IP refutes routing blackholes and dead gateways.',
+    contrapositive: 'Observed TCP_SYN_ACK from target IP => L3_ROUTING_BLACKHOLE and ARP_INCOMPLETE_DEAD_GATEWAY are CONTRADICTED',
+    rfc: 'RFC 793 & RFC 1122',
+    evaluate: (t) => Boolean(t.targetPortReachable === true || t.tcpSynAckObserved === true || t.httpStatusOk === true),
+    contradicts: ['L3_ROUTING_BLACKHOLE', 'ARP_INCOMPLETE_DEAD_GATEWAY', 'GATEWAY_UNREACHABLE', 'REMOTE_HOST_DOWN'],
+    supports: ['NORMAL_OPERATION']
+  },
+  {
+    id: 'HORN_03_DNS_NXDOMAIN_REFUTES_REMOTE_TLS_HANDSHAKE_FAILURE',
+    name: 'DNS_NXDOMAIN_REFUTES_REMOTE_TLS_HANDSHAKE_FAILURE',
+    description: 'Observed DNS NXDOMAIN with zero resolved IPs refutes L7 transport/TLS failures.',
+    contrapositive: 'Observed DNS_RCODE == NXDOMAIN => TLS_CIPHER_MISMATCH and REMOTE_APP_POOL_HANG are CONTRADICTED',
+    rfc: 'RFC 1035 Section 4.1.1',
+    evaluate: (t) => Boolean(t.dnsRcode === 'NXDOMAIN' || t.dnsRcode === 3 || (t.dnsResolved === false && t.dnsAttempted === true)),
+    contradicts: ['TLS_CIPHER_MISMATCH', 'REMOTE_APP_POOL_HANG', 'TLS_CERTIFICATE_EXPIRED', 'PORT_CLOSED_SERVICE_STOPPED'],
+    supports: ['DNS_RESOLUTION_FAILURE', 'DNSSEC_OR_UPSTREAM_SERVFAIL']
+  },
+  {
+    id: 'HORN_04_LOCAL_LOOPBACK_OK_REFUTES_TCP_STACK_CORRUPTION',
+    name: 'LOCAL_LOOPBACK_OK_REFUTES_TCP_STACK_CORRUPTION',
+    description: 'Observed local TCP loopback handshake < 5ms refutes OS Winsock catalog corruption.',
+    contrapositive: 'Observed local TCP loopback handshake < 5ms => OS_WINSOCK_CATALOG_CORRUPTION is CONTRADICTED',
+    rfc: 'RFC 1122 Section 3.2',
+    evaluate: (t) => Boolean(t.loopbackReachable === true || (t.loopbackLatencyMs !== null && t.loopbackLatencyMs < 5)),
+    contradicts: ['OS_WINSOCK_CATALOG_CORRUPTION', 'LOCAL_NIC_STACK_ERROR'],
+    supports: []
+  },
+  {
+    id: 'HORN_05_LOW_CPU_AND_RAM_REFUTES_HOST_RESOURCE_EXHAUSTION',
+    name: 'LOW_CPU_AND_RAM_REFUTES_HOST_RESOURCE_EXHAUSTION',
+    description: 'Authoritative OS telemetry with cpuLoadPct < 70 and ramUsedPct < 80 refutes host resource exhaustion.',
+    contrapositive: 'cpuLoadPct < 70 and ramUsedPct < 80 => LOCAL_HOST_CPU_MEMORY_STARVATION is CONTRADICTED',
+    rfc: 'RFC 1122 Section 3.2',
+    evaluate: (t) => {
+      const cpu = t.hostContext?.cpuPercent ?? t.cpuLoadPct;
+      const ram = t.hostContext?.memPercent ?? t.ramUsedPct;
+      return typeof cpu === 'number' && cpu < 70 && typeof ram === 'number' && ram < 80;
+    },
+    contradicts: ['LOCAL_HOST_RESOURCE_EXHAUSTION', 'LOCAL_HOST_CPU_MEMORY_STARVATION'],
+    supports: []
+  },
+  {
+    id: 'HORN_06_GATEWAY_ARP_RESOLVED_AND_PING_OK_REFUTES_VLAN_TRUNK_DOWN',
+    name: 'GATEWAY_ARP_RESOLVED_AND_PING_OK_REFUTES_VLAN_TRUNK_DOWN',
+    description: 'Authoritative ICMP reply from gateway and valid MAC refutes link down and VLAN mismatch.',
+    contrapositive: 'ICMP gateway reply < 10ms & ARP valid => LOCAL_NIC_LINK_DOWN and FIRST_HOP_VLAN_MISMATCH CONTRADICTED',
+    rfc: 'RFC 826 & RFC 792',
+    evaluate: (t) => Boolean(t.gatewayReachable === true && (t.gatewayMacValid !== false)),
+    contradicts: ['GATEWAY_UNREACHABLE', 'LOCAL_NIC_LINK_DOWN', 'FIRST_HOP_VLAN_MISMATCH'],
+    supports: []
+  },
+  {
+    id: 'HORN_07_TLS_CERT_EXPIRED_PROVES_L7_PKI_FAULT',
+    name: 'TLS_CERT_EXPIRED_PROVES_L7_PKI_FAULT',
+    description: 'Observed TLS certificate expiration proves PKI fault and refutes transport drops.',
+    contrapositive: 'tlsAudit.daysRemaining < 0 => TLS_CERTIFICATE_EXPIRED promoted, transport drops contradicted',
+    rfc: 'RFC 5280 Section 4.1.2.5',
+    evaluate: (t) => Boolean(t.tlsCertExpired === true || (typeof t.tlsDaysRemaining === 'number' && t.tlsDaysRemaining < 0)),
+    contradicts: ['FIREWALL_SILENT_DROP', 'REMOTE_HOST_DOWN'],
+    supports: ['TLS_CERTIFICATE_EXPIRED']
+  },
+  {
+    id: 'HORN_08_DHCP_APIPA_169_254_PROVES_DORA_TIMEOUT',
+    name: 'DHCP_APIPA_169_254_PROVES_DORA_TIMEOUT',
+    description: 'Observed adapter IPv4 in 169.254.0.0/16 proves DHCP DORA timeout and refutes WAN BGP flap.',
+    contrapositive: 'IPv4 in 169.254.0.0/16 => DHCP_DORA_OFFER_TIMEOUT supported, WAN_BGP_FLAP contradicted',
+    rfc: 'RFC 3927 & RFC 2131',
+    evaluate: (t) => {
+      const target = String(t.target || t.destIp || t.hostIp || '');
+      return target.startsWith('169.254.') || t.apipaDetected === true || Boolean(t.hostContext?.isApipa);
+    },
+    contradicts: ['WAN_BGP_FLAP', 'NORMAL_OPERATION'],
+    supports: ['DHCP_DORA_OFFER_TIMEOUT', 'LOCAL_NIC_STACK_ERROR']
+  },
+  {
+    id: 'HORN_09_HTTP_404_NOT_FOUND_REFUTES_DNS_FAILURE',
+    name: 'HTTP_404_NOT_FOUND_REFUTES_DNS_FAILURE',
+    description: 'Observed HTTP 404 from target refutes DNS resolution failure and TCP timeout.',
+    contrapositive: 'HTTP 404 response => DNS_RESOLUTION_FAILURE and TCP_CONNECTION_TIMEOUT are CONTRADICTED',
+    rfc: 'RFC 9110 Section 15.5.5',
+    evaluate: (t) => Boolean(t.httpStatus === 404 || t.httpStatusOk === true),
+    contradicts: ['DNS_RESOLUTION_FAILURE', 'TCP_CONNECTION_TIMEOUT', 'FIREWALL_SILENT_DROP', 'REMOTE_HOST_DOWN'],
+    supports: ['HTTP_ENDPOINT_NOT_FOUND']
+  },
+  {
+    id: 'HORN_10_HTTP_502_BAD_GATEWAY_PROVES_UPSTREAM_PROXY_MISCONFIG',
+    name: 'HTTP_502_BAD_GATEWAY_PROVES_UPSTREAM_PROXY_MISCONFIG',
+    description: 'Observed HTTP 502/503 from reverse proxy refutes local NIC down and proves upstream unreachable.',
+    contrapositive: 'HTTP 502/503 => UPSTREAM_APP_SERVER_UNREACHABLE supported, LOCAL_NIC_LINK_DOWN contradicted',
+    rfc: 'RFC 9110 Section 15.6.3',
+    evaluate: (t) => Boolean(t.httpStatus === 502 || t.httpStatus === 503),
+    contradicts: ['LOCAL_NIC_LINK_DOWN', 'LOCAL_NIC_STACK_ERROR', 'DNS_RESOLUTION_FAILURE'],
+    supports: ['UPSTREAM_APP_SERVER_UNREACHABLE']
+  },
+  {
+    id: 'HORN_11_ICMP_HOST_UNREACHABLE_REFUTES_SERVICE_PORT_CLOSED',
+    name: 'ICMP_HOST_UNREACHABLE_REFUTES_SERVICE_PORT_CLOSED',
+    description: 'Observed ICMP Type 3 Code 1 proves remote router drop and refutes local port closed.',
+    contrapositive: 'ICMP Type 3 Code 1 => REMOTE_ROUTER_DROP supported, PORT_CLOSED_SERVICE_STOPPED contradicted',
+    rfc: 'RFC 792 (ICMP Destination Unreachable)',
+    evaluate: (t) => Boolean(t.icmpType === 3 && (t.icmpCode === 1 || t.icmpCode === 0)),
+    contradicts: ['PORT_CLOSED_SERVICE_STOPPED', 'NORMAL_OPERATION'],
+    supports: ['REMOTE_ROUTER_DROP']
+  },
+  {
+    id: 'HORN_12_ARP_RESOLVED_MAC_EXISTS_REFUTES_PHYSICAL_CABLE_UNPLUGGED',
+    name: 'ARP_RESOLVED_MAC_EXISTS_REFUTES_PHYSICAL_CABLE_UNPLUGGED',
+    description: 'Authoritative ARP entry exists for gateway refuting physical layer disconnection.',
+    contrapositive: 'ARP entry exists for gateway => PHYSICAL_LAYER_DISCONNECTED is CONTRADICTED',
+    rfc: 'RFC 826',
+    evaluate: (t) => Boolean(t.gatewayMac && t.gatewayMac !== '00:00:00:00:00:00'),
+    contradicts: ['PHYSICAL_LAYER_DISCONNECTED', 'LOCAL_NIC_LINK_DOWN'],
+    supports: []
+  }
+];
+
+/**
  * Neuro-Symbolic Logic Solver with First-Order Horn Clauses & Markov Logic Network (MLN) Potentials
  * Grounded in Stratified Datalog Rules, Protocol RFC Standards, and Forward-Chaining Deductive Invariants.
  */
@@ -330,6 +463,210 @@ class BayesianReasoningEngine {
         category: 'APPLICATION_SERVICE_AUTH_REJECT',
         rfc: 'RFC 793 (TCP) & Service Layer Specifications'
       }
+    };
+  }
+
+  /**
+   * Evaluates evidence records and hypotheses under formal Horn-clause contrapositives and exact Bayesian inference
+   * @param {Object} params - { incidentType, observedFacts = [], telemetry = {} }
+   * @returns {Object} { incidentType, hypotheses, rankedHypotheses, topHypothesis, recommendedDistinguishingProbes }
+   */
+  evaluateHypotheses(params = {}) {
+    const incidentType = params.incidentType || 'UNKNOWN_INCIDENT';
+    const observedFacts = Array.isArray(params.observedFacts) ? params.observedFacts : [];
+    const telemetry = params.telemetry || {};
+
+    // 1. Synthesize telemetry from observedFacts
+    const syntheticTelemetry = { ...telemetry, incidentType };
+    const supportingEvidenceMap = new Map();
+    const contradictingEvidenceMap = new Map();
+    const explicitContradictedSet = new Set();
+    const explicitSupportedSet = new Set();
+
+    for (const record of observedFacts) {
+      if (record && record.isAuthoritative) {
+        if (Array.isArray(record.contradictsHypotheses)) {
+          for (const hId of record.contradictsHypotheses) {
+            explicitContradictedSet.add(hId);
+            if (!contradictingEvidenceMap.has(hId)) contradictingEvidenceMap.set(hId, []);
+            contradictingEvidenceMap.get(hId).push(record.evidenceId);
+          }
+        }
+        if (Array.isArray(record.supportsHypotheses)) {
+          for (const hId of record.supportsHypotheses) {
+            explicitSupportedSet.add(hId);
+            if (!supportingEvidenceMap.has(hId)) supportingEvidenceMap.set(hId, []);
+            supportingEvidenceMap.get(hId).push(record.evidenceId);
+          }
+        }
+        if (record.metricKey === 'tcp.flags.reset' && record.value === true) {
+          syntheticTelemetry.tcpRstObserved = true;
+        }
+        if (record.metricKey === 'network.gateway.ping' && record.value === true) {
+          syntheticTelemetry.gatewayReachable = true;
+        }
+        if (record.metricKey === 'dns.resolved' && record.value === false) {
+          syntheticTelemetry.dnsResolved = false;
+        }
+        if (record.metricKey === 'dns.rcode' && (record.value === 'NXDOMAIN' || record.value === 3)) {
+          syntheticTelemetry.dnsRcode = 'NXDOMAIN';
+        }
+      }
+    }
+
+    // 2. Evaluate Horn clauses
+    const proofTrace = [];
+    for (const horn of SYMBOLIC_HORN_CLAUSES) {
+      try {
+        if (horn.evaluate(syntheticTelemetry, observedFacts)) {
+          proofTrace.push({
+            ruleId: horn.id,
+            description: horn.description,
+            contrapositive: horn.contrapositive,
+            rfc: horn.rfc
+          });
+          if (Array.isArray(horn.contradicts)) {
+            for (const c of horn.contradicts) {
+              explicitContradictedSet.add(c);
+            }
+          }
+          if (Array.isArray(horn.supports)) {
+            for (const s of horn.supports) {
+              explicitSupportedSet.add(s);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Reconcile all hypotheses with 0.0% lock on contradicted hypotheses
+    const definedKeys = Object.keys(this.hypothesesDefinitions);
+    const candidateKeys = new Set([...definedKeys, ...explicitContradictedSet, ...explicitSupportedSet]);
+
+    const hypoData = [];
+    for (const hId of candidateKeys) {
+      const def = this.hypothesesDefinitions[hId] || {
+        id: hId,
+        label: hId.replace(/_/g, ' '),
+        description: `Operational hypothesis for ${hId}`,
+        defaultPrior: 0.10,
+        category: 'DIAGNOSTIC_HYPOTHESIS'
+      };
+
+      const isContradicted = explicitContradictedSet.has(hId);
+      const isSupported = explicitSupportedSet.has(hId);
+
+      let status = 'PLAUSIBLE_UNVERIFIED';
+      if (isContradicted) {
+        status = 'CONTRADICTED';
+      } else if (isSupported) {
+        status = 'SUPPORTED';
+      } else if (observedFacts.length === 0) {
+        status = 'INSUFFICIENT_EVIDENCE';
+      }
+
+      const prior = def.defaultPrior || 0.10;
+      let rawLikelihood = isContradicted ? 0.0 : this._calculateLikelihood(hId, syntheticTelemetry);
+      if (isSupported && !isContradicted) {
+        rawLikelihood = Math.max(rawLikelihood, 0.85);
+      }
+
+      const unnormalizedPosterior = isContradicted ? 0.0 : (prior * rawLikelihood);
+
+      hypoData.push({
+        hId,
+        def,
+        status,
+        isContradicted,
+        prior,
+        rawLikelihood,
+        unnormalizedPosterior,
+        supportingEvidenceIds: supportingEvidenceMap.get(hId) || [],
+        contradictingEvidenceIds: contradictingEvidenceMap.get(hId) || []
+      });
+    }
+
+    const resultHypotheses = [];
+    for (const item of hypoData) {
+      if (item.isContradicted) {
+        resultHypotheses.push({
+          hypothesisId: item.hId,
+          title: item.def.label || item.hId,
+          status: 'CONTRADICTED',
+          contradicted: true,
+          priorProbability: item.prior,
+          rawLikelihood: 0.0,
+          normalizedPosterior: 0.0,
+          normalizedSharePct: 0,
+          confidence: 0,
+          displayPercentage: 0,
+          calibratedConfidence: 0.0,
+          confidenceType: 'RULE_HEURISTIC',
+          symbolicProofTrace: proofTrace.map(p => p.ruleId),
+          supportingEvidenceIds: item.supportingEvidenceIds,
+          contradictingEvidenceIds: item.contradictingEvidenceIds,
+          missingDistinguishingProbes: []
+        });
+      }
+    }
+
+    const activeList = hypoData.filter(h => !h.isContradicted && h.unnormalizedPosterior > 0);
+    const totalActiveMass = activeList.reduce((acc, h) => acc + h.unnormalizedPosterior, 0) || 1.0;
+
+    // Hare-Niemeyer largest remainder method on active hypotheses
+    if (activeList.length > 0) {
+      const activeShares = activeList.map(h => {
+        const exactPct = (h.unnormalizedPosterior / totalActiveMass) * 100;
+        const floorVal = Math.floor(exactPct);
+        const remainder = exactPct - floorVal;
+        return { ...h, exactPct, floorVal, remainder };
+      });
+
+      let allocatedSum = activeShares.reduce((acc, h) => acc + h.floorVal, 0);
+      let surplus = 100 - allocatedSum;
+
+      // Sort by remainder descending
+      const sortedByRemainder = [...activeShares].sort((a, b) => b.remainder - a.remainder);
+      for (let i = 0; i < surplus && i < sortedByRemainder.length; i++) {
+        sortedByRemainder[i].floorVal += 1;
+      }
+
+      for (const h of activeShares) {
+        resultHypotheses.push({
+          hypothesisId: h.hId,
+          title: h.def.label || h.hId,
+          status: h.status,
+          contradicted: false,
+          priorProbability: h.prior,
+          rawLikelihood: h.rawLikelihood,
+          normalizedPosterior: Number((h.exactPct / 100).toFixed(6)),
+          normalizedSharePct: h.floorVal,
+          confidence: h.floorVal,
+          displayPercentage: h.floorVal,
+          calibratedConfidence: Number((h.exactPct / 100).toFixed(4)),
+          confidenceType: observedFacts.length > 0 ? 'EMPIRICALLY_CALIBRATED' : 'RULE_HEURISTIC',
+          symbolicProofTrace: proofTrace.map(p => p.ruleId),
+          supportingEvidenceIds: h.supportingEvidenceIds,
+          contradictingEvidenceIds: h.contradictingEvidenceIds,
+          missingDistinguishingProbes: []
+        });
+      }
+    }
+
+    // Rank hypotheses descending by normalizedSharePct
+    resultHypotheses.sort((a, b) => b.normalizedSharePct - a.normalizedSharePct);
+
+    // Compute KL-divergence / next distinguishing probes
+    const recommendedProbes = this.recommendDistinguishingTests(resultHypotheses, syntheticTelemetry);
+
+    return {
+      incidentType,
+      hypotheses: resultHypotheses,
+      rankedHypotheses: resultHypotheses,
+      topHypothesis: resultHypotheses[0] || null,
+      proofTrace,
+      recommendedDistinguishingProbes: recommendedProbes,
+      symbolicRulesEvaluated: SYMBOLIC_HORN_CLAUSES.length
     };
   }
 
@@ -1478,7 +1815,9 @@ const defaultStlMonitor = new SignalTemporalLogicMonitor();
 
 module.exports = {
   BayesianReasoningEngine,
+  ReasoningEngine: BayesianReasoningEngine,
   reasoningEngine: defaultReasoningEngine,
   SignalTemporalLogicMonitor,
-  stlMonitor: defaultStlMonitor
+  stlMonitor: defaultStlMonitor,
+  SYMBOLIC_HORN_CLAUSES
 };

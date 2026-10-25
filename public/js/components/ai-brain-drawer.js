@@ -158,7 +158,10 @@
               Engine: <strong style="color: #38BDF8;">Continuous Bayesian (100.0%)</strong>
             </div>
             <div class="ai-brain-meta-item" style="border-left: 1px solid rgba(255,255,255,0.1); padding-left: 8px;">
-              Provider: <strong style="color: #10B981;">Ollama (DeepSeek-R1 / Qwen 2.5)</strong>
+              Mode: <strong style="color: ${state.orchestratorState?.liveResponse ? '#10B981' : '#F59E0B'};">${state.orchestratorState?.liveResponse ? 'LIVE NEURAL INFERENCE' : 'DETERMINISTIC FALLBACK — LOCAL MODEL OFFLINE / BYPASSED'}</strong>
+            </div>
+            <div class="ai-brain-meta-item">
+              Provider: <strong style="color: #38BDF8;">${escapeHtml(state.orchestratorState?.providerId || 'OLLAMA (Local-First)')}</strong>
             </div>
             <div class="ai-brain-meta-item">
               Privacy: <strong style="color: #A855F7;">Local-Only / Air-Gapped</strong>

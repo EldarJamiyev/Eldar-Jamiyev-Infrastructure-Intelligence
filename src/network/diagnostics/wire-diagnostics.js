@@ -11,6 +11,7 @@ const dns = require('dns').promises;
 const crypto = require('crypto');
 const { db } = require('../../db/database');
 const { realPing } = require('../../protocols/icmp-ping');
+const { isSafeNetworkTarget } = require('../../core/security');
 
 class WireDiagnostics {
   constructor() {
@@ -129,6 +130,9 @@ class WireDiagnostics {
 
   _quickSocketCheck(host, port, timeoutMs) {
     return new Promise((resolve) => {
+      if (!host || !isSafeNetworkTarget(host)) {
+        return resolve(false);
+      }
       const socket = new net.Socket();
       socket.setTimeout(timeoutMs);
 

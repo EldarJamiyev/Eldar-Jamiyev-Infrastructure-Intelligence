@@ -454,6 +454,7 @@ export interface EvidenceRecord<T = unknown> {
   outcome: CollectionOutcome;
   errorDetails?: string | null;
   measurementUncertainty?: number | null; // [0.0, 1.0]
+  isProvisional?: boolean;
   isAuthoritative: boolean; // False for warm snapshots, defaults, or unverified inputs
   supportsHypotheses: string[];
   contradictsHypotheses: string[];
@@ -468,13 +469,16 @@ export interface HypothesisEvaluation {
   priorProbability: number; // Explicit domain prior; never silently fabricated
   rawLikelihood: number | null; // 0.0 is preserved strictly for contradicted hypotheses
   normalizedPosterior: number; // Mathematical Bayes posterior in [0.0, 1.0]
+  normalizedSharePct?: number; // Integer [0, 100]
   displayPercentage: number; // Hare-Niemeyer integer formatting only; explicitly labeled as normalized share
   calibratedConfidence: number | null; // Empirically calibrated probability or null if uncalibrated heuristic
   confidenceType: 'EMPIRICALLY_CALIBRATED' | 'RULE_HEURISTIC' | 'INSUFFICIENT_DATA';
   supportingEvidenceIds: string[];
   contradictingEvidenceIds: string[];
-  missingDistinguishingEvidence: string[]; // Next measurements required to disambiguate
-  symbolicViolations: string[]; // Explicit Horn-clause / constraint violations
+  missingDistinguishingEvidence?: string[]; // Next measurements required to disambiguate
+  missingDistinguishingProbes?: string[];
+  symbolicViolations?: string[]; // Explicit Horn-clause / constraint violations
+  symbolicProofTrace?: string[];
 }
 
 export interface ModelOrchestrationResult {
@@ -501,5 +505,7 @@ export interface ModelOrchestrationResult {
   };
   outputPayload: Record<string, unknown> | null;
 }
+
+export type OrchestrationEnvelope = ModelOrchestrationResult;
 
 

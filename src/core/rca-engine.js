@@ -610,19 +610,24 @@ class DiagnosticReasoningEngine {
     const defaultVariables = ['cpuPercent', 'diskQueue', 'rttMs', 'retransCount', 'packetLossPct', 'dnsLatencyMs'];
     const d = defaultVariables.length;
 
-    const nSamples = Array.isArray(telemetrySeries) ? telemetrySeries.length : 0;
+    const authoritativeSamples = (telemetrySeries || []).filter(s => s && s.isAuthoritative !== false && s.outcome !== 'FAILED' && !s.isProvisional);
+    const nSamples = authoritativeSamples.length;
     // F-84: Enforce N >= 30 authoritative empirical sample size (Zero Simulation Mandate)
     if (nSamples < 30) {
       return {
         variables: defaultVariables,
         sampleSize: nSamples,
+        sampleCount: nSamples,
         minimumRequired: 30,
+        minimumRequiredSamples: 30,
         sufficientData: false,
-        status: 'INSUFFICIENT_SAMPLE_SIZE_FOR_CAUSAL_DISCOVERY',
+        status: 'INSUFFICIENT_SAMPLES',
         adjacencyMatrix: Array.from({ length: d }, () => Array(d).fill(0)),
         acyclicityTraceMetric: 0,
         isDag: true,
         directedEdges: [],
+        edges: [],
+        causalEdges: [],
         rootCauseCandidate: 'AWAITING_TELEMETRY',
         outDegreeScores: defaultVariables.map(v => ({ variable: v, score: 0 })),
         discoveryAlgorithm: 'PC-Skeleton + NOTEARS Trace Acyclicity (Zheng et al.)',
@@ -630,7 +635,7 @@ class DiagnosticReasoningEngine {
       };
     }
 
-    const series = telemetrySeries;
+    const series = authoritativeSamples;
     const dataMatrix = defaultVariables.map(v => {
       const vals = series.map(s => {
         const val = Number(s[v] ?? s.telemetry?.[v] ?? s.hostContext?.[v] ?? 0);
@@ -726,6 +731,8 @@ class DiagnosticReasoningEngine {
       acyclicityTraceMetric: Number(acyclicityTraceMetric.toFixed(6)),
       isDag,
       directedEdges: edges,
+      causalEdges: edges,
+      edges,
       rootCauseCandidate,
       outDegreeScores,
       discoveryAlgorithm: 'PC-Skeleton + NOTEARS Trace Acyclicity (Zheng et al.)',
@@ -1145,6 +1152,7 @@ function resolveIncident(incidentId, userId, username, resolutionNotes = '') {
 
 module.exports = {
   DiagnosticReasoningEngine,
+  RCAEngine: DiagnosticReasoningEngine,
   diagnosticReasoningEngine: defaultReasoningEngine,
   getDependencyTopology,
   correlateAndReportIncident,

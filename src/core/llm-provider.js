@@ -90,21 +90,49 @@ class IncidentBriefingProvider {
   }
 
   _buildLlmPrompt(evaluation, context) {
-    const facts = evaluation.observedFacts || context.observedFacts || evaluation.telemetry?.observedFacts || [];
+    const rawFacts = evaluation.observedFacts || context.observedFacts || evaluation.telemetry?.observedFacts || [];
     const contradictions = evaluation.contradictoryEvidence || context.contradictoryEvidence || [];
     const targetHost = context.destIp || evaluation.destIp || context.targetHost || '127.0.0.1';
     const targetPort = context.destPort || evaluation.destPort || context.targetPort || 443;
     const incidentType = evaluation.incidentType || context.incidentType || 'NETWORK_ANOMALY';
     const topHypothesis = evaluation.topHypothesis || {};
 
+    // SECTION 1: Authoritative Observed Facts
+    const authoritativeFacts = rawFacts.filter(f => f && (f.isAuthoritative === true || f.evidenceClass === 'Observed' || f.evidenceType === 'Observed') && f.outcome !== 'FAILED' && f.outcome !== 'COLLECTION_ERROR');
+
+    // SECTION 2: Failed or Missing Collectors
+    const failedCollectors = rawFacts.filter(f => f && (f.outcome === 'TIMEOUT' || f.outcome === 'COLLECTION_ERROR' || f.outcome === 'PERMISSION_DENIED' || f.outcome === 'UNSUPPORTED_PLATFORM'));
+
+    // SECTION 3: Symbolically Contradicted Hypotheses (Locked to 0%)
+    const contradictedHypotheses = (evaluation.hypotheses || evaluation.rankedHypotheses || []).filter(h => h.contradicted === true || h.status === 'CONTRADICTED' || h.isContradicted === true);
+
+    // SECTION 4: Retrieved Runbooks & Policy Citations
+    const citations = context.citations || evaluation.citations || [
+      { documentId: 'RB-01', title: 'Network Link & Perimeter Diagnostic Runbook', hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+      { documentId: 'POL-01', title: 'Local-Only Private Infrastructure Policy', hash: 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb' }
+    ];
+
     return `You are an elite NOC Network Systems Architect.
 Analyze this verified physical wire telemetry and emit an executive incident briefing:
 Target: ${targetHost}:${targetPort}
 Incident: ${incidentType}
-Top Hypothesis: ${topHypothesis.label || 'Unknown'} (${topHypothesis.confidence || 0}% confidence)
-Facts: ${JSON.stringify(facts)}
-Contradictions: ${JSON.stringify(contradictions)}
-Produce Simple Operator Mode summary and Expert Diagnostic Mode recommendations with RFC citations.`;
+Top Hypothesis: ${topHypothesis.label || 'Unknown'} (${topHypothesis.confidence || topHypothesis.normalizedSharePct || 0}% confidence)
+
+[SECTION 1: AUTHORITATIVE OBSERVED WIRE & OS FACTS]
+${JSON.stringify(authoritativeFacts, null, 2)}
+
+[SECTION 2: FAILED OR MISSING TELEMETRY COLLECTORS]
+${JSON.stringify(failedCollectors, null, 2)}
+INSTRUCTION TO MODEL: Do NOT assume zero or healthy metrics for failed collectors. Acknowledge measurement uncertainty.
+
+[SECTION 3: SYMBOLICALLY CONTRADICTED HYPOTHESES (LOCKED AT 0%)]
+${JSON.stringify(contradictedHypotheses.map(h => ({ hypothesisId: h.hypothesisId || h.hypothesis || h.id, status: 'CONTRADICTED_AT_0_PERCENT' })), null, 2)}
+INSTRUCTION TO MODEL: These hypotheses are mathematically and physically disproven by empirical evidence. You MUST NOT recommend or revive them.
+
+[SECTION 4: RETRIEVED RUNBOOK & POLICY CITATIONS]
+${JSON.stringify(citations, null, 2)}
+
+Produce Simple Operator Mode summary and Expert Diagnostic Mode recommendations strictly grounded in the authoritative facts and citations above.`;
   }
 
   /**

@@ -213,6 +213,46 @@ async function generateOptimizedBrainConfig({
   };
 }
 
+/**
+ * Computes multi-class Brier score for probabilistic calibration verification
+ */
+function computeMultiClassBrierScore(predictions, actualOutcomeHypothesisId) {
+  if (!Array.isArray(predictions) || predictions.length === 0) return null;
+  let sumSq = 0;
+  for (const pred of predictions) {
+    const p = Math.min(1, Math.max(0, (pred.normalizedSharePct ?? pred.confidence ?? pred.probability ?? 0) / 100));
+    const y = (pred.hypothesisId || pred.hypothesis || pred.id) === actualOutcomeHypothesisId ? 1.0 : 0.0;
+    sumSq += (p - y) * (p - y);
+  }
+  return sumSq / predictions.length;
+}
+
+/**
+ * Evaluates candidate multiplier against holdout incidents using multi-class Brier score
+ */
+function evaluateHoldoutBrierScore(candidateMultipliers = {}, holdoutIncidents = []) {
+  if (!Array.isArray(holdoutIncidents) || holdoutIncidents.length === 0) {
+    return { brierScore: null, evaluatedIncidents: 0 };
+  }
+  let totalBrier = 0;
+  let count = 0;
+  for (const incident of holdoutIncidents) {
+    const actual = incident.actualOutcomeHypothesisId || incident.groundTruthHypothesisId;
+    if (!actual) continue;
+    const score = computeMultiClassBrierScore(incident.predictions || incident.hypotheses || [], actual);
+    if (score !== null) {
+      totalBrier += score;
+      count++;
+    }
+  }
+  return {
+    brierScore: count > 0 ? Number((totalBrier / count).toFixed(6)) : null,
+    evaluatedIncidents: count
+  };
+}
+
 module.exports = {
-  generateOptimizedBrainConfig
+  generateOptimizedBrainConfig,
+  computeMultiClassBrierScore,
+  evaluateHoldoutBrierScore
 };

@@ -68,6 +68,7 @@ const { runVisualRuntimeTruthAndSignalHygieneTests } = require('./visual-runtime
 const { runZeroPhantomGovTrafficAndDeepBackendTests } = require('./zero-phantom-gov-traffic-and-deep-backend.test');
 const { runUnifiedInvestigationRagAndMultiModelTests } = require('./unified-investigation-rag-and-multimodel.test');
 const { runInvestigationIntegrityTests } = require('./investigation-integrity.test');
+const { runDeepCodeVerificationGate } = require('./verify-deep-code-implementation.test');
 const { runLiveDomVisualTruthRegressionTests } = require('./live-dom-visual-truth-regression.test');
 const { runZeroZombieDebtAndEnterpriseUpgradeTests } = require('./zero-zombie-debt-sqlite-brain-and-ui-restraint.test');
 const { runAutomationScriptAudit } = require('./audit-all-automation-scripts');
@@ -155,6 +156,7 @@ async function runAllTests() {
     { name: '37. Visual Runtime Truth, Signal Hygiene, RFC 1122 Keep-Alives & Dynamic Labels', fn: runVisualRuntimeTruthAndSignalHygieneTests },
     { name: '38. Zero Phantom Gov Traffic, RFC 1122 Keep-Alive Disambiguation & Deep 5-Section Backend Suite', fn: runZeroPhantomGovTrafficAndDeepBackendTests },
     { name: '39. Unified Guided Investigation, RAG Infrastructure Knowledge Engine & Multi-Model Second-Opinion Verification', fn: async () => {
+      await runDeepCodeVerificationGate();
       await runInvestigationIntegrityTests();
       await runUnifiedInvestigationRagAndMultiModelTests();
     } },
