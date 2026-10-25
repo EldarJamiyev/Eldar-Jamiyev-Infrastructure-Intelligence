@@ -430,30 +430,39 @@ function getPhysicalNetworkInfo(options = {}) {
           info.isDetected = true;
         }
       }
-    } catch (_) {
+    } catch (_) {}
+
+    if (!info.isDetected) {
       // Fallback: inspect os.networkInterfaces()
-      const ifaces = os.networkInterfaces();
-      for (const name of Object.keys(ifaces)) {
-        if (/vEthernet|WSL|VirtualBox|VMware/i.test(name)) continue;
-        for (const addr of ifaces[name]) {
-          if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
-            const sub = calculateSubnet(addr.address, 24);
-            const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
-            info.hostIp = addr.address;
-            info.localIp = addr.address;
-            info.subnetCidr = `${sub.networkAddress}/24`;
-            info.subnetMask = sub.subnetMask;
-            info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
-            info.interfaceAlias = resolvedAlias;
-            info.adapterName = resolvedAlias;
-            info.adapter = resolvedAlias;
-            info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : info.mac;
-            info.macAddress = info.mac;
-            info.isDetected = true;
-            break;
+      try {
+        const ifaces = os.networkInterfaces();
+        for (const name of Object.keys(ifaces)) {
+          if (/vEthernet|WSL|VirtualBox|VMware/i.test(name)) continue;
+          for (const addr of ifaces[name]) {
+            if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
+              const sub = calculateSubnet(addr.address, 24);
+              const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
+              info.hostIp = addr.address;
+              info.localIp = addr.address;
+              const ipParts = addr.address.split('.');
+              ipParts[3] = '1';
+              info.gatewayIp = ipParts.join('.');
+              info.defaultGateway = info.gatewayIp;
+              info.subnetCidr = `${sub.networkAddress}/24`;
+              info.subnetMask = sub.subnetMask;
+              info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+              info.interfaceAlias = resolvedAlias;
+              info.adapterName = resolvedAlias;
+              info.adapter = resolvedAlias;
+              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : info.mac;
+              info.macAddress = info.mac;
+              info.isDetected = true;
+              break;
+            }
           }
+          if (info.isDetected) break;
         }
-      }
+      } catch (_) {}
     }
   } else {
     // POSIX routing resolution

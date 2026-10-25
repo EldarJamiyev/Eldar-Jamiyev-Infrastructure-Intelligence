@@ -21,9 +21,9 @@ async function runWireDiagnosticsTests() {
   // Generate a test pool of 10 nodes (mix of loopback, common public DNS, and unreachable IPs)
   const probeNodes = [
     { id: 'SWEEP-01', hostname_or_ip: '127.0.0.1', name: 'Loopback 1' },
-    { id: 'SWEEP-02', hostname_or_ip: '8.8.8.8', name: 'Google DNS 1' },
-    { id: 'SWEEP-03', hostname_or_ip: '1.1.1.1', name: 'Cloudflare DNS' },
-    { id: 'SWEEP-04', hostname_or_ip: '8.8.4.4', name: 'Google DNS 2' },
+    { id: 'SWEEP-02', hostname_or_ip: '127.0.0.2', name: 'Loopback 2' },
+    { id: 'SWEEP-03', hostname_or_ip: '8.8.8.8', name: 'Google DNS 1' },
+    { id: 'SWEEP-04', hostname_or_ip: '1.1.1.1', name: 'Cloudflare DNS' },
     { id: 'SWEEP-05', hostname_or_ip: '192.0.2.1', name: 'TEST-NET-1 (Unreachable)' }
   ];
 

@@ -1604,7 +1604,7 @@ class AIBrain {
 
         probeSuccess = await new Promise((resolve) => {
           const socket = new net.Socket();
-          socket.setTimeout(1500);
+          socket.setTimeout(3000);
           socket.on('connect', () => {
             latencyMs = Date.now() - startTime;
             socket.destroy();
