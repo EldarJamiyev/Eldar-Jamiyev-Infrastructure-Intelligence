@@ -35,6 +35,97 @@ window.renderView = renderView;
 window.EJIIStore = window.EJIIStore || {};
 window.EJIIStore.activeInvestigationContext = null;
 
+// Shared Cross-View Investigation Store (EJII Phase 4)
+window.EJII_INVESTIGATION_STORE = {
+  activeSessionId: null,
+  state: 'IDLE',
+  symptomType: null,
+  targetScope: {},
+  steps: [],
+  evidenceLedger: [],
+  activeHypotheses: [],
+  contradictedHypotheses: [],
+  criticEvaluation: null,
+  similarHistoricalCases: [],
+  remediationVerification: null,
+  subscribers: new Set(),
+
+  subscribe(callback) {
+    if (typeof callback === 'function') {
+      this.subscribers.add(callback);
+      return () => this.subscribers.delete(callback);
+    }
+    return () => {};
+  },
+
+  notify() {
+    for (const sub of this.subscribers) {
+      try { sub(this); } catch (_) {}
+    }
+    window.dispatchEvent(new CustomEvent('ejii:investigation-store-update', { detail: this }));
+  },
+
+  updateFromSession(session = {}) {
+    this.activeSessionId = session.sessionId || this.activeSessionId;
+    this.state = session.state || this.state;
+    this.symptomType = session.symptomType || this.symptomType;
+    this.targetScope = session.targetScope || this.targetScope;
+    this.steps = session.steps || this.steps;
+    this.evidenceLedger = session.evidenceLedger || this.evidenceLedger;
+    this.criticEvaluation = session.criticEvaluation || this.criticEvaluation;
+    this.remediationVerification = session.remediationVerification || this.remediationVerification;
+
+    if (Array.isArray(session.hypothesisHistory)) {
+      this.activeHypotheses = session.hypothesisHistory.filter(h => !h.contradicted && h.status !== 'CONTRADICTED');
+      this.contradictedHypotheses = session.hypothesisHistory.filter(h => h.contradicted || h.status === 'CONTRADICTED');
+    }
+
+    if (Array.isArray(session.similarHistoricalIncidents)) {
+      this.similarHistoricalCases = session.similarHistoricalIncidents;
+    }
+
+    this.notify();
+  },
+
+  handleStepUpdate(payload = {}) {
+    if (!payload) return;
+    if (payload.sessionId && this.activeSessionId !== payload.sessionId) {
+      this.activeSessionId = payload.sessionId;
+    }
+    if (payload.evidenceRecord) {
+      const idx = this.evidenceLedger.findIndex(e => e.evidenceId === payload.evidenceRecord.evidenceId);
+      if (idx >= 0) {
+        this.evidenceLedger[idx] = payload.evidenceRecord;
+      } else {
+        this.evidenceLedger.push(payload.evidenceRecord);
+      }
+    }
+    if (payload.stepId) {
+      const s = this.steps.find(st => st.stepId === payload.stepId);
+      if (s) {
+        s.status = payload.status || s.status;
+      }
+    }
+    this.notify();
+  },
+
+  handleCancelled(payload = {}) {
+    this.state = 'CANCELLED';
+    for (const s of this.steps) {
+      if (s.status === 'PENDING' || s.status === 'RUNNING') {
+        s.status = 'CANCELLED';
+      }
+    }
+    this.notify();
+  },
+
+  handleRemediationVerified(payload = {}) {
+    this.remediationVerification = payload;
+    this.state = payload.verificationOutcome === 'VERIFIED_RESOLVED' ? 'COMPLETED' : 'PARTIAL_INCOMPLETE';
+    this.notify();
+  }
+};
+
 window.pivotToTargetContext = function(pivotParams = {}) {
   const { targetIp, hostname, macAddress, pid, targetView, port } = pivotParams;
 
@@ -200,6 +291,18 @@ function initWebSocket() {
           }
         } else if (msg.type === 'NODE_ALERT' || msg.type === 'NODE_UPDATE') {
           loadTopbarStats();
+        } else if (msg.type === 'INVESTIGATION_STEP_UPDATE') {
+          if (window.EJII_INVESTIGATION_STORE && typeof window.EJII_INVESTIGATION_STORE.handleStepUpdate === 'function') {
+            window.EJII_INVESTIGATION_STORE.handleStepUpdate(msg.payload || msg);
+          }
+        } else if (msg.type === 'INVESTIGATION_CANCELLED') {
+          if (window.EJII_INVESTIGATION_STORE && typeof window.EJII_INVESTIGATION_STORE.handleCancelled === 'function') {
+            window.EJII_INVESTIGATION_STORE.handleCancelled(msg.payload || msg);
+          }
+        } else if (msg.type === 'REMEDIATION_VERIFIED') {
+          if (window.EJII_INVESTIGATION_STORE && typeof window.EJII_INVESTIGATION_STORE.handleRemediationVerified === 'function') {
+            window.EJII_INVESTIGATION_STORE.handleRemediationVerified(msg.payload || msg);
+          }
         }
       } catch (e) {
         if (!window._lastWsErrLog || Date.now() - window._lastWsErrLog > 5000) {

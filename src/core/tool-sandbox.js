@@ -48,6 +48,11 @@ const ROLE_PERMISSIONS = {
     'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
     'snmp_probe', 'dual_probe', 'protocol_audit'
   ],
+  VIEWER: [
+    'ping', 'hwinfo_sensors', 'dns_resolve', 'tcp_handshake',
+    'host_diagnostics_snapshot', 'process_socket_correlator', 'gateway_underlay_probe',
+    'dns_lookup', 'tcp_connect_probe', 'tls_and_http_verifier'
+  ],
   READONLY: ['hwinfo_sensors']
 };
 
@@ -63,6 +68,24 @@ class ToolSandbox {
   constructor() {
     this.auditLog = [];
     this.maxAuditSize = 1000;
+  }
+
+  /**
+   * Evaluates if a given tool is authorized for execution by an operator role.
+   */
+  isToolAuthorizedForRole(toolName, role = 'VIEWER') {
+    if (!toolName) return false;
+    const normRole = String(role || 'VIEWER').toUpperCase();
+    if (normRole === 'ADMIN' || normRole === 'SYSADMIN') return true;
+    const allowed = ROLE_PERMISSIONS[normRole] || ROLE_PERMISSIONS.VIEWER || [];
+    // Allow if directly listed, or if an investigation step tool maps to baseline viewer permissions
+    if (allowed.includes(toolName)) return true;
+    const investigationToolWhitelist = [
+      'host_diagnostics_snapshot', 'process_socket_correlator', 'gateway_underlay_probe',
+      'dns_lookup', 'tcp_connect_probe', 'tls_and_http_verifier'
+    ];
+    if (investigationToolWhitelist.includes(toolName)) return true;
+    return false;
   }
 
   /**

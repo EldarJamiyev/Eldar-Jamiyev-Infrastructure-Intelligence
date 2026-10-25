@@ -482,4 +482,58 @@ router.get('/linux-parity', authenticate, (req, res) => {
   }
 });
 
+/**
+ * GET /api/diagnostics/anomalies
+ * Detects statistical anomalies over rolling authoritative telemetry (EJII Phase 4)
+ */
+router.get('/anomalies', (req, res) => {
+  try {
+    const { detectEvidenceBackedAnomalies } = require('../core/rca-engine');
+    const { aiBrain } = require('../core/ai-brain');
+
+    const history = [];
+    for (const [target, baseline] of (aiBrain.baselineMetrics || new Map()).entries()) {
+      if (baseline && baseline.status !== 'PROVISIONAL_INSUFFICIENT_SAMPLES') {
+        history.push({
+          metricKey: `network.latency.${target}`,
+          evidenceId: `EVD-BASE-${target}`,
+          outcome: 'SUCCESS',
+          value: baseline.avgRtt,
+          unit: 'ms',
+          isAuthoritative: true,
+          isProvisional: false,
+          timestampIso: baseline.lastObserved || new Date().toISOString()
+        });
+      }
+    }
+
+    for (const inc of (aiBrain.incidentHistory || []).slice(-50)) {
+      if (inc && inc.observedMetrics) {
+        for (const [k, v] of Object.entries(inc.observedMetrics)) {
+          if (typeof v === 'number') {
+            history.push({
+              metricKey: k,
+              evidenceId: `EVD-INC-${inc.id || inc.incidentKey}`,
+              outcome: 'DEGRADED',
+              value: v,
+              unit: 'val',
+              isAuthoritative: true,
+              isProvisional: false,
+              timestampIso: inc.createdAt || new Date().toISOString()
+            });
+          }
+        }
+      }
+    }
+
+    const anomaliesReport = detectEvidenceBackedAnomalies(history);
+    res.json({
+      success: true,
+      ...anomaliesReport
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: `Failed to detect anomalies: ${err.message}` });
+  }
+});
+
 module.exports = router;

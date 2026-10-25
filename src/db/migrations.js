@@ -193,6 +193,68 @@ const MIGRATIONS = [
         completed_at TEXT NOT NULL
       );
     `
+  },
+  {
+    version: 5,
+    name: '005_investigation_sessions_ledger_and_cbr_signatures',
+    sql: `
+      CREATE TABLE IF NOT EXISTS investigation_sessions (
+        session_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        symptom_type TEXT NOT NULL,
+        target_host TEXT,
+        target_port INTEGER,
+        process_name TEXT,
+        target_pid INTEGER,
+        operator_role TEXT,
+        top_hypothesis_id TEXT,
+        calibrated_confidence REAL,
+        evidence_coverage_ratio REAL,
+        orchestration_mode TEXT,
+        critic_passed INTEGER DEFAULT 1,
+        verification_outcome TEXT,
+        plan_json TEXT NOT NULL,
+        critic_json TEXT,
+        summary_json TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS investigation_evidence_ledger (
+        evidence_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        metric_key TEXT NOT NULL,
+        evidence_class TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        value_json TEXT,
+        unit TEXT,
+        collector_id TEXT NOT NULL,
+        collection_method TEXT NOT NULL,
+        is_authoritative INTEGER NOT NULL,
+        is_provisional INTEGER NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        supports_json TEXT,
+        contradicts_json TEXT,
+        FOREIGN KEY (session_id) REFERENCES investigation_sessions(session_id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS historical_incident_signatures (
+        incident_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        created_at TEXT NOT NULL,
+        symptom_type TEXT NOT NULL,
+        signature_vector_json TEXT NOT NULL,
+        observed_keys_json TEXT NOT NULL,
+        validated_root_cause_id TEXT,
+        remediation_recipe_id TEXT,
+        remediation_verified INTEGER DEFAULT 0,
+        pre_post_delta_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_investigation_sessions_created ON investigation_sessions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_investigation_evidence_session ON investigation_evidence_ledger(session_id);
+      CREATE INDEX IF NOT EXISTS idx_historical_signatures_symptom ON historical_incident_signatures(symptom_type);
+    `
   }
 ];
 

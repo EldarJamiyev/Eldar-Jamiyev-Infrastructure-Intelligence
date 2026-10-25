@@ -325,11 +325,23 @@ class WireDiagnostics {
     this.wireAnomalies = [];
     return { success: true, message: 'Wire anomaly cache cleared.' };
   }
+
+  /**
+   * RFC-Grounded Failure Classifier integration
+   */
+  classifyProtocolFailure(error = {}, layer = 'L4') {
+    const { classifyProtocolFailure } = require('../../protocols/service-verifier');
+    return classifyProtocolFailure(error, layer);
+  }
 }
 
 const defaultDiagnostics = new WireDiagnostics();
 
 module.exports = {
   WireDiagnostics,
-  wireDiagnostics: defaultDiagnostics
+  wireDiagnostics: defaultDiagnostics,
+  classifyProtocolFailure: (err, layer) => {
+    const { classifyProtocolFailure } = require('../../protocols/service-verifier');
+    return classifyProtocolFailure(err, layer);
+  }
 };

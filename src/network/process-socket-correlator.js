@@ -432,6 +432,152 @@ class ProcessSocketCorrelator {
     const port = parseInt(str.slice(lastColon + 1), 10) || 0;
     return [host, port];
   }
+
+  /**
+   * Process-to-Endpoint & Service Dependency DAG (EJII Phase 4)
+   * Maps each local process (pid, processName, serviceName) -> bound local IP/port
+   * -> remote IP/port -> resolved DNS domain -> next-hop router/gateway MAC & IP.
+   * Computes Service Blast Radius & Single-Point-of-Failure (SPOF) Criticality.
+   */
+  buildProcessServiceDependencyGraph(activeSockets = [], arpTable = [], routingTable = [], dnsCache = []) {
+    const nodes = new Map(); // nodeId -> Node
+    const edges = [];
+    const processFlows = new Map(); // pid -> flows[]
+    const blastRadiusMap = new Map(); // nodeId -> affectedProcessesCount
+
+    const addNode = (id, label, type, metadata = {}) => {
+      if (!nodes.has(id)) {
+        nodes.set(id, { id, label, type, metadata });
+      }
+      return nodes.get(id);
+    };
+
+    const addEdge = (source, target, relationship, metadata = {}) => {
+      edges.push({
+        edgeId: `DEP-${source}->${target}`,
+        source,
+        target,
+        relationship,
+        metadata
+      });
+    };
+
+    // Index ARP & DNS lookups
+    const arpByIp = new Map();
+    for (const entry of (arpTable || [])) {
+      if (entry.ip) arpByIp.set(entry.ip, entry.mac);
+    }
+
+    const domainByIp = new Map();
+    for (const entry of (dnsCache || [])) {
+      if (entry.ip && entry.domain) domainByIp.set(entry.ip, entry.domain);
+    }
+
+    // Default Gateway resolution from routing table
+    let defaultGatewayIp = '192.168.31.1';
+    for (const route of (routingTable || [])) {
+      if (route.destination === '0.0.0.0' || route.dest === '0.0.0.0') {
+        defaultGatewayIp = route.gateway || defaultGatewayIp;
+        break;
+      }
+    }
+    const gatewayMac = arpByIp.get(defaultGatewayIp) || '00:00:5E:00:01:01';
+    const gatewayNodeId = `NODE-GW-${defaultGatewayIp}`;
+    addNode(gatewayNodeId, `Default Gateway (${defaultGatewayIp})`, 'GATEWAY', {
+      ip: defaultGatewayIp,
+      mac: gatewayMac,
+      layer: 'L3_ROUTER'
+    });
+
+    const socketsToProcess = Array.isArray(activeSockets) && activeSockets.length > 0 ? activeSockets : this.endpoints;
+
+    for (const sock of socketsToProcess) {
+      const pid = sock.pid || 0;
+      const procName = sock.processName || (this.processMap.get(pid) || `Process-${pid}`);
+      const procNodeId = `PROC-${pid}-${procName}`;
+      const localEndpointId = `SOCK-LOC-${sock.localAddress || '127.0.0.1'}:${sock.localPort || 0}`;
+
+      addNode(procNodeId, `${procName} (PID: ${pid})`, 'PROCESS', { pid, processName: procName });
+      addNode(localEndpointId, `${sock.localAddress || '0.0.0.0'}:${sock.localPort || 0}`, 'SOCKET_LOCAL', {
+        address: sock.localAddress,
+        port: sock.localPort,
+        protocol: sock.protocol || 'TCP'
+      });
+      addEdge(procNodeId, localEndpointId, 'BINDS_SOCKET');
+
+      if (sock.remoteAddress && sock.remoteAddress !== '0.0.0.0' && sock.remoteAddress !== '*') {
+        const remoteEndpointId = `SOCK-REM-${sock.remoteAddress}:${sock.remotePort || 0}`;
+        const domain = domainByIp.get(sock.remoteAddress) || sock.domain || null;
+        const serviceName = WELL_KNOWN_SERVICES[sock.remotePort] || (sock.remotePort === 443 ? 'HTTPS' : 'AppService');
+
+        addNode(remoteEndpointId, `${domain || sock.remoteAddress}:${sock.remotePort || 0} [${serviceName}]`, 'SERVICE_ENDPOINT', {
+          ip: sock.remoteAddress,
+          port: sock.remotePort,
+          domain,
+          serviceName
+        });
+        addEdge(localEndpointId, remoteEndpointId, 'CONNECTS_TO', { state: sock.state || 'ESTABLISHED' });
+
+        // Link external remote endpoint to Gateway dependency
+        const isLoopback = sock.remoteAddress === '127.0.0.1' || sock.remoteAddress.startsWith('127.');
+        if (!isLoopback) {
+          addEdge(remoteEndpointId, gatewayNodeId, 'ROUTED_VIA');
+        }
+
+        // Track process flow
+        if (!processFlows.has(procNodeId)) {
+          processFlows.set(procNodeId, []);
+        }
+        processFlows.get(procNodeId).push({
+          local: localEndpointId,
+          remote: remoteEndpointId,
+          domain,
+          serviceName,
+          gateway: !isLoopback ? gatewayNodeId : null
+        });
+      }
+    }
+
+    // Compute Blast Radius & SPOF Criticality
+    const spofRankings = [];
+    for (const [nodeId, node] of nodes.entries()) {
+      let affectedPids = new Set();
+      if (node.type === 'GATEWAY') {
+        for (const [pId, flows] of processFlows.entries()) {
+          if (flows.some(f => f.gateway === nodeId)) {
+            affectedPids.add(pId);
+          }
+        }
+      } else if (node.type === 'SERVICE_ENDPOINT') {
+        for (const [pId, flows] of processFlows.entries()) {
+          if (flows.some(f => f.remote === nodeId)) {
+            affectedPids.add(pId);
+          }
+        }
+      } else if (node.type === 'PROCESS') {
+        affectedPids.add(nodeId);
+      }
+
+      blastRadiusMap.set(nodeId, affectedPids.size);
+      spofRankings.push({
+        nodeId,
+        label: node.label,
+        type: node.type,
+        affectedProcessesCount: affectedPids.size,
+        spofCriticalityPct: Number(((affectedPids.size / Math.max(1, processFlows.size)) * 100).toFixed(1))
+      });
+    }
+
+    spofRankings.sort((a, b) => b.affectedProcessesCount - a.affectedProcessesCount);
+
+    return {
+      nodes: Array.from(nodes.values()),
+      edges,
+      totalProcesses: processFlows.size,
+      spofRankings,
+      generatedAtIso: new Date().toISOString()
+    };
+  }
 }
 
 const processSocketCorrelator = new ProcessSocketCorrelator();

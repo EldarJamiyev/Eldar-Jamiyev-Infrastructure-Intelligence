@@ -368,6 +368,13 @@ class AIModelOrchestrator {
       }
     };
 
+    // 3-State Circuit Breakers per provider ('CLOSED' | 'OPEN' | 'HALF_OPEN')
+    this.circuitBreakers = {
+      OLLAMA: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 },
+      OPENAI: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 },
+      ANTHROPIC: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 }
+    };
+
     // Vectorized Bayesian matrix instantiated with core network hypotheses
     this.bayesianMatrix = new VectorizedBayesianMatrix([
       'NORMAL_OPERATION',
@@ -578,6 +585,243 @@ class AIModelOrchestrator {
       liveResponse: false,
       provider: providerName,
       reason: 'PROVIDER_API_KEY_NOT_ACTIVE_USING_DETERMINISTIC_SYNTHESIS'
+    };
+  }
+
+  /**
+   * Evaluates circuit breaker state with automatic transition from OPEN -> HALF_OPEN on cooldown.
+   */
+  getCircuitBreakerState(providerId = 'OLLAMA') {
+    const norm = String(providerId).toUpperCase();
+    const cb = this.circuitBreakers[norm];
+    if (!cb) return 'CLOSED';
+
+    if (cb.state === 'OPEN') {
+      const elapsed = Date.now() - (cb.lastFailureIso ? Date.parse(cb.lastFailureIso) : 0);
+      if (elapsed >= (cb.cooldownMs || 30000)) {
+        cb.state = 'HALF_OPEN';
+      }
+    }
+    return cb.state;
+  }
+
+  /**
+   * Records a circuit failure and trips to OPEN if threshold reached.
+   */
+  recordCircuitFailure(providerId = 'OLLAMA', errorDetail = null) {
+    const norm = String(providerId).toUpperCase();
+    const cb = this.circuitBreakers[norm];
+    if (!cb) return;
+
+    cb.failureCount = (cb.failureCount || 0) + 1;
+    cb.lastFailureIso = new Date().toISOString();
+
+    if (cb.state === 'HALF_OPEN' || cb.failureCount >= (cb.failureThreshold || 3)) {
+      cb.state = 'OPEN';
+    }
+  }
+
+  /**
+   * Records a circuit success and resets to CLOSED.
+   */
+  recordCircuitSuccess(providerId = 'OLLAMA') {
+    const norm = String(providerId).toUpperCase();
+    const cb = this.circuitBreakers[norm];
+    if (!cb) return;
+
+    cb.failureCount = 0;
+    cb.state = 'CLOSED';
+  }
+
+  /**
+   * Task-Aware Provider Selection (selectProviderForTask)
+   * Supports: 'ROOT_CAUSE_SYNTHESIS' | 'CRITIC_SECOND_OPINION' | 'PACKET_STREAM_EXPLANATION' |
+   * 'RUNBOOK_REMEDIATION_PLAN' | 'FAST_SIGNAL_TRIAGE'
+   */
+  selectProviderForTask(taskSpec = {}) {
+    const taskType = taskSpec.taskType || 'ROOT_CAUSE_SYNTHESIS';
+    const containsSensitive = Boolean(taskSpec.containsSensitiveHostData);
+    const allowCloudRedacted = Boolean(taskSpec.allowCloudRedacted);
+
+    // Privacy Policy Gate (POL-01)
+    if (this.localOnlyPolicy || (containsSensitive && !allowCloudRedacted)) {
+      const ollamaCbState = this.getCircuitBreakerState('OLLAMA');
+      if (ollamaCbState === 'OPEN') {
+        return {
+          providerId: 'DETERMINISTIC_BAYESIAN',
+          isLocal: true,
+          selectionReason: 'POL-01 active: cloud providers excluded; local Ollama circuit is OPEN. Falling back to deterministic Bayesian core.',
+          circuitState: ollamaCbState,
+          excludedProviders: [
+            { providerId: 'OPENAI', reason: 'POL-01_PRIVACY_GATE' },
+            { providerId: 'ANTHROPIC', reason: 'POL-01_PRIVACY_GATE' },
+            { providerId: 'OLLAMA', reason: 'CIRCUIT_OPEN' }
+          ]
+        };
+      }
+      return {
+        providerId: 'OLLAMA',
+        isLocal: true,
+        selectionReason: 'POL-01 active: routed strictly on-premises to local Ollama.',
+        circuitState: ollamaCbState,
+        excludedProviders: [
+          { providerId: 'OPENAI', reason: 'POL-01_PRIVACY_GATE' },
+          { providerId: 'ANTHROPIC', reason: 'POL-01_PRIVACY_GATE' }
+        ]
+      };
+    }
+
+    // Evaluate available providers against circuit breakers
+    const candidates = ['OLLAMA', 'OPENAI', 'ANTHROPIC'].filter(p => this.getCircuitBreakerState(p) !== 'OPEN');
+    if (candidates.length === 0) {
+      return {
+        providerId: 'DETERMINISTIC_BAYESIAN',
+        isLocal: true,
+        selectionReason: 'All external and local LLM circuit breakers are OPEN. Bypassing to deterministic Bayesian core.',
+        circuitState: 'OPEN',
+        excludedProviders: ['OLLAMA', 'OPENAI', 'ANTHROPIC'].map(p => ({ providerId: p, reason: 'CIRCUIT_OPEN' }))
+      };
+    }
+
+    // Role-specific match
+    if (taskType === 'CRITIC_SECOND_OPINION') {
+      if (candidates.includes('ANTHROPIC') && Boolean(process.env.ANTHROPIC_API_KEY)) {
+        return { providerId: 'ANTHROPIC', isLocal: false, selectionReason: 'Selected Anthropic for rigorous critic second opinion.' };
+      }
+      if (candidates.includes('OPENAI') && Boolean(process.env.OPENAI_API_KEY)) {
+        return { providerId: 'OPENAI', isLocal: false, selectionReason: 'Selected OpenAI for critic second opinion failover.' };
+      }
+    }
+
+    // Default to lowest latency healthy provider, preferring local
+    if (candidates.includes('OLLAMA')) {
+      return { providerId: 'OLLAMA', isLocal: true, selectionReason: 'Selected local Ollama as lowest-egress healthy runtime.' };
+    }
+
+    return {
+      providerId: candidates[0],
+      isLocal: false,
+      selectionReason: `Selected healthy cloud failover [${candidates[0]}] for task ${taskType}.`
+    };
+  }
+
+  /**
+   * Bounded Retry with Jittered Exponential Backoff
+   * Retries transient errors (429/502/503/TIMEOUT) up to maxRetries,
+   * while failing fast (0 retries) on ECONNREFUSED or 401/403.
+   */
+  async invokeWithBoundedRetry(providerName, promptText, options = {}) {
+    const maxRetries = Number.isInteger(options.maxRetries) ? options.maxRetries : 2;
+    const isSafeTest = Boolean(process.env.EJII_SAFE_TEST_MODE);
+    const baseDelayMs = isSafeTest ? 20 : (options.baseDelayMs || 150);
+
+    let lastResult = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await this.invokeModelProvider(providerName, promptText, options);
+      lastResult = res;
+
+      if (res && res.liveResponse) {
+        this.recordCircuitSuccess(providerName);
+        return res;
+      }
+
+      // Fast-fail check: connection refused, auth error, or privacy block
+      const reason = String(res?.reason || res?.status || '');
+      const isFastFail = reason.includes('ECONNREFUSED') ||
+        reason.includes('401') ||
+        reason.includes('403') ||
+        reason.includes('OFFLINE') ||
+        reason.includes('BLOCKED_BY_LOCAL_ONLY_PRIVACY_POLICY');
+
+      this.recordCircuitFailure(providerName, reason);
+
+      if (isFastFail || attempt === maxRetries) {
+        break;
+      }
+
+      // Jittered backoff: delay * 2^attempt * (0.75..1.25)
+      const jitter = 0.75 + Math.random() * 0.5;
+      const delay = Math.round(baseDelayMs * Math.pow(2, attempt) * jitter);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    return lastResult;
+  }
+
+  /**
+   * Structured JSON Response Contract & Semantic Validator
+   * Parses model outputs against strict schema and verifies that every cited evidence
+   * actually exists in the provided EvidenceRecord collection.
+   */
+  validateModelResponseSchema(rawResponse, evidenceList = []) {
+    if (!rawResponse || !rawResponse.liveResponse || !rawResponse.text) {
+      return {
+        valid: false,
+        schemaValid: false,
+        reason: 'Raw response empty or liveResponse is false',
+        fallbackToDeterministic: true
+      };
+    }
+
+    let parsed = null;
+    let jsonStr = rawResponse.text.trim();
+    if (jsonStr.includes('```json')) {
+      jsonStr = jsonStr.split('```json')[1].split('```')[0].trim();
+    } else if (jsonStr.includes('```')) {
+      jsonStr = jsonStr.split('```')[1].split('```')[0].trim();
+    }
+
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (err) {
+      return {
+        valid: false,
+        schemaValid: false,
+        reason: `Failed to parse response JSON: ${err.message}`,
+        fallbackToDeterministic: true
+      };
+    }
+
+    const requiredFields = [
+      'summary',
+      'supportedHypothesisId',
+      'citedEvidenceIds',
+      'ruledOutHypothesisIds',
+      'remainingUncertainties',
+      'recommendedNextStep'
+    ];
+
+    for (const field of requiredFields) {
+      if (parsed[field] === undefined || parsed[field] === null) {
+        return {
+          valid: false,
+          schemaValid: false,
+          reason: `Missing required response field: ${field}`,
+          fallbackToDeterministic: true
+        };
+      }
+    }
+
+    // Verify citedEvidenceIds exist in evidenceList
+    if (Array.isArray(parsed.citedEvidenceIds)) {
+      const knownIds = new Set((evidenceList || []).map(e => e.evidenceId));
+      const hallucinated = parsed.citedEvidenceIds.filter(id => !knownIds.has(id));
+      if (hallucinated.length > 0) {
+        return {
+          valid: false,
+          schemaValid: false,
+          hallucinatedEvidenceIds: hallucinated,
+          reason: `Model cited non-existent evidence IDs: ${hallucinated.join(', ')}`,
+          fallbackToDeterministic: true
+        };
+      }
+    }
+
+    return {
+      valid: true,
+      schemaValid: true,
+      parsedResponse: parsed,
+      fallbackToDeterministic: false
     };
   }
 

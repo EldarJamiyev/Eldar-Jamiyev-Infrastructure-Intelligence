@@ -280,6 +280,153 @@
           `;
         })()}
 
+        <!-- EJII Phase 4: Stateful Investigation Planner-Executor-Critic & Historical CBR UI -->
+        ${(() => {
+          const invStore = window.EJII_INVESTIGATION_STORE || {};
+          const sessionId = invStore.activeSessionId;
+          const steps = invStore.steps || [];
+          const evidenceLedger = invStore.evidenceLedger || [];
+          const critic = invStore.criticEvaluation || null;
+          const similar = invStore.similarHistoricalCases || [];
+          const verification = invStore.remediationVerification || null;
+
+          if (!sessionId && steps.length === 0 && !critic) {
+            return `
+              <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.4); border: 1px dashed rgba(255,255,255,0.1); border-radius: 4px; padding: 6px 10px; font-size: 9.5px; color: #64748B; font-family: var(--font-mono); display: flex; justify-content: space-between; align-items: center;">
+                <span>Investigation Runtime: Standby (Ready for operator trigger)</span>
+                <button class="btn btn-secondary" onclick="window.startGuidedInvestigation && window.startGuidedInvestigation()" style="font-size: 9px; padding: 2px 6px;">Start Guided Investigation</button>
+              </div>
+            `;
+          }
+
+          return `
+            <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+              <!-- 1. Investigation Plan Stepper -->
+              <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 4px; padding: 8px 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-size: 10px; font-weight: 800; color: #38BDF8; font-family: var(--font-mono);">
+                    📋 INVESTIGATION PLAN STEPPER: [${escapeHtml(sessionId || 'ACTIVE')}] (${escapeHtml(invStore.state || 'RUNNING')})
+                  </span>
+                  ${invStore.state !== 'COMPLETED' && invStore.state !== 'CANCELLED' ? `
+                    <button id="btnCancelInvestigation" onclick="window.cancelActiveInvestigation('${escapeHtml(sessionId || '')}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #EF4444; color: #FCA5A5; font-size: 9px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: var(--font-mono);">
+                      Cancel Investigation 🛑
+                    </button>
+                  ` : `<span style="font-size: 9px; font-family: var(--font-mono); color: #94A3B8;">State: ${escapeHtml(invStore.state)}</span>`}
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                  ${steps.map(s => {
+                    let color = '#94A3B8';
+                    if (s.status === 'COMPLETED') color = '#10B981';
+                    if (s.status === 'RUNNING') color = '#38BDF8';
+                    if (s.status === 'CANCELLED' || s.status === 'FAILED') color = '#EF4444';
+                    if (s.status === 'SKIPPED_UPSTREAM_FAILURE') color = '#F59E0B';
+                    return `
+                      <div style="background: rgba(0,0,0,0.3); border: 1px solid ${color}; border-radius: 3px; padding: 3px 6px; font-size: 9px; font-family: var(--font-mono); flex: 1; min-width: 140px;">
+                        <div style="display: flex; justify-content: space-between;">
+                          <strong style="color: #F8FAFC;">${escapeHtml(s.stepId)}</strong>
+                          <span style="color: ${color}; font-weight: 700;">${escapeHtml(s.status)}</span>
+                        </div>
+                        <div style="color: #64748B; font-size: 8px; margin-top: 1px;">${escapeHtml(s.purpose || '')}</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+
+              <!-- 2. Evidence Ledger & Missing Evidence Panel -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 4px; padding: 6px 10px;">
+                  <div style="font-size: 10px; font-weight: 800; color: #10B981; font-family: var(--font-mono); margin-bottom: 4px;">
+                    📑 COLLECTED EVIDENCE LEDGER (${evidenceLedger.length})
+                  </div>
+                  <div style="max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+                    ${evidenceLedger.length > 0 ? evidenceLedger.map(e => `
+                      <div style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(0,0,0,0.2); padding: 2px 4px; border-radius: 2px; display: flex; justify-content: space-between;">
+                        <span style="color: #CBD5E1;">${escapeHtml(e.metricKey)}</span>
+                        <strong style="color: ${e.outcome === 'SUCCESS' ? '#10B981' : '#F87171'};">${escapeHtml(String(e.value))} ${escapeHtml(e.unit || '')}</strong>
+                      </div>
+                    `).join('') : '<div style="color: #64748B; font-size: 8.5px;">No authoritative evidence collected yet.</div>'}
+                  </div>
+                </div>
+
+                <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px; padding: 6px 10px;">
+                  <div style="font-size: 10px; font-weight: 800; color: #F59E0B; font-family: var(--font-mono); margin-bottom: 4px;">
+                    ⚠️ MISSING / UNOBSERVED EVIDENCE
+                  </div>
+                  <div style="max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+                    ${(() => {
+                      const observedKeys = new Set(evidenceLedger.map(e => e.metricKey));
+                      const candidateExpected = [
+                        'host.resources.cpu_load_pct',
+                        'process.socket.correlation',
+                        'network.gateway_reachability',
+                        'network.dns_resolution',
+                        'network.tcp_syn_rtt_ms'
+                      ];
+                      const missing = candidateExpected.filter(k => !observedKeys.has(k));
+                      return missing.length > 0 ? missing.map(m => `
+                        <div style="font-size: 8.5px; font-family: var(--font-mono); color: #94A3B8; background: rgba(0,0,0,0.2); padding: 2px 4px; border-radius: 2px;">
+                          [UNCOLLECTED] ${escapeHtml(m)}
+                        </div>
+                      `).join('') : '<div style="color: #10B981; font-size: 8.5px;">All core investigative pillars observed.</div>';
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. Epistemic Critic Verdict Banner -->
+              ${critic ? `
+                <div style="background: ${critic.passed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)'}; border: 1px solid ${critic.passed ? '#10B981' : '#EF4444'}; border-radius: 4px; padding: 6px 10px; font-family: var(--font-mono);">
+                  <div style="font-size: 10px; font-weight: 800; color: ${critic.passed ? '#10B981' : '#EF4444'}; display: flex; justify-content: space-between;">
+                    <span>${critic.passed ? '🛡️ EPISTEMIC CRITIC: VERDICT APPROVED (GROUNDED IN WIRE FACTS)' : '🛡️ EPISTEMIC CRITIC: REJECTED OVERCONFIDENT / UNGROUNDED CLAIMS'}</span>
+                    <span>Violations: ${(critic.violations || []).length}</span>
+                  </div>
+                  ${(critic.violations || []).length > 0 ? `
+                    <div style="margin-top: 4px; font-size: 8.5px; color: #FCA5A5;">
+                      ${critic.violations.map(v => `• [${escapeHtml(v.rule)}] ${escapeHtml(v.details)}`).join('<br>')}
+                    </div>
+                  ` : ''}
+                </div>
+              ` : ''}
+
+              <!-- 4. Similar Historical Incidents Panel (CBR Matcher) -->
+              <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 4px; padding: 6px 10px;">
+                <div style="font-size: 10px; font-weight: 800; color: #A78BFA; font-family: var(--font-mono); margin-bottom: 4px;">
+                  🧠 CASE-BASED REASONING: SIMILAR HISTORICAL CASES (${similar.length})
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 3px; max-height: 90px; overflow-y: auto;">
+                  ${similar.length > 0 ? similar.map(c => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 2px; font-size: 8.5px; font-family: var(--font-mono);">
+                      <span>[${escapeHtml(c.incidentId || c.sessionId)}] Cause: <strong style="color: #F8FAFC;">${escapeHtml(c.validatedRootCauseId || 'Unknown')}</strong></span>
+                      <span style="color: #A78BFA;">Similarity: <strong>${Math.round(c.similarityScore * 100)}%</strong> (Resolved: ${c.remediationVerified ? '✓' : '✗'})</span>
+                    </div>
+                  `).join('') : '<div style="color: #64748B; font-size: 8.5px;">No matching historical cases found.</div>'}
+                </div>
+              </div>
+
+              <!-- 5. Post-Remediation Verification Trigger & Diff View -->
+              <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(236, 72, 153, 0.2); border-radius: 4px; padding: 6px 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span style="font-size: 10px; font-weight: 800; color: #EC4899; font-family: var(--font-mono);">
+                    🔬 POST-REMEDIATION CLOSED-LOOP RE-VERIFICATION
+                  </span>
+                  <button id="btnVerifyRemediationOutcome" onclick="window.verifyRemediationOutcome('${escapeHtml(sessionId || '')}')" style="background: rgba(236, 72, 153, 0.2); border: 1px solid #EC4899; color: #F472B6; font-size: 9px; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: var(--font-mono);">
+                    Verify Remediation Outcome 🔄
+                  </button>
+                </div>
+                ${verification ? `
+                  <div style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(0,0,0,0.3); padding: 4px 6px; border-radius: 3px;">
+                    <div>Outcome: <strong style="color: ${verification.verificationOutcome === 'VERIFIED_RESOLVED' ? '#10B981' : '#F59E0B'};">${escapeHtml(verification.verificationOutcome)}</strong></div>
+                    <div style="margin-top: 2px; color: #94A3B8;">
+                      ${(verification.deltas || []).map(d => `${escapeHtml(d.metricKey)}: ${escapeHtml(String(d.preValue))} -> ${escapeHtml(String(d.postValue))} (${d.improved ? '✓ IMPROVED' : 'UNCHANGED'})`).join('<br>')}
+                    </div>
+                  </div>
+                ` : '<div style="color: #64748B; font-size: 8.5px; font-family: var(--font-mono);">Awaiting post-fix trigger to re-probe failing metrics.</div>'}
+              </div>
+            </div>
+          `;
+        })()}
+
         <!-- Cognitive Telemetry Strip: Neuro-Symbolic Proof Chain & Active Inference & MCTS World Model -->
         <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -445,6 +592,46 @@
   window.handleAiBrainDiagnosticUpdate = function(update) {
     if (!update) return;
     fetchLiveBrainState();
+  };
+
+  /**
+   * Cancel active investigation mid-flight (EJII Phase 4)
+   */
+  window.cancelActiveInvestigation = async function(sessionId) {
+    if (!sessionId) return;
+    try {
+      await window.api(`/api/rca/investigations/${sessionId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Operator requested cancellation from AI Brain Drawer' })
+      });
+      if (window.EJII_INVESTIGATION_STORE && typeof window.EJII_INVESTIGATION_STORE.handleCancelled === 'function') {
+        window.EJII_INVESTIGATION_STORE.handleCancelled();
+      }
+      updateDrawerDom(currentBrainState);
+    } catch (err) {
+      console.warn('[Cancel Investigation Error]:', err.message);
+    }
+  };
+
+  /**
+   * Trigger post-remediation verification probe and display quantitative before/after deltas (EJII Phase 4)
+   */
+  window.verifyRemediationOutcome = async function(sessionId, remediationRecord = {}) {
+    if (!sessionId) return;
+    try {
+      const res = await window.api(`/api/rca/investigations/${sessionId}/verify-remediation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(remediationRecord)
+      });
+      if (res && res.verification && window.EJII_INVESTIGATION_STORE) {
+        window.EJII_INVESTIGATION_STORE.handleRemediationVerified(res.verification);
+      }
+      updateDrawerDom(currentBrainState);
+    } catch (err) {
+      console.warn('[Verify Remediation Error]:', err.message);
+    }
   };
 
   window.renderAiBrainDrawerHtml = renderAiBrainDrawerHtml;

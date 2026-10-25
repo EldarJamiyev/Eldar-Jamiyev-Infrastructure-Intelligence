@@ -45,6 +45,7 @@
                 <div style="display: flex; gap: 2px; background: var(--bg-input); padding: 2px; border-radius: 6px; border: 1px solid var(--border-color);">
                   <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 4px 10px; font-weight: 600;">🗺️ Map View</button>
                   <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 4px 10px; font-weight: 600;">📋 Node Fleet (${topoRes?.nodes?.length || 0})</button>
+                  <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;">🔗 Service Dependencies</button>
                 </div>
 
                 <button id="topoFleetToggleBtn" class="btn btn-secondary" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
@@ -121,6 +122,86 @@
       container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Topology Workstation: ${err.message}</div>`;
     }
   }
+
+  /**
+   * Opens the Process-to-Endpoint Service Dependency & SPOF Blast Radius Modal (EJII Phase 4)
+   */
+  window.openServiceDependenciesModal = async function() {
+    let modal = document.getElementById('serviceDependenciesModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'serviceDependenciesModal';
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;';
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div style="background: #0F172A; border: 1px solid var(--accent); border-radius: 8px; width: 90%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.9);">
+        <div style="padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+          <strong style="color: #38BDF8; font-family: var(--font-mono); font-size: 13px;">🔗 LIVE PROCESS-TO-ENDPOINT SERVICE DEPENDENCY DAG &amp; SPOF CRITICALITY</strong>
+          <button onclick="document.getElementById('serviceDependenciesModal').style.display='none'" style="background: none; border: none; color: #94A3B8; font-size: 18px; cursor: pointer;">✕</button>
+        </div>
+        <div id="serviceDepModalBody" style="padding: 16px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px;">
+          <div style="color: #94A3B8;">Ingesting OS active socket bindings, ARP table, and gateway routing DAG...</div>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+
+    try {
+      const res = await window.api('/api/network/service-dependencies');
+      const body = document.getElementById('serviceDepModalBody');
+      if (!body) return;
+
+      const spof = res.spofRankings || [];
+      const edges = res.edges || [];
+
+      body.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 11px;">
+          <span>Active Processes Mapped: <strong style="color: #10B981;">${res.totalProcesses || 0}</strong></span>
+          <span>Dependency Edges: <strong style="color: #38BDF8;">${edges.length}</strong></span>
+          <span>Generated: <strong style="color: #E2E8F0;">${new Date(res.generatedAtIso).toLocaleTimeString()}</strong></span>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <div style="font-weight: 800; color: #F59E0B; margin-bottom: 6px;">💥 SINGLE-POINT-OF-FAILURE (SPOF) BLAST RADIUS RANKINGS:</div>
+          <div style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
+            ${spof.map(s => `
+              <div style="background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between; border-left: 3px solid ${s.spofCriticalityPct > 50 ? '#EF4444' : (s.spofCriticalityPct > 20 ? '#F59E0B' : '#10B981')};">
+                <div>
+                  <strong style="color: #F8FAFC;">${escapeHtml(s.label)}</strong>
+                  <span style="color: #64748B; margin-left: 6px;">[${escapeHtml(s.type)}]</span>
+                </div>
+                <div>
+                  <span style="color: #E2E8F0;">Affected Processes: <strong>${s.affectedProcessesCount}</strong></span>
+                  <span style="color: #F59E0B; margin-left: 8px;">Criticality: <strong>${s.spofCriticalityPct}%</strong></span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-weight: 800; color: #38BDF8; margin-bottom: 6px;">🌐 SERVICE DEPENDENCY RELATIONSHIPS:</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto;">
+            ${edges.map(e => `
+              <div style="background: rgba(0,0,0,0.2); padding: 3px 6px; border-radius: 2px; font-size: 10px; color: #CBD5E1;">
+                <span style="color: #A78BFA;">${escapeHtml(e.source)}</span>
+                <span style="color: #64748B;"> ➔ [${escapeHtml(e.relationship)}] ➔ </span>
+                <span style="color: #38BDF8;">${escapeHtml(e.target)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      const body = document.getElementById('serviceDepModalBody');
+      if (body) {
+        body.innerHTML = `<div style="color: #EF4444;">Failed to load service dependencies: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+  };
 
   window.renderTopologyStandaloneView = renderTopologyStandaloneView;
 

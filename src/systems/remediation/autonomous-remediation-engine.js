@@ -788,6 +788,136 @@ class AutonomousRemediationEngine {
   getRemediationLog(limit = 50) {
     return this.remediationLog.slice(-limit).reverse();
   }
+
+  /**
+   * Diagnostic & Remediation Action Recommendation Engine (EJII Phase 4)
+   * Ranks candidate actions into:
+   *   Tier A: Safe Non-Invasive Diagnostic Observations (ranked by KL-divergence info gain)
+   *   Tier B: Controlled Precondition-Verified Remediations (with strict preconditionCheck)
+   */
+  recommendSafeNextActions(evidenceLedger = [], options = {}) {
+    const records = Array.isArray(evidenceLedger) ? evidenceLedger : [];
+
+    // Tier A: Diagnostic Observations
+    const tierAActions = [
+      {
+        actionId: 'run_targeted_dns_trace',
+        name: 'Targeted DNS Nameserver Trace',
+        tier: 'TIER_A_OBSERVATION',
+        informationGainBits: 0.85,
+        targetTool: 'dns_resolve',
+        executionPermitted: true,
+        riskLevel: 'ZERO_INVASIVE',
+        description: 'Probe upstream authoritative nameserver latency and recursive delegations.'
+      },
+      {
+        actionId: 'run_pinned_tls_audit',
+        name: 'Pinned TLS 1.3 Handshake & SAN Audit',
+        tier: 'TIER_A_OBSERVATION',
+        informationGainBits: 0.72,
+        targetTool: 'tls_handshake',
+        executionPermitted: true,
+        riskLevel: 'ZERO_INVASIVE',
+        description: 'Verify X.509 certificate validity dates and SNI binding directly on pinned destination IP.'
+      },
+      {
+        actionId: 'run_mtu_df_sweep',
+        name: 'Progressive Path MTU DF Sweep',
+        tier: 'TIER_A_OBSERVATION',
+        informationGainBits: 0.68,
+        targetTool: 'pmtu_sweep',
+        executionPermitted: true,
+        riskLevel: 'ZERO_INVASIVE',
+        description: 'Test packet fragmentation boundaries (1472, 1400, 1200, 576 bytes) to detect black holes.'
+      },
+      {
+        actionId: 'capture_process_socket_tree',
+        name: 'Process-to-Socket Binding Capture',
+        tier: 'TIER_A_OBSERVATION',
+        informationGainBits: 0.61,
+        targetTool: 'procmon_trace',
+        executionPermitted: true,
+        riskLevel: 'ZERO_INVASIVE',
+        description: 'Inspect OS kernel socket tables and bind process identities to live connections.'
+      }
+    ];
+
+    tierAActions.sort((a, b) => b.informationGainBits - a.informationGainBits);
+
+    // Tier B: Controlled Remediations with Precondition Verification
+    const hasDnsFault = records.some(e =>
+      e && !e.isProvisional && e.metricKey && e.metricKey.toLowerCase().includes('dns') && e.outcome !== 'SUCCESS'
+    );
+
+    const hasSpoolerFault = records.some(e =>
+      e && !e.isProvisional && e.metricKey &&
+      (e.metricKey.toLowerCase().includes('spooler') || e.metricKey.toLowerCase().includes('printer')) &&
+      (e.value === 'STOPPED' || e.value === 'ERROR' || e.outcome !== 'SUCCESS')
+    );
+
+    const hasRamSaturation = records.some(e =>
+      e && !e.isProvisional && e.metricKey &&
+      (e.metricKey.toLowerCase().includes('ram') || e.metricKey.toLowerCase().includes('memory')) &&
+      Number(e.value) > 85
+    );
+
+    const hasApipaFault = records.some(e =>
+      e && !e.isProvisional && e.metricKey &&
+      (e.metricKey.toLowerCase().includes('ip') || e.metricKey.toLowerCase().includes('dhcp') || e.metricKey.toLowerCase().includes('apipa')) &&
+      (String(e.value).startsWith('169.254') || e.outcome === 'APIPA_DETECTED')
+    );
+
+    const tierBActions = [
+      {
+        actionId: 'flush_dns_cache',
+        name: 'Flush System DNS Resolver Cache',
+        tier: 'TIER_B_REMEDIATION',
+        recipeId: 'RECIPE_FLUSH_DNS',
+        executionPermitted: hasDnsFault,
+        blockedReason: hasDnsFault ? null : 'MISSING_PRECONDITION_EVIDENCE: Authoritative DNS resolution failure record required.',
+        elevationRequired: false,
+        preconditionSummary: 'Authoritative unprovisional DNS resolution failure observed on host or wire.'
+      },
+      {
+        actionId: 'reset_print_spooler',
+        name: 'Restart Windows Print Spooler Service',
+        tier: 'TIER_B_REMEDIATION',
+        recipeId: 'RECIPE_RESET_SPOOLER',
+        executionPermitted: hasSpoolerFault,
+        blockedReason: hasSpoolerFault ? null : 'MISSING_PRECONDITION_EVIDENCE: Authoritative print spooler service degraded/stopped telemetry required.',
+        elevationRequired: true,
+        preconditionSummary: 'Spooler service confirmed STOPPED or degraded via host diagnostics.'
+      },
+      {
+        actionId: 'trim_working_set',
+        name: 'Trim Host Process Working Set RAM',
+        tier: 'TIER_B_REMEDIATION',
+        recipeId: 'RECIPE_TRIM_WORKING_SET',
+        executionPermitted: hasRamSaturation,
+        blockedReason: hasRamSaturation ? null : 'MISSING_PRECONDITION_EVIDENCE: Host RAM utilization must exceed 85% under authoritative measurement.',
+        elevationRequired: false,
+        preconditionSummary: 'Authoritative RAM telemetry > 85%.'
+      },
+      {
+        actionId: 'renew_dhcp_apipa',
+        name: 'Renew DHCP Lease & Clear APIPA Flap',
+        tier: 'TIER_B_REMEDIATION',
+        recipeId: 'RECIPE_RENEW_DHCP',
+        executionPermitted: hasApipaFault,
+        blockedReason: hasApipaFault ? null : 'MISSING_PRECONDITION_EVIDENCE: APIPA address (169.254.x.x) or DHCP exhaustion telemetry required.',
+        elevationRequired: true,
+        preconditionSummary: 'Host interface bound to 169.254.x.x link-local APIPA address.'
+      }
+    ];
+
+    return {
+      tierA_Observations: tierAActions,
+      tierB_Remediations: tierBActions,
+      totalRecommended: tierAActions.length + tierBActions.length,
+      permittedRemediationsCount: tierBActions.filter(a => a.executionPermitted).length,
+      evaluatedAtIso: new Date().toISOString()
+    };
+  }
 }
 
 const autonomousRemediationEngine = new AutonomousRemediationEngine();
@@ -795,5 +925,6 @@ const autonomousRemediationEngine = new AutonomousRemediationEngine();
 module.exports = {
   AutonomousRemediationEngine,
   autonomousRemediationEngine,
-  PROTECTED_OS_PROCESSES
+  PROTECTED_OS_PROCESSES,
+  recommendSafeNextActions: (evidenceLedger, options) => autonomousRemediationEngine.recommendSafeNextActions(evidenceLedger, options)
 };

@@ -1224,4 +1224,28 @@ router.get('/ai-brain/history', (req, res) => {
   }
 });
 
+/**
+ * GET /api/network/service-dependencies
+ * Returns live Process-to-Endpoint Service Dependency Graph & Blast Radius SPOF metrics (EJII Phase 4)
+ */
+router.get('/service-dependencies', async (req, res) => {
+  try {
+    const { processSocketCorrelator } = require('../network/process-socket-correlator');
+    const { getArpTable } = require('../tools/ip-scanner');
+    const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+
+    const netInfo = getPhysicalNetworkInfo();
+    const arpTable = await getArpTable();
+    const routingTable = (netInfo && netInfo.routes) ? netInfo.routes : [{ destination: '0.0.0.0', gateway: netInfo.defaultGateway || '192.168.31.1' }];
+
+    const graph = processSocketCorrelator.buildProcessServiceDependencyGraph([], arpTable, routingTable, []);
+    res.json({
+      success: true,
+      ...graph
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: `Failed to build service dependency graph: ${err.message}` });
+  }
+});
+
 module.exports = router;

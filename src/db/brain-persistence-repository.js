@@ -102,6 +102,59 @@ class BrainPersistenceRepository {
           started_at TEXT NOT NULL,
           completed_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS investigation_sessions (
+          session_id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          state TEXT NOT NULL,
+          symptom_type TEXT NOT NULL,
+          target_host TEXT,
+          target_port INTEGER,
+          process_name TEXT,
+          target_pid INTEGER,
+          operator_role TEXT,
+          top_hypothesis_id TEXT,
+          calibrated_confidence REAL,
+          evidence_coverage_ratio REAL,
+          orchestration_mode TEXT,
+          critic_passed INTEGER DEFAULT 1,
+          verification_outcome TEXT,
+          plan_json TEXT NOT NULL,
+          critic_json TEXT,
+          summary_json TEXT
+        );
+        CREATE TABLE IF NOT EXISTS investigation_evidence_ledger (
+          evidence_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          metric_key TEXT NOT NULL,
+          evidence_class TEXT NOT NULL,
+          outcome TEXT NOT NULL,
+          value_json TEXT,
+          unit TEXT,
+          collector_id TEXT NOT NULL,
+          collection_method TEXT NOT NULL,
+          is_authoritative INTEGER NOT NULL,
+          is_provisional INTEGER NOT NULL,
+          timestamp_iso TEXT NOT NULL,
+          supports_json TEXT,
+          contradicts_json TEXT,
+          FOREIGN KEY (session_id) REFERENCES investigation_sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS historical_incident_signatures (
+          incident_id TEXT PRIMARY KEY,
+          session_id TEXT,
+          created_at TEXT NOT NULL,
+          symptom_type TEXT NOT NULL,
+          signature_vector_json TEXT NOT NULL,
+          observed_keys_json TEXT NOT NULL,
+          validated_root_cause_id TEXT,
+          remediation_recipe_id TEXT,
+          remediation_verified INTEGER DEFAULT 0,
+          pre_post_delta_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_investigation_sessions_created ON investigation_sessions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_investigation_evidence_session ON investigation_evidence_ledger(session_id);
+        CREATE INDEX IF NOT EXISTS idx_historical_signatures_symptom ON historical_incident_signatures(symptom_type);
       `);
     } catch (_) {}
   }
@@ -485,6 +538,360 @@ class BrainPersistenceRepository {
     } catch (_) {
       return [];
     }
+  }
+
+  /**
+   * Transactional upsert of an Investigation Session + all Evidence Ledger records (EJII Phase 4)
+   */
+  async saveInvestigationSession(session) {
+    if (!session || !session.sessionId) return null;
+
+    const upsertSessionStmt = db.prepare(`
+      INSERT INTO investigation_sessions (
+        session_id, created_at, updated_at, state, symptom_type, target_host, target_port,
+        process_name, target_pid, operator_role, top_hypothesis_id, calibrated_confidence,
+        evidence_coverage_ratio, orchestration_mode, critic_passed, verification_outcome,
+        plan_json, critic_json, summary_json
+      ) VALUES (
+        @session_id, @created_at, @updated_at, @state, @symptom_type, @target_host, @target_port,
+        @process_name, @target_pid, @operator_role, @top_hypothesis_id, @calibrated_confidence,
+        @evidence_coverage_ratio, @orchestration_mode, @critic_passed, @verification_outcome,
+        @plan_json, @critic_json, @summary_json
+      )
+      ON CONFLICT(session_id) DO UPDATE SET
+        updated_at = excluded.updated_at,
+        state = excluded.state,
+        top_hypothesis_id = excluded.top_hypothesis_id,
+        calibrated_confidence = excluded.calibrated_confidence,
+        evidence_coverage_ratio = excluded.evidence_coverage_ratio,
+        critic_passed = excluded.critic_passed,
+        verification_outcome = excluded.verification_outcome,
+        plan_json = excluded.plan_json,
+        critic_json = excluded.critic_json,
+        summary_json = excluded.summary_json
+    `);
+
+    const insertEvidenceStmt = db.prepare(`
+      INSERT OR REPLACE INTO investigation_evidence_ledger (
+        evidence_id, session_id, metric_key, evidence_class, outcome, value_json, unit,
+        collector_id, collection_method, is_authoritative, is_provisional, timestamp_iso,
+        supports_json, contradicts_json
+      ) VALUES (
+        @evidence_id, @session_id, @metric_key, @evidence_class, @outcome, @value_json, @unit,
+        @collector_id, @collection_method, @is_authoritative, @is_provisional, @timestamp_iso,
+        @supports_json, @contradicts_json
+      )
+    `);
+
+    const runTx = () => {
+      upsertSessionStmt.run({
+        session_id: session.sessionId,
+        created_at: session.createdAtIso || new Date().toISOString(),
+        updated_at: session.updatedAtIso || new Date().toISOString(),
+        state: session.state || 'COMPLETED',
+        symptom_type: session.symptomType || 'GENERAL_CONNECTIVITY_OR_LATENCY',
+        target_host: session.targetScope?.targetHost || null,
+        target_port: session.targetScope?.port || 443,
+        process_name: session.targetScope?.processName || null,
+        target_pid: session.targetScope?.pid || null,
+        operator_role: session.operatorRole || 'OPERATOR',
+        top_hypothesis_id: session.topHypothesisId || null,
+        calibrated_confidence: session.calibratedConfidence || 0,
+        evidence_coverage_ratio: session.evidenceCoverageRatio || 0,
+        orchestration_mode: session.orchestrationMode || 'LOCAL_DETERMINISTIC_BAYESIAN',
+        critic_passed: session.criticPassed ? 1 : 0,
+        verification_outcome: session.remediationVerification?.verificationOutcome || null,
+        plan_json: JSON.stringify(session.steps || []),
+        critic_json: JSON.stringify(session.criticEvaluation || {}),
+        summary_json: JSON.stringify({
+          recommendedActions: session.recommendedActions || [],
+          hypothesisHistory: session.hypothesisHistory || []
+        })
+      });
+
+      for (const ev of (session.evidenceLedger || [])) {
+        insertEvidenceStmt.run({
+          evidence_id: ev.evidenceId,
+          session_id: session.sessionId,
+          metric_key: ev.metricKey,
+          evidence_class: ev.evidenceClass || 'OBSERVED',
+          outcome: ev.outcome || 'SUCCESS',
+          value_json: JSON.stringify(ev.value),
+          unit: ev.unit || '',
+          collector_id: ev.collectorId || 'default_collector',
+          collection_method: ev.collectionMethod || 'PROBE',
+          is_authoritative: ev.isAuthoritative ? 1 : 0,
+          is_provisional: ev.isProvisional ? 1 : 0,
+          timestamp_iso: ev.timestampIso || new Date().toISOString(),
+          supports_json: JSON.stringify(ev.supports || []),
+          contradicts_json: JSON.stringify(ev.contradicts || [])
+        });
+      }
+    };
+
+    if (typeof db.transaction === 'function') {
+      db.transaction(runTx)();
+    } else {
+      runTx();
+    }
+
+    return session;
+  }
+
+  /**
+   * Retrieves an Investigation Session by ID including its complete evidence ledger.
+   */
+  getInvestigationSession(sessionId) {
+    if (!sessionId) return null;
+    try {
+      const sessionRow = db.prepare('SELECT * FROM investigation_sessions WHERE session_id = ?').get(sessionId);
+      if (!sessionRow) return null;
+
+      const evidenceRows = db.prepare('SELECT * FROM investigation_evidence_ledger WHERE session_id = ? ORDER BY timestamp_iso ASC').all(sessionId);
+
+      let steps = [];
+      let criticEvaluation = {};
+      let summary = {};
+      try { steps = JSON.parse(sessionRow.plan_json || '[]'); } catch (_) {}
+      try { criticEvaluation = JSON.parse(sessionRow.critic_json || '{}'); } catch (_) {}
+      try { summary = JSON.parse(sessionRow.summary_json || '{}'); } catch (_) {}
+
+      const evidenceLedger = evidenceRows.map(r => {
+        let val = null;
+        let supports = [];
+        let contradicts = [];
+        try { val = JSON.parse(r.value_json); } catch (_) { val = r.value_json; }
+        try { supports = JSON.parse(r.supports_json || '[]'); } catch (_) {}
+        try { contradicts = JSON.parse(r.contradicts_json || '[]'); } catch (_) {}
+        return {
+          evidenceId: r.evidence_id,
+          sessionId: r.session_id,
+          metricKey: r.metric_key,
+          evidenceClass: r.evidence_class,
+          outcome: r.outcome,
+          value: val,
+          unit: r.unit,
+          collectorId: r.collector_id,
+          collectionMethod: r.collection_method,
+          isAuthoritative: Boolean(r.is_authoritative),
+          isProvisional: Boolean(r.is_provisional),
+          timestampIso: r.timestamp_iso,
+          supports,
+          contradicts
+        };
+      });
+
+      return {
+        sessionId: sessionRow.session_id,
+        createdAtIso: sessionRow.created_at,
+        updatedAtIso: sessionRow.updated_at,
+        state: sessionRow.state,
+        symptomType: sessionRow.symptom_type,
+        targetScope: {
+          targetHost: sessionRow.target_host,
+          port: sessionRow.target_port,
+          processName: sessionRow.process_name,
+          pid: sessionRow.target_pid
+        },
+        operatorRole: sessionRow.operator_role,
+        topHypothesisId: sessionRow.top_hypothesis_id,
+        calibratedConfidence: sessionRow.calibrated_confidence,
+        evidenceCoverageRatio: sessionRow.evidence_coverage_ratio,
+        orchestrationMode: sessionRow.orchestration_mode,
+        criticPassed: Boolean(sessionRow.critic_passed),
+        verificationOutcome: sessionRow.verification_outcome,
+        steps,
+        criticEvaluation,
+        hypothesisHistory: summary.hypothesisHistory || [],
+        recommendedActions: summary.recommendedActions || [],
+        evidenceLedger
+      };
+    } catch (err) {
+      console.error('[BrainPersistenceRepository] Error fetching investigation session:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * List recent investigation sessions.
+   */
+  listRecentInvestigations(limit = 25) {
+    try {
+      const rows = db.prepare('SELECT * FROM investigation_sessions ORDER BY created_at DESC LIMIT ?').all(limit);
+      return rows.map(r => {
+        let steps = [];
+        try { steps = JSON.parse(r.plan_json || '[]'); } catch (_) {}
+        return {
+          sessionId: r.session_id,
+          createdAtIso: r.created_at,
+          updatedAtIso: r.updated_at,
+          state: r.state,
+          symptomType: r.symptom_type,
+          targetHost: r.target_host,
+          targetPort: r.target_port,
+          processName: r.process_name,
+          topHypothesisId: r.top_hypothesis_id,
+          calibratedConfidence: r.calibrated_confidence,
+          verificationOutcome: r.verification_outcome,
+          stepsCount: steps.length
+        };
+      });
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * Record a historical incident signature for Case-Based Reasoning retrieval
+   */
+  recordHistoricalIncidentSignature(incidentRecord = {}) {
+    try {
+      const incidentId = incidentRecord.incidentId || `SIGN-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+      const now = new Date().toISOString();
+
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO historical_incident_signatures (
+          incident_id, session_id, created_at, symptom_type, signature_vector_json,
+          observed_keys_json, validated_root_cause_id, remediation_recipe_id,
+          remediation_verified, pre_post_delta_json
+        ) VALUES (
+          @incident_id, @session_id, @created_at, @symptom_type, @signature_vector_json,
+          @observed_keys_json, @validated_root_cause_id, @remediation_recipe_id,
+          @remediation_verified, @pre_post_delta_json
+        )
+      `);
+
+      stmt.run({
+        incident_id: incidentId,
+        session_id: incidentRecord.sessionId || null,
+        created_at: incidentRecord.createdAt || now,
+        symptom_type: incidentRecord.symptomType || 'GENERAL_CONNECTIVITY_OR_LATENCY',
+        signature_vector_json: JSON.stringify(incidentRecord.signatureVector || this._extract16DimFeatureVector(incidentRecord.evidenceRecords || [])),
+        observed_keys_json: JSON.stringify(incidentRecord.observedKeys || []),
+        validated_root_cause_id: incidentRecord.validatedRootCauseId || incidentRecord.rootCauseId || null,
+        remediation_recipe_id: incidentRecord.remediationRecipeId || null,
+        remediation_verified: incidentRecord.remediationVerified ? 1 : 0,
+        pre_post_delta_json: JSON.stringify(incidentRecord.prePostDelta || {})
+      });
+
+      return incidentId;
+    } catch (err) {
+      console.error('[BrainPersistenceRepository] Error recording incident signature:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Case-Based Reasoning (CBR) Historical Matcher
+   * Calculates hybrid similarity score:
+   * Similarity = 0.6 * Cosine(V_curr, V_hist) + 0.4 * Jaccard(K_curr, K_hist)
+   */
+  findSimilarHistoricalIncidents(currentSymptoms = '', observedEvidenceRecords = [], topK = 5) {
+    try {
+      const rows = db.prepare('SELECT * FROM historical_incident_signatures ORDER BY created_at DESC LIMIT 100').all();
+      if (!rows || rows.length === 0) return [];
+
+      const currentVec = this._extract16DimFeatureVector(observedEvidenceRecords);
+      const currentObservedKeys = new Set(observedEvidenceRecords.map(e => e.metricKey));
+
+      const scored = [];
+      for (const row of rows) {
+        let histVec = [];
+        let histKeys = [];
+        try { histVec = JSON.parse(row.signature_vector_json || '[]'); } catch (_) {}
+        try { histKeys = JSON.parse(row.observed_keys_json || '[]'); } catch (_) {}
+
+        const cosineSim = this._cosineSimilarity(currentVec, histVec);
+        const jaccardSim = this._jaccardSimilarity(currentObservedKeys, new Set(histKeys));
+        const hybridScore = Number((0.6 * cosineSim + 0.4 * jaccardSim).toFixed(4));
+
+        let prePostDelta = {};
+        try { prePostDelta = JSON.parse(row.pre_post_delta_json || '{}'); } catch (_) {}
+
+        scored.push({
+          incidentId: row.incident_id,
+          sessionId: row.session_id,
+          createdAt: row.created_at,
+          symptomType: row.symptom_type,
+          validatedRootCauseId: row.validated_root_cause_id,
+          remediationRecipeId: row.remediation_recipe_id,
+          remediationVerified: Boolean(row.remediation_verified),
+          similarityScore: hybridScore,
+          cosineSimilarity: cosineSim,
+          jaccardSimilarity: jaccardSim,
+          prePostDelta
+        });
+      }
+
+      scored.sort((a, b) => b.similarityScore - a.similarityScore);
+      return scored.slice(0, topK);
+    } catch (err) {
+      console.error('[BrainPersistenceRepository] Error finding similar historical incidents:', err.message);
+      return [];
+    }
+  }
+
+  _extract16DimFeatureVector(evidenceRecords = []) {
+    const CANONICAL_DIMS = [
+      'dnsFailure', 'tcpRstReceived', 'tcpSynTimeout', 'tlsAlert',
+      'gatewayUnreachable', 'arpIncomplete', 'apipaAddress', 'highCpu',
+      'highRam', 'diskQueueSaturated', 'spoolerStopped', 'packetRetransmissionHigh',
+      'mtuBlackhole', 'http5xx', 'loopbackFailure', 'pnpDeviceError'
+    ];
+
+    const vec = new Array(16).fill(0);
+    for (const ev of evidenceRecords) {
+      const k = String(ev.metricKey || '').toLowerCase();
+      const isBad = ev.outcome !== 'SUCCESS';
+
+      if (k.includes('dns') && isBad) vec[0] = 1;
+      if (k.includes('rst') || (k.includes('tcp') && ev.value === 'RST')) vec[1] = 1;
+      if (k.includes('timeout') || (k.includes('syn') && isBad)) vec[2] = 1;
+      if (k.includes('tls') && isBad) vec[3] = 1;
+      if (k.includes('gateway') && isBad) vec[4] = 1;
+      if (k.includes('arp') && isBad) vec[5] = 1;
+      if (k.includes('apipa') || (k.includes('ip') && String(ev.value).startsWith('169.254'))) vec[6] = 1;
+      if (k.includes('cpu') && (Number(ev.value) > 85)) vec[7] = 1;
+      if (k.includes('ram') && (Number(ev.value) > 90)) vec[8] = 1;
+      if (k.includes('disk') && isBad) vec[9] = 1;
+      if (k.includes('spooler') && isBad) vec[10] = 1;
+      if (k.includes('retrans') && (Number(ev.value) > 5)) vec[11] = 1;
+      if (k.includes('mtu') && isBad) vec[12] = 1;
+      if (k.includes('http') && (Number(ev.value) >= 500)) vec[13] = 1;
+      if (k.includes('loopback') && isBad) vec[14] = 1;
+      if (k.includes('pnp') && isBad) vec[15] = 1;
+    }
+    return vec;
+  }
+
+  _cosineSimilarity(vecA, vecB) {
+    if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length === 0 || vecB.length === 0) return 0;
+    const len = Math.min(vecA.length, vecB.length);
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < len; i++) {
+      dot += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return Number((dot / (Math.sqrt(normA) * Math.sqrt(normB))).toFixed(4));
+  }
+
+  _jaccardSimilarity(setA, setB) {
+    if (!setA || !setB) return 1.0;
+    const sA = setA instanceof Set ? setA : new Set(setA);
+    const sB = setB instanceof Set ? setB : new Set(setB);
+    if (sA.size === 0 && sB.size === 0) return 1.0;
+
+    let intersectionCount = 0;
+    for (const item of sA) {
+      if (sB.has(item)) intersectionCount++;
+    }
+    const unionCount = sA.size + sB.size - intersectionCount;
+    if (unionCount === 0) return 1.0;
+    return Number((intersectionCount / unionCount).toFixed(4));
   }
 
   /**

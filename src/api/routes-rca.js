@@ -641,6 +641,175 @@ router.post('/gitops/reconcile', authenticate, requirePermission('network.diagno
   }
 });
 
+/**
+ * POST /api/rca/investigations/start
+ * Starts a stateful Planner-Executor-Critic investigation session (EJII Phase 4)
+ */
+router.post('/investigations/start', async (req, res) => {
+  try {
+    const { investigationPlannerExecutorCritic } = require('../core/unified-investigation-engine');
+    const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+
+    const request = req.body || {};
+    const operatorRole = req.user?.role || request.operatorRole || 'OPERATOR';
+
+    const plan = investigationPlannerExecutorCritic.buildInvestigationPlan({
+      ...request,
+      operatorRole
+    });
+
+    // Execute investigation session
+    const session = await investigationPlannerExecutorCritic.executeInvestigationSession(plan.sessionId);
+
+    // Retrieve similar historical cases from CBR
+    let similarHistoricalIncidents = [];
+    if (brainPersistenceRepository && typeof brainPersistenceRepository.findSimilarHistoricalIncidents === 'function') {
+      try {
+        similarHistoricalIncidents = brainPersistenceRepository.findSimilarHistoricalIncidents(
+          session.symptomType,
+          session.evidenceLedger,
+          5
+        );
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      sessionId: session.sessionId,
+      state: session.state,
+      symptomType: session.symptomType,
+      topHypothesisId: session.topHypothesisId,
+      calibratedConfidence: session.calibratedConfidence,
+      criticPassed: session.criticPassed,
+      criticEvaluation: session.criticEvaluation,
+      steps: session.steps,
+      evidenceLedger: session.evidenceLedger,
+      hypothesisHistory: session.hypothesisHistory,
+      recommendedActions: session.recommendedActions,
+      similarHistoricalIncidents,
+      session
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: `Failed to start investigation: ${err.message}` });
+  }
+});
+
+/**
+ * GET /api/rca/investigations/:sessionId
+ * Returns the complete investigation state, step DAG progress, and evidence ledger
+ */
+router.get('/investigations/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { investigationPlannerExecutorCritic } = require('../core/unified-investigation-engine');
+    const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+
+    let session = investigationPlannerExecutorCritic.activeSessions.get(sessionId);
+    if (!session && brainPersistenceRepository && typeof brainPersistenceRepository.getInvestigationSession === 'function') {
+      session = brainPersistenceRepository.getInvestigationSession(sessionId);
+    }
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: `Investigation session ${sessionId} not found.` });
+    }
+
+    let similarHistoricalIncidents = [];
+    if (brainPersistenceRepository && typeof brainPersistenceRepository.findSimilarHistoricalIncidents === 'function') {
+      try {
+        similarHistoricalIncidents = brainPersistenceRepository.findSimilarHistoricalIncidents(
+          session.symptomType,
+          session.evidenceLedger || [],
+          5
+        );
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      sessionId: session.sessionId,
+      state: session.state,
+      symptomType: session.symptomType,
+      topHypothesisId: session.topHypothesisId,
+      calibratedConfidence: session.calibratedConfidence,
+      criticPassed: session.criticPassed,
+      criticEvaluation: session.criticEvaluation,
+      steps: session.steps,
+      evidenceLedger: session.evidenceLedger,
+      hypothesisHistory: session.hypothesisHistory,
+      recommendedActions: session.recommendedActions,
+      similarHistoricalIncidents,
+      session
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/investigations
+ * Returns recent investigation sessions
+ */
+router.get('/investigations', (req, res) => {
+  try {
+    const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
+    const limit = parseInt(req.query.limit || 25, 10);
+    const investigations = brainPersistenceRepository ? brainPersistenceRepository.listRecentInvestigations(limit) : [];
+    res.json({
+      success: true,
+      count: investigations.length,
+      investigations
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/investigations/:sessionId/cancel
+ * Cancels an active investigation session mid-flight
+ */
+router.post('/investigations/:sessionId/cancel', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { reason = 'Operator cancelled via API' } = req.body || {};
+    const { investigationPlannerExecutorCritic } = require('../core/unified-investigation-engine');
+
+    const session = investigationPlannerExecutorCritic.cancelInvestigationSession(sessionId, reason);
+    res.json({
+      success: true,
+      sessionId: session.sessionId,
+      state: session.state,
+      cancelled: session.cancelled,
+      cancellationReason: session.cancellationReason,
+      steps: session.steps
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/investigations/:sessionId/verify-remediation
+ * Executes closed-loop post-remediation verification
+ */
+router.post('/investigations/:sessionId/verify-remediation', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const remediationRecord = req.body || {};
+    const { investigationPlannerExecutorCritic } = require('../core/unified-investigation-engine');
+
+    const verification = await investigationPlannerExecutorCritic.verifyRemediationOutcome(sessionId, remediationRecord);
+    res.json({
+      success: true,
+      sessionId,
+      verificationOutcome: verification.verificationOutcome,
+      verification
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 

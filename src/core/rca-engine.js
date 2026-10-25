@@ -1061,6 +1061,111 @@ ${distinguishingTests.map((t, idx) => `[Probe ${idx + 1}] ${t.name} -> Target: $
       wireHexSample: wireFrames.length > 0 ? wireFrames[0] : '45 00 00 3c b4 2a 40 00 40 06 1a c8 0a a8 c3 21 0a 16 0c cc d4 31 01 bb 5e 81 7a 4b 00 00 00 00'
     };
   }
+
+  /**
+   * Multi-Metric Statistical Anomaly Identification Engine (EJII Phase 4)
+   * Detects anomalies over rolling authoritative telemetry using Welford running mean/variance,
+   * EWMA (alpha = 0.25), Z-score (|z| > 3.0), and IQR outlier fences.
+   * Strictly filters out provisional baselines and null measurements.
+   */
+  detectEvidenceBackedAnomalies(telemetryHistory = []) {
+    if (!Array.isArray(telemetryHistory) || telemetryHistory.length === 0) {
+      return { count: 0, anomalies: [] };
+    }
+
+    // Filter authoritative, non-provisional, numerical records
+    const validRecords = telemetryHistory.filter(r =>
+      r &&
+      !r.isProvisional &&
+      r.isAuthoritative !== false &&
+      r.value !== null &&
+      r.value !== undefined &&
+      typeof r.value === 'number' &&
+      !isNaN(r.value)
+    );
+
+    if (validRecords.length < 5) {
+      return { count: 0, anomalies: [], note: 'Insufficient authoritative historical samples (< 5)' };
+    }
+
+    // Group records by metricKey
+    const byMetric = new Map();
+    for (const r of validRecords) {
+      const k = r.metricKey || 'default_metric';
+      if (!byMetric.has(k)) byMetric.set(k, []);
+      byMetric.get(k).push(r);
+    }
+
+    const anomalies = [];
+
+    for (const [metricKey, records] of byMetric.entries()) {
+      if (records.length < 5) continue;
+
+      records.sort((a, b) => (a.timestampIso && b.timestampIso ? Date.parse(a.timestampIso) - Date.parse(b.timestampIso) : 0));
+
+      let count = 0;
+      let mean = 0;
+      let m2 = 0;
+      for (const r of records) {
+        count++;
+        const delta = r.value - mean;
+        mean += delta / count;
+        const delta2 = r.value - mean;
+        m2 += delta * delta2;
+      }
+      const variance = count > 1 ? m2 / (count - 1) : 0;
+      const stdDev = Math.sqrt(variance);
+
+      const alpha = 0.25;
+      let ewma = records[0].value;
+      for (let i = 1; i < records.length; i++) {
+        ewma = alpha * records[i].value + (1 - alpha) * ewma;
+      }
+
+      const sortedValues = records.map(r => r.value).sort((a, b) => a - b);
+      const q1 = sortedValues[Math.floor(sortedValues.length * 0.25)];
+      const q3 = sortedValues[Math.floor(sortedValues.length * 0.75)];
+      const iqr = q3 - q1;
+      const lowerFence = q1 - 1.5 * iqr;
+      const upperFence = q3 + 1.5 * iqr;
+
+      const latest = records[records.length - 1];
+      const zScore = stdDev > 0 ? (latest.value - mean) / stdDev : 0;
+      const absZ = Math.abs(zScore);
+      const isIqrOutlier = latest.value < lowerFence || latest.value > upperFence;
+
+      if (absZ >= 3.0 || (isIqrOutlier && absZ >= 2.5)) {
+        let severity = 'ANOMALY_MODERATE';
+        if (absZ > 5.0) {
+          severity = 'ANOMALY_EXTREME';
+        } else if (absZ > 3.5) {
+          severity = 'ANOMALY_SEVERE';
+        }
+
+        anomalies.push({
+          anomalyId: `ANOM-${Date.now()}-${metricKey.replace(/\./g, '_')}`,
+          metricKey,
+          evidenceId: latest.evidenceId || null,
+          collectorId: latest.collectorId || 'rca_anomaly_detector',
+          observedValue: latest.value,
+          unit: latest.unit || '',
+          baselineMean: Number(mean.toFixed(3)),
+          baselineStdDev: Number(stdDev.toFixed(3)),
+          ewma: Number(ewma.toFixed(3)),
+          zScore: Number(zScore.toFixed(3)),
+          iqrBounds: { q1, q3, iqr, lowerFence, upperFence },
+          severity,
+          timestampIso: latest.timestampIso || new Date().toISOString()
+        });
+      }
+    }
+
+    return {
+      count: anomalies.length,
+      anomalies,
+      analyzedAtIso: new Date().toISOString()
+    };
+  }
 }
 
 const defaultReasoningEngine = new DiagnosticReasoningEngine();
@@ -1158,5 +1263,6 @@ module.exports = {
   correlateAndReportIncident,
   resolveIncident,
   computeTopologicalGNNEmbeddings: (nodes, edges) => defaultReasoningEngine.computeTopologicalGNNEmbeddings(nodes, edges),
-  discoverDynamicCausalStructure: (series) => defaultReasoningEngine.discoverDynamicCausalStructure(series)
+  discoverDynamicCausalStructure: (series) => defaultReasoningEngine.discoverDynamicCausalStructure(series),
+  detectEvidenceBackedAnomalies: (history) => defaultReasoningEngine.detectEvidenceBackedAnomalies(history)
 };

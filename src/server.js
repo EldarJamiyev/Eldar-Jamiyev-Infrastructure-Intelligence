@@ -377,6 +377,17 @@ aiBrain.setBroadcastHandler((eventType, payload) => {
   });
 });
 
+// Initialize Investigation Planner-Executor-Critic broadcast handler (EJII Phase 4)
+try {
+  const { investigationPlannerExecutorCritic } = require('./core/unified-investigation-engine');
+  investigationPlannerExecutorCritic.subscribe((eventName, payload) => {
+    broadcast(eventName, {
+      ...payload,
+      timestamp: new Date().toISOString()
+    });
+  });
+} catch (_) {}
+
 // Initialize live packet streamer
 const { packetStreamer } = require('./network/packet-streaming/packet-streamer');
 

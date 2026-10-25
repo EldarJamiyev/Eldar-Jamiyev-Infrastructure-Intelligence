@@ -836,8 +836,157 @@ async function verifyMailEndpoint(targetHost, options = {}) {
   return report;
 }
 
+/**
+ * RFC-Grounded Failure Forensics (EJII Phase 4)
+ * Returns exact failure classifications across DNS, TCP, and TLS layers.
+ */
+function classifyProtocolFailure(error = {}, layer = 'L4') {
+  const errCode = String(error.code || error.failureCode || error.message || '').toUpperCase();
+  const errMsg = String(error.message || '').toLowerCase();
+
+  // DNS Layer (L7/L3 Name Resolution)
+  if (layer === 'L7_DNS' || layer === 'DNS' || errCode.includes('ENOTFOUND') || errCode.includes('DNS')) {
+    if (errCode.includes('ENOTFOUND') || errCode.includes('NXDOMAIN') || errMsg.includes('getaddrinfo enotfound')) {
+      return {
+        failureCode: 'NXDOMAIN',
+        rfcReference: 'RFC 1035 §4.1.1',
+        layer: 'L7_DNS',
+        exactReason: 'Non-Existent Domain: The authoritative name server returned RCODE 3 indicating the domain does not exist.',
+        isRetryable: false,
+        distinguishingEvidence: 'DNS RCODE=3 (NXDOMAIN) on authoritative lookup'
+      };
+    }
+    if (errCode.includes('SERVFAIL') || errMsg.includes('servfail')) {
+      return {
+        failureCode: 'SERVFAIL',
+        rfcReference: 'RFC 1035 §4.1.1 & RFC 4035 §5.5',
+        layer: 'L7_DNS',
+        exactReason: 'Server Failure: Upstream nameserver was unable to process this query due to authority delegation or DNSSEC validation failure.',
+        isRetryable: true,
+        distinguishingEvidence: 'DNS RCODE=2 (SERVFAIL)'
+      };
+    }
+    if (errCode.includes('REFUSED') || errMsg.includes('refused')) {
+      return {
+        failureCode: 'REFUSED',
+        rfcReference: 'RFC 1035 §4.1.1',
+        layer: 'L7_DNS',
+        exactReason: 'Query Refused: The name server refused to perform the specified operation for policy or recursive query ACL reasons.',
+        isRetryable: false,
+        distinguishingEvidence: 'DNS RCODE=5 (REFUSED)'
+      };
+    }
+    if (errCode.includes('TIMEOUT') || errMsg.includes('timeout') || errCode.includes('ETIMEDOUT')) {
+      return {
+        failureCode: 'UDP_53_TIMEOUT',
+        rfcReference: 'RFC 1035 §4.2.1',
+        layer: 'L7_DNS',
+        exactReason: 'UDP 53 Timeout: No response received from configured resolver within timeout budget (firewall drop or dead nameserver).',
+        isRetryable: true,
+        distinguishingEvidence: 'UDP Port 53 query unacknowledged'
+      };
+    }
+  }
+
+  // TLS Layer (L6 Presentation / Security)
+  if (layer === 'L6_TLS' || layer === 'TLS' || errCode.includes('TLS') || errCode.includes('CERT') || errMsg.includes('cert')) {
+    if (errCode.includes('CERT_HAS_EXPIRED') || errMsg.includes('expired')) {
+      return {
+        failureCode: 'CERT_HAS_EXPIRED',
+        rfcReference: 'RFC 5280 §4.1.2.5',
+        layer: 'L6_TLS',
+        exactReason: 'Certificate Validity Expired: The current system UTC time is past the notAfter validity date of the server X.509 certificate.',
+        isRetryable: false,
+        distinguishingEvidence: 'X.509 notAfter < Date.now()'
+      };
+    }
+    if (errCode.includes('ERR_TLS_CERT_ALTNAME_INVALID') || errMsg.includes('altname') || errMsg.includes('hostname')) {
+      return {
+        failureCode: 'ERR_TLS_CERT_ALTNAME_INVALID',
+        rfcReference: 'RFC 6125 §6.4.1',
+        layer: 'L6_TLS',
+        exactReason: 'Subject Alternative Name Mismatch: The requested hostname does not match any dNSName entry in the certificate SAN extension.',
+        isRetryable: false,
+        distinguishingEvidence: 'Target hostname absent from certificate SubjectAltNames'
+      };
+    }
+    if (errCode.includes('UNABLE_TO_VERIFY_LEAF_SIGNATURE') || errMsg.includes('unable to verify') || errMsg.includes('self signed')) {
+      return {
+        failureCode: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+        rfcReference: 'RFC 5280 §6.1',
+        layer: 'L6_TLS',
+        exactReason: 'Missing Intermediate CA: The peer certificate chain could not be verified up to a trusted local root certification authority.',
+        isRetryable: false,
+        distinguishingEvidence: 'X.509 certificate trust path verification failed'
+      };
+    }
+    if (errCode.includes('PROTOCOL_VERSION') || errMsg.includes('protocol version')) {
+      return {
+        failureCode: 'TLSV1_ALERT_PROTOCOL_VERSION',
+        rfcReference: 'RFC 8446 §D.4',
+        layer: 'L6_TLS',
+        exactReason: 'TLS Protocol Version Alert: The server rejects the negotiated TLS client hello protocol version.',
+        isRetryable: false,
+        distinguishingEvidence: 'TLS alert 70 (protocol_version)'
+      };
+    }
+  }
+
+  // TCP Layer (L4 Transport)
+  if (errCode.includes('ECONNREFUSED') || errMsg.includes('refused')) {
+    return {
+      failureCode: 'ECONNREFUSED',
+      rfcReference: 'RFC 793 §3.4',
+      layer: 'L4_TRANSPORT',
+      exactReason: 'Connection Refused: Target host is reachable and active on IP underlay, but emitted TCP RST,ACK because no listening daemon is bound to port.',
+      isRetryable: true,
+      distinguishingEvidence: 'Kernel TCP RST segment received in response to initial SYN'
+    };
+  }
+  if (errCode.includes('ETIMEDOUT') || errMsg.includes('timeout')) {
+    return {
+      failureCode: 'ETIMEDOUT',
+      rfcReference: 'RFC 1122 §4.2.3.5',
+      layer: 'L4_TRANSPORT',
+      exactReason: 'Connection Timed Out: Outbound TCP SYN packets elicited zero response; dropped silently by an intermediate stateful firewall or routing black hole.',
+      isRetryable: true,
+      distinguishingEvidence: 'Zero packets returned after retransmitted TCP SYNs'
+    };
+  }
+  if (errCode.includes('EHOSTUNREACH') || errCode.includes('ENETUNREACH') || errMsg.includes('unreachable')) {
+    return {
+      failureCode: 'EHOSTUNREACH',
+      rfcReference: 'RFC 792 (ICMP Type 3 Code 0/1)',
+      layer: 'L4_TRANSPORT',
+      exactReason: 'Host or Network Unreachable: Intermediate router returned ICMP Destination Unreachable message indicating no routing path to destination.',
+      isRetryable: false,
+      distinguishingEvidence: 'ICMP Type 3 received from upstream transit gateway'
+    };
+  }
+  if (errCode.includes('ZERO_WINDOW') || errMsg.includes('zero window')) {
+    return {
+      failureCode: 'TCP_ZERO_WINDOW',
+      rfcReference: 'RFC 793 §3.7',
+      layer: 'L4_TRANSPORT',
+      exactReason: 'TCP Zero Window Starvation: Receiver advertised an receive window of 0 bytes, freezing stream transmission.',
+      isRetryable: true,
+      distinguishingEvidence: 'TCP header window_size == 0'
+    };
+  }
+
+  return {
+    failureCode: errCode || 'GENERIC_PROTOCOL_ERROR',
+    rfcReference: 'RFC 1122',
+    layer,
+    exactReason: error.message || 'Unspecified protocol communication failure',
+    isRetryable: true,
+    distinguishingEvidence: `Error code: ${errCode}`
+  };
+}
+
 module.exports = {
   verifyWebEndpoint,
   verifyMailEndpoint,
-  isPrivateIp
+  isPrivateIp,
+  classifyProtocolFailure
 };

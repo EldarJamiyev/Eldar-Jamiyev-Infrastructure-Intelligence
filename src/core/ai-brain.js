@@ -1071,6 +1071,61 @@ class AIBrain {
   }
 
   /**
+   * Closed-loop verification outcome recorder (EJII Phase 4).
+   * Calibrates hypothesis priors and updates persistent CBR memory when a remediation
+   * is verified resolved.
+   */
+  async recordValidatedIncidentOutcome({
+    sessionId,
+    rootCauseId,
+    remediationRecipeId = 'GENERIC_REMEDIATION',
+    verifiedOutcome = 'VERIFIED_RESOLVED'
+  } = {}) {
+    if (!rootCauseId) return null;
+    const isResolved = verifiedOutcome === 'VERIFIED_RESOLVED';
+    const incidentType = 'NETWORK_CONNECTIVITY_INCIDENT';
+
+    if (!this.hypothesisCalibration[incidentType]) {
+      this.hypothesisCalibration[incidentType] = {};
+    }
+
+    const prevMultiplier = Number(this.hypothesisCalibration[incidentType][rootCauseId]) || 1.0;
+    const delta = isResolved ? 0.15 : -0.10;
+    const newMultiplier = Math.max(0.1, Math.min(3.0, Number((prevMultiplier + delta).toFixed(3))));
+    this.hypothesisCalibration[incidentType][rootCauseId] = newMultiplier;
+
+    this._saveMemory();
+
+    try {
+      if (brainPersistenceRepository && typeof brainPersistenceRepository.saveCalibration === 'function') {
+        brainPersistenceRepository.saveCalibration(incidentType, rootCauseId, newMultiplier, {
+          sessionId,
+          remediationRecipeId,
+          verifiedOutcome,
+          recordedAt: new Date().toISOString()
+        });
+      }
+    } catch (_) {}
+
+    return {
+      rootCauseId,
+      remediationRecipeId,
+      verifiedOutcome,
+      previousWeight: prevMultiplier,
+      newWeight: newMultiplier,
+      calibratedAtIso: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Delegates remediation verification directly to the Planner-Executor-Critic runtime.
+   */
+  async verifyRemediationOutcome(sessionId, remediationRecord = {}) {
+    const { investigationPlannerExecutorCritic } = require('./unified-investigation-engine');
+    return investigationPlannerExecutorCritic.verifyRemediationOutcome(sessionId, remediationRecord);
+  }
+
+  /**
    * Ingest a live wire frame from Npcap packet streamer or socket telemetry.
    */
   ingestWireFrame(frame) {

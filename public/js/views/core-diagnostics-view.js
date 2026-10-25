@@ -716,6 +716,7 @@
             <div style="font-weight: 700; color: var(--success); font-size: 13px;">No Host Anomalies Detected</div>
             <div style="font-size: 11px; margin-top: 4px;">All hardware subsystems, OS pools, and network stacks are operating within nominal thresholds.</div>
           </div>
+          <div id="evidenceBackedAnomaliesContainer"></div>
         `;
       } else {
         diagFeed.innerHTML = anomalies.map(a => `
@@ -735,8 +736,40 @@
               </div>
             ` : ''}
           </div>
-        `).join('');
+        `).join('') + '<div id="evidenceBackedAnomaliesContainer"></div>';
       }
+      fetchEvidenceBackedAnomalies();
+    }
+
+    async function fetchEvidenceBackedAnomalies() {
+      try {
+        const container = document.getElementById('evidenceBackedAnomaliesContainer');
+        if (!container) return;
+        const res = await window.api('/api/diagnostics/anomalies');
+        if (!res || !Array.isArray(res.anomalies) || res.anomalies.length === 0) {
+          container.innerHTML = '';
+          return;
+        }
+
+        container.innerHTML = `
+          <div style="margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+            <div style="font-size: 10px; font-weight: 800; color: #F59E0B; font-family: var(--font-mono); margin-bottom: 6px;">
+              ⚡ STATISTICAL TIME-SERIES ANOMALIES (WELFORD / EWMA / IQR): ${res.anomalies.length} Active
+            </div>
+            ${res.anomalies.map(a => `
+              <div style="background: rgba(0,0,0,0.3); border-left: 3px solid ${a.severity === 'ANOMALY_EXTREME' ? '#EF4444' : '#F59E0B'}; border-radius: 3px; padding: 6px 8px; margin-bottom: 6px; font-family: var(--font-mono); font-size: 9.5px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <strong style="color: #F8FAFC;">${a.metricKey}</strong>
+                  <span style="color: ${a.severity === 'ANOMALY_EXTREME' ? '#EF4444' : '#F59E0B'}; font-weight: 700;">Z: ${a.zScore} (${a.severity})</span>
+                </div>
+                <div style="color: #94A3B8; font-size: 8.5px; margin-top: 2px;">
+                  Observed: <strong style="color: #E2E8F0;">${a.observedValue} ${a.unit}</strong> | Mean: ${a.baselineMean} | StdDev: ${a.baselineStdDev} | EWMA: ${a.ewma}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch (_) {}
     }
 
     // AI Brain Synthesis Card

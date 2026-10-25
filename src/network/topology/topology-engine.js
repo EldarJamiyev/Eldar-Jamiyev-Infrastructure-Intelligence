@@ -800,6 +800,17 @@ class TopologyEngine {
 
     return { ip: targetIp, inferredOs, osFamily, ttl };
   }
+
+  /**
+   * Builds the live Process-to-Endpoint Service Dependency Graph (EJII Phase 4)
+   */
+  async buildProcessServiceDependencyGraph(options = {}) {
+    const { processSocketCorrelator } = require('../process-socket-correlator');
+    const netInfo = getPhysicalNetworkInfo();
+    const arpTable = await getArpTable();
+    const routingTable = (netInfo && netInfo.routes) ? netInfo.routes : [{ destination: '0.0.0.0', gateway: netInfo.defaultGateway || '192.168.31.1' }];
+    return processSocketCorrelator.buildProcessServiceDependencyGraph(options.activeSockets, arpTable, routingTable, options.dnsCache);
+  }
 }
 
 const defaultEngine = new TopologyEngine();
