@@ -67,6 +67,7 @@ const { runSignalTriageAndOrchestratorTests } = require('./signal-triage-endpoin
 const { runVisualRuntimeTruthAndSignalHygieneTests } = require('./visual-runtime-truth-and-signal-hygiene.test');
 const { runZeroPhantomGovTrafficAndDeepBackendTests } = require('./zero-phantom-gov-traffic-and-deep-backend.test');
 const { runUnifiedInvestigationRagAndMultiModelTests } = require('./unified-investigation-rag-and-multimodel.test');
+const { runInvestigationIntegrityTests } = require('./investigation-integrity.test');
 const { runLiveDomVisualTruthRegressionTests } = require('./live-dom-visual-truth-regression.test');
 const { runZeroZombieDebtAndEnterpriseUpgradeTests } = require('./zero-zombie-debt-sqlite-brain-and-ui-restraint.test');
 const { runAutomationScriptAudit } = require('./audit-all-automation-scripts');
@@ -153,7 +154,10 @@ async function runAllTests() {
     { name: '36. Signal Triage, Process-to-Server Port Finder, Vectorized Bayesian Matrix & Multi-Model AI Brain Orchestrator', fn: runSignalTriageAndOrchestratorTests },
     { name: '37. Visual Runtime Truth, Signal Hygiene, RFC 1122 Keep-Alives & Dynamic Labels', fn: runVisualRuntimeTruthAndSignalHygieneTests },
     { name: '38. Zero Phantom Gov Traffic, RFC 1122 Keep-Alive Disambiguation & Deep 5-Section Backend Suite', fn: runZeroPhantomGovTrafficAndDeepBackendTests },
-    { name: '39. Unified Guided Investigation, RAG Infrastructure Knowledge Engine & Multi-Model Second-Opinion Verification', fn: runUnifiedInvestigationRagAndMultiModelTests },
+    { name: '39. Unified Guided Investigation, RAG Infrastructure Knowledge Engine & Multi-Model Second-Opinion Verification', fn: async () => {
+      await runInvestigationIntegrityTests();
+      await runUnifiedInvestigationRagAndMultiModelTests();
+    } },
     { name: '40. Live DOM Visual Truth, 3-Tier IP Scanner Ordering, Multi-Core CPU% Normalization & Signal Hygiene Regression', fn: runLiveDomVisualTruthRegressionTests },
     { name: '41. Zero Zombie Debt, SQLite WAL Brain Persistence, 17-Tool Sandbox & UI Restraint Audit', fn: runZeroZombieDebtAndEnterpriseUpgradeTests },
     { name: '42. Real Host Automation Script Audit & Process Tree Safety Matrix (27 Scripts)', fn: runAutomationScriptAudit },
