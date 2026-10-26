@@ -1174,7 +1174,7 @@
           <div>
             <div style="font-size: 18px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
               <span>🔍</span> Core Diagnostics &amp; Autonomous Remediation
-              <span style="font-size: 10px; background: #EFF6FF; color: var(--accent-primary); border: 1px solid #BFDBFE; padding: 2px 6px; border-radius: 4px; font-weight: 700;">SYSINTERNALS GRADE</span>
+              <span style="font-size: 10px; background: #EFF6FF; color: var(--accent-primary); border: 1px solid #BFDBFE; padding: 2px 8px; border-radius: 4px; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center;">SYSINTERNALS GRADE</span>
             </div>
             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
               Real Windows Hardware Ingestion &bull; 4-Pillar Health Triage &bull; Audited Remediation Recipes &bull; Zero Simulation
@@ -1554,7 +1554,16 @@
       </div>
     `;
 
-    // Initial data load from warm snapshot (0ms latency)
+    // Immediate data load from warm snapshot & real diagnosis APIs
+    (async () => {
+      try {
+        const audit = await fetchHostAudit(false);
+        if (audit) {
+          hostAuditData = audit;
+          updateUI();
+        }
+      } catch (e) {}
+    })();
     await window.runDeepSystemAudit(false);
 
     // Auto-refresh every 12 seconds

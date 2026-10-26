@@ -33,15 +33,17 @@
           <div class="card" style="margin: 0; padding: 12px 18px; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm); flex-shrink: 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="width: 32px; height: 32px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 16px;">⚡</div>
+                <div style="width: 32px; height: 32px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                </div>
                 <div>
                   <div class="card-title" style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);">
-                    Automation of Local PC Settings (BAT Files @ e:\\Scripts)
+                    Host Automation &amp; Audited Remediation Library
                   </div>
                   <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); margin-top: 2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <span>📁 Mount: <code>${data?.mountMetadata?.activeDir || data?.directory || 'data/scripts_mount/Scripts'}</code></span>
+                    <span>📁 Directory: <code>${data?.mountMetadata?.activeDir || data?.directory || 'data/scripts_mount/Scripts'}</code></span>
                     <span>&bull;</span>
-                    <span>Mode: <code>${data?.mountMetadata?.mountMode || 'VIRTUAL_MOUNT_FALLBACK'}</code></span>
+                    <span style="background: var(--bg-surface-subtle); border: 1px solid var(--border-default); padding: 1px 6px; border-radius: 4px; font-size: 10px;">${data?.mountMetadata?.mountMode || 'Local Repository Mount'}</span>
                     <span>&bull;</span>
                     <span>Verified Scripts: <strong>${data?.mountMetadata?.scriptCount || discoveredScripts.length}</strong></span>
                   </div>
@@ -129,7 +131,7 @@
               </div>
 
               <!-- Terminal Body Output -->
-              <div id="terminalOutput" style="flex: 1; padding: 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; color: #F8FAFC; overflow-y: auto; scrollbar-gutter: stable; user-select: text; white-space: pre-wrap; word-break: break-all;">
+              <div id="terminalOutput" style="flex: 1; padding: 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; color: #F8FAFC; overflow-y: auto; scrollbar-gutter: stable; user-select: text; white-space: pre-wrap; word-break: normal; overflow-wrap: break-word;">
 <span style="color: #64748B;">// EJII Host PC Automation Console ready.
 // Select any script on the left and click [▶ Run] to execute directly against the host OS.
 // All stdout, stderr, exit codes, and execution latency will stream here in real-time.</span>
@@ -149,7 +151,7 @@
               <button class="btn-logout" onclick="window.closeScriptModal()">✕</button>
             </div>
             <div style="padding: 16px 0;">
-              <pre id="modalScriptContent" style="background: #060911; border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; font-family: var(--font-mono); font-size: 11.5px; color: #E2E8F0; overflow-x: auto; max-height: 50vh; white-space: pre-wrap; word-break: break-all;"></pre>
+              <pre id="modalScriptContent" style="background: #060911; border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; font-family: var(--font-mono); font-size: 11.5px; color: #E2E8F0; overflow-x: auto; max-height: 50vh; white-space: pre-wrap; word-break: normal; overflow-wrap: break-word;"></pre>
             </div>
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 10px;">
               <button class="btn btn-secondary" onclick="window.closeScriptModal()">Close</button>

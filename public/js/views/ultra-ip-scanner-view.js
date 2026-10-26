@@ -188,15 +188,15 @@
               <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                 <thead>
                   <tr>
-                    <th class="col-nowrap" style="width: 110px; min-width: 110px; white-space: nowrap; text-align: center;">Status</th>
-                    <th style="min-width: 170px;">Device / NetBIOS Hostname</th>
-                    <th class="col-ip" style="min-width: 125px; white-space: nowrap;">IPv4 Address</th>
-                    <th class="col-nowrap" style="min-width: 135px; white-space: nowrap;">MAC Address</th>
-                    <th style="min-width: 160px;">Hardware Manufacturer</th>
-                    <th class="col-nowrap" style="min-width: 130px; white-space: nowrap;">Category</th>
-                    <th style="min-width: 170px;">Open Services &amp; Connect</th>
-                    <th class="col-nowrap" style="width: 80px; min-width: 80px; white-space: nowrap;">RTT</th>
-                    <th class="col-nowrap" style="min-width: 200px; white-space: nowrap;">NOC Operations</th>
+                    <th class="col-nowrap" style="width: 100px; min-width: 100px; white-space: nowrap; text-align: center;">STATUS</th>
+                    <th style="min-width: 160px; white-space: nowrap;">HOSTNAME / NETBIOS</th>
+                    <th class="col-ip" style="min-width: 120px; white-space: nowrap;">IPV4 ADDRESS</th>
+                    <th class="col-nowrap" style="min-width: 130px; white-space: nowrap;">MAC ADDRESS</th>
+                    <th style="min-width: 150px; white-space: nowrap;">HARDWARE VENDOR</th>
+                    <th class="col-nowrap" style="min-width: 120px; white-space: nowrap;">CATEGORY</th>
+                    <th style="min-width: 160px; white-space: nowrap;">OPEN PORTS &amp; SERVICES</th>
+                    <th class="col-nowrap" style="width: 75px; min-width: 75px; white-space: nowrap;">RTT</th>
+                    <th class="col-nowrap" style="min-width: 180px; white-space: nowrap;">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody id="scannerFleetTableBody">
@@ -280,6 +280,11 @@
     if (elPhones) elPhones.textContent = phones;
     if (elRouters) elRouters.textContent = routers;
     if (elApipa) elApipa.textContent = apipa;
+
+    const countAll = document.getElementById('chipCountAll');
+    const countOnline = document.getElementById('chipCountOnline');
+    if (countAll) countAll.textContent = total;
+    if (countOnline) countOnline.textContent = list.filter(h => h.status === 'ONLINE' || h.status === 'RECENTLY_SEEN' || h.status === 'CACHED_ARP' || !h.status || h.status === 'ACTIVE').length;
   }
   window.updateEquipmentKpis = updateEquipmentKpis;
 

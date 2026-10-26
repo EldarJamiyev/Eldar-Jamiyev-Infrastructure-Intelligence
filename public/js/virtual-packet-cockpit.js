@@ -218,13 +218,13 @@
 
       return `
         <tr class="${escapeAttr(protoClass)}" onclick="window.inspectPacketFrame ? window.inspectPacketFrame(${escapeAttr(frameNo)}) : null" data-frame-no="${escapeAttr(frameNo)}" style="cursor: pointer;">
-          <td class="col-num" style="min-width: 75px; width: 75px; color: var(--text-dim); font-weight: 700; white-space: nowrap;">#${escapeHtml(frameNo)}</td>
-          <td class="col-time" style="min-width: 95px; width: 105px; color: var(--text-dim); white-space: nowrap;">${escapeHtml(timeStr)}</td>
+          <td class="col-num" style="min-width: 75px; width: 75px; color: #475569; font-weight: 700; white-space: nowrap;">#${escapeHtml(frameNo)}</td>
+          <td class="col-time" style="min-width: 95px; width: 105px; color: #475569; font-weight: 600; white-space: nowrap;">${escapeHtml(timeStr)}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${escapeHtml(srcDisplay)}</span></td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${escapeHtml(dstDisplay)}</span></td>
           <td style="min-width: 140px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 600;" title="${escapeAttr(hostDisplay)}">${escapeHtml(hostDisplay)}</td>
           <td class="col-proto" style="min-width: 65px; width: 65px; white-space: nowrap;"><span style="font-weight: 700; color: #38bdf8;">${escapeHtml(proto)}</span></td>
-          <td class="col-len" style="min-width: 65px; width: 65px; color: var(--text-dim); white-space: nowrap;">${escapeHtml(lenVal)} B</td>
+          <td class="col-len" style="min-width: 65px; width: 65px; color: #475569; font-weight: 600; white-space: nowrap;">${escapeHtml(lenVal)} B</td>
           <td class="col-delta" style="min-width: 110px; width: 110px; white-space: nowrap;">${escapeHtml(deltaStr)}</td>
           <td style="min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             <span>${escapeHtml(summaryStr)}</span>

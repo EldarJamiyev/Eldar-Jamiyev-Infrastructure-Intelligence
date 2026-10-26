@@ -1295,3 +1295,29 @@ svg path#dynamicFlowRoutePath {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
+
+/* Group 3 Visual Remediation */
+.ai-brain-meta {
+  flex-wrap: wrap !important;
+  gap: 12px 20px !important;
+}
+.ai-brain-meta-item {
+  white-space: nowrap !important;
+}
+.data-table .col-num, .data-table .col-time, .data-table .col-len, .data-table .col-delta {
+  color: #475569 !important;
+  font-weight: 600 !important;
+}
+
+#juniorAdminModal {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(15, 23, 42, 0.55) !important;
+  backdrop-filter: blur(6px) !important;
+  z-index: 9999 !important;
+  display: none;
+  align-items: center !important;
+  justify-content: center !important;
+}

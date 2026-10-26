@@ -158,6 +158,48 @@ export async function runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion(): Promise<v
     'eji-premium.css must enforce fill: none !important for all topology SVG paths'
   );
 
+    // 6. 18-Point Visual & Functional UI Remediation Verification
+  console.log('[80.6] Verifying 18-point visual and functional UI remediation across 7 groups...');
+  const meridianCss = fs.readFileSync(path.join(rootDir, 'public', 'css', 'ejii-meridian.css'), 'utf-8');
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf-8');
+  const appJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'app.js'), 'utf-8');
+  const aiBrainDrawerJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'components', 'ai-brain-drawer.js'), 'utf-8');
+  const pcAutoView = fs.readFileSync(path.join(viewsDir, 'pc-automation-view.js'), 'utf-8');
+  const juniorAdminJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'components', 'junior-admin-guide.js'), 'utf-8');
+
+  // Group 1: Login Screen layout & immediate defaults
+  assert.ok(meridianCss.includes('justify-content: flex-start !important;'), 'Login card must use justify-content: flex-start to prevent top clipping');
+  assert.ok(meridianCss.includes('padding: 10px 14px 10px 42px !important;'), 'Login input must enforce left padding for icons');
+  assert.ok(indexHtml.includes('LOCAL-WORKSTATION') && indexHtml.includes('192.168.31.1'), 'Login telemetry must provide immediate default values');
+  assert.ok(appJs.includes('LOCAL-WORKSTATION'), 'app.js loadLoginTelemetry must provide immediate default fallback');
+
+  // Group 2: Topology Map toolbar and node title clipping
+  assert.ok(nocView.includes('nocSpectralHealthPill') && nocView.includes('white-space: nowrap !important;'), 'noc-view.js must enforce white-space: nowrap on spectral pill');
+  assert.ok(nocView.includes('titleClip-${n.id}') && nocView.includes('clip-path'), 'noc-view.js must clip node title to prevent collision with role badge');
+  assert.ok(nocView.includes('colStartY = 56;'), 'noc-view.js must start cards 24px below headers without empty gap');
+
+  // Group 3: AI Brain Drawer light styling & sniffer table
+  assert.ok(aiBrainDrawerJs.includes('rawProof.clause || rawProof.formula || rawProof.description'), 'ai-brain-drawer.js must format proof objects to prevent Rule: [object Object]');
+  assert.ok(aiBrainDrawerJs.includes('#F0FDF4') && aiBrainDrawerJs.includes('#FFF1F2'), 'ai-brain-drawer.js must render light executive cards');
+  assert.ok(premiumCss.includes('.ai-brain-meta') && premiumCss.includes('flex-wrap: wrap !important;'), 'eji-premium.css must allow ai-brain-meta to wrap cleanly');
+  assert.ok(nocView.includes('hostDisplay = `<div style="display: flex; align-items: center; gap: 4px;'), 'noc-view.js must wrap hostDisplay in flex container to prevent mint-green square clipping');
+
+  // Group 4: Ultra IP Scanner headers and KPI synchronization
+  assert.ok(ipScannerView.includes('HOSTNAME / NETBIOS') && ipScannerView.includes('OPEN PORTS &amp; SERVICES'), 'ultra-ip-scanner-view.js must use clean non-clipping headers');
+  assert.ok(ipScannerView.includes('countAll.textContent = total;'), 'ultra-ip-scanner-view.js must synchronize chip counts with KPI total');
+
+  // Group 5: PC Automation terminal word wrap and header title
+  assert.ok(pcAutoView.includes('Host Automation &amp; Audited Remediation Library'), 'pc-automation-view.js must use executive title without fake e:\\Scripts');
+  assert.ok(pcAutoView.includes('overflow-wrap: break-word') && !pcAutoView.includes('word-break: break-all'), 'pc-automation-view.js must not break words in half');
+
+  // Group 6: Core Diagnostics SYSINTERNALS GRADE and instant fetch
+  assert.ok(diagView.includes('SYSINTERNALS GRADE') && diagView.includes('white-space: nowrap;'), 'core-diagnostics-view.js must format SYSINTERNALS GRADE as compact pill');
+  assert.ok(diagView.includes('fetchHostAudit(false)'), 'core-diagnostics-view.js must immediately fetch host audit on mount');
+
+  // Group 7: Junior-Admin Field Manual full viewport overlay
+  assert.ok(juniorAdminJs.includes('position: fixed !important; inset: 0 !important;') && juniorAdminJs.includes('backdrop-filter: blur(6px) !important;'), 'junior-admin-guide.js must create full viewport modal overlay');
+  assert.ok(premiumCss.includes('#juniorAdminModal') && premiumCss.includes('position: fixed !important;'), 'eji-premium.css must style #juniorAdminModal as centered fixed overlay');
+
   console.log('✓ Suite 80 passed: Executive Luxury UI, Topology Graph Truth & 80-Suite Cohesion 100% verified.\n');
 }
 

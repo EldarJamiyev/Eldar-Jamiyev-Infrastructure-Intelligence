@@ -126,53 +126,64 @@ window.escapeAttr = escapeAttr;
 
           <!-- UPPER PANE: NOC NETWORK TOPOLOGY & DEPENDENCY GRAPH -->
           <div class="noc-pane-upper card" style="margin: 0; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface);">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="width: 28px; height: 28px; border-radius: 6px; background: #F1F5F9; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                </div>
-                <div>
-                  <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary);">Pillar 1: NOC Network Topology &amp; Dependency Graph</div>
-                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-sans); margin-top: 1px;">
-                    Hierarchical Fabric: Upstream WAN ➔ Edge Gateway ➔ Core Backbone ➔ Enterprise Services ➔ Access LAN ➔ Workstation
+            <div class="card-header" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface);">
+              <!-- Tier 1: Title, Subtitle, and Primary Actions -->
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="width: 28px; height: 28px; border-radius: 6px; background: #F1F5F9; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                   </div>
+                  <div>
+                    <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary);">Pillar 1: NOC Network Topology &amp; Dependency Graph</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-sans); margin-top: 1px;">
+                      Hierarchical Fabric: Upstream WAN ➔ Edge Gateway ➔ Core Backbone ➔ Enterprise Services ➔ Access LAN ➔ Workstation
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 12px; font-weight: 600; border-radius: 6px; white-space: nowrap;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Discover Network
+                  </button>
+                  <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
+                  <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
                 </div>
               </div>
 
-              <!-- Topology Controls -->
-              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;">
-                <!-- Spectral Graph Health Pill -->
-                <div id="nocSpectralHealthPill" style="display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-subtle); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px;">
-                  <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="nocSpectralLambda2Val">${(topologyData.algebraicConnectivityLambda2 !== undefined ? Number(topologyData.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
-                  <span style="color: var(--border-default);">|</span>
-                  <span id="nocSpectralRiskBadge" style="color: ${topologyData.partitionRiskLevel === 'NOMINAL' ? '#059669' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? '#D97706' : '#DC2626')}; font-weight: 700;">${topologyData.partitionRiskLevel === 'NOMINAL' ? 'Healthy Mesh' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? 'Single-Bridge Topology' : 'Partition Risk')}</span>
-                  <span style="color: var(--border-default);">|</span>
-                  <span style="color: var(--text-secondary);">Cut Edges: <strong id="nocSpectralCutVal">${Array.isArray(topologyData.criticalCutEdges) ? topologyData.criticalCutEdges.length : 0}</strong></span>
+              <!-- Tier 2: Health Spectral Pill and Inspection Toolbar -->
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                  <!-- Spectral Graph Health Pill -->
+                  <div id="nocSpectralHealthPill" style="white-space: nowrap !important; display: inline-flex !important; align-items: center !important; gap: 6px; background: var(--bg-surface-subtle); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0;">
+                    <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="nocSpectralLambda2Val">${(topologyData.algebraicConnectivityLambda2 !== undefined ? Number(topologyData.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
+                    <span style="color: var(--border-default);">|</span>
+                    <span id="nocSpectralRiskBadge" style="color: ${topologyData.partitionRiskLevel === 'NOMINAL' ? '#059669' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? '#D97706' : '#DC2626')}; font-weight: 700;">${topologyData.partitionRiskLevel === 'NOMINAL' ? 'Healthy Mesh' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? 'Single-Bridge Topology' : 'Partition Risk')}</span>
+                    <span style="color: var(--border-default);">|</span>
+                    <span style="color: var(--text-secondary);">Cut Edges: <strong id="nocSpectralCutVal">${Array.isArray(topologyData.criticalCutEdges) ? topologyData.criticalCutEdges.length : 0}</strong></span>
+                  </div>
+
+                  <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                    <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">Topology Map</button>
+                    <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topologyData.nodes.length})</button>
+                  </div>
                 </div>
 
-                <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">Topology Map</button>
-                  <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topologyData.nodes.length})</button>
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                  <button id="topoFleetToggleBtn" class="btn ${topoFleetExpanded ? 'btn-primary' : 'btn-secondary'}" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>${topoFleetExpanded ? 'Focus Infrastructure' : 'Expand Fleet (' + (topologyData.nodes.length) + ')'}
+                  </button>
+                  <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                    <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom In">+</button>
+                    <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom Out">−</button>
+                    <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
+                  </div>
+                  <button class="btn btn-secondary" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Sync Subnet
+                  </button>
+                  <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
+                  </button>
                 </div>
-                <button id="topoFleetToggleBtn" class="btn ${topoFleetExpanded ? 'btn-primary' : 'btn-secondary'}" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>${topoFleetExpanded ? 'Focus Infrastructure' : 'Expand Fleet (' + (topologyData.nodes.length) + ')'}
-                </button>
-                <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom In">+</button>
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom Out">−</button>
-                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
-                </div>
-                <button class="btn btn-secondary" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Sync Subnet
-                </button>
-                <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
-                </button>
-                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Discover Network
-                </button>
-                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
-                <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
               </div>
             </div>
 
@@ -501,7 +512,7 @@ window.escapeAttr = escapeAttr;
     }
 
     const canvasWidth = startX + 6 * (colWidth + colGap);
-    const canvasHeight = Math.max(480, 56 + maxNodesInCol * cardH + Math.max(0, maxNodesInCol - 1) * cardGapY + 36);
+    const canvasHeight = Math.max(420, 56 + maxNodesInCol * cardH + Math.max(0, maxNodesInCol - 1) * cardGapY + 24);
 
     // Position each node card - Vertically Centered per Column
     const renderedNodes = [];
@@ -510,7 +521,7 @@ window.escapeAttr = escapeAttr;
       const colX = startX + colIdx * (colWidth + colGap);
       const cardX = colX + (colWidth - cardW) / 2;
       const colTotalSpan = bucket.length * cardH + Math.max(0, bucket.length - 1) * cardGapY;
-      const colStartY = Math.max(54, Math.round((canvasHeight - colTotalSpan) / 2));
+      const colStartY = 56;
 
       bucket.forEach((node, rowIdx) => {
         const cardY = colStartY + rowIdx * (cardH + cardGapY);
@@ -638,6 +649,7 @@ window.escapeAttr = escapeAttr;
 
       // Clean titleName: strip redundant parenthetical IP to prevent card boundary clipping
       let titleName = (n.name || 'Device').replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?\s*\)\s*$/, '').trim();
+      let cleanTitle = titleName;
       let vendorStr = n.vendor || 'Discovered Host';
       if (vendorStr.includes('I219-LM')) {
         vendorStr = 'Intel(R) Wi-Fi 6E AX211 160MHz / Windows Workstation';
@@ -670,7 +682,8 @@ window.escapeAttr = escapeAttr;
           <rect width="${item.width}" height="${item.height}" rx="6" fill="#FFFFFF" stroke="${isCluster ? '#0D7A5F' : (n.status === 'healthy' ? '#E2E8F0' : '#E11D48')}" stroke-width="${isCluster ? '1.75' : '1.25'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
           <rect x="0" y="0" width="3.5" height="${item.height}" rx="2" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
           <circle cx="16" cy="18" r="4" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
-          <text x="26" y="21" font-size="11" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#0F172A" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
+          <clipPath id="titleClip-${n.id}"><rect x="24" y="6" width="${Math.max(80, item.width - roleBadgeW - 36)}" height="20"/></clipPath>
+          <text x="26" y="21" clip-path="url(#titleClip-${n.id})" font-size="11" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#0F172A" style="filter: none; text-shadow: none;">${escapeHtml(cleanTitle)}</text>
           
           <rect x="${item.width - roleBadgeW - 10}" y="10" width="${roleBadgeW}" height="15" rx="3" fill="#F1F5F9" stroke="#E2E8F0"/>
           <text x="${item.width - 10 - roleBadgeW / 2}" y="20.5" font-size="8" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#475569" text-anchor="middle" style="filter: none; text-shadow: none;">${roleBadgeText}</text>
@@ -1243,7 +1256,7 @@ window.escapeAttr = escapeAttr;
       }
 
       let rawHost = f.urlResolution?.hostnameOrUrl || f.urlIntelligence?.value || '';
-      let hostDisplay = '<span style="color: var(--text-dim);">—</span>';
+      let hostDisplay = '<span style="color: #64748B;">—</span>';
       let hostTitle = '';
 
       if (rawHost && !rawHost.includes('in-addr.arpa') && !rawHost.endsWith('.arpa') && !rawHost.match(/^\d+\.\d+\.\d+\.\d+(:\d+)?$/)) {
@@ -1252,18 +1265,15 @@ window.escapeAttr = escapeAttr;
         hostTitle = rawHost;
         let badgeHtml = '';
         if (isPing) {
-          badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(168,85,247,0.25); color: #c084fc; margin-left: 4px;">[ICMP Ping]</span>';
-          hostDisplay = `<span style="color: #c084fc; font-weight: 700;">${cleanHost}</span>${badgeHtml}`;
-        } else {
-          if (f.urlResolution?.method === 'SNI' || f.urlResolution?.source?.includes('SNI')) {
-            badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(56,189,248,0.2); color: #38bdf8; margin-left: 4px;">[TLS SNI]</span>';
-          } else if (f.urlResolution?.method === 'DNS-correlated' || f.urlResolution?.source?.includes('DNS')) {
-            badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(52,211,153,0.2); color: #34d399; margin-left: 4px;">[DNS Correlated]</span>';
-          } else if (f.urlResolution?.method === 'HTTP Host') {
-            badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(245,158,11,0.2); color: #fbbf24; margin-left: 4px;">[HTTP]</span>';
-          }
-          hostDisplay = `<span>${cleanHost}</span>${badgeHtml}`;
+          badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(168,85,247,0.15); color: #9333ea; flex-shrink: 0;">[ICMP Ping]</span>';
+        } else if (f.urlResolution?.method === 'SNI' || f.urlResolution?.source?.includes('SNI')) {
+          badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(14,165,233,0.15); color: #0284c7; flex-shrink: 0;">[SNI]</span>';
+        } else if (f.urlResolution?.method === 'DNS-correlated' || f.urlResolution?.source?.includes('DNS')) {
+          badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #059669; flex-shrink: 0;">[DNS]</span>';
+        } else if (f.urlResolution?.method === 'HTTP Host') {
+          badgeHtml = '<span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(245,158,11,0.15); color: #d97706; flex-shrink: 0;">[HTTP]</span>';
         }
+        hostDisplay = `<div style="display: flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden;"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;">${escapeHtml(cleanHost)}</span>${badgeHtml}</div>`;
       }
 
       const lenVal = f.wireLength || f.capturedLength || f.length || 60;
@@ -1290,13 +1300,13 @@ window.escapeAttr = escapeAttr;
 
       return `
         <tr class="${protoClass}" onclick="window.inspectPacketFrame(${f.frameNumber})" style="cursor: pointer;">
-          <td class="col-num" style="min-width: 75px; width: 75px; color: var(--text-dim); font-weight: 700; white-space: nowrap;">#${f.frameNumber}</td>
-          <td class="col-time" style="min-width: 95px; width: 105px; color: var(--text-dim); white-space: nowrap;">${timeStr}</td>
+          <td class="col-num" style="min-width: 75px; width: 75px; color: #475569; font-weight: 700; white-space: nowrap;">#${f.frameNumber}</td>
+          <td class="col-time" style="min-width: 95px; width: 105px; color: #475569; font-weight: 600; white-space: nowrap;">${timeStr}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${f.srcIp || '0.0.0.0'}</span>${f.srcPort ? ':' + f.srcPort : ''}</td>
           <td class="col-ip" style="min-width: 140px; width: 140px; white-space: nowrap;"><span style="font-weight: 600;">${f.dstIp || '0.0.0.0'}</span>${f.dstPort ? ':' + f.dstPort : ''}</td>
           <td style="min-width: 140px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 600;" title="${hostTitle}">${hostDisplay}</td>
           <td class="col-proto" style="min-width: 65px; width: 65px; white-space: nowrap;"><span style="font-weight: 700; color: #38bdf8;">${f.protocol}</span></td>
-          <td class="col-len" style="min-width: 65px; width: 65px; color: var(--text-dim); white-space: nowrap;">${lenVal} B</td>
+          <td class="col-len" style="min-width: 65px; width: 65px; color: #475569; font-weight: 600; white-space: nowrap;">${lenVal} B</td>
           <td class="col-delta" style="min-width: 110px; width: 110px; white-space: nowrap;">${tcpDeltaBadge}</td>
           <td style="min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             <span>${f.summary || f.info || ''}</span>

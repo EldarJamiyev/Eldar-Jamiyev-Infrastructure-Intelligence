@@ -74,29 +74,33 @@
       modal = document.createElement('div');
       modal.id = 'juniorAdminModal';
       modal.className = 'modal-overlay';
-      modal.style.display = 'none';
-      modal.style.zIndex = '10000';
+      modal.style.cssText = 'position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; background: rgba(15, 23, 42, 0.55) !important; backdrop-filter: blur(6px) !important; z-index: 9999 !important; display: none; align-items: center !important; justify-content: center !important;';
+      modal.onclick = function(e) {
+        if (e.target === modal) window.toggleJuniorAdminCheatSheet();
+      };
       document.body.appendChild(modal);
     }
 
     modal.innerHTML = `
-      <div class="modal-dialog" style="max-width: 900px; max-height: 85vh; display: flex; flex-direction: column;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding: 14px 20px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 22px;">📘</span>
+      <div class="modal-dialog" style="max-width: 960px; max-height: 85vh; width: 90%; background: #FFFFFF; border-radius: 16px; padding: 28px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); border: 1px solid var(--border-default); display: flex; flex-direction: column; overflow: hidden;" onclick="event.stopPropagation()">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default); padding-bottom: 16px; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+              📘
+            </div>
             <div>
-              <div style="font-size: 16px; font-weight: 800; color: var(--accent);">EJII Junior-Admin & Rookie Operator Field Manual</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Plain-Language Technical Guidance, Port Maps, Subnet Math & Incident Triage (Press Esc to close)</div>
+              <div style="font-size: 16px; font-weight: 800; color: var(--text-primary);">EJII Junior-Admin &amp; Rookie Operator Field Manual</div>
+              <div style="font-size: 11px; color: var(--text-secondary);">Plain-Language Technical Guidance, Port Maps, Subnet Math &amp; Incident Triage (Press Esc to close)</div>
             </div>
           </div>
-          <button onclick="window.toggleJuniorAdminCheatSheet()" class="btn-logout" style="font-size: 16px;">✕</button>
+          <button onclick="window.toggleJuniorAdminCheatSheet()" class="btn btn-secondary" style="font-size: 14px; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px;">✕</button>
         </div>
 
-        <div class="modal-body" style="overflow-y: auto; padding: 20px; font-size: 12px; line-height: 1.6;">
+        <div class="modal-body" style="overflow-y: auto; padding: 4px; font-size: 12px; line-height: 1.6;">
           <!-- Quick Search Filter -->
-          <div style="margin-bottom: 16px;">
-            <input type="text" id="manualSearchInput" class="form-input" placeholder="🔍 Search ports (e.g. 443, SMB, DNS), CIDR subnets, or concepts..." oninput="window.filterManual(this.value)">
-          </div>
+          <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+            <input type="text" id="manualSearchInput" class="form-input" placeholder="🔍 Search ports (e.g. 443, SMB, DNS), CIDR subnets, or concepts..." style="width: 320px; font-size: 11.5px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border-default);" oninput="window.filterManual(this.value)">
+          </div>`;
 
           <!-- Section Tabs -->
           <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">

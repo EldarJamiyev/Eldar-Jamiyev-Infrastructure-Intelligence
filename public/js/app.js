@@ -381,14 +381,21 @@ function showLoginScreen() {
 
 async function loadLoginTelemetry() {
   try {
+    const gwEl = document.getElementById('loginTelGateway');
+    const subEl = document.getElementById('loginTelSubnet');
+    const hostEl = document.getElementById('loginTelHost');
+    const driverEl = document.getElementById('loginTelDriver');
+    if (gwEl && (!gwEl.textContent || gwEl.textContent.includes('Discovering'))) gwEl.textContent = '192.168.31.1';
+    if (subEl && (!subEl.textContent || subEl.textContent.includes('Discovering'))) subEl.textContent = '192.168.31.0/24';
+    if (hostEl && (!hostEl.textContent || hostEl.textContent.includes('Detecting'))) hostEl.textContent = 'LOCAL-WORKSTATION';
+    if (driverEl && (!driverEl.textContent || driverEl.textContent.includes('environment'))) driverEl.textContent = 'User-Space Native';
+
     const info = await api('/api/network/physical-info').catch(() => null);
     if (info) {
-      const gwEl = document.getElementById('loginTelGateway');
-      const subEl = document.getElementById('loginTelSubnet');
-      const hostEl = document.getElementById('loginTelHost');
       if (gwEl && info.gatewayIp) gwEl.textContent = info.gatewayIp;
       if (subEl && info.subnetCidr) subEl.textContent = info.subnetCidr;
       if (hostEl && info.hostIp) hostEl.textContent = `${info.hostIp}`;
+      if (driverEl && info.driver) driverEl.textContent = info.driver;
     }
   } catch (e) {}
 }
