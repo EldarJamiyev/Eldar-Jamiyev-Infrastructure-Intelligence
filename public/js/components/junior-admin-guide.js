@@ -69,10 +69,10 @@
   };
 
   function renderCheatSheetModal() {
-    let modal = document.getElementById('juniorAdminModal');
+    let modal = document.getElementById('juniorAdminGuideModal') || document.getElementById('juniorAdminModal');
     if (!modal) {
       modal = document.createElement('div');
-      modal.id = 'juniorAdminModal';
+      modal.id = 'juniorAdminGuideModal'; modal.setAttribute('data-alias', 'juniorAdminModal');
       modal.className = 'modal-overlay';
       modal.style.cssText = 'position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; background: rgba(15, 23, 42, 0.55) !important; backdrop-filter: blur(6px) !important; z-index: 9999 !important; display: none; align-items: center !important; justify-content: center !important;';
       modal.onclick = function(e) {
@@ -99,7 +99,7 @@
         <div class="modal-body" style="overflow-y: auto; padding: 4px; font-size: 12px; line-height: 1.6;">
           <!-- Quick Search Filter -->
           <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
-            <input type="text" id="manualSearchInput" class="form-input" placeholder="🔍 Search ports (e.g. 443, SMB, DNS), CIDR subnets, or concepts..." style="width: 320px; font-size: 11.5px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border-default);" oninput="window.filterManual(this.value)">
+            <input type="text" id="manualSearchInput" class="form-input" placeholder="Search ports (e.g. 443, 53, SSH)..." style="width: 300px; font-size: 11.5px; padding: 8px 14px 8px 36px; border-radius: 6px; border: 1px solid var(--border-default);" oninput="window.filterManual(this.value)">
           </div>`;
 
           <!-- Section Tabs -->

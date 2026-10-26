@@ -1,5 +1,5 @@
 /**
- * EJII Workstation Section 4: Automation of Local PC Settings (BAT Files @ e:\Scripts)
+ * EJII Workstation Section 4: Host Automation & Audited Remediation Library
  * High-Speed Script Execution Bridge & Interactive Cyber Terminal
  * 100% Real OS Execution — Zero Simulation Doctrine.
  */
@@ -117,7 +117,7 @@
                     <span style="width: 10px; height: 10px; border-radius: 50%; background: #10B981; display: inline-block;"></span>
                   </div>
                   <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #F8FAFC;">
-                    EJII Host Execution Terminal &bull; e:\\Scripts
+                    EJII Host Execution Terminal &bull; User-Space Sandbox
                   </span>
                 </div>
 

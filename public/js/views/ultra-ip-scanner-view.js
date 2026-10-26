@@ -194,7 +194,7 @@
                     <th class="col-nowrap" style="min-width: 130px; white-space: nowrap;">MAC ADDRESS</th>
                     <th style="min-width: 150px; white-space: nowrap;">HARDWARE VENDOR</th>
                     <th class="col-nowrap" style="min-width: 120px; white-space: nowrap;">CATEGORY</th>
-                    <th style="min-width: 160px; white-space: nowrap;">OPEN PORTS &amp; SERVICES</th>
+                    <th style="min-width: 160px; white-space: nowrap;">OPEN PORTS & SERVICES<!-- OPEN PORTS &amp; SERVICES --></th>
                     <th class="col-nowrap" style="width: 75px; min-width: 75px; white-space: nowrap;">RTT</th>
                     <th class="col-nowrap" style="min-width: 180px; white-space: nowrap;">ACTIONS</th>
                   </tr>

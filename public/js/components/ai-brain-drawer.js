@@ -26,7 +26,20 @@
 
   let isAiBrainExpanded = false;
 
-  function escapeHtml(str) {
+    function escapeAttr(str) {
+    return escapeHtml(str);
+  }
+
+  function formatVetoRule(rawProof) {
+    if (!rawProof) return 'RFC Deterministic Horn Clause Veto';
+    if (typeof rawProof === 'string') return rawProof;
+    if (typeof rawProof === 'object') {
+      return rawProof.clause || rawProof.formula || rawProof.description || rawProof.rule || rawProof.name || rawProof.id || JSON.stringify(rawProof);
+    }
+    return String(rawProof);
+  }
+
+function escapeHtml(str) {
     return String(str === null || str === undefined ? '' : str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -154,7 +167,7 @@
             <span style="font-family: var(--font-mono); font-size: 10px; color: #64748B;">Continuous Bayesian Reasoning &bull; RFC Evidentiary Elimination</span>
           </div>
 
-          <div class="ai-brain-meta">
+          <div class="ai-brain-meta" style="display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;">
             <div class="ai-brain-meta-item">
               Baselines Learned: <strong id="aiBrainBaselinesCount">${state.learnedBaselinesCount || 0}</strong> endpoints
             </div>
@@ -227,7 +240,7 @@
           return `
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
               <!-- Supported Hypotheses -->
-              <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 10px 12px; box-shadow: var(--shadow-xs);">
+              <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 10px; padding: 14px; color: #065F46; box-shadow: var(--shadow-xs);">
                 <div style="font-size: 10px; font-weight: 800; color: #166534; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
                   <span>✓ SUPPORTED BAYESIAN HYPOTHESES (Σ = 100.0%)</span>
                   <span style="color: #15803D;">${supportedHypotheses.length} Active</span>
@@ -249,7 +262,7 @@
               </div>
 
               <!-- Contradicted Hypotheses -->
-              <div style="background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 6px; padding: 10px 12px; box-shadow: var(--shadow-xs);">
+              <div style="background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 10px; padding: 14px; color: #9F1239; box-shadow: var(--shadow-xs);">
                 <div style="font-size: 10px; font-weight: 800; color: #9F1239; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
                   <span>✗ CONTRADICTED HYPOTHESES (HORN CLAUSE VETO)</span>
                   <span style="color: #BE123C;">${contradictedHypotheses.length} Eliminated (0.0%)</span>
@@ -257,13 +270,7 @@
                 <div style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
                   ${contradictedHypotheses.length > 0 ? contradictedHypotheses.map(h => {
                     const rawProof = (h.contradictionProofTrace && h.contradictionProofTrace[0]) || h.contradictedBy || h.proofTrace;
-                    let proofText = 'Empirical wire telemetry contradicts necessary conditions.';
-                    if (rawProof) {
-                      if (typeof rawProof === 'string') {
-                        proofText = rawProof;
-                      } else if (typeof rawProof === 'object') {
-                        proofText = rawProof.clause || rawProof.formula || rawProof.description || rawProof.name || rawProof.rule || rawProof.id || JSON.stringify(rawProof);
-                      } else {
+                    const proofText = formatVetoRule(rawProof); else {
                         proofText = String(rawProof);
                       }
                     }
@@ -284,7 +291,7 @@
             </div>
 
             <!-- Distinguishing Epistemic Probes Section -->
-            <div style="margin-top: 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 12px; box-shadow: var(--shadow-xs);">
+            <div style="margin-top: 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; box-shadow: var(--shadow-xs);">
               <div style="font-size: 10px; font-weight: 800; color: #0369A1; font-family: var(--font-mono); margin-bottom: 6px; display: flex; justify-content: space-between;">
                 <span>🔬 DISTINGUISHING EPISTEMIC PROBES (TIE-BREAKING INFORMATION GAIN)</span>
                 <span style="color: #0284C7;">${distinguishingProbes.length} Available</span>
@@ -480,44 +487,44 @@
 
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
-              <div style="font-size: 9.5px; font-weight: 700; color: #38bdf8; font-family: var(--font-mono); margin-bottom: 2px;">
+            <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; color: #0F172A;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #334155; font-family: var(--font-mono); margin-bottom: 2px;">
                 SIGNAL TEMPORAL LOGIC (STL Donzé-Maler):
               </div>
-              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #94a3b8;">
+              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #475569;">
                 Min Robustness: <strong style="color: ${(state.stlReport?.minRobustness ?? 0) >= 0 ? '#10b981' : '#ef4444'};">${state.stlReport?.minRobustness ?? 0}</strong> |
-                Formulas: <strong style="color: #e2e8f0;">${(state.stlReport?.formulas || []).filter(f => f.satisfied).length}/${state.stlReport?.formulas?.length || 5}</strong> Satisfied
+                Formulas: <strong style="color: #0F172A;">${(state.stlReport?.formulas || []).filter(f => f.satisfied).length}/${state.stlReport?.formulas?.length || 5}</strong> Satisfied
               </div>
             </div>
 
-            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
-              <div style="font-size: 9.5px; font-weight: 700; color: #f59e0b; font-family: var(--font-mono); margin-bottom: 2px;">
+            <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; color: #0F172A;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #334155; font-family: var(--font-mono); margin-bottom: 2px;">
                 DSRL ACTION VAULT SAFETY GATE:
               </div>
-              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #94a3b8;">
+              <div style="font-size: 8.5px; font-family: var(--font-mono); color: #475569;">
                 Status: <strong style="color: ${state.dsrlVault?.approved ? '#10b981' : '#f59e0b'};">${state.dsrlVault?.approved ? 'APPROVED' : 'GUARDED'}</strong> |
-                Action: <span style="color: #e2e8f0;">${escapeHtml(state.dsrlVault?.actionName || 'ICMP_PING_GATEWAY')}</span>
+                Action: <span style="color: #0F172A;">${escapeHtml(state.dsrlVault?.actionName || 'ICMP_PING_GATEWAY')}</span>
               </div>
             </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
-              <div style="font-size: 9.5px; font-weight: 700; color: #10b981; font-family: var(--font-mono); margin-bottom: 2px;">
+            <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; color: #0F172A;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #334155; font-family: var(--font-mono); margin-bottom: 2px;">
                 ACTIVE INFERENCE (Friston Free Energy):
               </div>
-              <div style="font-size: 9px; color: #94a3b8; font-family: var(--font-mono);">
-                VFE: <strong style="color: #38bdf8;">${state.activeInference?.variationalFreeEnergy || 0}</strong> |
-                Complexity: <strong style="color: #f59e0b;">${state.activeInference?.complexityTerm || 0}</strong> |
-                Accuracy: <strong style="color: #10b981;">${state.activeInference?.accuracyTerm || 0}</strong>
+              <div style="font-size: 9px; color: #475569; font-family: var(--font-mono);">
+                VFE: <strong style="color: #0284C7;">${state.activeInference?.variationalFreeEnergy || 0}</strong> |
+                Complexity: <strong style="color: #D97706;">${state.activeInference?.complexityTerm || 0}</strong> |
+                Accuracy: <strong style="color: #16A34A;">${state.activeInference?.accuracyTerm || 0}</strong>
               </div>
               <div style="font-size: 9px; color: #64748b; font-family: var(--font-mono); margin-top: 2px;">
-                Optimal Epistemic Probe: <span style="color: #e2e8f0;">${escapeHtml(state.activeInference?.optimalProbe?.name || 'ICMP Gateway Echo')}</span>
+                Optimal Epistemic Probe: <span style="color: #0F172A;">${escapeHtml(state.activeInference?.optimalProbe?.name || 'ICMP Gateway Echo')}</span>
               </div>
             </div>
 
-            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 6px 10px;">
-              <div style="font-size: 9.5px; font-weight: 700; color: #8b5cf6; font-family: var(--font-mono); margin-bottom: 2px;">
+            <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; color: #0F172A;">
+              <div style="font-size: 9.5px; font-weight: 700; color: #334155; font-family: var(--font-mono); margin-bottom: 2px;">
                 MCTS WORLD MODEL ROLLOUT:
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 8.5px; font-family: var(--font-mono); margin-top: 3px;">

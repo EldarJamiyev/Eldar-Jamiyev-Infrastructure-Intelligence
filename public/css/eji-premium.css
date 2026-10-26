@@ -1321,3 +1321,23 @@ svg path#dynamicFlowRoutePath {
   align-items: center !important;
   justify-content: center !important;
 }
+
+/* Junior Admin Field Manual Full-Viewport Centered Overlay */
+#juniorAdminGuideModal,
+#juniorAdminModal {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(6px) !important;
+  z-index: 9999 !important;
+  display: none;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 28px !important;
+}
+
+.login-input {
+  padding-left: 40px !important;
+}
