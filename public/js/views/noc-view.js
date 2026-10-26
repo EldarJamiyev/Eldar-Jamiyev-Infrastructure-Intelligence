@@ -1749,6 +1749,10 @@ window.escapeAttr = escapeAttr;
           if (nextFrame && !existingFrameIds.has(nextFrame.frameNumber)) {
             liveFrames.push(nextFrame);
             existingFrameIds.add(nextFrame.frameNumber);
+            if (typeof window.VirtualPacketCockpit !== 'undefined') {
+              if (!window.virtualPacketCockpit) window.virtualPacketCockpit = new window.VirtualPacketCockpit(5000);
+              window.virtualPacketCockpit.push(nextFrame);
+            }
           }
         }
         if (liveFrames.length > 5000) liveFrames.splice(0, liveFrames.length - 5000);
@@ -2569,6 +2573,10 @@ window.escapeAttr = escapeAttr;
   window.setNocLiveFrames = function(frames) {
     if (Array.isArray(frames)) {
       liveFrames = frames;
+      if (typeof window.VirtualPacketCockpit !== 'undefined') {
+        if (!window.virtualPacketCockpit) window.virtualPacketCockpit = new window.VirtualPacketCockpit(5000);
+        frames.forEach(f => window.virtualPacketCockpit.push(f));
+      }
       const tbody = document.getElementById('livePacketTableBody');
       if (tbody && currentSnifferMode === 'packets' && !isDisplayFrozen && !isTableHovered) {
         tbody.innerHTML = renderPacketRows();

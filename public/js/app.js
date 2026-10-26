@@ -936,8 +936,117 @@ window.runAiWorkflowForTarget = function(ip, port = 80) {
   }, 100);
 };
 
+// -----------------------------------------------------------------------------
+// Sovereign-Apex Theme & Display Settings Engine
+// -----------------------------------------------------------------------------
+window.getTheme = function() {
+  return localStorage.getItem('ejii_theme') || 'system';
+};
+
+window.setTheme = function(theme) {
+  if (!['light', 'dark', 'system'].includes(theme)) theme = 'system';
+  localStorage.setItem('ejii_theme', theme);
+
+  let effectiveTheme = theme;
+  if (theme === 'system') {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    effectiveTheme = isDark ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', effectiveTheme);
+
+  // Update theme segmented control buttons if present
+  ['Light', 'Dark', 'System'].forEach(t => {
+    const btn = document.getElementById(`themeBtn${t}`);
+    if (btn) {
+      if (t.toLowerCase() === theme.toLowerCase()) {
+        btn.style.background = 'var(--accent-primary, #38BDF8)';
+        btn.style.color = '#FFFFFF';
+        btn.style.fontWeight = '700';
+      } else {
+        btn.style.background = 'transparent';
+        btn.style.color = 'var(--text-secondary, #94A3B8)';
+        btn.style.fontWeight = 'normal';
+      }
+    }
+  });
+
+  const select = document.getElementById('settingsThemeSelect');
+  if (select) select.value = theme;
+};
+
+window.getDensity = function() {
+  return localStorage.getItem('ejii_density') || 'comfortable';
+};
+
+window.setDensity = function(density) {
+  if (!['comfortable', 'compact'].includes(density)) density = 'comfortable';
+  localStorage.setItem('ejii_density', density);
+  document.documentElement.setAttribute('data-density', density);
+  const select = document.getElementById('settingsDensitySelect');
+  if (select) select.value = density;
+};
+
+window.getReducedMotion = function() {
+  return localStorage.getItem('ejii_reduced_motion') === 'true';
+};
+
+window.setReducedMotion = function(enabled) {
+  const isEnabled = Boolean(enabled);
+  localStorage.setItem('ejii_reduced_motion', String(isEnabled));
+  document.documentElement.setAttribute('data-reduced-motion', String(isEnabled));
+  const checkbox = document.getElementById('settingsReducedMotionCheckbox');
+  if (checkbox) checkbox.checked = isEnabled;
+};
+
+window.openSettingsModal = function() {
+  const modal = document.getElementById('workspaceSettingsModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    const themeSelect = document.getElementById('settingsThemeSelect');
+    if (themeSelect) themeSelect.value = window.getTheme();
+    const densitySelect = document.getElementById('settingsDensitySelect');
+    if (densitySelect) densitySelect.value = window.getDensity();
+    const motionCheckbox = document.getElementById('settingsReducedMotionCheckbox');
+    if (motionCheckbox) motionCheckbox.checked = window.getReducedMotion();
+  }
+};
+
+window.closeSettingsModal = function() {
+  const modal = document.getElementById('workspaceSettingsModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+};
+
+// Listen for system color scheme changes
+if (typeof window !== 'undefined' && window.matchMedia) {
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (window.getTheme() === 'system') {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      }
+    });
+  } catch (e) {}
+}
+
+function initDisplaySettings() {
+  window.setTheme(window.getTheme());
+  window.setDensity(window.getDensity());
+  window.setReducedMotion(window.getReducedMotion());
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('workspaceSettingsModal');
+      if (modal && modal.style.display === 'flex') {
+        window.closeSettingsModal();
+      }
+    }
+  });
+}
+
 // App Initialization
 window.addEventListener('DOMContentLoaded', async () => {
+  initDisplaySettings();
   initWebSocket();
 
   // Sign out button

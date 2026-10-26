@@ -55,6 +55,12 @@ const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('./n
 const { topologyEngine } = require('./network/topology/topology-engine');
 const { requestCorrelationAndTelemetryMiddleware, authenticate } = require('./api/middleware');
 
+// Sovereign-Apex v2.0.0 Core Deep Intelligence & Safety Engines
+const { NeuroSymbolicApexEngine } = require('./ai/neuro-symbolic-apex');
+const { WireDissectorApex } = require('./sniffer/wire-dissector-apex');
+const { SpectralGNNTopologyEngine } = require('./topology/spectral-gnn-apex');
+const { DSRLLyapunovSafetyVault } = require('./security/dsrl-lyapunov-vault');
+
 // Ensure database and baseline seeds are ready
 initSchema();
 seedDatabase();
@@ -63,6 +69,10 @@ try {
 } catch (_) {}
 
 const app = express();
+app.locals.neuroSymbolicApex = new NeuroSymbolicApexEngine();
+app.locals.wireDissectorApex = WireDissectorApex;
+app.locals.spectralGNNTopology = new SpectralGNNTopologyEngine();
+app.locals.dsrlLyapunovSafetyVault = new DSRLLyapunovSafetyVault(config.HMAC_SECRET, []);
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)

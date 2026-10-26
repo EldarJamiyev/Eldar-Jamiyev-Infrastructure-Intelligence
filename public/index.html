@@ -4,6 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
+  <script>
+    (function() {
+      try {
+        var savedTheme = localStorage.getItem('ejii_theme') || 'system';
+        var isDark = savedTheme === 'dark' || (savedTheme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+        }
+        var density = localStorage.getItem('ejii_density') || 'comfortable';
+        if (density === 'compact') {
+          document.documentElement.setAttribute('data-density', 'compact');
+        }
+        var reducedMotion = localStorage.getItem('ejii_reduced_motion');
+        if (reducedMotion === 'true') {
+          document.documentElement.setAttribute('data-reduced-motion', 'true');
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="/css/style.css?v=2026.10.18.5">
   <link rel="stylesheet" href="/css/eji-premium.css?v=2026.10.18.5">
   <link rel="manifest" href="/manifest.json">
@@ -321,6 +342,19 @@
             <span>Nodes:</span>
             <span class="stat-val" id="topbarNodesCount">6</span>
           </div>
+          <!-- Theme Switcher Segmented Control -->
+          <div class="stat-item theme-controls" title="Theme Selector" style="display: inline-flex; align-items: center; gap: 4px;">
+            <div class="segmented-control" role="group" aria-label="Theme Selection" style="display: inline-flex; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px;">
+              <button type="button" id="themeBtnLight" class="btn-theme-toggle" onclick="window.setTheme('light')" title="Light Theme" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; border-radius: 3px;">☀️</button>
+              <button type="button" id="themeBtnDark" class="btn-theme-toggle" onclick="window.setTheme('dark')" title="Dark Theme" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; border-radius: 3px;">🌙</button>
+              <button type="button" id="themeBtnSystem" class="btn-theme-toggle" onclick="window.setTheme('system')" title="Follow System Theme" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; border-radius: 3px;">💻</button>
+            </div>
+          </div>
+          <!-- Workspace Settings Button -->
+          <button class="btn btn-secondary" onclick="window.openSettingsModal()" style="font-size: 11px; padding: 4px 10px; margin-left: 4px; display: inline-flex; align-items: center; gap: 5px;" title="Workspace & Display Settings">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Settings</span>
+          </button>
           <button class="btn btn-secondary" onclick="window.toggleJuniorAdminCheatSheet()" style="font-size: 11px; padding: 4px 10px; margin-left: 6px; display: inline-flex; align-items: center; gap: 5px;" title="Rookie Admin Operational Field Manual (Ctrl+H)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>
             <span>Field Manual</span>
@@ -375,11 +409,51 @@
   <!-- Modal Container for Blast Radius, Diagnostics & Trace Results -->
   <div id="modalContainer" style="display: none;"></div>
 
+  <!-- Workspace & Display Settings Modal -->
+  <div id="workspaceSettingsModal" class="command-palette-backdrop" style="display: none; z-index: 9999;" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="command-palette-modal" style="max-width: 500px; padding: 20px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-subtle, #1E293B); padding-bottom: 10px;">
+        <h3 id="settingsModalTitle" style="margin: 0; font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Workspace &amp; Display Settings</span>
+        </h3>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="window.closeSettingsModal()" aria-label="Close settings">ESC / ✕</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <label for="settingsThemeSelect" style="display: block; font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Color Theme</label>
+          <select id="settingsThemeSelect" class="form-control" onchange="window.setTheme(this.value)" style="width: 100%; padding: 6px; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px;">
+            <option value="system">System (Auto-detect OS preference)</option>
+            <option value="dark">Dark Obsidian (Cyber-NOC Default)</option>
+            <option value="light">Light Slate (High-Contrast Daylight)</option>
+          </select>
+        </div>
+        <div>
+          <label for="settingsDensitySelect" style="display: block; font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Data Table Density</label>
+          <select id="settingsDensitySelect" class="form-control" onchange="window.setDensity(this.value)" style="width: 100%; padding: 6px; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px;">
+            <option value="comfortable">Comfortable (Standard spacing &amp; padding)</option>
+            <option value="compact">Compact (Dense NOC data &amp; telemetry view)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+            <input type="checkbox" id="settingsReducedMotionCheckbox" onchange="window.setReducedMotion(this.checked)">
+            <span>Reduced Motion (Disable non-essential animations &amp; transitions)</span>
+          </label>
+        </div>
+      </div>
+      <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-primary" onclick="window.closeSettingsModal()" style="font-size: 12px; padding: 6px 16px;">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Core Scripts -->
   <script src="/js/components/filter-compiler.js?v=2026.10.18.5"></script>
   <script src="/js/components/command-palette.js?v=2026.10.18.5"></script>
   <script src="/js/components/junior-admin-guide.js?v=2026.10.18.5"></script>
   <script src="/js/components/ai-brain-drawer.js?v=2026.10.18.5"></script>
+  <script src="/js/virtual-packet-cockpit.js?v=2026.10.18.5"></script>
   <script src="/js/views/noc-view.js?v=2026.10.18.5"></script>
   <script src="/js/views/topology-view.js?v=2026.10.18.5"></script>
   <script src="/js/views/sniffer-view.js?v=2026.10.18.5"></script>

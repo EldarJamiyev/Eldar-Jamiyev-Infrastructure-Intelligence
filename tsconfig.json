@@ -1,37 +1,20 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "lib": ["ES2022"],
-    "allowJs": true,
-    "checkJs": false,
-    "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": false,
-    "noEmit": true,
+    "module": "CommonJS",
+    "types": ["node"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "types": ["node"],
-    "baseUrl": ".",
-    "paths": {
-      "@core/*": ["src/core/*"],
-      "@network/*": ["src/network/*"],
-      "@db/*": ["src/db/*"],
-      "@systems/*": ["src/systems/*"],
-      "@types/*": ["src/types/*"]
-    }
+    "declaration": true,
+    "sourceMap": true
   },
   "include": [
-    "src/**/*",
-    "src/types/**/*.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "public",
-    "tests"
+    "src/ai/**/*.ts",
+    "src/sniffer/**/*.ts",
+    "src/topology/**/*.ts",
+    "src/security/**/*.ts",
+    "tests/suite-73-sovereign-apex.test.ts"
   ]
 }

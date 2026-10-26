@@ -1,9 +1,11 @@
 {
   "name": "eldar-jamiyev-infrastructure-intelligence",
-  "version": "1.0.0",
+  "version": "2.0.0-sovereign-apex",
   "description": "EJII — NOC Network Topology & Wireshark-Grade Wire-Level Packet Dissection Workstation",
   "main": "src/server.js",
   "scripts": {
+    "build": "tsc",
+    "pretest": "tsc",
     "start": "node src/server.js",
     "desktop": "node bin/ejii-desktop.js",
     "test": "node tests/run-all-tests.js",
@@ -25,5 +27,9 @@
     "express": "^4.21.2",
     "net-snmp": "^3.9.4",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
   }
 }

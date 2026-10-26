@@ -102,6 +102,7 @@ const { runZeroTimeoutUnprivilegedScriptsAndHygieneTests } = require('./zero-tim
 const { runKlDivergenceBayesFactorAndCriticReflectionTests } = require('./kl-divergence-bayes-factor-and-critic-reflection.test');
 const { runW3cTraceparentPipelineAndMultiEnvLocationTests } = require('./w3c-traceparent-pipeline-and-multi-env-location.test');
 const { runControlPlaneUiGitopsObservabilityWiringTests } = require('./control-plane-ui-gitops-observability-wiring.test');
+const { runSuite73SovereignApex } = require('./suite-73-sovereign-apex.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -192,7 +193,8 @@ async function runAllTests() {
     { name: '69. Zero-Timeout Unprivileged Host Automation Scripts, Pre-Boot Scratch Sanitizer & Windows Loopback Resilience', fn: runZeroTimeoutUnprivilegedScriptsAndHygieneTests },
     { name: '70. Kullback-Leibler Information Gain, Harold Jeffreys Evidence Scale & Planner-Executor-Critic AI Brain', fn: runKlDivergenceBayesFactorAndCriticReflectionTests },
     { name: '71. W3C traceparent Telemetry Pipeline, CNCF OpenTelemetry Spans, 50:64:2B OUI & Multi-Environment Profiles', fn: runW3cTraceparentPipelineAndMultiEnvLocationTests },
-    { name: '72. View 5 Control Plane UI Wiring, Command Palette Quick Actions & 72-Suite Verification Alignment', fn: runControlPlaneUiGitopsObservabilityWiringTests }
+    { name: '72. View 5 Control Plane UI Wiring, Command Palette Quick Actions & 72-Suite Verification Alignment', fn: runControlPlaneUiGitopsObservabilityWiringTests },
+    { name: '73. EJII v2.0.0-Sovereign-Apex Core Engines & Deep Verification', fn: runSuite73SovereignApex }
   ];
 
   for (const s of suites) {

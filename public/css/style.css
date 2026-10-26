@@ -92,6 +92,86 @@
 }
 
 /* =========================================================================
+   Sovereign-Apex Multi-Theme Engine (Light / Dark / System)
+   ========================================================================= */
+[data-theme="dark"] {
+  /* Canvas & Base Surfaces */
+  --bg-canvas: #0B0F19;              /* Deep slate background */
+  --bg-surface: #111827;             /* Elevated dark panel */
+  --bg-surface-subtle: #1F2937;      /* Subtle grouped surface / headers */
+  --bg-surface-hover: #374151;       /* Smooth row & button hover state */
+  --bg-surface-active: #1E3A8A;      /* Active state */
+
+  /* Dedicated Specialist Dark Surfaces */
+  --bg-terminal: #030712;
+  --bg-terminal-subtle: #0F172A;
+  --border-terminal: #1F2937;
+
+  /* Text & Typography Hierarchy */
+  --text-primary: #F9FAFB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --text-dim: #4B5563;
+  --text-inverse: #111827;
+
+  /* Structural Hairlines & Borders */
+  --border-subtle: #1F2937;
+  --border-default: #374151;
+  --border-strong: #4B5563;
+  --border-focus: #3B82F6;
+
+  /* Accents */
+  --accent-primary: #3B82F6;
+  --accent-hover: #60A5FA;
+  --accent-subtle: rgba(59, 130, 246, 0.15);
+  --accent-border: #1D4ED8;
+
+  /* Telemetry Status Colors */
+  --status-nominal: #10B981;
+  --status-nominal-subtle: rgba(16, 185, 129, 0.15);
+  --status-warning: #F59E0B;
+  --status-warning-subtle: rgba(245, 158, 11, 0.15);
+  --status-critical: #EF4444;
+  --status-critical-subtle: rgba(239, 68, 68, 0.15);
+  --status-info: #38BDF8;
+  --status-info-subtle: rgba(56, 189, 248, 0.15);
+
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+/* Table Density Controls */
+[data-density="compact"] .data-table th,
+[data-density="compact"] .data-table td {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+}
+[data-density="compact"] .script-card {
+  padding: 8px 10px !important;
+}
+
+/* Reduced Motion Settings */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+
+/* =========================================================================
    Legacy Invariant Compatibility Block (Required by verify-frontend-rebuild.js)
    ========================================================================= */
 .legacy-compatibility-block {
