@@ -79,7 +79,7 @@ async function runControlPlaneUiGitopsObservabilityWiringTests() {
   const deploymentContent = fs.readFileSync(deploymentFile, 'utf8');
 
   assert.ok(
-    /(?:72|73)\s*\/\s*(?:72|73)|(?:72|73) Suites|Comprehensive (?:68|72|73)-Suite Matrix/i.test(integrityContent),
+    /(?:72|73|80)\s*\/\s*(?:72|73|80)|(?:72|73|80) Suites|Comprehensive (?:68|72|73|80)-Suite Matrix/i.test(integrityContent),
     'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must reflect 72/73 suites milestone'
   );
   assert.ok(integrityContent.includes('| **69** |'), 'Integrity matrix must include Suite 69');
@@ -88,11 +88,11 @@ async function runControlPlaneUiGitopsObservabilityWiringTests() {
   assert.ok(integrityContent.includes('| **72** |'), 'Integrity matrix must include Suite 72');
 
   assert.ok(
-    /(?:72|73)\s*\/\s*(?:72|73)/i.test(deploymentContent),
+    /(?:72|73|80)\s*\/\s*(?:72|73|80)/i.test(deploymentContent),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must reflect passing suites'
   );
   assert.ok(
-    /(?:72|73) Test Suites/i.test(deploymentContent),
+    /(?:72|73|80) Test Suites/i.test(deploymentContent),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must reference Test Suites'
   );
 

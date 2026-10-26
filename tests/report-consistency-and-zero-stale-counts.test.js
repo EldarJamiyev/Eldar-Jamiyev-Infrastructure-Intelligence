@@ -61,15 +61,22 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   assert.ok(runnerContent.includes('w3c-traceparent-pipeline-and-multi-env-location.test'), 'Runner must import Suite 71');
   assert.ok(runnerContent.includes('control-plane-ui-gitops-observability-wiring.test'), 'Runner must import Suite 72');
   assert.ok(runnerContent.includes('suite-73-sovereign-apex.test'), 'Runner must import Suite 73');
+  assert.ok(runnerContent.includes('suite-74-pcapng-binary-engine.test'), 'Runner must import Suite 74');
+  assert.ok(runnerContent.includes('suite-75-routing-radix-trie-intelligence.test'), 'Runner must import Suite 75');
+  assert.ok(runnerContent.includes('suite-76-process-socket-behavioral-matrix.test'), 'Runner must import Suite 76');
+  assert.ok(runnerContent.includes('suite-77-tls-x509-posture-auditor.test'), 'Runner must import Suite 77');
+  assert.ok(runnerContent.includes('suite-78-cusum-changepoint-forensics.test'), 'Runner must import Suite 78');
+  assert.ok(runnerContent.includes('suite-79-incident-flight-recorder-dossier.test'), 'Runner must import Suite 79');
+  assert.ok(runnerContent.includes('suite-80-executive-luxury-ui-and-80-suite-cohesion.test'), 'Runner must import Suite 80');
 
   // Count registered suites in run-all-tests.js
   const suiteEntries = runnerContent.match(/\{\s*name:\s*['"]\d+\./g) || [];
   assert.strictEqual(
     suiteEntries.length,
-    73,
-    `Expected exactly 73 registered test suites in run-all-tests.js, found ${suiteEntries.length}`
+    80,
+    `Expected exactly 80 registered test suites in run-all-tests.js, found ${suiteEntries.length}`
   );
-  console.log(`  ✓ Exactly 73 suites registered in tests/run-all-tests.js.`);
+  console.log(`  ✓ Exactly 80 suites registered in tests/run-all-tests.js.`);
 
   // [64.3] Canonical Integrity Report Alignment
   console.log('[64.3] Verifying EJII_TEST_EXECUTION_INTEGRITY_REPORT.md consistency...');
@@ -91,7 +98,7 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
 
   // Must reflect 72/73 suites
   assert.ok(
-    /73\s*\/\s*73|72\s*\/\s*72|72 Suites|73 Suites|Comprehensive (?:68|72|73)-Suite Matrix|68\s*\/\s*68/.test(integrityContent),
+    /80\s*\/\s*80|73\s*\/\s*73|72\s*\/\s*72|80 Suites|72 Suites|73 Suites|Comprehensive (?:68|72|73|80)-Suite Matrix/.test(integrityContent),
     'EJII_TEST_EXECUTION_INTEGRITY_REPORT.md must reflect suites milestone'
   );
 
@@ -109,6 +116,13 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   assert.ok(integrityContent.includes('| **71** |'), 'Integrity matrix must include Suite 71');
   assert.ok(integrityContent.includes('| **72** |'), 'Integrity matrix must include Suite 72');
   assert.ok(integrityContent.includes('| **73** |'), 'Integrity matrix must include Suite 73');
+  assert.ok(integrityContent.includes('| **74** |'), 'Integrity matrix must include Suite 74');
+  assert.ok(integrityContent.includes('| **75** |'), 'Integrity matrix must include Suite 75');
+  assert.ok(integrityContent.includes('| **76** |'), 'Integrity matrix must include Suite 76');
+  assert.ok(integrityContent.includes('| **77** |'), 'Integrity matrix must include Suite 77');
+  assert.ok(integrityContent.includes('| **78** |'), 'Integrity matrix must include Suite 78');
+  assert.ok(integrityContent.includes('| **79** |'), 'Integrity matrix must include Suite 79');
+  assert.ok(integrityContent.includes('| **80** |'), 'Integrity matrix must include Suite 80');
   console.log('  ✓ EJII_TEST_EXECUTION_INTEGRITY_REPORT.md contains zero stale counts and reflects all suites.');
 
   // [64.4] Canonical Deployment Report Alignment
@@ -118,11 +132,11 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   const deploymentContent = fs.readFileSync(deploymentReportPath, 'utf8');
 
   assert.ok(
-    (/73\s*\/\s*73/.test(deploymentContent) || /72\s*\/\s*72/.test(deploymentContent) || /68\s*\/\s*68/.test(deploymentContent)),
+    (/80\s*\/\s*80/.test(deploymentContent) || /73\s*\/\s*73/.test(deploymentContent) || /72\s*\/\s*72/.test(deploymentContent) || /68\s*\/\s*68/.test(deploymentContent)),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must reflect passing suites'
   );
   assert.ok(
-    (/73 Test Suites/.test(deploymentContent) || /72 Test Suites/.test(deploymentContent) || /68 Test Suites/.test(deploymentContent)),
+    (/80 Test Suites/.test(deploymentContent) || /73 Test Suites/.test(deploymentContent) || /72 Test Suites/.test(deploymentContent) || /68 Test Suites/.test(deploymentContent)),
     'EJII_SECURE_DEPLOYMENT_REPORT.md must reference 68 Test Suites'
   );
   assert.ok(
