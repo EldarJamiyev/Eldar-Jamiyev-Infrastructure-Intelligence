@@ -76,11 +76,11 @@ window.escapeAttr = escapeAttr;
                 </div>
 
                 <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default); flex-wrap: wrap;">
-                  <button id="viewModeImportantBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('important')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;" title="Handshakes, HTTP, DNS, TLS SNI, Anomaly Frames">⭐ Important</button>
-                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="Bi-directional Conversations & Flow Matrix">💬 Conversations</button>
-                  <button id="viewModeFinderBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('finder')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #0284C7;" title="App Server & Port Finder (Correlate Process to Remote Server)">🖥️ App Finder</button>
-                  <button id="viewModeFailuresBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('failures')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #DC2626;" title="TCP RST, Retransmissions, Zero-Window, ICMP Unreachable">⚠️ Failures Only</button>
-                  <button id="viewModePacketsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="All Unfiltered Raw Packets">📜 All Packets</button>
+                  <button id="viewModeImportantBtn" class="btn btn-primary" onclick="window.switchNocSnifferMode('important')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;" title="Handshakes, HTTP, DNS, TLS SNI, Anomaly Frames">Important</button>
+                  <button id="viewModeFlowsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('flows')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="Bi-directional Conversations & Flow Matrix">Conversations</button>
+                  <button id="viewModeFinderBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('finder')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #0284C7;" title="App Server & Port Finder (Correlate Process to Remote Server)">App Finder</button>
+                  <button id="viewModeFailuresBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('failures')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent; color: #DC2626;" title="TCP RST, Retransmissions, Zero-Window, ICMP Unreachable">Failures Only</button>
+                  <button id="viewModePacketsBtn" class="btn btn-secondary" onclick="window.switchNocSnifferMode('packets')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;" title="All Unfiltered Raw Packets">All Packets</button>
                 </div>
 
                 <select id="packetProtocolFilter" class="form-input" style="width: 95px; padding: 4px 6px; font-size: 11px; border-radius: 6px;" onchange="window.onPacketProtocolFilterChange(this.value)">
@@ -118,7 +118,7 @@ window.escapeAttr = escapeAttr;
 
                 <!-- Inspector Drawer Toggle -->
                 <button class="btn btn-secondary" onclick="window.togglePacketInspectorDrawer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Toggle 3-Pane Inspection Drawer">◫ Inspector</button>
-                <button class="btn btn-secondary" onclick="window.openWireDiagnosticsModal()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Open Wire Diagnostics Hub">🛠️</button>
+                <button class="btn btn-secondary" onclick="window.openWireDiagnosticsModal()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Open Wire Diagnostics Hub">Tools</button>
               </div>
             </div>
 
@@ -158,7 +158,7 @@ window.escapeAttr = escapeAttr;
                 <button class="btn btn-secondary" onclick="window.clearDisplayFilter()" style="font-size: 11px; padding: 4px 8px;">Clear</button>
 
                 <!-- Natural Language AI Filter Toggle -->
-                <button id="btnToggleNlFilter" class="btn btn-secondary" onclick="window.toggleNlFilterPanel()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #A78BFA; border-color: rgba(167, 139, 250, 0.4);" title="Ask AI Brain to build Wireshark filter from plain English">🧠 AI Filter</button>
+                <button id="btnToggleNlFilter" class="btn btn-secondary" onclick="window.toggleNlFilterPanel()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #A78BFA; border-color: rgba(167, 139, 250, 0.4);" title="Ask AI Brain to build Wireshark filter from plain English">AI Filter</button>
               </div>
 
               <!-- AI Natural Language Query Assistant Panel -->

@@ -380,24 +380,31 @@ function showLoginScreen() {
 }
 
 async function loadLoginTelemetry() {
-  try {
-    const gwEl = document.getElementById('loginTelGateway');
-    const subEl = document.getElementById('loginTelSubnet');
-    const hostEl = document.getElementById('loginTelHost');
-    const driverEl = document.getElementById('loginTelDriver');
-    if (gwEl && (!gwEl.textContent || gwEl.textContent.includes('Discovering'))) gwEl.textContent = '192.168.31.1';
-    if (subEl && (!subEl.textContent || subEl.textContent.includes('Discovering'))) subEl.textContent = '192.168.31.0/24';
-    if (hostEl && (!hostEl.textContent || hostEl.textContent.includes('Detecting'))) hostEl.textContent = 'LOCAL-WORKSTATION';
-    if (driverEl && (!driverEl.textContent || driverEl.textContent.includes('environment'))) driverEl.textContent = 'User-Space Native';
+  const gwEl = document.getElementById('loginTelGateway');
+  const subEl = document.getElementById('loginTelSubnet');
+  const hostEl = document.getElementById('loginTelHost');
+  const driverEl = document.getElementById('loginTelDriver');
 
-    const info = await api('/api/network/physical-info').catch(() => null);
-    if (info) {
+  // Immediately assign non-spinning terminal baseline values
+  if (gwEl && (!gwEl.textContent || gwEl.textContent.includes('Discovering'))) gwEl.textContent = '192.168.31.1';
+  if (subEl && (!subEl.textContent || subEl.textContent.includes('Discovering'))) subEl.textContent = '192.168.31.0/24';
+  if (hostEl && (!hostEl.textContent || hostEl.textContent.includes('Detecting'))) hostEl.textContent = 'LOCAL-WORKSTATION';
+  if (driverEl && (!driverEl.textContent || driverEl.textContent.includes('environment'))) driverEl.textContent = 'User-Space Native';
+
+  try {
+    const fetchPromise = api('/api/network/physical-info');
+    const timerPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000));
+    const info = await Promise.race([fetchPromise, timerPromise]).catch(() => null);
+
+    if (info && info.authenticated !== false) {
       if (gwEl && info.gatewayIp) gwEl.textContent = info.gatewayIp;
       if (subEl && info.subnetCidr) subEl.textContent = info.subnetCidr;
-      if (hostEl && info.hostIp) hostEl.textContent = `${info.hostIp}`;
+      if (hostEl && info.hostIp) hostEl.textContent = String(info.hostIp);
       if (driverEl && info.driver) driverEl.textContent = info.driver;
     }
-  } catch (e) {}
+  } catch (e) {
+    // Reached terminal state cleanly without unhandled rejection
+  }
 }
 
 async function checkAuthConfig() {

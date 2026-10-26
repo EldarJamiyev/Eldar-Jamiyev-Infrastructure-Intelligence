@@ -270,10 +270,7 @@ function escapeHtml(str) {
                 <div style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
                   ${contradictedHypotheses.length > 0 ? contradictedHypotheses.map(h => {
                     const rawProof = (h.contradictionProofTrace && h.contradictionProofTrace[0]) || h.contradictedBy || h.proofTrace;
-                    const proofText = formatVetoRule(rawProof); else {
-                        proofText = String(rawProof);
-                      }
-                    }
+                    const proofText = formatVetoRule(rawProof);
                     return `
                       <div style="background: #FFFFFF; border: 1px solid #FFE4E6; border-radius: 4px; padding: 4px 8px; font-size: 9px; border-left: 3px solid #E11D48;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">

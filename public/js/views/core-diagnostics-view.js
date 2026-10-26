@@ -1181,11 +1181,11 @@
             </div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button id="btnSocketProcessMatrix" class="btn btn-secondary exec-btn-secondary" onclick="window.openSocketProcessMatrixModal()" style="font-size: 11px; border-radius: 6px;">🔌 Process Socket Matrix</button>
-            <button id="btnCusumChangepoint" class="btn btn-secondary exec-btn-secondary" onclick="window.openCusumChangepointModal()" style="font-size: 11px; border-radius: 6px;">📈 CUSUM Forensics</button>
-            <button id="btnExportIncidentDossier" class="btn btn-secondary exec-btn-secondary" onclick="window.exportSignedIncidentDossier()" style="font-size: 11px; border-radius: 6px; font-weight: 700; color: #2B44B8;">📋 Export Incident Dossier</button>
-            <button id="btnToggleSelfHealing" class="btn btn-secondary" onclick="window.toggleSelfHealing()" style="font-size: 11px; border-radius: 6px;">⚙️ Autonomous Healing: OFF</button>
-            <button id="btnRunSystemAudit" class="btn btn-primary" onclick="window.runDeepSystemAudit()" style="font-size: 11px; font-weight: 700; border-radius: 6px;">⚡ Run Deep System Audit</button>
+            <button id="btnSocketProcessMatrix" class="btn btn-secondary exec-btn-secondary" onclick="window.openSocketProcessMatrixModal()" style="font-size: 11px; border-radius: 6px;">Process Socket Matrix</button>
+            <button id="btnCusumChangepoint" class="btn btn-secondary exec-btn-secondary" onclick="window.openCusumChangepointModal()" style="font-size: 11px; border-radius: 6px;">CUSUM Forensics</button>
+            <button id="btnExportIncidentDossier" class="btn btn-secondary exec-btn-secondary" onclick="window.exportSignedIncidentDossier()" style="font-size: 11px; border-radius: 6px; font-weight: 700; color: #2B44B8;">Export Incident Dossier</button>
+            <button id="btnToggleSelfHealing" class="btn btn-secondary" onclick="window.toggleSelfHealing()" style="font-size: 11px; border-radius: 6px;">Autonomous Healing: OFF</button>
+            <button id="btnRunSystemAudit" class="btn btn-primary" onclick="window.runDeepSystemAudit()" style="font-size: 11px; font-weight: 700; border-radius: 6px;">Run Deep System Audit</button>
           </div>
         </div>
 

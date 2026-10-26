@@ -416,6 +416,7 @@
 
     isOpen = !isOpen;
     modal.style.display = isOpen ? 'flex' : 'none';
+    if (document.body) { document.body.style.overflow = isOpen ? 'hidden' : ''; }
 
     if (isOpen) {
       const search = document.getElementById('manualSearchInput');

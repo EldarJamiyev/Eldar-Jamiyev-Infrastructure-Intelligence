@@ -329,7 +329,7 @@
     }
 
     if (terminal) {
-      terminal.innerHTML = `<span style="color: #38BDF8;">$ e:\\Scripts\\${filename}</span>\n<span style="color: #64748B;">[Executing on Host Windows OS...]</span>\n`;
+      terminal.innerHTML = `<span style="color: #38BDF8;">$ .\\${filename}</span>\n<span style="color: #64748B;">[Executing on Host Windows OS...]</span>\n`;
     }
 
     try {
@@ -374,7 +374,7 @@
 
       if (terminal) {
         terminal.innerHTML = `
-<span style="color: #38BDF8;">$ e:\\Scripts\\${filename}</span>
+<span style="color: #38BDF8;">$ .\\${filename}</span>
 <span style="color: #10B981; font-weight: 700;">[SECURITY] DSRL Stage-6 Lyapunov Gate: ARMED (Monotonic Energy Descent V(s) Verified)</span>
 <span style="color: #94A3B8;">[PROVENANCE] Script SHA-256: <code style="color: #38BDF8;">${scriptSha256.slice(0, 16)}...</code> (VERIFIED) &bull; HMAC-SHA256 Merkle Audit Root: <code style="color: #A78BFA;">${merkleAudit.slice(0, 16)}...</code> (ANCHORED)</span>
 <span style="color: #64748B;">[Duration: ${res.durationMs} ms &bull; Engine: ${res.executionType}]</span>
