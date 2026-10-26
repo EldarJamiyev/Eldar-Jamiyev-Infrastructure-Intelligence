@@ -526,6 +526,50 @@ router.get('/brain/shared-outages', authenticate, requirePermission('telemetry.r
 });
 
 /**
+ * POST /api/rca/cusum-changepoints
+ * GET /api/rca/cusum-changepoints
+ * Phase 5 Engine 5: Two-Sided Tabular Page's CUSUM & Temporal Precedence Forensics
+ */
+function handleCusumChangepoints(req, res) {
+  try {
+    const { CusumChangepointEngine } = require('../ai/cusum-changepoint-engine');
+    const engine = new CusumChangepointEngine();
+    let trace = req.body?.trace;
+
+    if (!Array.isArray(trace) || trace.length < 3) {
+      const now = Date.now();
+      trace = (aiBrain.recentEventsBuffer && aiBrain.recentEventsBuffer.length >= 3)
+        ? aiBrain.recentEventsBuffer.map((e, idx) => ({
+            timestampMs: e.timestampMs || (now - (10 - idx) * 1000),
+            rttMs: e.latencyMs || e.rttMs || 10,
+            packetLossPct: e.packetLossPct || 0,
+            cpuSaturationPct: e.cpuSaturationPct || 15,
+            dnsLatencyMs: e.dnsLatencyMs || 5,
+            tcpRetransmitRate: e.tcpRetransmitRate || 0
+          }))
+        : [
+            { timestampMs: now - 5000, rttMs: 12.0, packetLossPct: 0.0, cpuSaturationPct: 20.0, dnsLatencyMs: 4.0, tcpRetransmitRate: 0.0 },
+            { timestampMs: now - 4000, rttMs: 12.5, packetLossPct: 0.0, cpuSaturationPct: 21.0, dnsLatencyMs: 4.2, tcpRetransmitRate: 0.0 },
+            { timestampMs: now - 3000, rttMs: 13.0, packetLossPct: 0.0, cpuSaturationPct: 22.0, dnsLatencyMs: 4.5, tcpRetransmitRate: 0.0 },
+            { timestampMs: now - 2000, rttMs: 65.0, packetLossPct: 4.0, cpuSaturationPct: 75.0, dnsLatencyMs: 25.0, tcpRetransmitRate: 2.5 },
+            { timestampMs: now - 1000, rttMs: 90.0, packetLossPct: 8.0, cpuSaturationPct: 88.0, dnsLatencyMs: 40.0, tcpRetransmitRate: 6.0 }
+          ];
+    }
+
+    const report = engine.analyzeMultiMetricTrace(trace);
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'CUSUM changepoint analysis failed: ' + err.message });
+  }
+}
+
+router.post('/cusum-changepoints', handleCusumChangepoints);
+router.get('/cusum-changepoints', handleCusumChangepoints);
+
+/**
  * POST /api/rca/brain/context-window-preview
  * Previews token budgeting, exponential half-life temporal decay weighting,
  * and prioritized 3-tier context assembly for LLM prompts

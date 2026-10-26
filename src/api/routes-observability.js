@@ -98,4 +98,55 @@ router.post('/storage-adapter/export', (req, res) => {
   }
 });
 
+/**
+ * GET /api/observability/flight-recorder/dossier
+ * Phase 6 Engine 6: Black-Box Incident Flight Recorder & Signed Post-Mortem Dossier
+ */
+router.get('/flight-recorder/dossier', (req, res) => {
+  try {
+    const { IncidentFlightRecorder } = require('../observability/incident-flight-recorder');
+    const recorder = new IncidentFlightRecorder();
+    const dossier = recorder.createSignedDossier();
+
+    if (req.query.format === 'markdown') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${dossier.incidentId}-post-mortem.md"`);
+      return res.send(dossier.executiveMarkdown);
+    }
+
+    res.json({
+      success: true,
+      ...dossier
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Flight recorder dossier generation failed: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/observability/flight-recorder/verify
+ * Phase 6 Engine 6: Cryptographic Verification of Submitted Incident Dossier
+ */
+router.post('/flight-recorder/verify', (req, res) => {
+  try {
+    const { IncidentFlightRecorder } = require('../observability/incident-flight-recorder');
+    const recorder = new IncidentFlightRecorder();
+    const dossier = req.body;
+
+    if (!dossier || !dossier.snapshot || !dossier.dossierSignatureHmac) {
+      return res.status(400).json({ success: false, valid: false, error: 'Dossier payload with signature required' });
+    }
+
+    const intact = recorder.verifyDossierSignature(dossier);
+    res.json({
+      success: true,
+      valid: intact,
+      incidentId: dossier.incidentId,
+      tampered: !intact
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Dossier verification failed: ' + err.message });
+  }
+});
+
 module.exports = router;

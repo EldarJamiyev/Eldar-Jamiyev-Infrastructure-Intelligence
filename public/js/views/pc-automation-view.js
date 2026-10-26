@@ -275,7 +275,7 @@
             : `<span style="background: #F1F5F9; border: 1px solid #E2E8F0; color: #475569; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 9.5px;">LOW</span>`));
 
       return `
-        <div class="script-card" style="background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E5E7EB); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow-sm); transition: border-color 0.15s ease, box-shadow 0.15s ease;" onmouseenter="this.style.borderColor='var(--accent-primary)'" onmouseleave="this.style.borderColor='var(--border-default)'">
+        <div class="script-card exec-card" style="background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E5E7EB); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow-sm); transition: border-color 0.15s ease, box-shadow 0.15s ease;" onmouseenter="this.style.borderColor='var(--accent-primary)'" onmouseleave="this.style.borderColor='var(--border-default)'">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
             <div style="flex: 1;">
               <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -509,7 +509,7 @@ ${formattedOut}
       if (content) {
         content.innerHTML = `
           <div style="max-height: 55vh; overflow-y: auto; scrollbar-gutter: stable;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <table class="exec-table" style="width: 100%; border-collapse: collapse; text-align: left;">
               <thead>
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 10.5px; color: var(--text-dim); text-transform: uppercase;">
                   <th style="padding: 6px 10px;">Time</th>

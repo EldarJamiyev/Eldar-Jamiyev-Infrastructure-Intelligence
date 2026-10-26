@@ -5,44 +5,45 @@
  */
 
 :root {
-  /* Canvas & Base Surfaces */
-  --bg-canvas: #F8F9FA;              /* Soft, calm workstation background */
-  --bg-surface: #FFFFFF;             /* Pure crisp white card/panel surface */
-  --bg-surface-subtle: #F1F3F5;      /* Subtle grouped surface / headers */
-  --bg-surface-hover: #E9ECEF;       /* Smooth row & button hover state */
-  --bg-surface-active: #E7F0FF;      /* Soft blue active/selected state */
+  /* Architectural Cashmere & Velvet Graphite — Light Mode (Default) */
+  --bg-canvas: #F4F3EF;              /* Warm Alabaster Stone */
+  --bg-surface: #FFFFFF;             /* Pure Ivory Elevated */
+  --bg-surface-subtle: #FAF9F6;      /* Soft Cashmere */
+  --bg-surface-hover: #EFECE6;       /* Warm Sand Hover */
+  --bg-surface-active: #E4E1D8;      /* Recessed Active */
+  --bg-surface-track: #EFECE6;       /* Recessed Track */
 
   /* Dedicated Specialist Dark Surfaces (Hex Dumps & CLI Terminals only) */
-  --bg-terminal: #0F172A;            /* Deep slate navy (never pure #000000) */
+  --bg-terminal: #0F172A;            /* Deep slate navy */
   --bg-terminal-subtle: #1E293B;     /* Terminal header & secondary layer */
   --border-terminal: #334155;        /* Crisp border for dark code areas */
 
-  /* Text & Typography Hierarchy */
-  --text-primary: #111827;           /* Deep obsidian ink for headings and primary data */
-  --text-secondary: #4B5563;         /* Balanced slate for labels and secondary data */
-  --text-muted: #9CA3AF;             /* Subdued gray for metadata and helper notes */
-  --text-dim: #D1D5DB;               /* Low-contrast separators and icons */
+  /* Deep Editorial Ink Typography Hierarchy */
+  --text-primary: #141413;           /* Deep Editorial Ink */
+  --text-secondary: #52514E;         /* Muted Charcoal Wool */
+  --text-muted: #888681;             /* Warm Gray Annotation */
+  --text-dim: #C4C2BC;               /* Hairline Dim */
   --text-inverse: #FFFFFF;           /* Text on dark/accent surfaces */
 
   /* Structural Hairlines & Borders */
-  --border-subtle: #F3F4F6;          /* Ultra-subtle inner table dividers */
-  --border-default: #E5E7EB;         /* Standard hairline border for cards & inputs */
-  --border-strong: #D1D5DB;          /* Hover and distinct container borders */
-  --border-focus: #2563EB;           /* Accessible 2px focus ring */
+  --border-subtle: #EFECE6;          /* Ultra-subtle inner table dividers */
+  --border-default: #E4E1D8;         /* Standard hairline border for cards & inputs */
+  --border-strong: #C4C2BC;          /* Hover and distinct container borders */
+  --border-focus: #2B44B8;           /* Accessible 2px focus ring */
 
-  /* Royal Corporate Blue Accent (Restrained, Premium) */
-  --accent-primary: #2563EB;         /* Primary interactive actions & indicators */
-  --accent-hover: #1D4ED8;           /* Hover action state */
-  --accent-subtle: #EFF6FF;          /* Tinted pill backgrounds & active nav */
-  --accent-border: #BFDBFE;          /* Hairline border for active selections */
+  /* Royal Executive Indigo Accent */
+  --accent-primary: #2B44B8;         /* Primary interactive actions & indicators */
+  --accent-hover: #22379A;           /* Hover action state */
+  --accent-subtle: #EEF2FF;          /* Tinted pill backgrounds & active nav */
+  --accent-border: #C7D2FE;          /* Hairline border for active selections */
 
   /* Telemetry & Severity Status Colors */
-  --status-nominal: #059669;         /* Emerald Green (Nominal/Healthy/Online) */
+  --status-nominal: #0D7A5F;         /* Botanical Sage Emerald */
   --status-nominal-subtle: #ECFDF5;
-  --status-warning: #D97706;         /* Warm Amber (Degraded/High Latency/Retx) */
+  --status-warning: #B45309;         /* Cognac Amber */
   --status-warning-subtle: #FFFBEB;
-  --status-critical: #DC2626;        /* Crimson Red (Severed/RST Drop/Failure) */
-  --status-critical-subtle: #FEF2F2;
+  --status-critical: #BE123C;        /* Bordeaux Rose */
+  --status-critical-subtle: #FFF1F2;
   --status-info: #0284C7;            /* Precision Sky Blue (Configured/Dynamic) */
   --status-info-subtle: #F0F9FF;
 

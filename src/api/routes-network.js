@@ -58,6 +58,24 @@ router.get('/physical-info', (req, res) => {
   }
 });
 
+/**
+ * GET /api/network/routing-radix-audit
+ * Phase 2 Engine 2: 32-bit Binary Radix Trie Longest-Prefix Match & Routing Anomaly Auditor
+ */
+router.get('/routing-radix-audit', (req, res) => {
+  try {
+    const { RoutingRadixIntelligenceEngine } = require('../topology/routing-radix-intelligence');
+    const probeIp = typeof req.query.probeIp === 'string' ? req.query.probeIp.trim() : undefined;
+    const report = RoutingRadixIntelligenceEngine.captureAndAuditHostRoutes(probeIp);
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Routing Radix audit failed: ' + err.message });
+  }
+});
+
 // All protected network endpoints require authenticated session
 router.use(authenticate);
 
@@ -538,6 +556,117 @@ router.post('/capture/import-pcap', (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/network/pcapng/export
+ * Phase 1 Engine 1: IETF PCAPNG Binary Export with embedded JA4 & STL metadata
+ */
+router.get('/pcapng/export', (req, res) => {
+  try {
+    const { PcapngEngine } = require('../sniffer/pcapng-engine');
+    const ring = packetStreamer.frameRingBuffer || [];
+    const frames = ring
+      .filter(f => f && f.rawHex)
+      .map(f => ({
+        timestampMs: f.timestamp ? new Date(f.timestamp).getTime() : Date.now(),
+        rawBytes: new Uint8Array(Buffer.from(f.rawHex, 'hex')),
+        metadata: {
+          ja4Fingerprint: f.tlsAnalysis?.ja4Fingerprint || f.ja4Fingerprint || null,
+          sniHostName: f.tlsAnalysis?.sniHostName || f.sni || null,
+          dgaOrTunnelSuspected: Boolean(f.dnsAnalysis?.dgaOrTunnelSuspected),
+          shannonEntropyBitsPerChar: f.dnsAnalysis?.shannonEntropyBitsPerChar || 0
+        }
+      }));
+
+    const pcapngBytes = PcapngEngine.serializeFramesToPcapng(frames);
+    const pcapngBuf = Buffer.from(pcapngBytes.buffer, pcapngBytes.byteOffset, pcapngBytes.byteLength);
+
+    if (req.query.format === 'json') {
+      return res.json({
+        success: true,
+        format: 'pcapng',
+        totalPackets: frames.length,
+        sizeBytes: pcapngBuf.length,
+        pcapngBase64: pcapngBuf.toString('base64'),
+        summary: {
+          shbMagic: '0x0A0D0D0A',
+          byteOrderMagic: '0x1A2B3C4D',
+          linkType: 1
+        }
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/x-pcapng');
+    res.setHeader('Content-Disposition', 'attachment; filename="ejii-wire-capture.pcapng"');
+    res.send(pcapngBuf);
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'PCAPNG export failed: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/network/pcapng/import
+ * Phase 1 Engine 1: IETF PCAPNG Binary Import & Live Wire Dissection Replay
+ */
+router.post('/pcapng/import', (req, res) => {
+  try {
+    const { PcapngEngine } = require('../sniffer/pcapng-engine');
+    const PacketDecoder = require('../network/packet-decoding/packet-decoder');
+    const body = req.body || {};
+    let rawBuf = null;
+
+    if (body.pcapngBase64) {
+      rawBuf = Buffer.from(body.pcapngBase64, 'base64');
+    } else if (body.pcapngHex) {
+      rawBuf = Buffer.from(body.pcapngHex.replace(/[\s:-]/g, ''), 'hex');
+    } else if (Buffer.isBuffer(req.body)) {
+      rawBuf = req.body;
+    } else if (typeof req.body === 'string') {
+      rawBuf = Buffer.from(req.body, 'base64');
+    }
+
+    if (!rawBuf || rawBuf.length === 0) {
+      return res.status(400).json({ success: false, error: 'pcapngBase64 or pcapngHex required in request body' });
+    }
+
+    const parseResult = PcapngEngine.parsePcapngBuffer(new Uint8Array(rawBuf));
+    if (!parseResult.valid) {
+      return res.status(400).json({ success: false, error: 'Invalid or corrupted PCAPNG buffer (SHB magic missing)' });
+    }
+
+    const dissectedFrames = [];
+    for (const pkt of parseResult.packets) {
+      try {
+        const decoded = PacketDecoder.decode(Buffer.from(pkt.rawBytes.buffer, pkt.rawBytes.byteOffset, pkt.rawBytes.byteLength));
+        dissectedFrames.push({
+          ...decoded,
+          timestampMs: pkt.timestampMs,
+          capturedLen: pkt.capturedLen,
+          originalLen: pkt.originalLen,
+          pcapngCommentMetadata: pkt.commentMetadata
+        });
+      } catch (decErr) {
+        dissectedFrames.push({
+          rawHex: Buffer.from(pkt.rawBytes.buffer, pkt.rawBytes.byteOffset, pkt.rawBytes.byteLength).toString('hex'),
+          timestampMs: pkt.timestampMs,
+          error: decErr.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      valid: true,
+      shbInfo: parseResult.shbInfo,
+      linkType: parseResult.linkType,
+      snapLen: parseResult.snapLen,
+      packetCount: parseResult.packets.length,
+      dissectedFrames
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'PCAPNG import failed: ' + err.message });
   }
 });
 

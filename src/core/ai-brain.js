@@ -1422,6 +1422,23 @@ class AIBrain {
 
     const apexNeuro = this.evaluateApexNeuroSymbolic(this.recentEventsBuffer, evaluation.rankedHypotheses);
 
+    let cusumReport = null;
+    try {
+      const { CusumChangepointEngine } = require('../ai/cusum-changepoint-engine');
+      const engine = new CusumChangepointEngine();
+      const trace = Array.isArray(params.trace) && params.trace.length >= 3
+        ? params.trace
+        : (this.recentEventsBuffer || []).map((e, idx) => ({
+            timestampMs: typeof e.timestampMs === 'number' ? e.timestampMs : Date.now() - (10 - idx) * 1000,
+            rttMs: typeof e.latencyMs === 'number' ? e.latencyMs : (typeof e.rttMs === 'number' ? e.rttMs : 10),
+            packetLossPct: typeof e.packetLossPct === 'number' ? e.packetLossPct : 0,
+            cpuSaturationPct: typeof e.cpuSaturationPct === 'number' ? e.cpuSaturationPct : 15,
+            dnsLatencyMs: typeof e.dnsLatencyMs === 'number' ? e.dnsLatencyMs : 5,
+            tcpRetransmitRate: typeof e.tcpRetransmitRate === 'number' ? e.tcpRetransmitRate : 0
+          }));
+      cusumReport = engine.analyzeMultiMetricTrace(trace);
+    } catch (_) {}
+
     return {
       incidentType: evaluation.incidentType,
       failureCategory: evaluation.topHypothesis?.category || 'UNKNOWN',
@@ -1434,6 +1451,8 @@ class AIBrain {
       estimatedTimeToViolationSec: apexNeuro.estimatedTimeToViolationSec,
       metricSensitivityGradient: apexNeuro.metricSensitivityGradient,
       counterfactualApex: apexNeuro.counterfactualApex,
+      cusumChangepoints: cusumReport,
+      primaryTemporalDriver: cusumReport?.primaryTemporalDriver || null,
       simpleOperatorMode: briefing.simpleOperatorMode,
       expertDiagnosticMode: briefing.expertDiagnosticMode,
       baselineContext: params.destIp ? this.baselineMetrics.get(params.destIp) || null : null,
@@ -1522,6 +1541,15 @@ class AIBrain {
       metricSensitivityGradient: stlApex.metricSensitivityGradient,
       counterfactualApex
     };
+  }
+
+  /**
+   * Phase 5 Engine 5: Multi-Metric CUSUM Changepoint & Granger-style Temporal Precedence
+   */
+  evaluateCusumChangepoints(trace) {
+    const { CusumChangepointEngine } = require('../ai/cusum-changepoint-engine');
+    const engine = new CusumChangepointEngine();
+    return engine.analyzeMultiMetricTrace(trace || []);
   }
 
   /**

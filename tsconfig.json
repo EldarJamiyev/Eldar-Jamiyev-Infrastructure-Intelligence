@@ -11,10 +11,7 @@
     "sourceMap": true
   },
   "include": [
-    "src/ai/**/*.ts",
-    "src/sniffer/**/*.ts",
-    "src/topology/**/*.ts",
-    "src/security/**/*.ts",
-    "tests/suite-73-sovereign-apex.test.ts"
+    "src/**/*.ts",
+    "tests/**/*.ts"
   ]
 }

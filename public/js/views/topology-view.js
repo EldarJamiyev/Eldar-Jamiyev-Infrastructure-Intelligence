@@ -77,6 +77,7 @@
                 <button id="topoFleetToggleBtn" class="btn btn-secondary" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
                   🛡️ Focus Infrastructure
                 </button>
+                <button id="btnLpmRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">🧭 LPM Routing Trie</button>
 
                 <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 3px; border-radius: 6px; border: 1px solid var(--border-default);">
                   <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Zoom In">➕</button>
@@ -238,5 +239,130 @@
   };
 
   window.renderTopologyStandaloneView = renderTopologyStandaloneView;
+
+  window.openRoutingRadixModal = async function() {
+    let modal = document.getElementById('routingRadixModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'routingRadixModal';
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+      modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="card exec-card" style="width: 780px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; padding: 0; background: var(--bg-surface);">
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 18px;">🧭</span>
+            <div>
+              <div style="font-weight: 700; font-size: 14px; color: var(--text-primary);">32-bit Binary Radix Trie &amp; Routing Anomaly Inspector</div>
+              <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">O(k) Longest-Prefix Match (LPM) &amp; Deterministic Routing Table Verification</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary exec-btn-secondary" onclick="document.getElementById('routingRadixModal').style.display='none'" style="font-size: 11px; padding: 4px 8px;">✕ Close</button>
+        </div>
+        <div id="routingRadixModalBody" style="padding: 20px; overflow-y: auto; flex: 1;">
+          <div style="color: var(--text-muted); font-size: 12px;">Auditing host routing table via Patricia Radix Trie...</div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const data = await window.api('/api/network/routing-radix-audit');
+      const body = document.getElementById('routingRadixModalBody');
+      if (!body) return;
+
+      const anomaliesHtml = (data.anomalies || []).length === 0
+        ? `<div class="exec-badge nominal">✓ Zero Routing Anomalies Detected. Deterministic routing fabric active.</div>`
+        : (data.anomalies || []).map(a => `
+            <div style="background: var(--status-warning-subtle); border-left: 3px solid var(--status-warning); padding: 8px 12px; border-radius: 4px; margin-bottom: 8px;">
+              <div style="font-weight: 700; font-size: 11.5px; color: var(--status-warning);">${escapeHtml(a.anomalyType)} (${escapeHtml(a.severity)})</div>
+              <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">${escapeHtml(a.description)}</div>
+              <div style="font-size: 10px; color: var(--text-secondary); font-family: var(--font-mono); margin-top: 4px;">Advice: ${escapeHtml(a.remediationAdvice)}</div>
+            </div>
+          `).join('');
+
+      body.innerHTML = `
+        <div class="exec-kpi-strip" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 16px;">
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Total Routes</span>
+            <span class="kpi-value">${data.totalRoutes || 0}</span>
+          </div>
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Radix Trie Nodes</span>
+            <span class="kpi-value">${data.trieNodeCount || 0}</span>
+          </div>
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Max Trie Depth</span>
+            <span class="kpi-value">${data.maxTrieDepth || 0} bits</span>
+          </div>
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Default Gateway</span>
+            <span class="kpi-value" style="font-size: 13px;">${escapeHtml(data.defaultGateways?.[0]?.gateway || '192.168.31.1')}</span>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">Routing Fabric Anomaly Analysis:</div>
+          ${anomaliesHtml}
+        </div>
+
+        <div style="margin-bottom: 16px; background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;">
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">Interactive Longest-Prefix Match (LPM) Resolver:</div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="lpmProbeInput" class="form-input" placeholder="e.g. 8.8.8.8, 1.1.1.1, 10.0.0.5" style="width: 220px; font-size: 11.5px; padding: 5px 8px;" value="8.8.8.8">
+            <button class="btn btn-primary exec-btn-primary" onclick="window.probeRadixLpm(document.getElementById('lpmProbeInput').value)" style="font-size: 11px; padding: 5px 12px;">Resolve LPM</button>
+            <div id="lpmProbeResult" style="font-size: 11px; font-family: var(--font-mono); color: var(--accent-primary);"></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">Active IPv4 Routes in Radix Trie:</div>
+          <table class="exec-table">
+            <thead>
+              <tr>
+                <th>Prefix CIDR</th>
+                <th>Gateway / Next-Hop</th>
+                <th>Interface</th>
+                <th>Metric</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(data.routes || []).slice(0, 30).map(r => `
+                <tr>
+                  <td style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-primary);">${escapeHtml(r.cidr)}</td>
+                  <td style="font-family: var(--font-mono);">${escapeHtml(r.gateway)}</td>
+                  <td style="font-family: var(--font-mono); color: var(--text-secondary);">${escapeHtml(r.interfaceName)}</td>
+                  <td>${r.metric}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      const body = document.getElementById('routingRadixModalBody');
+      if (body) body.innerHTML = `<div style="color: var(--status-critical);">Failed to audit routing table: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+
+  window.probeRadixLpm = async function(ip) {
+    const el = document.getElementById('lpmProbeResult');
+    if (!el) return;
+    el.innerHTML = 'Resolving...';
+    try {
+      const res = await window.api(`/api/network/routing-radix-audit?probeIp=${encodeURIComponent(ip)}`);
+      const probe = res.sampleLpmProbes?.[ip];
+      if (probe && probe.matched) {
+        el.innerHTML = `✓ Match: <strong>${escapeHtml(probe.matchedCidr)}</strong> ➔ Next-Hop: <strong>${escapeHtml(probe.nextHop)}</strong> (Depth: ${probe.trieDepth}, Metric: ${probe.metric})`;
+      } else {
+        el.innerHTML = `❌ No matching route in trie.`;
+      }
+    } catch (err) {
+      el.innerHTML = `Error: ${escapeHtml(err.message)}`;
+    }
+  };
 
 })(window);

@@ -591,6 +591,7 @@
             <div style="display: flex; gap: 4px; align-items: center;">
               <button class="btn btn-secondary" onclick="window.diagnoseOfficeEquipmentModal('${h.ip}', '${h.equipmentProfile?.equipmentType || ''}', '${escapeAttr(h.hostname || '')}', '${h.macAddress || ''}', '${escapeAttr(h.vendor || '')}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #7C3AED; border-radius: 4px;" title="Plain-language diagnostic & 4-hop visual smart connection map">🩺 Diagnose</button>
               <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: var(--accent-primary); border-radius: 4px;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
+              <button class="btn btn-secondary exec-btn-secondary" onclick="window.runHostTlsPostureAudit('${h.ip}', 443)" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; color: #2B44B8;" title="Audit TLS 1.3 / X.509 certificate posture & NIST score">🔒 TLS</button>
               <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
               <button class="btn btn-secondary" onclick="window.addHostToTopology('${h.ip}', '${h.hostname}', '${h.macAddress}', '${h.vendor}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Register host into dynamic Layer 1-6 topology map">🗺️ Map</button>
               <button class="btn btn-secondary" onclick="window.sendWolToHost('${h.macAddress}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Transmit Wake-on-LAN magic packet">⏰ WOL</button>
@@ -717,6 +718,7 @@
           <!-- Footer Action Buttons -->
           <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
             <button class="btn btn-secondary" onclick="document.getElementById('deepInspectHostModal').style.display='none'">Close</button>
+            <button class="btn btn-secondary exec-btn-secondary" onclick="window.runHostTlsPostureAudit('${escapeAttr(res.ip)}', 443);" style="font-weight: 700; color: #2B44B8;">🔒 TLS X.509 Posture Audit</button>
             <button class="btn btn-primary" onclick="document.getElementById('deepInspectHostModal').style.display='none'; window.sniffHostOnWire('${escapeAttr(res.ip)}');" style="font-weight: 700; background: #0284c7; border-color: #38bdf8;">🦈 Sniff Host in Wireshark</button>
           </div>
         </div>
@@ -1091,6 +1093,101 @@
       if (bodyEl) {
         bodyEl.innerHTML = `<div style="color: #ef4444;">Error inspecting print spooler: ${escapeHtml(err.message)}</div>`;
       }
+    }
+  };
+
+  window.runHostTlsPostureAudit = async function(host, port = 443) {
+    let modal = document.getElementById('tlsPostureModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'tlsPostureModal';
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+      modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="card exec-card" style="width: 650px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; padding: 0; background: var(--bg-surface);">
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 18px;">🔒</span>
+            <div>
+              <div style="font-weight: 700; font-size: 14px; color: var(--text-primary);">Zero-Trust X.509 &amp; TLS Posture Auditor</div>
+              <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">NIST SP 800-52r2 &amp; Post-Quantum Readiness Assessment: ${escapeHtml(host)}:${port}</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary exec-btn-secondary" onclick="document.getElementById('tlsPostureModal').style.display='none'" style="font-size: 11px; padding: 4px 8px;">✕ Close</button>
+        </div>
+        <div id="tlsPostureModalBody" style="padding: 20px; overflow-y: auto; flex: 1;">
+          <div style="color: var(--text-muted); font-size: 12px;">Initiating cryptographic TLS handshake against ${escapeHtml(host)}:${port}...</div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await window.api(`/api/diagnostics/tls-posture-audit?host=${encodeURIComponent(host)}&port=${port}`);
+      const body = document.getElementById('tlsPostureModalBody');
+      if (!body) return;
+
+      const cert = res.certificate;
+      const findingsHtml = (res.findings || []).map(f => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px;">
+          <div>
+            <span style="font-family: var(--font-mono); font-weight: 700; color: var(--text-primary);">[${escapeHtml(f.ruleId)}]</span>
+            <span style="color: var(--text-secondary); margin-left: 6px;">${escapeHtml(f.description)}</span>
+          </div>
+          <span style="font-weight: 700; color: ${f.scoreDelta >= 0 ? 'var(--status-nominal)' : 'var(--status-critical)'};">${f.scoreDelta >= 0 ? '+' : ''}${f.scoreDelta}</span>
+        </div>
+      `).join('');
+
+      body.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface-subtle); padding: 14px 18px; border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 16px;">
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">NIST SP 800-52r2 Posture Score</div>
+            <div style="font-size: 28px; font-weight: 800; color: var(--accent-primary); margin-top: 2px;">${res.nistScore} <span style="font-size: 14px; color: var(--text-secondary);">/ 100</span></div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Letter Grade</div>
+            <div style="font-size: 26px; font-weight: 800; color: ${res.letterGrade === 'A+' || res.letterGrade === 'A' ? 'var(--status-nominal)' : (res.letterGrade === 'B' ? '#B45309' : 'var(--status-critical)')};">${res.letterGrade}</div>
+          </div>
+        </div>
+
+        <div class="exec-kpi-strip" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 16px;">
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Negotiated Protocol</span>
+            <span class="kpi-value" style="font-size: 14px;">${escapeHtml(res.tlsVersion || 'Failed')}</span>
+          </div>
+          <div class="exec-kpi-card">
+            <span class="kpi-label">Cipher Suite</span>
+            <span class="kpi-value" style="font-size: 11px; font-family: var(--font-mono); word-break: break-all;">${escapeHtml(res.cipherSuite || 'None')}</span>
+          </div>
+          <div class="exec-kpi-card">
+            <span class="kpi-label">X.509 Days Left</span>
+            <span class="kpi-value" style="font-size: 14px;">${cert ? `${cert.daysRemaining} days` : 'N/A'}</span>
+          </div>
+        </div>
+
+        ${cert ? `
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 11.5px;">
+            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">X.509 Certificate Subject &amp; Issuer:</div>
+            <div>Subject: <strong>${escapeHtml(cert.subjectRaw)}</strong></div>
+            <div>Issuer: <span style="color: var(--text-secondary);">${escapeHtml(cert.issuerRaw)}</span></div>
+            <div>Validity: <span style="font-family: var(--font-mono);">${escapeHtml(cert.validFrom)} ➔ ${escapeHtml(cert.validTo)}</span></div>
+            <div>Self-Signed: <strong style="color: ${cert.isSelfSigned ? 'var(--status-warning)' : 'var(--status-nominal)'};">${cert.isSelfSigned ? 'YES (Untrusted Root)' : 'NO (CA Issued)'}</strong></div>
+          </div>
+        ` : ''}
+
+        <div>
+          <div style="font-weight: 700; font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">NIST SP 800-52r2 Assessment Breakdown:</div>
+          <div style="border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden;">
+            ${findingsHtml}
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      const body = document.getElementById('tlsPostureModalBody');
+      if (body) body.innerHTML = `<div style="color: var(--status-critical);">Audit failed: ${escapeHtml(err.message)}</div>`;
     }
   };
 

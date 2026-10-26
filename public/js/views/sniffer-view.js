@@ -108,10 +108,13 @@ window.escapeAttr = escapeAttr;
                 <button id="toggleCaptureBtn" class="btn btn-secondary" onclick="window.toggleLiveCapture()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">⏸ Pause</button>
                 <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">Clear</button>
 
-                <!-- Dedicated Direct PCAP I/O Controls -->
+                <!-- Dedicated Direct PCAP & PCAPNG I/O Controls -->
                 <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: var(--accent-primary); border-radius: 6px;" title="Export standard libpcap binary file for Wireshark">⬇ PCAP</button>
+                <button class="btn btn-secondary exec-btn-secondary" onclick="window.downloadPcapngExport()" style="font-size: 11px; padding: 4px 8px; font-weight: 700; color: var(--accent-primary); border-radius: 6px;" title="Export standard IETF PCAPNG binary file with embedded JA4 & STL options for Wireshark">⬇ PCAPNG</button>
                 <input type="file" id="pcapFileInput" style="display: none;" accept=".pcap,.cap" onchange="window.handlePcapFileChosen(this)">
+                <input type="file" id="pcapngFileInput" style="display: none;" accept=".pcapng" onchange="window.handlePcapngFileChosen(this)">
                 <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px; font-weight: 600; color: #7C3AED; border-radius: 6px;" title="Import offline PCAP file for forensic dissection">⬆ Import</button>
+                <button class="btn btn-secondary exec-btn-secondary" onclick="window.triggerImportPcapng()" style="font-size: 11px; padding: 4px 8px; font-weight: 700; color: #7C3AED; border-radius: 6px;" title="Import offline PCAPNG file for forensic dissection and replay">⬆ Replay PCAPNG</button>
 
                 <!-- Inspector Drawer Toggle -->
                 <button class="btn btn-secondary" onclick="window.togglePacketInspectorDrawer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Toggle 3-Pane Inspection Drawer">◫ Inspector</button>
@@ -751,5 +754,42 @@ window.escapeAttr = escapeAttr;
   }
 
   window.renderPacketSnifferStandaloneView = renderPacketSnifferStandaloneView;
+
+  if (!window.downloadPcapngExport) {
+    window.downloadPcapngExport = function() {
+      window.open(`/api/network/pcapng/export?token=${encodeURIComponent(window.state?.token || '')}`, '_blank');
+    };
+  }
+
+  if (!window.triggerImportPcapng) {
+    window.triggerImportPcapng = function() {
+      const fileIn = document.getElementById('pcapngFileInput');
+      if (fileIn) fileIn.click();
+    };
+  }
+
+  if (!window.handlePcapngFileChosen) {
+    window.handlePcapngFileChosen = function(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target.result.split(',')[1];
+        try {
+          const res = await window.api('/api/network/pcapng/import', {
+            method: 'POST',
+            body: JSON.stringify({ pcapngBase64: base64 })
+          });
+          alert(`PCAPNG Imported: ${res.packetCount} frames decoded and buffered! LinkType: ${res.linkType}`);
+          if (typeof window.renderNocView === 'function') window.renderNocView();
+        } catch (err) {
+          alert('PCAPNG Import failed: ' + err.message);
+        } finally {
+          input.value = '';
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+  }
 
 })(window);

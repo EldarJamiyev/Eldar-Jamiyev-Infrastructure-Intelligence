@@ -7,61 +7,63 @@
 :root {
   color-scheme: light;
 
-  /* Canvas & Base Surfaces */
-  --bg-canvas: #F8F9FA;
-  --bg-surface: #FFFFFF;
-  --bg-surface-subtle: #F1F3F5;
-  --bg-surface-hover: #E9ECEF;
-  --bg-surface-active: #E7F0FF;
+  /* Architectural Cashmere & Velvet Graphite — Light Mode (Default) */
+  --bg-canvas: #F4F3EF;          /* Warm Alabaster Stone */
+  --bg-surface: #FFFFFF;         /* Pure Ivory Elevated */
+  --bg-surface-subtle: #FAF9F6;  /* Soft Cashmere */
+  --bg-surface-hover: #EFECE6;   /* Warm Sand Hover */
+  --bg-surface-active: #E4E1D8;  /* Recessed Active */
+  --bg-surface-track: #EFECE6;   /* Recessed Track */
 
   /* Dedicated Specialist Dark Surfaces (Hex Dumps & CLI Terminals only) */
   --bg-terminal: #0F172A;
   --bg-terminal-subtle: #1E293B;
   --border-terminal: #334155;
 
-  /* Text & Typography Hierarchy */
-  --text-primary: #111827;
-  --text-secondary: #4B5563;
-  --text-muted: #9CA3AF;
-  --text-dim: #D1D5DB;
+  /* Deep Editorial Ink Typography Hierarchy */
+  --text-primary: #141413;       /* Deep Editorial Ink */
+  --text-secondary: #52514E;     /* Muted Charcoal Wool */
+  --text-muted: #888681;         /* Warm Gray Annotation */
+  --text-dim: #C4C2BC;           /* Hairline Dim */
   --text-inverse: #FFFFFF;
 
-  /* Structural Hairlines & Borders */
-  --border-subtle: #F3F4F6;
-  --border-default: #E5E7EB;
-  --border-strong: #D1D5DB;
-  --border-focus: #2563EB;
+  /* Structural Hairlines & Cashmere Borders */
+  --border-subtle: #EFECE6;
+  --border-default: #E4E1D8;
+  --border-strong: #C4C2BC;
+  --border-focus: #2B44B8;
 
-  /* Royal Corporate Blue Accent */
-  --accent-primary: #2563EB;
-  --accent-hover: #1D4ED8;
-  --accent-subtle: #EFF6FF;
-  --accent-border: #BFDBFE;
+  /* Royal Executive Indigo Accent */
+  --accent-primary: #2B44B8;     /* Royal Executive Indigo */
+  --accent-hover: #22379A;
+  --accent-subtle: #EEF2FF;
+  --accent-border: #C7D2FE;
 
   /* Telemetry & Severity Status Colors */
-  --status-nominal: #059669;
+  --status-nominal: #0D7A5F;     /* Botanical Sage Emerald */
   --status-nominal-subtle: #ECFDF5;
-  --status-warning: #D97706;
+  --status-warning: #B45309;     /* Cognac Amber */
   --status-warning-subtle: #FFFBEB;
-  --status-critical: #DC2626;
-  --status-critical-subtle: #FEF2F2;
-  --status-info: #0284C7;
-  --status-info-subtle: #F0F9FF;
+  --status-critical: #BE123C;    /* Bordeaux Rose */
+  --status-critical-subtle: #FFF1F2;
+  --status-info: #1D4ED8;
+  --status-info-subtle: #EFF6FF;
 
   /* Typography Stack */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 
-  /* Elevation Shadows */
-  --shadow-xs: 0 1px 2px 0 rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 1px 3px 0 rgba(16, 24, 40, 0.1), 0 1px 2px -1px rgba(16, 24, 40, 0.1);
-  --shadow-md: 0 4px 6px -1px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(16, 24, 40, 0.1), 0 4px 6px -4px rgba(16, 24, 40, 0.1);
+  /* Soft Multi-Layer Diffused Elevation Shadows */
+  --shadow-xs: 0 1px 2px 0 rgba(20, 20, 19, 0.03);
+  --shadow-sm: 0 2px 4px 0 rgba(20, 20, 19, 0.04);
+  --shadow-md: 0 6px 16px -2px rgba(20, 20, 19, 0.06);
+  --shadow-lg: 0 12px 28px -4px rgba(20, 20, 19, 0.08);
+  --shadow-diffused: 0 8px 24px -4px rgba(20, 20, 19, 0.05);
 
   /* Geometry & Rhythm */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --header-height: 52px;
   --sidebar-width: 240px;
 
@@ -86,13 +88,15 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: #0B0F19;
-  --bg-surface: #111827;
-  --bg-surface-subtle: #1F2937;
-  --bg-surface-hover: #374151;
-  --bg-surface-active: #1E3A8A;
-  --bg-terminal: #030712;
-  --bg-terminal-subtle: #0F172A;
+  /* Velvet Carbon & Graphite — Dark Mode */
+  --bg-canvas: #0E1014;          /* Velvet Carbon */
+  --bg-surface: #15181F;         /* Elevated Graphite */
+  --bg-surface-subtle: #1B1F28;  /* Brushed Slate */
+  --bg-surface-hover: #262B37;
+  --bg-surface-active: #1E2742;
+  --bg-surface-track: #15181F;
+  --bg-terminal: #07090C;
+  --bg-terminal-subtle: #0E1014;
   --border-terminal: #1F2937;
   --text-primary: #F9FAFB;
   --text-secondary: #9CA3AF;
@@ -1056,4 +1060,193 @@
   background: rgba(16, 185, 129, 0.15);
   color: #10B981;
   border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* ==========================================================================
+   EJII v3.0.0 Architectural Cashmere & Velvet Graphite Executive Component Suite
+   ========================================================================== */
+
+.exec-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md, 12px);
+  box-shadow: var(--shadow-diffused);
+  padding: 18px 22px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.exec-card:hover {
+  border-color: var(--border-strong);
+}
+
+.exec-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 14px;
+}
+
+.exec-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm, 8px);
+  padding: 3px;
+  gap: 2px;
+}
+
+.exec-segmented .exec-seg-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.exec-segmented .exec-seg-btn.active,
+.exec-segmented .exec-seg-btn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.exec-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-primary);
+  color: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm, 8px);
+  padding: 7px 15px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+  box-shadow: 0 2px 6px rgba(43, 68, 184, 0.2);
+}
+
+.exec-btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.exec-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm, 8px);
+  padding: 7px 15px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.exec-btn-secondary:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.exec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.exec-badge.nominal {
+  background: var(--status-nominal-subtle);
+  color: var(--status-nominal);
+  border-color: rgba(13, 122, 95, 0.25);
+}
+
+.exec-badge.warning {
+  background: var(--status-warning-subtle);
+  color: var(--status-warning);
+  border-color: rgba(180, 83, 9, 0.25);
+}
+
+.exec-badge.critical {
+  background: var(--status-critical-subtle);
+  color: var(--status-critical);
+  border-color: rgba(190, 18, 60, 0.25);
+}
+
+.exec-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.exec-table th {
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-default);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.exec-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-table tr:hover td {
+  background: var(--bg-surface-hover);
+}
+
+.exec-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.exec-kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm, 8px);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exec-kpi-card .kpi-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.exec-kpi-card .kpi-value {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }

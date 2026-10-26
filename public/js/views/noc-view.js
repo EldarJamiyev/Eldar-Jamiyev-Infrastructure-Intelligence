@@ -161,6 +161,7 @@ window.escapeAttr = escapeAttr;
                   <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
                 </div>
                 <button class="btn btn-warning" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">📍 Sync Location &amp; Subnet IPs</button>
+                <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">🧭 LPM Routing Trie</button>
                 <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover Network</button>
                 <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺ Reset</button>
                 <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
@@ -272,8 +273,11 @@ window.escapeAttr = escapeAttr;
                 </button>
                 <button class="btn btn-secondary" onclick="window.clearPacketBuffer()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;">Clear</button>
                 <button class="btn btn-secondary" onclick="window.downloadPcapExport()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Export standard libpcap binary file">⬇ PCAP</button>
+                <button class="btn btn-secondary exec-btn-secondary" onclick="window.downloadPcapngExport()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: var(--accent-primary);" title="Export standard IETF PCAPNG binary file with embedded JA4 & STL options">⬇ PCAPNG</button>
                 <input type="file" id="pcapFileInput" style="display: none;" accept=".pcap,.cap" onchange="window.handlePcapFileChosen(this)">
+                <input type="file" id="pcapngFileInput" style="display: none;" accept=".pcapng" onchange="window.handlePcapngFileChosen(this)">
                 <button class="btn btn-secondary" onclick="window.triggerImportPcap()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Import offline PCAP file">⬆ Import</button>
+                <button class="btn btn-secondary exec-btn-secondary" onclick="window.triggerImportPcapng()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #7C3AED;" title="Import offline PCAPNG file for forensic dissection and replay">⬆ Replay PCAPNG</button>
                 <span id="packetFilterCounterBadge" style="font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 6px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 600; white-space: nowrap;">
                   Displayed: ${Math.min(liveFrames.length, 60)} / Captured: ${liveFrames.length} | Hidden: 0
                 </span>
@@ -2576,8 +2580,17 @@ window.escapeAttr = escapeAttr;
     window.open(`/api/network/capture/pcap?token=${encodeURIComponent(window.state.token || '')}`, '_blank');
   };
 
+  window.downloadPcapngExport = function() {
+    window.open(`/api/network/pcapng/export?token=${encodeURIComponent(window.state?.token || '')}`, '_blank');
+  };
+
   window.triggerImportPcap = function() {
     const fileIn = document.getElementById('pcapFileInput');
+    if (fileIn) fileIn.click();
+  };
+
+  window.triggerImportPcapng = function() {
+    const fileIn = document.getElementById('pcapngFileInput');
     if (fileIn) fileIn.click();
   };
 
@@ -2596,6 +2609,30 @@ window.escapeAttr = escapeAttr;
         window.renderNocView();
       } catch (err) {
         alert('PCAP Import failed: ' + err.message);
+      } finally {
+        input.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.handlePcapngFileChosen = function(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target.result.split(',')[1];
+      try {
+        const res = await window.api('/api/network/pcapng/import', {
+          method: 'POST',
+          body: JSON.stringify({ pcapngBase64: base64 })
+        });
+        alert(`PCAPNG Imported: ${res.packetCount} frames decoded and buffered! LinkType: ${res.linkType}`);
+        if (typeof window.renderNocView === 'function') window.renderNocView();
+      } catch (err) {
+        alert('PCAPNG Import failed: ' + err.message);
+      } finally {
+        input.value = '';
       }
     };
     reader.readAsDataURL(file);

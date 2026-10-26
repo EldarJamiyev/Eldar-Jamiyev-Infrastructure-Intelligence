@@ -103,6 +103,13 @@ const { runKlDivergenceBayesFactorAndCriticReflectionTests } = require('./kl-div
 const { runW3cTraceparentPipelineAndMultiEnvLocationTests } = require('./w3c-traceparent-pipeline-and-multi-env-location.test');
 const { runControlPlaneUiGitopsObservabilityWiringTests } = require('./control-plane-ui-gitops-observability-wiring.test');
 const { runSuite73SovereignApex } = require('./suite-73-sovereign-apex.test');
+const { runSuite74PcapngBinaryEngine } = require('./suite-74-pcapng-binary-engine.test');
+const { runSuite75RoutingRadixTrieIntelligence } = require('./suite-75-routing-radix-trie-intelligence.test');
+const { runSuite76ProcessSocketBehavioralMatrix } = require('./suite-76-process-socket-behavioral-matrix.test');
+const { runSuite77TlsX509PostureAuditor } = require('./suite-77-tls-x509-posture-auditor.test');
+const { runSuite78CusumChangepointForensics } = require('./suite-78-cusum-changepoint-forensics.test');
+const { runSuite79IncidentFlightRecorderDossier } = require('./suite-79-incident-flight-recorder-dossier.test');
+const { runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion } = require('./suite-80-executive-luxury-ui-and-80-suite-cohesion.test');
 
 async function runAllTests() {
   const fs = require('fs');
@@ -194,7 +201,14 @@ async function runAllTests() {
     { name: '70. Kullback-Leibler Information Gain, Harold Jeffreys Evidence Scale & Planner-Executor-Critic AI Brain', fn: runKlDivergenceBayesFactorAndCriticReflectionTests },
     { name: '71. W3C traceparent Telemetry Pipeline, CNCF OpenTelemetry Spans, 50:64:2B OUI & Multi-Environment Profiles', fn: runW3cTraceparentPipelineAndMultiEnvLocationTests },
     { name: '72. View 5 Control Plane UI Wiring, Command Palette Quick Actions & 72-Suite Verification Alignment', fn: runControlPlaneUiGitopsObservabilityWiringTests },
-    { name: '73. EJII v2.0.0-Sovereign-Apex Core Engines & Deep Verification', fn: runSuite73SovereignApex }
+    { name: '73. EJII v2.0.0-Sovereign-Apex Core Engines & Deep Verification', fn: runSuite73SovereignApex },
+    { name: '74. Binary .pcapng Capture Writer, Parser & Replay Engine', fn: runSuite74PcapngBinaryEngine },
+    { name: '75. Routing Radix Trie Intelligence, 32-Bit LPM & Anomaly Auditor', fn: runSuite75RoutingRadixTrieIntelligence },
+    { name: '76. User-Space Process-to-Socket Behavioral Matrix & RFC 6056 Telemetry', fn: runSuite76ProcessSocketBehavioralMatrix },
+    { name: '77. Cryptographic Zero-Trust TLS & X.509 Posture Auditor', fn: runSuite77TlsX509PostureAuditor },
+    { name: '78. Page\'s CUSUM Metric Changepoint Forensics & Causal Precedence', fn: runSuite78CusumChangepointForensics },
+    { name: '79. Incident Flight Recorder & Signed Post-Mortem Dossier', fn: runSuite79IncidentFlightRecorderDossier },
+    { name: '80. Executive Luxury UI & 80-Suite Cohesion Verification', fn: runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion }
   ];
 
   for (const s of suites) {

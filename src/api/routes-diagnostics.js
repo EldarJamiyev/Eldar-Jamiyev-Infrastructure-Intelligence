@@ -484,6 +484,50 @@ router.get('/linux-parity', authenticate, (req, res) => {
 });
 
 /**
+ * GET /api/diagnostics/socket-process-matrix
+ * Phase 3 Engine 3: User-Space Process-to-Socket Behavioral Matrix & RFC 6056 Ephemeral Port Exhaustion
+ */
+router.get('/socket-process-matrix', (req, res) => {
+  try {
+    const { ProcessSocketCorrelatorEngine } = require('../diagnostics/process-socket-correlator');
+    const report = ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix();
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Socket process matrix failed: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/diagnostics/tls-posture-audit
+ * GET /api/diagnostics/tls-posture-audit
+ * Phase 4 Engine 4: Cryptographic Zero-Trust X.509 & TLS Posture Auditor (NIST SP 800-52r2)
+ */
+async function handleTlsPostureAudit(req, res) {
+  try {
+    const { TlsPostureAuditor } = require('../security/tls-posture-auditor');
+    const host = req.body?.host || req.query?.host || '127.0.0.1';
+    const rawPort = parseInt(req.body?.port || req.query?.port || 443, 10);
+    const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 443;
+    const rawTimeout = parseInt(req.body?.timeoutMs || req.query?.timeoutMs || 4000, 10);
+    const timeoutMs = Math.max(500, Math.min(15000, rawTimeout));
+
+    const report = await TlsPostureAuditor.auditTlsEndpoint(host, port, timeoutMs);
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'TLS posture audit failed: ' + err.message });
+  }
+}
+
+router.post('/tls-posture-audit', handleTlsPostureAudit);
+router.get('/tls-posture-audit', handleTlsPostureAudit);
+
+/**
  * GET /api/diagnostics/anomalies
  * Detects statistical anomalies over rolling authoritative telemetry (EJII Phase 4)
  */

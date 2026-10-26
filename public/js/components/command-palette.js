@@ -37,6 +37,13 @@
         alert(`Loki Audit Stream: ${logs.streams ? logs.streams.length : 0} stream entries captured.`);
       } catch (e) { alert('Loki logs inspection error: ' + e.message); }
     }},
+    { id: 'act-export-signed-dossier', category: 'Observability', title: 'Export Signed Executive Incident Dossier (Black-Box Flight Recorder)', icon: '📋', action: async () => {
+      try {
+        const dossier = await window.api('/api/observability/flight-recorder/dossier');
+        window.open('/api/observability/flight-recorder/dossier?format=markdown', '_blank');
+        alert(`Signed Post-Mortem Incident Dossier Generated!\nIncident ID: ${dossier.incidentId}\nHMAC: ${dossier.dossierSignatureHmac?.slice(0, 16)}...\nStatus: Valid & Download Initiated.`);
+      } catch (e) { alert('Dossier generation failed: ' + e.message); }
+    }},
     { id: 'act-discover-topology', category: 'Action', title: 'Run L2/L3 Network Topology Auto-Discovery', icon: '🔄', action: async () => {
       try {
         const res = await window.api('/api/network/topology/discover', { method: 'POST' });

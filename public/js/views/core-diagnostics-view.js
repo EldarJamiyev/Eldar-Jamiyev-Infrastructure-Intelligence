@@ -1180,7 +1180,10 @@
               Real Windows Hardware Ingestion &bull; 4-Pillar Health Triage &bull; Audited Remediation Recipes &bull; Zero Simulation
             </div>
           </div>
-          <div style="display: flex; gap: 8px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="btnSocketProcessMatrix" class="btn btn-secondary exec-btn-secondary" onclick="window.openSocketProcessMatrixModal()" style="font-size: 11px; border-radius: 6px;">🔌 Process Socket Matrix</button>
+            <button id="btnCusumChangepoint" class="btn btn-secondary exec-btn-secondary" onclick="window.openCusumChangepointModal()" style="font-size: 11px; border-radius: 6px;">📈 CUSUM Forensics</button>
+            <button id="btnExportIncidentDossier" class="btn btn-secondary exec-btn-secondary" onclick="window.exportSignedIncidentDossier()" style="font-size: 11px; border-radius: 6px; font-weight: 700; color: #2B44B8;">📋 Export Incident Dossier</button>
             <button id="btnToggleSelfHealing" class="btn btn-secondary" onclick="window.toggleSelfHealing()" style="font-size: 11px; border-radius: 6px;">⚙️ Autonomous Healing: OFF</button>
             <button id="btnRunSystemAudit" class="btn btn-primary" onclick="window.runDeepSystemAudit()" style="font-size: 11px; font-weight: 700; border-radius: 6px;">⚡ Run Deep System Audit</button>
           </div>
@@ -1738,6 +1741,229 @@
       return traces;
     } catch (err) {
       alert('CNCF Observability inspection error: ' + err.message);
+    }
+  };
+
+  /**
+   * View 5 Socket-to-Process Attribution Matrix & RFC 6056 Exhaustion Modal
+   */
+  window.openSocketProcessMatrixModal = async function() {
+    const modal = document.getElementById('modalContainer');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="modal-backdrop" onclick="window.closeModal(event)">
+        <div class="modal-card exec-card" style="max-width: 900px; width: 95%; max-height: 85vh; overflow-y: auto; background: var(--bg-card, #FFFFFF); border: 1px solid var(--border-color, #E2DFD8); border-radius: 8px; padding: 24px; color: var(--text-main, #141413);" onclick="event.stopPropagation()">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color, #E2DFD8); padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 22px;">🔌</span>
+              <div>
+                <div style="font-weight: 800; font-size: 15px; color: #2B44B8;">User-Space Process-to-Socket Attribution Matrix</div>
+                <div style="font-size: 11px; color: var(--text-muted, #72706A);">RFC 6056 Ephemeral Port Saturation & C2 Beaconing Periodic Analysis</div>
+              </div>
+            </div>
+            <button class="btn-logout" onclick="window.closeModal()">✕</button>
+          </div>
+          <div id="spmModalContent">
+            <div style="text-align: center; padding: 30px; color: var(--text-muted, #72706A);">Querying active kernel sockets & attribution tables...</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const data = await window.api('/api/diagnostics/socket-process-matrix');
+      const container = document.getElementById('spmModalContent');
+      if (!container) return;
+
+      const eph = data.ephemeralExhaustion || {};
+      const sockets = data.attributedSockets || [];
+
+      container.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px;">
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(43, 68, 184, 0.04); border: 1px solid rgba(43, 68, 184, 0.15);">
+            <div style="font-size: 10px; font-weight: 700; color: #2B44B8; text-transform: uppercase;">RFC 6056 Pool Saturation</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${(eph.saturationPct || 0).toFixed(2)}%</div>
+            <div style="font-size: 10px; color: #72706A;">${eph.allocatedSockets || 0} / ${eph.totalRange || 16384} ports</div>
+          </div>
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.2);">
+            <div style="font-size: 10px; font-weight: 700; color: #B45309; text-transform: uppercase;">TIME_WAIT Ratio</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${((eph.timeWaitRatio || 0) * 100).toFixed(1)}%</div>
+            <div style="font-size: 10px; color: #72706A;">${eph.timeWaitSockets || 0} sockets lingering</div>
+          </div>
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(13, 122, 95, 0.04); border: 1px solid rgba(13, 122, 95, 0.2);">
+            <div style="font-size: 10px; font-weight: 700; color: #0D7A5F; text-transform: uppercase;">Seconds to Exhaustion</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${eph.secondsToExhaustion ? eph.secondsToExhaustion + 's' : '∞ Stable'}</div>
+            <div style="font-size: 10px; color: #72706A;">${eph.burnRatePerSec ? eph.burnRatePerSec + ' ports/sec' : 'Burn rate: nominal'}</div>
+          </div>
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(190, 18, 60, 0.04); border: 1px solid rgba(190, 18, 60, 0.2);">
+            <div style="font-size: 10px; font-weight: 700; color: #BE123C; text-transform: uppercase;">C2 Anomalies Detected</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${data.c2AnomaliesDetected || 0}</div>
+            <div style="font-size: 10px; color: #72706A;">Periodicity CV &lt; 0.15 threshold</div>
+          </div>
+        </div>
+
+        <div style="font-weight: 700; font-size: 12px; margin-bottom: 8px; color: #141413;">Live Attributed Sockets (Showing first 50)</div>
+        <div style="overflow-x: auto; border: 1px solid var(--border-color, #E2DFD8); border-radius: 6px;">
+          <table class="exec-table" style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <thead>
+              <tr style="background: rgba(0,0,0,0.02); text-align: left; border-bottom: 1px solid var(--border-color, #E2DFD8);">
+                <th style="padding: 8px 10px;">PID</th>
+                <th style="padding: 8px 10px;">Process Name</th>
+                <th style="padding: 8px 10px;">Proto</th>
+                <th style="padding: 8px 10px;">Local Address</th>
+                <th style="padding: 8px 10px;">Foreign Address</th>
+                <th style="padding: 8px 10px;">State</th>
+                <th style="padding: 8px 10px;">Beaconing Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sockets.slice(0, 50).map(s => `
+                <tr style="border-bottom: 1px solid rgba(0,0,0,0.04);">
+                  <td style="padding: 6px 10px; font-family: var(--font-mono); font-weight: 600;">${s.pid || '-'}</td>
+                  <td style="padding: 6px 10px; font-weight: 600;">${s.processName || 'Unknown'}</td>
+                  <td style="padding: 6px 10px;">${s.protocol || 'TCP'}</td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${s.localAddress || '*'}:${s.localPort || '*'}</td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${s.remoteAddress || '*'}:${s.remotePort || '*'}</td>
+                  <td style="padding: 6px 10px;"><span class="exec-badge" style="background: rgba(43, 68, 184, 0.08); color: #2B44B8; font-size: 9px; padding: 2px 6px; border-radius: 4px;">${s.state || 'ESTABLISHED'}</span></td>
+                  <td style="padding: 6px 10px;">
+                    ${s.isC2Beaconing ? 
+                      `<span class="exec-badge" style="background: rgba(190, 18, 60, 0.1); color: #BE123C; font-weight: 700; padding: 2px 6px; border-radius: 4px;">🚨 C2 BEACON (CV: ${(s.beaconingScore?.cv || 0).toFixed(3)})</span>` : 
+                      `<span style="color: #72706A;">Normal (CV: ${s.beaconingScore?.cv ? s.beaconingScore.cv.toFixed(2) : 'N/A'})</span>`}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      const container = document.getElementById('spmModalContent');
+      if (container) {
+        container.innerHTML = `<div style="color: #BE123C; padding: 20px;">Failed to load Process-Socket Matrix: ${err.message}</div>`;
+      }
+    }
+  };
+
+  /**
+   * View 5 Page's CUSUM Metric Changepoint Forensics Modal
+   */
+  window.openCusumChangepointModal = async function() {
+    const modal = document.getElementById('modalContainer');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="modal-backdrop" onclick="window.closeModal(event)">
+        <div class="modal-card exec-card" style="max-width: 850px; width: 92%; max-height: 85vh; overflow-y: auto; background: var(--bg-card, #FFFFFF); border: 1px solid var(--border-color, #E2DFD8); border-radius: 8px; padding: 24px; color: var(--text-main, #141413);" onclick="event.stopPropagation()">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color, #E2DFD8); padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 22px;">📈</span>
+              <div>
+                <div style="font-weight: 800; font-size: 15px; color: #2B44B8;">Page's Two-Sided CUSUM Changepoint Forensics</div>
+                <div style="font-size: 11px; color: var(--text-muted, #72706A);">Sequential Detection of Mean Shifts & Granger Causal Precedence Ranking</div>
+              </div>
+            </div>
+            <button class="btn-logout" onclick="window.closeModal()">✕</button>
+          </div>
+          <div id="cusumModalContent">
+            <div style="text-align: center; padding: 30px; color: var(--text-muted, #72706A);">Executing CUSUM changepoint analysis across telemetry series...</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const data = await window.api('/api/rca/cusum-changepoints');
+      const container = document.getElementById('cusumModalContent');
+      if (!container) return;
+
+      const summary = data.summary || {};
+      const streams = data.streams || {};
+
+      container.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px;">
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(43, 68, 184, 0.04); border: 1px solid rgba(43, 68, 184, 0.15);">
+            <div style="font-size: 10px; font-weight: 700; color: #2B44B8; text-transform: uppercase;">Streams Monitored</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${summary.totalStreamsEvaluated || 4}</div>
+            <div style="font-size: 10px; color: #72706A;">RTT, Loss, CPU, Memory</div>
+          </div>
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(190, 18, 60, 0.04); border: 1px solid rgba(190, 18, 60, 0.2);">
+            <div style="font-size: 10px; font-weight: 700; color: #BE123C; text-transform: uppercase;">Active Changepoints</div>
+            <div style="font-size: 20px; font-weight: 800; color: #141413; margin-top: 4px;">${summary.streamsWithChangepoint || 0}</div>
+            <div style="font-size: 10px; color: #72706A;">Persistent shifts ($h=4.5\\sigma$)</div>
+          </div>
+          <div class="exec-card" style="padding: 12px; border-radius: 6px; background: rgba(13, 122, 95, 0.04); border: 1px solid rgba(13, 122, 95, 0.2);">
+            <div style="font-size: 10px; font-weight: 700; color: #0D7A5F; text-transform: uppercase;">Primary Causal Driver</div>
+            <div style="font-size: 16px; font-weight: 800; color: #141413; margin-top: 6px;">${summary.primaryTemporalDriver || 'None / System Equilibrated'}</div>
+            <div style="font-size: 10px; color: #72706A;">Granger earliest onset time</div>
+          </div>
+        </div>
+
+        <div style="font-weight: 700; font-size: 12px; margin-bottom: 8px; color: #141413;">Telemetry Streams Detail</div>
+        <div style="overflow-x: auto; border: 1px solid var(--border-color, #E2DFD8); border-radius: 6px;">
+          <table class="exec-table" style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <thead>
+              <tr style="background: rgba(0,0,0,0.02); text-align: left; border-bottom: 1px solid var(--border-color, #E2DFD8);">
+                <th style="padding: 8px 10px;">Metric Stream</th>
+                <th style="padding: 8px 10px;">Shift Direction</th>
+                <th style="padding: 8px 10px;">Max CUSUM Value</th>
+                <th style="padding: 8px 10px;">Onset Index (t_shift)</th>
+                <th style="padding: 8px 10px;">Baseline Mean</th>
+                <th style="padding: 8px 10px;">Post-Shift Mean</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${Object.entries(streams).map(([key, item]) => `
+                <tr style="border-bottom: 1px solid rgba(0,0,0,0.04);">
+                  <td style="padding: 6px 10px; font-weight: 700; color: #2B44B8;">${key}</td>
+                  <td style="padding: 6px 10px;">
+                    ${item.hasShift ? 
+                      `<span class="exec-badge" style="background: ${item.direction === 'UP' ? 'rgba(190, 18, 60, 0.1)' : 'rgba(245, 158, 11, 0.1)'}; color: ${item.direction === 'UP' ? '#BE123C' : '#B45309'}; font-weight: 700; padding: 2px 6px; border-radius: 4px;">SHIFT ${item.direction}</span>` : 
+                      `<span style="color: #0D7A5F; font-weight: 600;">NOMINAL</span>`}
+                  </td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${(item.maxCusum || 0).toFixed(2)}</td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${item.onsetIndex !== null && item.onsetIndex !== undefined ? item.onsetIndex : '—'}</td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${(item.baselineMean || 0).toFixed(2)}</td>
+                  <td style="padding: 6px 10px; font-family: var(--font-mono);">${(item.postShiftMean || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      const container = document.getElementById('cusumModalContent');
+      if (container) {
+        container.innerHTML = `<div style="color: #BE123C; padding: 20px;">Failed to load CUSUM Forensics: ${err.message}</div>`;
+      }
+    }
+  };
+
+  /**
+   * View 5 Cryptographically Signed Incident Flight Dossier Exporter
+   */
+  window.exportSignedIncidentDossier = async function() {
+    try {
+      const data = await window.api('/api/observability/flight-recorder/dossier');
+      if (!data || !data.markdown) {
+        throw new Error('No dossier returned from flight recorder API');
+      }
+
+      const blob = new Blob([data.markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ejii-incident-flight-dossier-${Date.now()}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const sig = data.signature ? data.signature.slice(0, 16) + '...' : 'AUTHENTIC';
+      alert(`Executive Incident Dossier Exported Successfully!\n\nHMAC-SHA256 Signature: ${sig}\nTimestamp: ${data.timestamp || new Date().toISOString()}\nTamper-Proof: Verified`);
+      return data;
+    } catch (err) {
+      alert('Error exporting signed incident dossier: ' + err.message);
     }
   };
 

@@ -55,11 +55,17 @@ const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('./n
 const { topologyEngine } = require('./network/topology/topology-engine');
 const { requestCorrelationAndTelemetryMiddleware, authenticate } = require('./api/middleware');
 
-// Sovereign-Apex v2.0.0 Core Deep Intelligence & Safety Engines
+// Sovereign-Apex v2.0.0 & Sovereign-Enterprise v3.0.0 Core Deep Intelligence & Safety Engines
 const { NeuroSymbolicApexEngine } = require('./ai/neuro-symbolic-apex');
 const { WireDissectorApex } = require('./sniffer/wire-dissector-apex');
 const { SpectralGNNTopologyEngine } = require('./topology/spectral-gnn-apex');
 const { DSRLLyapunovSafetyVault } = require('./security/dsrl-lyapunov-vault');
+const { PcapngEngine } = require('./sniffer/pcapng-engine');
+const { RoutingRadixIntelligenceEngine } = require('./topology/routing-radix-intelligence');
+const { ProcessSocketCorrelatorEngine } = require('./diagnostics/process-socket-correlator');
+const { TlsPostureAuditor } = require('./security/tls-posture-auditor');
+const { CusumChangepointEngine } = require('./ai/cusum-changepoint-engine');
+const { IncidentFlightRecorder } = require('./observability/incident-flight-recorder');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -74,6 +80,12 @@ app.locals.wireDissectorApex = WireDissectorApex;
 app.locals.spectralGNNTopology = new SpectralGNNTopologyEngine();
 const vaultHmacSecret = config.HMAC_SECRET || process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026';
 app.locals.dsrlLyapunovSafetyVault = new DSRLLyapunovSafetyVault(vaultHmacSecret, []);
+app.locals.pcapngEngine = PcapngEngine;
+app.locals.routingRadixIntelligence = RoutingRadixIntelligenceEngine;
+app.locals.processSocketCorrelator = ProcessSocketCorrelatorEngine;
+app.locals.tlsPostureAuditor = TlsPostureAuditor;
+app.locals.cusumChangepointEngine = new CusumChangepointEngine();
+app.locals.incidentFlightRecorder = new IncidentFlightRecorder(vaultHmacSecret);
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)

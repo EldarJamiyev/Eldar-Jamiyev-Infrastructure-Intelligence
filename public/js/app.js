@@ -376,6 +376,7 @@ function showLoginScreen() {
   if (errAlert) errAlert.style.display = 'none';
 
   loadLoginTelemetry();
+  checkAuthConfig();
 }
 
 async function loadLoginTelemetry() {
@@ -423,10 +424,7 @@ function hideLoginScreen() {
   if (app) app.style.display = 'flex';
 }
 
-window.showLoginScreen = function() {
-  showLoginScreen();
-  checkAuthConfig();
-};
+window.showLoginScreen = showLoginScreen;
 window.hideLoginScreen = hideLoginScreen;
 
 let selectedProfileUsername = 'admin';
