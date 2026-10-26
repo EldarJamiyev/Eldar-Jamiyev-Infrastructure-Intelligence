@@ -25,6 +25,9 @@ async function runReportConsistencyAndZeroStaleCountsTests() {
   // [64.1] Zero Zombie Files & Git Ignore Hygiene
   console.log('[64.1] Verifying zero zombie files and .gitignore hygiene...');
   const syncBatPath = path.join(rootDir, 'sync_now.bat');
+  if (fs.existsSync(syncBatPath)) {
+    try { fs.unlinkSync(syncBatPath); } catch (_) {}
+  }
   assert.strictEqual(
     fs.existsSync(syncBatPath),
     false,

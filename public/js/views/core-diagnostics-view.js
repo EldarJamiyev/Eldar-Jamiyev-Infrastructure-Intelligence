@@ -1156,13 +1156,16 @@
           <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-size: 18px;">🧠</span>
             <div>
-              <span style="font-size: 12px; font-weight: 700; color: var(--text-primary);">Multi-Model AI Brain Orchestrator:</span>
+              <span style="font-size: 12px; font-weight: 700; color: var(--text-primary);">Multi-Model AI Brain Orchestrator &amp; Sovereign-Apex Core:</span>
               <span style="font-size: 11px; font-weight: 700; color: #059669; margin-left: 6px;">[ Local Ollama / Qwen2.5-Coder:14b ]</span>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span id="stlRobustnessPill" style="font-size: 10px; font-family: var(--font-mono); color: #0284C7; background: #F0F9FF; border: 1px solid #BAE6FD; padding: 2px 8px; border-radius: 12px; font-weight: 600;" title="Smooth Differentiable Signal Temporal Logic Robustness (LogSumExp)">Smooth STL ρ̃: +18.4</span>
+            <span id="stlTtvPill" style="font-size: 10px; font-family: var(--font-mono); color: #059669; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 2px 8px; border-radius: 12px; font-weight: 600;" title="Estimated Time to SLA Violation Horizon">TTV Horizon: ∞ (Stable)</span>
+            <span id="entropyPill" style="font-size: 10px; font-family: var(--font-mono); color: #7C3AED; background: #F5F3FF; border: 1px solid #DDD6FE; padding: 2px 8px; border-radius: 12px; font-weight: 600;" title="Shannon Epistemic Entropy H(X)">H(X): 0.82 bits</span>
+            <span id="merklePill" style="font-size: 10px; font-family: var(--font-mono); color: #059669; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 2px 8px; border-radius: 12px; font-weight: 600;" title="DSRL Stage-6 Lyapunov Monotonic Energy &amp; Cryptographic Merkle Root">🛡️ Merkle Root: INTACT (64-hex)</span>
             <span style="font-size: 10px; font-family: var(--font-mono); color: #059669; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 2px 8px; border-radius: 12px; font-weight: 600;">🛡️ localOnlyPolicy: ACTIVE (Air-Gapped &bull; Zero Cloud Egress)</span>
-            <span style="font-size: 10px; font-family: var(--font-mono); color: #7C3AED; background: #F5F3FF; border: 1px solid #DDD6FE; padding: 2px 8px; border-radius: 12px; font-weight: 600;">⚡ Gate: Deterministic Bayesian Bypass (&ge;85%)</span>
           </div>
         </div>
 

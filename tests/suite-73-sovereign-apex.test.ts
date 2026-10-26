@@ -116,7 +116,7 @@ export async function runSuite73SovereignApex(): Promise<void> {
     'DSRLLyapunovSafetyVault must strictly reject keys < 16 characters'
   );
 
-  // 5.2 PacketDecoder TLS 1.3 JA4 Wire Dissection Integration
+  // 5.2 PacketDecoder TLS 1.3 JA4 Wire Dissection Integration (Full Ethernet Frame decode() and dissectFrame())
   const sni = 'noc.ejii.internal';
   const sniBuf = Buffer.from(sni, 'utf8');
   const sniExt = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, sniBuf.length + 5, 0x00, sniBuf.length + 3, 0x00, 0x00, sniBuf.length]), sniBuf]);
@@ -131,18 +131,55 @@ export async function runSuite73SovereignApex(): Promise<void> {
   const record = Buffer.concat([Buffer.from([0x16, 0x03, 0x01]), Buffer.alloc(2), hsHeader, body]);
   record.writeUInt16BE(record.length - 5, 3);
 
-  const tlsDecodeRes = PacketDecoder.dissectApexWirePayload(record, 'TCP', 54321, 443, 0, record.length);
-  assert.ok(tlsDecodeRes.tlsApex !== null, 'PacketDecoder must produce tlsApex on TLS 1.3 payload');
-  assert.ok(tlsDecodeRes.ja4Fingerprint && tlsDecodeRes.ja4Fingerprint.startsWith('t13d'), 'JA4 fingerprint must start with t13d');
-  assert.strictEqual(tlsDecodeRes.sniHostName, 'noc.ejii.internal', 'SNI must decode to noc.ejii.internal');
+  // Wrap in full raw Ethernet + IPv4 + TCP frame (54 bytes header + TLS record)
+  const totalEthLen = 14 + 20 + 20 + record.length;
+  const rawEthFrame = Buffer.alloc(totalEthLen);
+  rawEthFrame.set([0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x08, 0x00], 0);
+  rawEthFrame.writeUInt8(0x45, 14);
+  rawEthFrame.writeUInt16BE(20 + 20 + record.length, 16);
+  rawEthFrame.writeUInt8(64, 22);
+  rawEthFrame.writeUInt8(6, 23); // TCP
+  rawEthFrame.set([192, 168, 31, 89], 26);
+  rawEthFrame.set([192, 168, 31, 1], 30);
+  rawEthFrame.writeUInt16BE(54321, 34); // srcPort
+  rawEthFrame.writeUInt16BE(443, 36);   // dstPort
+  rawEthFrame.writeUInt8(0x50, 46);     // dataOffset 5 (20 bytes)
+  rawEthFrame.writeUInt8(0x18, 47);     // ACK, PSH
+  rawEthFrame.set(record, 54);
 
-  // 5.3 PacketDecoder DNS Shannon Entropy & DGA Wire Integration
+  const decodedTls = PacketDecoder.decode(rawEthFrame);
+  assert.ok(decodedTls.tlsApex !== null, 'PacketDecoder.decode must automatically produce tlsApex on TLS 1.3 frame');
+  assert.ok(decodedTls.ja4Fingerprint && decodedTls.ja4Fingerprint.startsWith('t13d'), 'JA4 fingerprint from decode() must start with t13d');
+  assert.strictEqual(decodedTls.sniHostName, 'noc.ejii.internal', 'SNI from decode() must decode to noc.ejii.internal');
+  assert.strictEqual(decodedTls.negotiatedTlsVersion, 'TLS 1.3 (RFC 8446)', 'negotiatedTlsVersion from decode() must be TLS 1.3 (RFC 8446)');
+
+  const dissectedTls = PacketDecoder.dissectFrame(rawEthFrame);
+  assert.strictEqual(dissectedTls.ja4Fingerprint, decodedTls.ja4Fingerprint, 'dissectFrame() and decode() must produce identical ja4Fingerprint');
+
+  // 5.3 PacketDecoder DNS Shannon Entropy & DGA Wire Integration (Full Ethernet Frame decode())
   const dnsLabels = Buffer.from('\x05ejii2\x08internal\x00', 'binary');
   const dnsPayload = Buffer.concat([Buffer.from([0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]), dnsLabels, Buffer.from([0x00, 0x01, 0x00, 0x01])]);
-  const dnsDecodeRes = PacketDecoder.dissectApexWirePayload(dnsPayload, 'UDP', 53535, 53, 0, dnsPayload.length);
-  assert.ok(dnsDecodeRes.dnsApex !== null, 'PacketDecoder must produce dnsApex on DNS payload');
-  assert.strictEqual(typeof dnsDecodeRes.shannonEntropyBitsPerChar, 'number', 'Entropy must be a number');
-  assert.strictEqual(typeof dnsDecodeRes.dgaOrTunnelSuspected, 'boolean', 'dgaOrTunnelSuspected must be boolean');
+
+  // Wrap in full raw Ethernet + IPv4 + UDP frame (42 bytes header + DNS payload)
+  const totalDnsLen = 14 + 20 + 8 + dnsPayload.length;
+  const rawDnsEthFrame = Buffer.alloc(totalDnsLen);
+  rawDnsEthFrame.set([0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x08, 0x00], 0);
+  rawDnsEthFrame.writeUInt8(0x45, 14);
+  rawDnsEthFrame.writeUInt16BE(20 + 8 + dnsPayload.length, 16);
+  rawDnsEthFrame.writeUInt8(64, 22);
+  rawDnsEthFrame.writeUInt8(17, 23); // UDP
+  rawDnsEthFrame.set([192, 168, 31, 89], 26);
+  rawDnsEthFrame.set([192, 168, 31, 1], 30);
+  rawDnsEthFrame.writeUInt16BE(53535, 34); // srcPort
+  rawDnsEthFrame.writeUInt16BE(53, 36);   // dstPort
+  rawDnsEthFrame.writeUInt16BE(8 + dnsPayload.length, 38);
+  rawDnsEthFrame.set(dnsPayload, 42);
+
+  const decodedDns = PacketDecoder.decode(rawDnsEthFrame);
+  assert.ok(decodedDns.dnsApex !== null, 'PacketDecoder.decode must produce dnsApex on DNS frame');
+  assert.strictEqual(typeof decodedDns.shannonEntropyBitsPerChar, 'number', 'Entropy must be a number');
+  assert.strictEqual(typeof decodedDns.dgaOrTunnelSuspected, 'boolean', 'dgaOrTunnelSuspected must be boolean');
+  assert.strictEqual(typeof decodedDns.dnsPointerCompressionJumps, 'number', 'dnsPointerCompressionJumps must be a number');
 
   // 5.4 TopologyEngine Live Spectral GNN Integration
   const hostTopoEngine = new TopologyEngine();

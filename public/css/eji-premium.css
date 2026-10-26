@@ -84,6 +84,51 @@
   --info: var(--status-info);
 }
 
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #0B0F19;
+  --bg-surface: #111827;
+  --bg-surface-subtle: #1F2937;
+  --bg-surface-hover: #374151;
+  --bg-surface-active: #1E3A8A;
+  --bg-terminal: #030712;
+  --bg-terminal-subtle: #0F172A;
+  --border-terminal: #1F2937;
+  --text-primary: #F9FAFB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --text-dim: #4B5563;
+  --text-inverse: #111827;
+  --border-subtle: #1F2937;
+  --border-default: #374151;
+  --border-strong: #4B5563;
+  --border-focus: #3B82F6;
+  --accent-primary: #3B82F6;
+  --accent-hover: #60A5FA;
+  --accent-subtle: rgba(59, 130, 246, 0.15);
+  --accent-border: #1D4ED8;
+  --status-nominal: #10B981;
+  --status-nominal-subtle: rgba(16, 185, 129, 0.15);
+  --status-warning: #F59E0B;
+  --status-warning-subtle: rgba(245, 158, 11, 0.15);
+  --status-critical: #EF4444;
+  --status-critical-subtle: rgba(239, 68, 68, 0.15);
+  --status-info: #38BDF8;
+  --status-info-subtle: rgba(56, 189, 248, 0.15);
+  --bg-app: var(--bg-canvas);
+  --bg-sidebar: var(--bg-surface);
+  --bg-panel: var(--bg-surface);
+  --bg-panel-raised: var(--bg-surface);
+  --bg-panel-hover: var(--bg-surface-hover);
+  --bg-input: var(--bg-surface);
+  --border-color: var(--border-default);
+  --border-soft: var(--border-subtle);
+  --text-main: var(--text-primary);
+  --accent: var(--accent-primary);
+  --accent-strong: var(--accent-hover);
+  --accent-soft: var(--accent-subtle);
+}
+
 /* =========================================================================
    Legacy Invariant Compatibility Block (Required by verify-frontend-rebuild.js)
    ========================================================================= */

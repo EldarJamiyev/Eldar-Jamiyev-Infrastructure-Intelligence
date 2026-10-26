@@ -42,6 +42,15 @@
 
               <!-- Controls Toolbar -->
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <!-- Spectral Graph Health Pill -->
+                <div id="topoSpectralHealthPill" style="display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-subtle); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px;">
+                  <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="spectralLambda2Val">${(topoRes?.algebraicConnectivityLambda2 !== undefined ? Number(topoRes.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
+                  <span style="color: var(--border-default);">|</span>
+                  <span id="spectralRiskLevelBadge" style="color: #059669; font-weight: 700;">${topoRes?.partitionRiskLevel || 'NOMINAL'}</span>
+                  <span style="color: var(--border-default);">|</span>
+                  <span style="color: var(--text-secondary);">Cut Edges: <strong id="spectralCutEdgesVal">${Array.isArray(topoRes?.criticalCutEdges) ? topoRes.criticalCutEdges.length : 0}</strong></span>
+                </div>
+
                 <div class="segmented-control" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 3px; border-radius: 6px; border: 1px solid var(--border-default);">
                   <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 4px;">Map View</button>
                   <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Node Fleet (${topoRes?.nodes?.length || 0})</button>

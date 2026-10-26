@@ -7,9 +7,8 @@
   <script>
     (function() {
       try {
-        var savedTheme = localStorage.getItem('ejii_theme') || 'system';
-        var isDark = savedTheme === 'dark' || (savedTheme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (isDark) {
+        var savedTheme = localStorage.getItem('ejii_theme') || 'light';
+        if (savedTheme === 'dark') {
           document.documentElement.setAttribute('data-theme', 'dark');
         } else {
           document.documentElement.removeAttribute('data-theme');
