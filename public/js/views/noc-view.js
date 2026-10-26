@@ -1453,6 +1453,10 @@ window.escapeAttr = escapeAttr;
     if (!selectedFrame) return;
 
     autoScrollFrames = false;
+    if (typeof window.virtualPacketCockpit !== 'undefined' && window.virtualPacketCockpit) {
+      window.virtualPacketCockpit.pinnedFrameNumber = frameNumber;
+      window.virtualPacketCockpit.autoScroll = false;
+    }
     updateAutoScrollStatusUI();
 
     const tbody = document.getElementById('livePacketTableBody');
@@ -1526,6 +1530,10 @@ window.escapeAttr = escapeAttr;
   window.closePacketDetails = function() {
     selectedFrameNumber = null;
     selectedFrame = null;
+    if (typeof window.virtualPacketCockpit !== 'undefined' && window.virtualPacketCockpit) {
+      window.virtualPacketCockpit.pinnedFrameNumber = null;
+      window.virtualPacketCockpit.autoScroll = true;
+    }
     updateAutoScrollStatusUI();
     const pane = document.getElementById('packetDetailsPane');
     if (pane) pane.style.display = 'none';

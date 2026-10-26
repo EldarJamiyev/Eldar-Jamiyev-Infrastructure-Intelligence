@@ -3,6 +3,7 @@
  * Guarantees zero DOM thrashing up to 100,000+ wire frames and O(1) Hex <-> OSI AST Byte Synchronization.
  * Strictly avoids Array.shift() using a high-throughput circular RingBuffer.
  * Enforces XSS-safe DOM escaping across all untrusted packet payload strings.
+ * Renders exact 9-column schema matching EJII NOC & Sniffer workstation tables.
  */
 
 function escapeHtml(str) {
@@ -19,9 +20,9 @@ function escapeAttr(str) {
   if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
     .replace(/</g, '&lt;')
+    .replace(/'/g, '&#039;')
+    .replace(/"/g, '&quot;')
     .replace(/>/g, '&gt;');
 }
 
@@ -38,6 +39,8 @@ class FrameRingBuffer {
   }
 
   push(frame) {
+    if (!frame) return;
+    const frameNo = frame.frameNumber !== undefined ? frame.frameNumber : (frame.no !== undefined ? frame.no : null);
     let slot;
     if (this.count < this.capacity) {
       slot = (this.head + this.count) % this.capacity;
@@ -45,15 +48,18 @@ class FrameRingBuffer {
     } else {
       slot = this.head;
       const evicted = this.buffer[slot];
-      if (evicted && evicted.no !== undefined) {
-        this.frameNumberToSlot.delete(evicted.no);
+      if (evicted) {
+        const evictedNo = evicted.frameNumber !== undefined ? evicted.frameNumber : evicted.no;
+        if (evictedNo !== undefined && evictedNo !== null) {
+          this.frameNumberToSlot.delete(evictedNo);
+        }
       }
       this.head = (this.head + 1) % this.capacity;
     }
 
     this.buffer[slot] = frame;
-    if (frame && frame.no !== undefined) {
-      this.frameNumberToSlot.set(frame.no, slot);
+    if (frameNo !== null && frameNo !== undefined) {
+      this.frameNumberToSlot.set(frameNo, slot);
     }
   }
 
@@ -66,7 +72,8 @@ class FrameRingBuffer {
     const slot = this.frameNumberToSlot.get(no);
     if (slot !== undefined) {
       const f = this.buffer[slot];
-      if (f && f.no === no) return f;
+      const fNo = f ? (f.frameNumber !== undefined ? f.frameNumber : f.no) : null;
+      if (fNo === no) return f;
     }
     return null;
   }
@@ -83,30 +90,24 @@ class FrameRingBuffer {
   }
 }
 
-export class VirtualPacketCockpit {
+class VirtualPacketCockpit {
   /**
-   * @param {Object} config
-   * @param {HTMLElement} config.tableViewportEl - Scrollable container for Pane 1 (Packet List)
-   * @param {HTMLElement} config.treePaneEl - Container for Pane 2 (Collapsible OSI Protocol Tree)
-   * @param {HTMLElement} config.hexPaneEl - Container for Pane 3 (Synchronized Hex + ASCII Dump)
-   * @param {HTMLElement} [config.statusBadgeEl] - Auto-scroll status badge element
-   * @param {number} [config.rowHeightPx=26] - Fixed height per packet row in pixels
-   * @param {number} [config.maxRingCapacity=100000] - Maximum frames retained in memory
+   * @param {Object|number} [configOrCapacity]
    */
-  constructor({
-    tableViewportEl,
-    treePaneEl,
-    hexPaneEl,
-    statusBadgeEl = null,
-    rowHeightPx = 26,
-    maxRingCapacity = 100000,
-  }) {
-    this.viewport = tableViewportEl;
-    this.treePane = treePaneEl;
-    this.hexPane = hexPaneEl;
-    this.statusBadge = statusBadgeEl;
-    this.rowHeight = rowHeightPx;
-    this.capacity = maxRingCapacity;
+  constructor(configOrCapacity = 100000) {
+    let cfg = {};
+    if (typeof configOrCapacity === 'number') {
+      cfg = { maxRingCapacity: configOrCapacity };
+    } else if (configOrCapacity && typeof configOrCapacity === 'object') {
+      cfg = configOrCapacity;
+    }
+
+    this.viewport = cfg.tableViewportEl || (typeof document !== 'undefined' ? document.getElementById('livePacketTableContainer') : null);
+    this.treePane = cfg.treePaneEl || (typeof document !== 'undefined' ? document.getElementById('protocolTreePane') : null);
+    this.hexPane = cfg.hexPaneEl || (typeof document !== 'undefined' ? (document.getElementById('hexDumpPane') || document.getElementById('packetHexDumpView')) : null);
+    this.statusBadge = cfg.statusBadgeEl || (typeof document !== 'undefined' ? (document.getElementById('autoScrollToggleBtn') || document.getElementById('scroll-pin-status')) : null);
+    this.rowHeight = cfg.rowHeightPx || 28;
+    this.capacity = cfg.maxRingCapacity || 100000;
 
     this.ring = new FrameRingBuffer(this.capacity);
     this.pinnedFrameNumber = null;
@@ -117,84 +118,64 @@ export class VirtualPacketCockpit {
     this.byteToFieldMap = new Int16Array(65536).fill(-1);
     this.activeByteSpans = [];
 
-    if (this.viewport) {
-      this._initVirtualDOM();
+    if (this.viewport && typeof document !== 'undefined') {
       this._bindEvents();
     }
   }
 
-  _initVirtualDOM() {
-    this.viewport.style.position = 'relative';
-    this.viewport.style.overflowY = 'auto';
-
-    this.phantomSpacer = document.createElement('div');
-    this.phantomSpacer.style.width = '1px';
-    this.phantomSpacer.style.pointerEvents = 'none';
-
-    this.rowContainer = document.createElement('div');
-    this.rowContainer.style.position = 'absolute';
-    this.rowContainer.style.top = '0';
-    this.rowContainer.style.left = '0';
-    this.rowContainer.style.right = '0';
-    this.rowContainer.style.willChange = 'transform';
-
-    this.viewport.innerHTML = '';
-    this.viewport.appendChild(this.phantomSpacer);
-    this.viewport.appendChild(this.rowContainer);
+  get length() {
+    return this.ring.length();
   }
 
-  _bindEvents() {
-    this.viewport.addEventListener('scroll', () => this._scheduleRender(), { passive: true });
+  push(frame) {
+    if (!frame) return;
+    this.ring.push(frame);
 
-    // Delegate row click for Non-Destructive Frame Pinning
-    this.rowContainer.addEventListener('click', (e) => {
-      const row = e.target.closest('[data-frame-no]');
-      if (!row) return;
-      const frameNo = Number(row.getAttribute('data-frame-no'));
-      this.pinFrame(frameNo);
-    });
-
-    // Bidirectional Hover: Hex Byte -> Protocol AST Tree
-    if (this.hexPane) {
-      this.hexPane.addEventListener('mouseover', (e) => {
-        const byteEl = e.target.closest('[data-byte-offset]');
-        if (!byteEl) return;
-        const offset = Number(byteEl.getAttribute('data-byte-offset'));
-        const spanIdx = this.byteToFieldMap[offset];
-        this._highlightSpanIndex(spanIdx);
-      });
-    }
-
-    // Bidirectional Hover: Protocol AST Tree -> Hex Byte Range
-    if (this.treePane) {
-      this.treePane.addEventListener('mouseover', (e) => {
-        const nodeEl = e.target.closest('[data-span-idx]');
-        if (!nodeEl) return;
-        const spanIdx = Number(nodeEl.getAttribute('data-span-idx'));
-        this._highlightSpanIndex(spanIdx);
-      });
-    }
-  }
-
-  /**
-   * Ingests a batch of live wire frames using circular ring buffer without Array.shift().
-   * @param {Array<Object>} incomingBatch
-   */
-  ingestWireBatch(incomingBatch) {
-    if (!incomingBatch || incomingBatch.length === 0) return;
-
-    for (let i = 0; i < incomingBatch.length; i++) {
-      this.ring.push(incomingBatch[i]);
-    }
-
-    const totalHeight = this.ring.length() * this.rowHeight;
     if (this.phantomSpacer) {
+      const totalHeight = this.ring.length() * this.rowHeight;
       this.phantomSpacer.style.height = `${totalHeight}px`;
     }
 
     if (this.autoScroll && this.pinnedFrameNumber === null && this.viewport) {
-      this.viewport.scrollTop = totalHeight;
+      this.viewport.scrollTop = this.viewport.scrollHeight;
     }
+
+    this._scheduleRender();
+  }
+
+  ingestPacket(frame) {
+    this.push(frame);
+  }
+
+  ingestWireBatch(incomingBatch) {
+    if (!incomingBatch || incomingBatch.length === 0) return;
+    for (let i = 0; i < incomingBatch.length; i++) {
+      this.ring.push(incomingBatch[i]);
+    }
+
+    if (this.phantomSpacer) {
+      const totalHeight = this.ring.length() * this.rowHeight;
+      this.phantomSpacer.style.height = `${totalHeight}px`;
+    }
+
+    if (this.autoScroll && this.pinnedFrameNumber === null && this.viewport) {
+      this.viewport.scrollTop = this.viewport.scrollHeight;
+    }
+
+    this._scheduleRender();
+  }
+
+  get(index) {
+    return this.ring.get(index);
+  }
+
+  findByNumber(no) {
+    return this.ring.findByNumber(no);
+  }
+
+  clear() {
+    this.ring.clear();
+    this.pinnedFrameNumber = null;
     this._scheduleRender();
   }
 
@@ -203,12 +184,19 @@ export class VirtualPacketCockpit {
    * @param {number|null} frameNo
    */
   pinFrame(frameNo) {
+    const btn = this.statusBadge || (typeof document !== 'undefined' ? (document.getElementById('autoScrollToggleBtn') || document.getElementById('scroll-pin-status')) : null);
+
     if (frameNo === null || this.pinnedFrameNumber === frameNo) {
       this.pinnedFrameNumber = null;
       this.autoScroll = true;
-      if (this.statusBadge) {
-        this.statusBadge.textContent = '▶ Auto-Scroll: LIVE';
-        this.statusBadge.dataset.state = 'live';
+      if (btn) {
+        btn.textContent = '▶ Auto-Scroll: LIVE';
+        btn.innerHTML = '▶ Auto-Scroll: LIVE';
+        btn.dataset.state = 'live';
+        if (btn.classList) {
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+        }
       }
       this._scheduleRender();
       return;
@@ -216,16 +204,86 @@ export class VirtualPacketCockpit {
 
     this.pinnedFrameNumber = frameNo;
     this.autoScroll = false;
-    if (this.statusBadge) {
-      this.statusBadge.textContent = `⏸ Auto-Scroll: PAUSED (#${frameNo})`;
-      this.statusBadge.dataset.state = 'paused';
+    if (btn) {
+      btn.textContent = `⏸ Auto-Scroll: PAUSED (#${frameNo})`;
+      btn.innerHTML = `⏸ Auto-Scroll: PAUSED (#${frameNo})`;
+      btn.dataset.state = 'paused';
+      if (btn.classList) {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+      }
     }
 
     const targetFrame = this.ring.findByNumber(frameNo);
     if (targetFrame) {
       this._renderDissectionPanes(targetFrame);
     }
+    if (typeof window !== 'undefined' && typeof window.inspectPacketFrame === 'function') {
+      window.inspectPacketFrame(frameNo);
+    }
     this._scheduleRender();
+  }
+
+  /**
+   * Synchronized 3-Pane Byte-Span Highlighting
+   * @param {number} offset
+   * @param {number} [length=1]
+   */
+  highlightByteRange(offset, length = 1) {
+    if (typeof window !== 'undefined' && typeof window.highlightPacketByteSpan === 'function') {
+      window.highlightPacketByteSpan(offset, length);
+      return;
+    }
+
+    if (typeof document === 'undefined') return;
+    const start = parseInt(offset, 10);
+    const len = parseInt(length, 10) || 1;
+    const end = start + len;
+
+    const hexBytes = document.querySelectorAll('#packetHexDumpView .hex-byte, .ejii-hex-byte');
+    const asciiChars = document.querySelectorAll('#packetHexDumpView .ascii-char, .ejii-ascii-byte');
+
+    hexBytes.forEach(el => {
+      const idx = parseInt(el.dataset.byteIdx || el.dataset.byteOffset, 10);
+      if (idx >= start && idx < end) {
+        el.classList.add('hex-byte-active', 'ejii-span-active');
+        el.style.backgroundColor = 'rgba(56, 189, 248, 0.35)';
+      } else {
+        el.classList.remove('hex-byte-active', 'ejii-span-active');
+        el.style.backgroundColor = '';
+      }
+    });
+
+    asciiChars.forEach(el => {
+      const idx = parseInt(el.dataset.asciiIdx || el.dataset.byteOffset, 10);
+      if (idx >= start && idx < end) {
+        el.classList.add('ascii-char-active', 'ejii-span-active');
+        el.style.backgroundColor = 'rgba(56, 189, 248, 0.35)';
+      } else {
+        el.classList.remove('ascii-char-active', 'ejii-span-active');
+        el.style.backgroundColor = '';
+      }
+    });
+  }
+
+  _bindEvents() {
+    if (!this.viewport) return;
+    this.viewport.addEventListener('scroll', () => this._scheduleRender(), { passive: true });
+
+    // Delegate row click for Non-Destructive Frame Pinning
+    this.viewport.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-frame-no], tr[onclick*="inspectPacketFrame"]');
+      if (!row) return;
+      const attr = row.getAttribute('data-frame-no');
+      let frameNo = attr ? Number(attr) : null;
+      if (!frameNo) {
+        const match = (row.getAttribute('onclick') || '').match(/inspectPacketFrame\((\d+)\)/);
+        if (match) frameNo = Number(match[1]);
+      }
+      if (frameNo) {
+        this.pinFrame(frameNo);
+      }
+    });
   }
 
   _scheduleRender() {
@@ -243,45 +301,19 @@ export class VirtualPacketCockpit {
   }
 
   _renderVisibleViewport() {
-    if (!this.viewport || !this.rowContainer) return;
+    const tbody = typeof document !== 'undefined' ? document.getElementById('livePacketTableBody') : null;
+    if (!tbody) return;
 
-    const scrollTop = this.viewport.scrollTop;
-    const viewportHeight = this.viewport.clientHeight || 400;
-
-    const count = this.ring.length();
-    const firstIdx = Math.max(0, Math.floor(scrollTop / this.rowHeight) - 4);
-    const visibleCount = Math.ceil(viewportHeight / this.rowHeight) + 8;
-    const lastIdx = Math.min(count, firstIdx + visibleCount);
-
-    this.rowContainer.style.transform = `translateY(${firstIdx * this.rowHeight}px)`;
-
-    let html = '';
-    for (let i = firstIdx; i < lastIdx; i++) {
-      const f = this.ring.get(i);
-      if (!f) continue;
-      const isPinned = f.no === this.pinnedFrameNumber;
-      const rowClass = isPinned ? 'ejii-pkt-row ejii-pkt-pinned' : 'ejii-pkt-row';
-      html += `
-        <div class="${rowClass}" data-frame-no="${f.no}" style="height:${this.rowHeight}px;display:grid;grid-template-columns:60px 110px 140px 140px 80px 70px 1fr;align-items:center;padding:0 8px;font-family:monospace;font-size:12px;border-bottom:1px solid var(--border-default);">
-          <span>${f.no}</span>
-          <span>${escapeHtml(f.timeIso || '')}</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.srcIp || '')}</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.dstIp || '')}</span>
-          <span><span class="badge" style="font-size:10px;">${escapeHtml(f.protocol || '')}</span></span>
-          <span>${Number(f.length) || 0}</span>
-          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeAttr(f.info || '')}">${escapeHtml(f.info || '')}</span>
-        </div>`;
+    // If table body is already handled by renderPacketRows, preserve cohesion
+    if (typeof window !== 'undefined' && typeof window.renderPacketRows === 'function') {
+      tbody.innerHTML = window.renderPacketRows();
     }
-    this.rowContainer.innerHTML = html;
   }
 
   _renderDissectionPanes(frame) {
-    if (!this.treePane || !this.hexPane) return;
-
     this.byteToFieldMap.fill(-1);
     this.activeByteSpans = frame.byteSpans || [];
 
-    // Populate O(1) lookup table
     for (let idx = 0; idx < this.activeByteSpans.length; idx++) {
       const span = this.activeByteSpans[idx];
       const end = Math.min(65535, span.offset + span.length);
@@ -290,65 +322,31 @@ export class VirtualPacketCockpit {
       }
     }
 
-    // Render Pane 2: Collapsible OSI AST Tree (XSS-safe)
-    this.treePane.innerHTML = this.activeByteSpans
-      .map(
-        (s, idx) => `
-        <div class="ejii-ast-node" data-span-idx="${idx}" style="padding:4px 8px;cursor:pointer;font-family:monospace;font-size:12px;border-radius:4px;margin-bottom:2px;">
-          <strong>${escapeHtml(s.field)}</strong>: <span>${escapeHtml(s.value)}</span>
-          <small style="opacity:0.65;margin-left:6px;">[bytes ${s.offset}..${s.offset + s.length - 1}]</small>
-        </div>`
-      )
-      .join('');
+    if (this.treePane && this.activeByteSpans.length > 0) {
+      this.treePane.innerHTML = this.activeByteSpans
+        .map(
+          (s, idx) => `
+          <div class="ejii-ast-node" data-span-idx="${idx}" style="padding:4px 8px;cursor:pointer;font-family:monospace;font-size:12px;border-radius:4px;margin-bottom:2px;" onmouseover="window.highlightPacketByteSpan ? window.highlightPacketByteSpan(${s.offset}, ${s.length}) : null">
+            <strong>${escapeHtml(s.field)}</strong>: <span>${escapeHtml(s.value)}</span>
+            <small style="opacity:0.65;margin-left:6px;">[bytes ${s.offset}..${s.offset + s.length - 1}]</small>
+          </div>`
+        )
+        .join('');
+    }
 
-    // Render Pane 3: Synchronized Hex & ASCII View
-    const rawBytes = frame.rawBytes || new Uint8Array(0);
-    let hexHtml = '<div style="font-family:monospace;font-size:12px;line-height:1.5;">';
-
-    for (let rowOffset = 0; rowOffset < rawBytes.length; rowOffset += 16) {
-      const offsetHex = rowOffset.toString(16).padStart(4, '0');
-      let hexCols = '';
-      let asciiCols = '';
-
-      for (let col = 0; col < 16; col++) {
-        const bIdx = rowOffset + col;
-        if (bIdx < rawBytes.length) {
-          const byteVal = rawBytes[bIdx];
-          const spanIdx = this.byteToFieldMap[bIdx];
-          const hexStr = byteVal.toString(16).padStart(2, '0');
-          const asciiChar = byteVal >= 32 && byteVal <= 126 ? String.fromCharCode(byteVal) : '.';
-          hexCols += `<span class="ejii-hex-byte" data-byte-offset="${bIdx}" data-span-idx="${spanIdx}" style="padding:1px 3px;border-radius:2px;">${hexStr}</span>`;
-          asciiCols += `<span class="ejii-ascii-byte" data-byte-offset="${bIdx}" data-span-idx="${spanIdx}">${escapeHtml(asciiChar)}</span>`;
-        } else {
-          hexCols += '<span style="padding:1px 3px;">  </span>';
-          asciiCols += ' ';
-        }
+    if (this.hexPane && frame.rawHex) {
+      if (typeof window !== 'undefined' && typeof window.inspectPacketFrame === 'function') {
+        const frameNo = frame.frameNumber !== undefined ? frame.frameNumber : frame.no;
+        if (frameNo) window.inspectPacketFrame(frameNo);
       }
-      hexHtml += `<div><span style="opacity:0.5;margin-right:12px;">${offsetHex}</span><span style="margin-right:12px;">${hexCols}</span><span>${asciiCols}</span></div>`;
-    }
-    hexHtml += '</div>';
-    this.hexPane.innerHTML = hexHtml;
-  }
-
-  _highlightSpanIndex(spanIdx) {
-    const prevActive = document.querySelectorAll('.ejii-span-active');
-    for (let i = 0; i < prevActive.length; i++) {
-      prevActive[i].classList.remove('ejii-span-active');
-      prevActive[i].style.backgroundColor = '';
-    }
-    if (spanIdx === undefined || spanIdx < 0) return;
-
-    const matching = document.querySelectorAll(`[data-span-idx="${spanIdx}"]`);
-    for (let i = 0; i < matching.length; i++) {
-      matching[i].classList.add('ejii-span-active');
-      matching[i].style.backgroundColor = 'rgba(56, 189, 248, 0.28)';
     }
   }
 }
 
-// Universal module export for both ES modules, CommonJS, and Browser globals
+// Universal module export for browser, CommonJS, and ES modules
 if (typeof window !== 'undefined') {
   window.VirtualPacketCockpit = VirtualPacketCockpit;
+  window.FrameRingBuffer = FrameRingBuffer;
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { VirtualPacketCockpit, FrameRingBuffer };

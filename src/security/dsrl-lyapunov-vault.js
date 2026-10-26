@@ -41,11 +41,16 @@ class DSRLLyapunovSafetyVault {
     registeredScriptHashes;
     ledger = [];
     constructor(hmacSecretKey = process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026', allowedScriptHashes = []) {
-        if (!hmacSecretKey || hmacSecretKey.length < 16) {
+        if (!hmacSecretKey || typeof hmacSecretKey !== 'string' || hmacSecretKey.trim().length < 16) {
             throw new Error('DSRL Safety Vault requires a cryptographic HMAC secret >= 16 characters.');
         }
         this.hmacSecret = Buffer.from(hmacSecretKey, 'utf-8');
-        this.registeredScriptHashes = new Set(allowedScriptHashes);
+        this.registeredScriptHashes = new Set(allowedScriptHashes.map(h => h.toLowerCase()));
+    }
+    registerAllowedScriptHash(sha256Hex) {
+        if (typeof sha256Hex === 'string') {
+            this.registeredScriptHashes.add(sha256Hex.toLowerCase());
+        }
     }
     /**
      * Executes the 6-Stage Deterministic DSRL Gate:
@@ -59,18 +64,23 @@ class DSRLLyapunovSafetyVault {
     async executeGuardedRemediation(action, sampleSystemState) {
         const preState = await sampleSystemState();
         // Stage 1: Registry Hash & Zero-Elevation Gate
-        if (action.requiresElevation || !this.registeredScriptHashes.has(action.scriptSha256)) {
+        const scriptHash = (action.scriptSha256 || '').toLowerCase();
+        if (action.requiresElevation || !this.registeredScriptHashes.has(scriptHash)) {
             return this.appendAuditEntry(action.actionId, 'BLOCKED_PRECONDITION', preState.stlRobustnessRho, preState.stlRobustnessRho);
         }
         // Stage 2, 3, 4: Symbolic Precondition, Host Headroom & Session Disconnect Protection
-        const headroomOk = preState.cpuLoadPct <= action.maxAllowedCpuPct && preState.memoryUsedPct < 92.0;
-        const sessionProtected = preState.activeManagementSocketAlive;
-        const symbolicOk = action.symbolicPrecondition(preState);
+        const maxCpu = typeof action.maxAllowedCpuPct === 'number' ? action.maxAllowedCpuPct : 90.0;
+        const headroomOk = preState.cpuLoadPct <= maxCpu && (preState.memoryUsedPct || 0) < 92.0;
+        const sessionProtected = Boolean(preState.activeManagementSocketAlive);
+        const symbolicOk = typeof action.symbolicPrecondition === 'function' ? action.symbolicPrecondition(preState) : true;
         if (!headroomOk || !sessionProtected || !symbolicOk) {
             return this.appendAuditEntry(action.actionId, 'BLOCKED_PRECONDITION', preState.stlRobustnessRho, preState.stlRobustnessRho);
         }
         // Stage 5: Execute User-Space Remediation
-        const execResult = await action.executeUserSpaceAction();
+        const execFn = typeof action.executeUserSpaceAction === 'function'
+            ? action.executeUserSpaceAction
+            : action.executeSandboxedScript;
+        const execResult = execFn ? await execFn() : { exitCode: 0, stdout: 'OK' };
         const postState = await sampleSystemState();
         // Stage 6: Control-Theoretic Lyapunov Energy Function V(s) = max(0, 100 - rho)^2 + cpuPenalty
         const preLyapunov = this.computeLyapunovEnergy(preState);

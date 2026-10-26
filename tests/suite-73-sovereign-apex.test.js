@@ -41,6 +41,11 @@ const neuro_symbolic_apex_1 = require("../src/ai/neuro-symbolic-apex");
 const wire_dissector_apex_1 = require("../src/sniffer/wire-dissector-apex");
 const spectral_gnn_apex_1 = require("../src/topology/spectral-gnn-apex");
 const dsrl_lyapunov_vault_1 = require("../src/security/dsrl-lyapunov-vault");
+// Host engine integrations
+const { PacketDecoder } = require('../src/network/packet-decoding/packet-decoder');
+const { TopologyEngine } = require('../src/network/topology/topology-engine');
+const { AIBrain } = require('../src/core/ai-brain');
+const { AutonomousRemediationEngine } = require('../src/systems/remediation/autonomous-remediation-engine');
 async function runSuite73SovereignApex() {
     console.log('=== [SUITE 73] EJII v2.0.0-SOVEREIGN-APEX VERIFICATION ===');
     // 1. Verify Smooth Differentiable STL, Velocity, TTV & Hare-Niemeyer Exact 100.0% Sum
@@ -115,6 +120,58 @@ async function runSuite73SovereignApex() {
     node_assert_1.strict.equal(rollbackTriggered, true, 'Inverse rollback handler must be invoked automatically');
     const verification = vault.verifyAuditLedgerAndMerkleRoot();
     node_assert_1.strict.equal(verification.intact, true, 'HMAC-SHA256 Merkle Audit Ledger must verify 100% intact');
+    // 5. End-to-End Production Host Engine Wiring Verification
+    console.log('--- 5. End-to-End Production Host Engine Wiring Verification ---');
+    // 5.1 Strict HMAC Secret Length Gate
+    node_assert_1.strict.throws(() => new dsrl_lyapunov_vault_1.DSRLLyapunovSafetyVault('short', []), /requires a cryptographic HMAC secret >= 16 characters/, 'DSRLLyapunovSafetyVault must strictly reject keys < 16 characters');
+    // 5.2 PacketDecoder TLS 1.3 JA4 Wire Dissection Integration
+    const sni = 'noc.ejii.internal';
+    const sniBuf = Buffer.from(sni, 'utf8');
+    const sniExt = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, sniBuf.length + 5, 0x00, sniBuf.length + 3, 0x00, 0x00, sniBuf.length]), sniBuf]);
+    const supVerExt = Buffer.from([0x00, 0x2b, 0x00, 0x03, 0x02, 0x03, 0x04]);
+    const extBuf = Buffer.concat([sniExt, supVerExt]);
+    const extLenBuf = Buffer.alloc(2);
+    extLenBuf.writeUInt16BE(extBuf.length, 0);
+    const body = Buffer.concat([Buffer.from([0x03, 0x03]), Buffer.alloc(32, 0xaa), Buffer.from([0x00]), Buffer.from([0x00, 0x04, 0x13, 0x01, 0x13, 0x02]), Buffer.from([0x01, 0x00]), extLenBuf, extBuf]);
+    const hsHeader = Buffer.alloc(4);
+    hsHeader.writeUInt8(0x01, 0);
+    hsHeader.writeUIntBE(body.length, 1, 3);
+    const record = Buffer.concat([Buffer.from([0x16, 0x03, 0x01]), Buffer.alloc(2), hsHeader, body]);
+    record.writeUInt16BE(record.length - 5, 3);
+    const tlsDecodeRes = PacketDecoder.dissectApexWirePayload(record, 'TCP', 54321, 443, 0, record.length);
+    node_assert_1.strict.ok(tlsDecodeRes.tlsApex !== null, 'PacketDecoder must produce tlsApex on TLS 1.3 payload');
+    node_assert_1.strict.ok(tlsDecodeRes.ja4Fingerprint && tlsDecodeRes.ja4Fingerprint.startsWith('t13d'), 'JA4 fingerprint must start with t13d');
+    node_assert_1.strict.strictEqual(tlsDecodeRes.sniHostName, 'noc.ejii.internal', 'SNI must decode to noc.ejii.internal');
+    // 5.3 PacketDecoder DNS Shannon Entropy & DGA Wire Integration
+    const dnsLabels = Buffer.from('\x05ejii2\x08internal\x00', 'binary');
+    const dnsPayload = Buffer.concat([Buffer.from([0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]), dnsLabels, Buffer.from([0x00, 0x01, 0x00, 0x01])]);
+    const dnsDecodeRes = PacketDecoder.dissectApexWirePayload(dnsPayload, 'UDP', 53535, 53, 0, dnsPayload.length);
+    node_assert_1.strict.ok(dnsDecodeRes.dnsApex !== null, 'PacketDecoder must produce dnsApex on DNS payload');
+    node_assert_1.strict.strictEqual(typeof dnsDecodeRes.shannonEntropyBitsPerChar, 'number', 'Entropy must be a number');
+    node_assert_1.strict.strictEqual(typeof dnsDecodeRes.dgaOrTunnelSuspected, 'boolean', 'dgaOrTunnelSuspected must be boolean');
+    // 5.4 TopologyEngine Live Spectral GNN Integration
+    const hostTopoEngine = new TopologyEngine();
+    const liveTopo = hostTopoEngine.getTopology();
+    node_assert_1.strict.strictEqual(typeof liveTopo.algebraicConnectivityLambda2, 'number', 'Topology must include algebraicConnectivityLambda2');
+    node_assert_1.strict.ok(['NOMINAL', 'FRAGILE_BRIDGE', 'CRITICAL_PARTITION_IMMINENT'].includes(liveTopo.partitionRiskLevel), 'Partition risk must be valid enum');
+    node_assert_1.strict.ok(Array.isArray(liveTopo.criticalCutEdges), 'Critical cut edges must be array');
+    const sampledNode = liveTopo.nodes.find((n) => n.fiedlerCoordinate !== undefined);
+    node_assert_1.strict.ok(sampledNode !== undefined, 'Live topology nodes must be enriched with fiedlerCoordinate');
+    // 5.5 AIBrain Live Neuro-Symbolic Evaluation
+    const brain = new AIBrain({ autoStart: false });
+    const brainEval = brain.evaluateApexNeuroSymbolic([], []);
+    node_assert_1.strict.strictEqual(typeof brainEval.smoothRobustness, 'number', 'smoothRobustness must be a number');
+    node_assert_1.strict.ok(Object.keys(brainEval.metricSensitivityGradient).length > 0, 'metricSensitivityGradient must have keys');
+    node_assert_1.strict.ok(brainEval.counterfactualApex.hypotheses.length >= 2, 'Counterfactual hypotheses must evaluate');
+    const liveBrainState = brain.getLiveState();
+    node_assert_1.strict.ok(liveBrainState.stlApex !== undefined, 'getLiveState must include stlApex');
+    node_assert_1.strict.strictEqual(typeof liveBrainState.smoothRobustness, 'number', 'Live smoothRobustness must be number');
+    // 5.6 AutonomousRemediationEngine Lyapunov Guarded Execution
+    const remediationEng = new AutonomousRemediationEngine({ allowLiveOsMutation: false });
+    const guardedExec = await remediationEng.executeGuardedApexRemediation();
+    node_assert_1.strict.strictEqual(typeof guardedExec.lyapunovDeltaEnergy, 'number', 'Lyapunov delta energy must be number');
+    node_assert_1.strict.strictEqual(typeof guardedExec.merkleRootHex, 'string', 'Merkle root must be string');
+    node_assert_1.strict.strictEqual(guardedExec.merkleRootHex.length, 64, 'Merkle root must be 64-character SHA-256 hex');
     console.log('=== [SUITE 73] ALL SOVEREIGN-APEX ASSERTIONS PASSED (100%) ===');
 }
 if (require.main === module) {

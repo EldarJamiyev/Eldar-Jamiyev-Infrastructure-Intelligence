@@ -8,12 +8,14 @@ const { db } = require('../../db/database');
 const { getPhysicalNetworkInfo, isIpInSubnet, syncTopologyWithCurrentLocation } = require('../routing/physical-network-detector');
 const { getArpTable, resolveOuiVendor } = require('../../tools/ip-scanner');
 const { walkOid, STANDARD_OIDS } = require('../../protocols/snmp-engine');
+const { SpectralGNNTopologyEngine } = require('../../topology/spectral-gnn-apex');
 
 class TopologyEngine {
   constructor() {
     this.cachedTopology = null;
     this.lastTopologyTime = 0;
     this.cacheTtlMs = 3000;
+    this.spectralGNNEngine = new SpectralGNNTopologyEngine();
   }
 
   /**
@@ -240,6 +242,54 @@ class TopologyEngine {
         });
       });
     } catch (_) {}
+
+    try {
+      const mappedNodes = parsedNodes.map((node, idx) => {
+        let role = 'ENDPOINT';
+        const typeStr = (node.type || node.role || node.layer || '').toUpperCase();
+        if (typeStr.includes('GW') || typeStr.includes('ROUTER') || typeStr.includes('EDGE')) role = 'GATEWAY';
+        else if (typeStr.includes('SWITCH') || typeStr.includes('CORE') || typeStr.includes('LAN')) role = 'SWITCH';
+        else if (typeStr.includes('SERVER') || typeStr.includes('SERVICE') || typeStr.includes('APP')) role = 'SERVER';
+        else if (typeStr.includes('WORKSTATION') || typeStr.includes('HOST')) role = 'WORKSTATION';
+        else if (typeStr.includes('PRINTER')) role = 'PRINTER';
+        else if (typeStr.includes('VOIP') || typeStr.includes('PHONE')) role = 'VOIP';
+
+        return {
+          id: String(node.id || node.hostname_or_ip || idx),
+          role,
+          latencyMs: Number(node.last_latency_ms ?? node.latencyMs ?? node.rttMs ?? node.latency ?? 1),
+          packetLossPct: Number(node.packetLossPct ?? node.lossPct ?? node.packetLoss ?? 0)
+        };
+      });
+
+      const mappedEdges = parsedEdges.map(edge => ({
+        source: String(edge.source_id || edge.source || edge.from),
+        target: String(edge.target_id || edge.target || edge.to),
+        bandwidthMbps: Number(edge.bandwidth_mbps ?? edge.bandwidthMbps ?? 1000),
+        linkLossPct: Number(edge.link_loss_pct ?? edge.linkLossPct ?? edge.lossPct ?? 0),
+        rttMs: Number(edge.rtt_ms ?? edge.rttMs ?? edge.latencyMs ?? 1)
+      }));
+
+      const rootWorkstationId = parsedNodes.find(n => n.id === 'NODE-HOST-01' || n.layer === 'endpoint')?.id || mappedNodes[0]?.id || 'NODE-HOST-01';
+      const spectralReport = this.spectralGNNEngine.analyzeTopology(mappedNodes, mappedEdges, rootWorkstationId);
+
+      result.spectralApex = spectralReport;
+      result.algebraicConnectivityLambda2 = spectralReport.algebraicConnectivityLambda2;
+      result.partitionRiskLevel = spectralReport.partitionRiskLevel;
+      result.criticalCutEdges = spectralReport.criticalCutEdges;
+
+      const nodeIntelMap = new Map((spectralReport.nodes || spectralReport.nodeCriticality || []).map(nc => [nc.nodeId, nc]));
+      parsedNodes.forEach(node => {
+        const intel = nodeIntelMap.get(node.id);
+        if (intel) {
+          node.fiedlerCoordinate = intel.fiedlerCoordinate;
+          node.gcnEmbeddingApex = intel.gcnEmbedding;
+          node.isArticulationBottleneck = intel.isArticulationBottleneck;
+        }
+      });
+    } catch (err) {
+      console.warn('[TopologyEngine] Spectral GNN analysis failed:', err.message);
+    }
 
     this.cachedTopology = result;
     this.lastTopologyTime = now;

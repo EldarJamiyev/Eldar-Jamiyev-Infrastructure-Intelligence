@@ -349,6 +349,17 @@ window.escapeAttr = escapeAttr;
 
         if (framesRes?.frames && typeof window.setNocLiveFrames === 'function') {
           window.setNocLiveFrames(framesRes.frames);
+          if (typeof window.VirtualPacketCockpit !== 'undefined') {
+            if (!window.snifferVirtualCockpit) {
+              window.snifferVirtualCockpit = new window.VirtualPacketCockpit({
+                tableViewportEl: document.getElementById('livePacketTableContainer'),
+                treePaneEl: document.getElementById('protocolTreePane'),
+                hexPaneEl: document.getElementById('hexDumpPane'),
+                statusBadgeEl: document.getElementById('autoScrollToggleBtn')
+              });
+            }
+            window.snifferVirtualCockpit.ingestWireBatch(framesRes.frames);
+          }
           const tbody = document.getElementById('livePacketTableBody');
           if (tbody && typeof window.renderPacketRows === 'function') {
             tbody.innerHTML = window.renderPacketRows();

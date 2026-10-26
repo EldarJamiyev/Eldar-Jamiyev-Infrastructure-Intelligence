@@ -72,7 +72,8 @@ const app = express();
 app.locals.neuroSymbolicApex = new NeuroSymbolicApexEngine();
 app.locals.wireDissectorApex = WireDissectorApex;
 app.locals.spectralGNNTopology = new SpectralGNNTopologyEngine();
-app.locals.dsrlLyapunovSafetyVault = new DSRLLyapunovSafetyVault(config.HMAC_SECRET, []);
+const vaultHmacSecret = config.HMAC_SECRET || process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026';
+app.locals.dsrlLyapunovSafetyVault = new DSRLLyapunovSafetyVault(vaultHmacSecret, []);
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)

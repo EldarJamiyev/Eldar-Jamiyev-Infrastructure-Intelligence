@@ -3,7 +3,62 @@
  * Full binary protocol decoder for Ethernet II, IPv4, TCP, UDP, and ICMP frames.
  */
 
+const { WireDissectorApex } = require('../../sniffer/wire-dissector-apex');
+
 class PacketDecoder {
+  /**
+   * Sovereign-Apex Wire Dissector Engine Integration (TLS 1.3 JA4 + DNS DGA Entropy)
+   */
+  static dissectApexWirePayload(rawBuffer, protocol = 'TCP', srcPort = 0, dstPort = 0, payloadOffset = 0, payloadLength = null) {
+    if (!rawBuffer) return null;
+    const buf = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer);
+    const u8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
+    const effLen = payloadLength !== null ? payloadLength : (buf.length - payloadOffset);
+    if (effLen <= 0) return null;
+
+    const result = {
+      tlsApex: null,
+      ja4Fingerprint: null,
+      sniHostName: null,
+      negotiatedTlsVersion: null,
+      dnsApex: null,
+      shannonEntropyBitsPerChar: null,
+      dgaOrTunnelSuspected: null,
+      dnsPointerCompressionJumps: null
+    };
+
+    const isTlsHint = (dstPort === 443 || dstPort === 8443 || srcPort === 443 || srcPort === 8443 || buf[payloadOffset] === 0x16);
+    const isDnsHint = (dstPort === 53 || srcPort === 53 || dstPort === 5353 || srcPort === 5353 || (protocol && (protocol.toUpperCase() === 'DNS' || protocol.toUpperCase() === 'MDNS')));
+
+    // 1. TLS 1.3 / JA4 Dissection
+    if (isTlsHint || buf[payloadOffset] === 0x16) {
+      try {
+        const tlsApex = WireDissectorApex.dissectTLSClientHello(u8, payloadOffset, effLen);
+        if (tlsApex) {
+          result.tlsApex = tlsApex;
+          result.ja4Fingerprint = tlsApex.ja4Fingerprint;
+          result.sniHostName = tlsApex.sniHostName;
+          result.negotiatedTlsVersion = tlsApex.negotiatedTlsVersion;
+        }
+      } catch (_) {}
+    }
+
+    // 2. RFC 1035 DNS / DGA Entropy Dissection
+    if (isDnsHint || (!result.tlsApex && effLen >= 12)) {
+      try {
+        const dnsApex = WireDissectorApex.dissectDNSFrame(u8, payloadOffset, effLen);
+        if (dnsApex && (dnsApex.questions.length > 0 || dnsApex.answers.length > 0 || isDnsHint)) {
+          result.dnsApex = dnsApex;
+          result.shannonEntropyBitsPerChar = dnsApex.shannonEntropyBitsPerChar;
+          result.dgaOrTunnelSuspected = dnsApex.dgaOrTunnelSuspected;
+          result.dnsPointerCompressionJumps = dnsApex.pointerCompressionJumps;
+        }
+      } catch (_) {}
+    }
+
+    return result;
+  }
+
   /**
    * Format MAC address buffer to colon-separated string (e.g. 00:1A:2B:3C:4D:5E)
    */
@@ -903,6 +958,8 @@ class PacketDecoder {
     let ipv6 = null;
     let transport = null;
     let application = null;
+    let tlsApexResult = null;
+    let dnsApexResult = null;
 
     // 2. Layer 3: ARP
     if (etherType === 0x0806 && buf.length - payloadOffset >= 28) {
@@ -1097,6 +1154,22 @@ class PacketDecoder {
 
         const l7Offset = l4Offset + dataOffsetBytes;
         if (tcpPayloadLen > 0) {
+          const apex = this.dissectApexWirePayload(buf, 'TCP', srcPort, dstPort, l7Offset, tcpPayloadLen);
+          if (apex && apex.tlsApex) {
+            tlsApexResult = apex.tlsApex;
+            addLayer(
+              'Transport Layer Security (Apex JA4 Dissector)',
+              'tls',
+              l7Offset,
+              tcpPayloadLen,
+              `TLS 1.3 ClientHello (JA4: ${apex.ja4Fingerprint}, SNI: ${apex.sniHostName || 'none'}, Ver: ${apex.negotiatedTlsVersion})`,
+              {
+                'tls.ja4': { offset: l7Offset, length: tcpPayloadLen, value: apex.ja4Fingerprint, label: `JA4 Fingerprint: ${apex.ja4Fingerprint}` },
+                'tls.sni': { offset: l7Offset, length: tcpPayloadLen, value: apex.sniHostName, label: `Server Name Indication: ${apex.sniHostName || 'none'}` },
+                'tls.version': { offset: l7Offset, length: 2, value: apex.negotiatedTlsVersion, label: `TLS Version: ${apex.negotiatedTlsVersion}` }
+              }
+            );
+          }
           // L7: TLS
           const tls = this.dissectTls(buf, l7Offset);
           if (tls) {
@@ -1188,6 +1261,10 @@ class PacketDecoder {
 
         // L7: DNS / mDNS / LLMNR
         else if ((srcPort === 53 || dstPort === 53 || srcPort === 5353 || dstPort === 5353 || srcPort === 5355 || dstPort === 5355) && udpPayloadLen >= 12) {
+          const dnsApex = this.dissectApexWirePayload(buf, 'UDP', srcPort, dstPort, l4Offset + 8, udpPayloadLen);
+          if (dnsApex && dnsApex.dnsApex) {
+            dnsApexResult = dnsApex.dnsApex;
+          }
           const dns = this.dissectDns(buf, l4Offset + 8);
           if (dns) {
             if (srcPort === 5353 || dstPort === 5353) {
@@ -1389,7 +1466,15 @@ class PacketDecoder {
       layers,
       fields: fieldsMap,
       passiveOsFingerprint: ip ? this.computePassiveOsFingerprint(ip.ttl, transport?.windowSize) : null,
-      dissectedAt: new Date().toISOString()
+      dissectedAt: new Date().toISOString(),
+      tlsApex: tlsApexResult,
+      ja4Fingerprint: tlsApexResult?.ja4Fingerprint || null,
+      sniHostName: tlsApexResult?.sniHostName || null,
+      negotiatedTlsVersion: tlsApexResult?.negotiatedTlsVersion || null,
+      dnsApex: dnsApexResult,
+      shannonEntropyBitsPerChar: dnsApexResult?.shannonEntropyBitsPerChar ?? null,
+      dgaOrTunnelSuspected: dnsApexResult?.dgaOrTunnelSuspected ?? null,
+      dnsPointerCompressionJumps: dnsApexResult?.pointerCompressionJumps ?? null
     };
   }
 
@@ -1397,7 +1482,34 @@ class PacketDecoder {
    * Dissect entire packet frame from buffer or hex string (100% Backward Compatible)
    */
   static dissectFrame(rawInput) {
-    const detailed = this.dissectDetailed(rawInput);
+    let buf = rawInput;
+    if (typeof buf === 'string') {
+      buf = Buffer.from(buf.replace(/\s+/g, ''), 'hex');
+    } else if (buf instanceof Uint8Array && !Buffer.isBuffer(buf)) {
+      buf = Buffer.from(buf);
+    }
+    const detailed = this.dissectDetailed(buf);
+
+    // If input was a raw payload without Ethernet/IP headers (e.g. raw TLS ClientHello or raw DNS query)
+    if (!detailed.ja4Fingerprint && buf && buf.length >= 5 && buf[0] === 0x16 && buf[1] === 0x03) {
+      const rawApex = this.dissectApexWirePayload(buf, 'TCP', 0, 443, 0, buf.length);
+      if (rawApex && rawApex.tlsApex) {
+        detailed.tlsApex = rawApex.tlsApex;
+        detailed.ja4Fingerprint = rawApex.ja4Fingerprint;
+        detailed.sniHostName = rawApex.sniHostName;
+        detailed.negotiatedTlsVersion = rawApex.negotiatedTlsVersion;
+      }
+    }
+    if (!detailed.dnsApex && buf && buf.length >= 12) {
+      const rawDnsApex = this.dissectApexWirePayload(buf, 'UDP', 53, 53, 0, buf.length);
+      if (rawDnsApex && rawDnsApex.dnsApex) {
+        detailed.dnsApex = rawDnsApex.dnsApex;
+        detailed.shannonEntropyBitsPerChar = rawDnsApex.shannonEntropyBitsPerChar;
+        detailed.dgaOrTunnelSuspected = rawDnsApex.dgaOrTunnelSuspected;
+        detailed.dnsPointerCompressionJumps = rawDnsApex.dnsPointerCompressionJumps;
+      }
+    }
+
     return {
       protocol: detailed.protocol,
       dhcp: detailed.dhcp,
@@ -1416,7 +1528,16 @@ class PacketDecoder {
       detailedLayers: detailed.layers,
       fields: detailed.fields,
       passiveOsFingerprint: detailed.passiveOsFingerprint,
-      dissectedAt: detailed.dissectedAt
+      dissectedAt: detailed.dissectedAt,
+      // Sovereign-Apex Enrichments
+      tlsApex: detailed.tlsApex || null,
+      ja4Fingerprint: detailed.ja4Fingerprint || null,
+      sniHostName: detailed.sniHostName || null,
+      negotiatedTlsVersion: detailed.negotiatedTlsVersion || null,
+      dnsApex: detailed.dnsApex || null,
+      shannonEntropyBitsPerChar: detailed.shannonEntropyBitsPerChar !== undefined ? detailed.shannonEntropyBitsPerChar : null,
+      dgaOrTunnelSuspected: detailed.dgaOrTunnelSuspected !== undefined ? detailed.dgaOrTunnelSuspected : null,
+      dnsPointerCompressionJumps: detailed.dnsPointerCompressionJumps !== undefined ? detailed.dnsPointerCompressionJumps : null
     };
   }
 

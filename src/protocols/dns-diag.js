@@ -70,7 +70,7 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
     };
   }
 
-  const resolver = new dnsPromises.Resolver();
+  const resolver = new dnsPromises.Resolver({ timeout: 2000, tries: 2 });
   const activeNs = nameserver ? String(nameserver).trim() : getRealSystemDns();
   const typeUpper = (recordType || 'A').toUpperCase();
 
@@ -88,7 +88,12 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           error: `Invalid nameserver IP address: ${activeNs}`
         };
       }
-      resolver.setServers([activeNs]);
+      if (nameserver) {
+        resolver.setServers([activeNs]);
+      } else {
+        const servers = [activeNs, '8.8.8.8', '1.1.1.1'].filter(Boolean);
+        resolver.setServers(servers);
+      }
     }
 
     let records = [];
@@ -135,7 +140,7 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
     };
   } catch (err) {
     // If system resolver socket failed with ECONNREFUSED/ETIMEOUT and domain exists in OS DNS, use OS native lookup
-    if (!nameserver && (err.code === 'ECONNREFUSED' || err.code === 'ETIMEOUT') && (typeUpper === 'A' || typeUpper === 'AAAA')) {
+    if (!nameserver && (err.code === 'ECONNREFUSED' || err.code === 'ETIMEOUT' || err.code === 'ESERVFAIL' || err.code === 'EREFUSED') && (typeUpper === 'A' || typeUpper === 'AAAA')) {
       try {
         const lookupRes = await dnsPromises.lookup(cleanDomain, { all: true });
         const filtered = lookupRes

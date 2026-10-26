@@ -38,6 +38,7 @@ export declare class DSRLLyapunovSafetyVault {
     private readonly registeredScriptHashes;
     private readonly ledger;
     constructor(hmacSecretKey?: string, allowedScriptHashes?: readonly string[]);
+    registerAllowedScriptHash(sha256Hex: string): void;
     /**
      * Executes the 6-Stage Deterministic DSRL Gate:
      *  Stage 1: Script SHA-256 Registry & Zero-Elevation Verification
