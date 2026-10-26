@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#f5f5f1">
   <meta name="description" content="EJII — Eldar Jamiyev's Infrastructure Intelligence. Enterprise infrastructure operations and network diagnostics.">
-  <title>EJII — Infrastructure Intelligence</title>
+  <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
   <script>
     (function () {
       try {
@@ -117,7 +117,7 @@
           </div>
         </div>
 
-        <button type="button" class="login-quick-cta-btn" id="evaluationQuickCta" onclick="window.quickNocLogin()">
+        <button type="button" class="login-quick-cta-btn" id="evaluationQuickCta" aria-label="Enter Eldar Jamiyev's Infrastructure Intelligence" onclick="window.quickNocLogin()">
           <span class="cta-content"><span class="cta-title">Continue to workstation</span>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
           </span>
@@ -162,7 +162,7 @@
     <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
       <div class="brand">
         <div class="brand-logo" title="Eldar Jamiyev's Infrastructure Intelligence">EJII</div>
-        <div class="brand-text">
+        <div class="brand-text" title="Eldar Jamiyev's Infrastructure Intelligence">
           <h1>Eldar Jamiyev</h1>
           <p>Infrastructure Intelligence</p>
         </div>
@@ -200,7 +200,7 @@
       <div class="nav-section">MONITOR</div>
       <ul class="nav-links">
         <li>
-          <a class="nav-link active" data-view="topology" data-page-title="Network overview" href="#topology" onclick="event.preventDefault();window.renderView('topology')" title="Network overview">
+          <a class="nav-link active" data-view="topology" data-page-title="Network overview" href="#topology" onclick="event.preventDefault();window.renderView('topology')" title="1. NOC Network Topology &amp; Dependency Graph Map">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v6m9 3h-6M12 21v-6M3 12h6"/></svg>
             <span class="nav-label">Network overview</span>
           </a>
@@ -210,13 +210,13 @@
       <div class="nav-section">INVESTIGATE</div>
       <ul class="nav-links">
         <li>
-          <a class="nav-link" data-view="packet-sniffer" data-page-title="Packet analysis" href="#packet-analysis" onclick="event.preventDefault();window.renderView('packet-sniffer')" title="Inspect packets and flows">
+          <a class="nav-link" data-view="packet-sniffer" data-page-title="Packet analysis" href="#packet-analysis" onclick="event.preventDefault();window.renderView('packet-sniffer')" title="2. Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.2-7L14 19l2.2-7H21"/></svg>
             <span class="nav-label">Packet analysis</span>
           </a>
         </li>
         <li>
-          <a class="nav-link" data-view="ultra-ip-scanner" data-page-title="IP & asset discovery" href="#asset-discovery" onclick="event.preventDefault();window.renderView('ultra-ip-scanner')" title="Discover hosts and network services">
+          <a class="nav-link" data-view="ultra-ip-scanner" data-page-title="IP & asset discovery" href="#asset-discovery" onclick="event.preventDefault();window.renderView('ultra-ip-scanner')" title="3. Ultra IP Scanner">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M10.5 7v7m-3.5-3.5h7"/></svg>
             <span class="nav-label">IP & asset discovery</span>
           </a>
@@ -226,7 +226,7 @@
       <div class="nav-section">OPERATE</div>
       <ul class="nav-links">
         <li>
-          <a class="nav-link" data-view="pc-automation" data-page-title="Automation library" href="#automation" onclick="event.preventDefault();window.renderView('pc-automation')" title="Run approved local automations">
+          <a class="nav-link" data-view="pc-automation" data-page-title="Automation library" href="#automation" onclick="event.preventDefault();window.renderView('pc-automation')" title="4. Automation of Local PC Settings (BAT Files @ e:\Scripts)">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 9 3 3-3 3m5 0h3"/></svg>
             <span class="nav-label">Automation library</span>
           </a>
@@ -251,7 +251,7 @@
         <div class="topbar-left">
           <div class="page-context">
             <div class="page-eyebrow">EJII / OPERATIONS</div>
-            <div class="page-title" id="pageTitle"><span class="page-name">Network overview</span></div>
+            <div class="page-title" id="pageTitle" aria-label="Eldar Jamiyev's Infrastructure Intelligence"><span class="page-name">Network overview</span></div>
           </div>
         </div>
 
