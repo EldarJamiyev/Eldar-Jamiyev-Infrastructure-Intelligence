@@ -319,6 +319,16 @@ window.escapeAttr = escapeAttr;
         <div id="packetAiExplainerModalContainer"></div>
       `;
 
+      // Mount Autonomous Virtual Packet Cockpit (Sovereign Apex)
+      if (typeof window.VirtualPacketCockpit !== 'undefined') {
+        window.snifferVirtualCockpit = new window.VirtualPacketCockpit({
+          tableViewportEl: document.getElementById('livePacketTableContainer'),
+          treePaneEl: document.getElementById('protocolTreePane'),
+          hexPaneEl: document.getElementById('hexDumpPane'),
+          statusBadgeEl: document.getElementById('freezeStreamBtn')
+        });
+      }
+
       if (typeof window.startPacketBatchFlusher === 'function') {
         window.startPacketBatchFlusher();
       } else if (typeof window.startNocBatchFlusher === 'function') {
@@ -717,6 +727,26 @@ window.escapeAttr = escapeAttr;
         const content = document.getElementById('troubleshootContentArea');
         if (content) content.innerHTML = `<div style="color: #ef4444; padding: 20px;">Network request failed: ${escapeHtml(err.message)}</div>`;
       }
+    };
+  }
+
+  window.initSnifferCockpit = function() {
+    if (typeof window.VirtualPacketCockpit !== 'undefined') {
+      window.snifferVirtualCockpit = new window.VirtualPacketCockpit({
+        tableViewportEl: document.getElementById('livePacketTableContainer'),
+        treePaneEl: document.getElementById('protocolTreePane'),
+        hexPaneEl: document.getElementById('hexDumpPane'),
+        statusBadgeEl: document.getElementById('freezeStreamBtn')
+      });
+      return window.snifferVirtualCockpit;
+    }
+    return null;
+  };
+
+  if (!window.renderPacketRows && typeof window.VirtualPacketCockpit !== 'undefined') {
+    window.renderPacketRows = function() {
+      const frames = (typeof window.getNocLiveFrames === 'function') ? window.getNocLiveFrames() : [];
+      return frames.map(f => window.VirtualPacketCockpit.renderTableRowHtml(f, false)).join('');
     };
   }
 

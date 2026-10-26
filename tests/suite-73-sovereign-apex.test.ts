@@ -1,6 +1,8 @@
 // tests/suite-73-sovereign-apex.test.ts
 import { strict as assert } from 'node:assert';
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { NeuroSymbolicApexEngine } from '../src/ai/neuro-symbolic-apex';
 import { WireDissectorApex } from '../src/sniffer/wire-dissector-apex';
 import { SpectralGNNTopologyEngine } from '../src/topology/spectral-gnn-apex';
@@ -206,6 +208,69 @@ export async function runSuite73SovereignApex(): Promise<void> {
   assert.strictEqual(typeof guardedExec.lyapunovDeltaEnergy, 'number', 'Lyapunov delta energy must be number');
   assert.strictEqual(typeof guardedExec.merkleRootHex, 'string', 'Merkle root must be string');
   assert.strictEqual(guardedExec.merkleRootHex.length, 64, 'Merkle root must be 64-character SHA-256 hex');
+
+  // 6. Hard Test Lock: Frontend 5-Pillar View & Documentation Wiring Verification
+  console.log('[Suite 73] Running Section 6: Hard Test Lock on Frontend & Docs...');
+  const repoRoot = path.resolve(__dirname, '..');
+
+  const snifferViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/sniffer-view.js'), 'utf8');
+  assert.ok(snifferViewCode.includes('snifferVirtualCockpit'), 'sniffer-view.js must wire snifferVirtualCockpit');
+  assert.ok(snifferViewCode.includes('VirtualPacketCockpit'), 'sniffer-view.js must reference VirtualPacketCockpit');
+
+  const nocViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/noc-view.js'), 'utf8');
+  assert.ok(nocViewCode.includes('nocVirtualCockpit'), 'noc-view.js must wire nocVirtualCockpit');
+  assert.ok(nocViewCode.includes('ja4Fingerprint'), 'noc-view.js must render ja4Fingerprint');
+  assert.ok(nocViewCode.includes('ejii-ja4-badge'), 'noc-view.js must render ejii-ja4-badge');
+  assert.ok(nocViewCode.includes('shannonEntropyBitsPerChar'), 'noc-view.js must render shannonEntropyBitsPerChar');
+  assert.ok(nocViewCode.includes('ejii-dga-badge'), 'noc-view.js must render ejii-dga-badge');
+  assert.ok(nocViewCode.includes('fiedlerCoordinate'), 'noc-view.js must render fiedlerCoordinate in HUD');
+  assert.ok(nocViewCode.includes('gcnEmbeddingApex'), 'noc-view.js must render gcnEmbeddingApex in HUD');
+  assert.ok(nocViewCode.includes('isArticulationBottleneck'), 'noc-view.js must render isArticulationBottleneck');
+  assert.ok(nocViewCode.includes('ejiiActiveTargetContextBar'), 'noc-view.js must wire ejiiActiveTargetContextBar');
+
+  const topologyViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/topology-view.js'), 'utf8');
+  assert.ok(topologyViewCode.includes('topoSpectralHealthPill'), 'topology-view.js must mount topoSpectralHealthPill');
+  assert.ok(topologyViewCode.includes('ejiiActiveTargetContextBar'), 'topology-view.js must mount ejiiActiveTargetContextBar');
+
+  const scannerViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/ultra-ip-scanner-view.js'), 'utf8');
+  assert.ok(scannerViewCode.includes('sortFleetHostsDeterministically'), 'ultra-ip-scanner-view.js must export sortFleetHostsDeterministically');
+  assert.ok(scannerViewCode.includes('ipToUint32'), 'ultra-ip-scanner-view.js must implement ipToUint32');
+  assert.ok(scannerViewCode.includes('15-Port Deep Audit Matrix'), 'ultra-ip-scanner-view.js must render 15-Port Deep Audit Matrix');
+  assert.ok(scannerViewCode.includes('fiedlerCoordinate'), 'ultra-ip-scanner-view.js must render fiedlerCoordinate');
+  assert.ok(scannerViewCode.includes('blastRadius'), 'ultra-ip-scanner-view.js must render blastRadius');
+
+  const pcAutoViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/pc-automation-view.js'), 'utf8');
+  assert.ok(pcAutoViewCode.includes('Diagnostic'), 'pc-automation-view.js must support Diagnostic category');
+  assert.ok(pcAutoViewCode.includes('Repair'), 'pc-automation-view.js must support Repair category');
+  assert.ok(pcAutoViewCode.includes('Performance'), 'pc-automation-view.js must support Performance category');
+  assert.ok(pcAutoViewCode.includes('DSRL Stage-6 Lyapunov Gate: ARMED'), 'pc-automation-view.js must render DSRL Stage-6 Lyapunov Gate: ARMED');
+  assert.ok(pcAutoViewCode.includes('HMAC-SHA256 Merkle Audit Root'), 'pc-automation-view.js must render HMAC-SHA256 Merkle Audit Root');
+
+  const coreDiagViewCode = fs.readFileSync(path.join(repoRoot, 'public/js/views/core-diagnostics-view.js'), 'utf8');
+  assert.ok(coreDiagViewCode.includes('smoothRobustness'), 'core-diagnostics-view.js must wire smoothRobustness');
+  assert.ok(coreDiagViewCode.includes('hardRobustness'), 'core-diagnostics-view.js must wire hardRobustness');
+  assert.ok(coreDiagViewCode.includes('velocityPerSec'), 'core-diagnostics-view.js must wire velocityPerSec');
+  assert.ok(coreDiagViewCode.includes('estimatedTimeToViolationSec'), 'core-diagnostics-view.js must wire estimatedTimeToViolationSec');
+  assert.ok(coreDiagViewCode.includes('metricSensitivityGradient'), 'core-diagnostics-view.js must wire metricSensitivityGradient');
+  assert.ok(coreDiagViewCode.includes('lyapunovDeltaEnergy'), 'core-diagnostics-view.js must wire lyapunovDeltaEnergy');
+  assert.ok(coreDiagViewCode.includes('merkleRootHex'), 'core-diagnostics-view.js must wire merkleRootHex');
+
+  const aiBrainDrawerCode = fs.readFileSync(path.join(repoRoot, 'public/js/components/ai-brain-drawer.js'), 'utf8');
+  assert.ok(aiBrainDrawerCode.includes('smoothRobustness'), 'ai-brain-drawer.js must wire smoothRobustness');
+  assert.ok(aiBrainDrawerCode.includes('estimatedTimeToViolationSec'), 'ai-brain-drawer.js must wire estimatedTimeToViolationSec');
+  assert.ok(aiBrainDrawerCode.includes('counterfactualApex'), 'ai-brain-drawer.js must wire counterfactualApex');
+
+  const appCode = fs.readFileSync(path.join(repoRoot, 'public/js/app.js'), 'utf8');
+  assert.ok(appCode.includes('Escape'), 'app.js must handle Escape key');
+  assert.ok(appCode.includes('stopPacketBatchFlusher'), 'app.js must enforce mutual exclusivity on workstation transition');
+
+  const cssCode = fs.readFileSync(path.join(repoRoot, 'public/css/eji-premium.css'), 'utf8');
+  assert.ok(cssCode.includes('.ejii-spectral-health-pill'), 'eji-premium.css must define .ejii-spectral-health-pill');
+  assert.ok(cssCode.includes('.ejii-ja4-badge'), 'eji-premium.css must define .ejii-ja4-badge');
+  assert.ok(cssCode.includes('.ejii-dga-badge'), 'eji-premium.css must define .ejii-dga-badge');
+
+  const readmeCode = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.ok(readmeCode.includes('6-Stage Deterministic Lyapunov Gate ($V(s_{t+1}) \\le V(s_t)$ & Merkle root)'), 'README.md must specify 6-Stage Deterministic Lyapunov Gate');
 
   console.log('=== [SUITE 73] ALL SOVEREIGN-APEX ASSERTIONS PASSED (100%) ===');
 }

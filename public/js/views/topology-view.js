@@ -93,6 +93,9 @@
                   </div>
                 </div>
 
+                <!-- Active Target Context & Pivot Bar (Sovereign Apex) -->
+                <div id="ejiiActiveTargetContextBar" style="display: none; padding: 4px 14px; margin-bottom: 6px; flex-shrink: 0;"></div>
+
                 <!-- Interactive SVG Viewport -->
                 <div id="topologySvgContainer" style="flex: 1; overflow: hidden; cursor: grab; display: flex; align-items: stretch;" onmousedown="window.startTopologyPan(event)" onmousemove="window.doTopologyPan(event)" onmouseup="window.endTopologyPan(event)" onmouseleave="window.endTopologyPan(event)" onwheel="window.handleTopologyWheel(event)">
                   ${window.renderTopologySvg ? window.renderTopologySvg() : '<div style="padding: 20px; color: var(--text-secondary);">Rendering Topology Map...</div>'}

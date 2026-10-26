@@ -581,6 +581,13 @@ function renderView(viewName = 'topology') {
   window.currentRouteGeneration = (window.currentRouteGeneration || 0) + 1;
   const currentGen = window.currentRouteGeneration;
 
+  // Enforce mutual exclusivity across workstations: clean up background batching and dismiss dangling modals
+  if (typeof window.stopPacketBatchFlusher === 'function' && target !== 'packet-sniffer' && target !== 'topology') {
+    window.stopPacketBatchFlusher();
+  }
+  const danglingModals = document.querySelectorAll('.modal-backdrop, #deepInspectHostModal, #officeDeviceDiagnoseModal, #troubleshootEndpointModal');
+  danglingModals.forEach(m => { if (m.style.display !== 'none') m.style.display = 'none'; });
+
   // Highlight active nav link
   document.querySelectorAll('.nav-link').forEach(link => {
     const linkView = link.dataset.view;
@@ -1061,6 +1068,24 @@ window.addEventListener('DOMContentLoaded', async () => {
       showLoginScreen();
     });
   }
+
+  // Global Escape Key Listener for Modals & Drawers (Sovereign Apex)
+  window.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+      const openModals = document.querySelectorAll(
+        '.modal-backdrop, #deepInspectHostModal, #troubleshootEndpointModal, #officeEquipmentModal, #officeDeviceDiagnoseModal, #serviceDependenciesModal, #scriptInspectionModal, #scriptHistoryModal, #modalContainer'
+      );
+      openModals.forEach(m => {
+        if (m.style.display !== 'none') {
+          m.style.display = 'none';
+        }
+      });
+      const modalHost = document.getElementById('packetAiExplainerModalContainer');
+      if (modalHost) modalHost.innerHTML = '';
+      const banner = document.getElementById('topologyOverlayBanner');
+      if (banner && typeof window.clearBlastRadius === 'function') window.clearBlastRadius();
+    }
+  });
 
   // Check existing session or show login
   if (state.token) {

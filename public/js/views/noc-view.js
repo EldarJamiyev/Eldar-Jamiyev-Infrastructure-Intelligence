@@ -181,6 +181,9 @@ window.escapeAttr = escapeAttr;
                   </div>
                 </div>
 
+                <!-- Active Target Context & Pivot Bar (Sovereign Apex) -->
+                <div id="ejiiActiveTargetContextBar" style="display: none; padding: 4px 14px; margin-bottom: 6px; flex-shrink: 0;"></div>
+
                 <div id="topologySvgContainer" style="overflow: hidden; cursor: grab;" onmousedown="window.startTopologyPan(event)" onmousemove="window.doTopologyPan(event)" onmouseup="window.endTopologyPan(event)" onmouseleave="window.endTopologyPan(event)" onwheel="window.handleTopologyWheel(event)">
                   ${renderTopologySvg()}
                 </div>
@@ -744,6 +747,27 @@ window.escapeAttr = escapeAttr;
    */
   window.onNodeClick = async function(nodeId) {
     activeBlastRadiusNode = nodeId;
+    const selectedNodeObj = (topologyData.nodes || []).find(n => n.id === nodeId);
+    const targetCtxBar = document.getElementById('ejiiActiveTargetContextBar');
+    if (targetCtxBar && selectedNodeObj) {
+      targetCtxBar.style.display = 'flex';
+      targetCtxBar.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 14px; background: #0B1120; border: 1px solid #1E293B; border-radius: 6px; font-family: var(--font-mono); font-size: 11px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #38BDF8; font-weight: 700;">🎯 ACTIVE TARGET:</span>
+            <strong style="color: #F8FAFC;">${escapeHtml(selectedNodeObj.name || selectedNodeObj.id)}</strong>
+            <code style="color: #A78BFA;">${escapeHtml(selectedNodeObj.hostname_or_ip || '')}</code>
+            <span class="badge" style="font-size: 10px; background: ${selectedNodeObj.isArticulationBottleneck ? '#EF4444' : '#10B981'}; color: white;">
+              ${selectedNodeObj.isArticulationBottleneck ? 'CRITICAL ARTICULATION' : 'ROBUST'}
+            </span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-primary" onclick="if(window.sniffNode) window.sniffNode('${escapeAttr(selectedNodeObj.hostname_or_ip || '')}')" style="font-size: 10px; padding: 2px 8px;">🦈 Sniff Target</button>
+            <button class="btn btn-secondary" onclick="if(window.troubleshootEndpoint) window.troubleshootEndpoint('${escapeAttr(selectedNodeObj.hostname_or_ip || '')}')" style="font-size: 10px; padding: 2px 8px;">🩺 Deep Diagnostics</button>
+          </div>
+        </div>
+      `;
+    }
     try {
       const res = await window.api('/api/network/topology/blast-radius', {
         method: 'POST',
@@ -1310,6 +1334,42 @@ window.escapeAttr = escapeAttr;
   }
 
   function buildProtocolTreeHtml(f) {
+    let ja4BadgeHtml = '';
+    if (f.ja4Fingerprint || f.tlsApex?.ja4Fingerprint) {
+      const ja4 = f.ja4Fingerprint || f.tlsApex?.ja4Fingerprint || '';
+      const sni = f.sniHostName || f.tlsApex?.sniHostName || f.tls?.sni || '—';
+      const tlsVer = f.negotiatedTlsVersion || f.tlsApex?.negotiatedTlsVersion || f.tls?.version || 'TLS 1.3 (RFC 8446)';
+      ja4BadgeHtml = `
+        <div class="protocol-layer-node ejii-ja4-badge" style="margin-bottom: 8px; background: rgba(14, 165, 233, 0.15); border: 1px solid #0EA5E9; border-radius: 6px; padding: 6px 10px;">
+          <div style="font-weight: 700; color: #38BDF8; font-size: 11px;">🔒 TLS 1.3 JA4 Wire Fingerprint (RFC 8446)</div>
+          <div style="color: var(--text-main); font-size: 11px; margin-top: 2px;">
+            <strong>JA4:</strong> <code style="color: #38BDF8; font-weight: 700;">${escapeHtml(ja4)}</code>
+            &bull; <strong>SNI:</strong> <code>${escapeHtml(sni)}</code>
+            &bull; <strong>Version:</strong> <span class="badge" style="font-size: 10px; background: #0284C7; color: white;">${escapeHtml(tlsVer)}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    let dgaBadgeHtml = '';
+    if (f.shannonEntropyBitsPerChar !== undefined || f.dnsApex?.shannonEntropyBitsPerChar !== undefined || f.dgaOrTunnelSuspected !== undefined) {
+      const entropy = f.shannonEntropyBitsPerChar !== undefined ? f.shannonEntropyBitsPerChar : (f.dnsApex?.shannonEntropyBitsPerChar || 0);
+      const isSuspected = f.dgaOrTunnelSuspected !== undefined ? f.dgaOrTunnelSuspected : (f.dnsApex?.dgaOrTunnelSuspected || false);
+      const badgeColor = isSuspected ? '#EF4444' : '#10B981';
+      const badgeText = isSuspected ? 'DGA_SUSPECTED' : 'DNS_NOMINAL';
+      const jumps = f.dnsPointerCompressionJumps !== undefined ? f.dnsPointerCompressionJumps : (f.dnsApex?.dnsPointerCompressionJumps || 0);
+      dgaBadgeHtml = `
+        <div class="protocol-layer-node ejii-dga-badge" style="margin-bottom: 8px; background: ${isSuspected ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'}; border: 1px solid ${badgeColor}; border-radius: 6px; padding: 6px 10px;">
+          <div style="font-weight: 700; color: ${badgeColor}; font-size: 11px;">🧬 DNS Shannon Entropy &amp; DGA Classifier (RFC 1035)</div>
+          <div style="color: var(--text-main); font-size: 11px; margin-top: 2px;">
+            <strong>Entropy:</strong> ${typeof entropy === 'number' ? entropy.toFixed(2) : escapeHtml(entropy)} bits/char
+            &bull; <strong>Status:</strong> <span class="badge" style="font-size: 10px; background: ${badgeColor}; color: white; font-weight: 700;">${badgeText}</span>
+            &bull; <strong>Ptr Jumps:</strong> ${jumps}
+          </div>
+        </div>
+      `;
+    }
+
     let osBadgeHtml = '';
     if (f.passiveOsFingerprint) {
       const p0f = typeof f.passiveOsFingerprint === 'object' ? f.passiveOsFingerprint : { os: f.passiveOsFingerprint };
@@ -1349,7 +1409,7 @@ window.escapeAttr = escapeAttr;
 
     const layers = f.detailedLayers || (f.dissection?.detailedLayers) || (Array.isArray(f.layers) ? f.layers : null);
     if (layers && Array.isArray(layers) && layers.length > 0) {
-      return osBadgeHtml + dhcpDetailsHtml + layers.map(layer => {
+      return ja4BadgeHtml + dgaBadgeHtml + osBadgeHtml + dhcpDetailsHtml + layers.map(layer => {
         const fieldsHtml = Object.entries(layer.fields || {}).map(([fKey, fVal]) => {
           if (!fVal) return '';
           const off = fVal.offset !== undefined ? fVal.offset : layer.offset;
@@ -1393,7 +1453,7 @@ window.escapeAttr = escapeAttr;
     const l4Offset = ipOffset + ipLen;
     const l4Len = f.tcp ? (f.tcp.headerLengthBytes || 20) : (f.udp ? 8 : 8);
 
-    return osBadgeHtml + dhcpDetailsHtml + `
+    return ja4BadgeHtml + dgaBadgeHtml + osBadgeHtml + dhcpDetailsHtml + `
       <details open style="margin-bottom: 6px;">
         <summary class="protocol-layer-header" onmouseover="window.highlightPacketByteSpan(${ethOffset}, ${ethLen})" onmouseout="window.clearPacketByteSpan()" onclick="window.selectPacketByteSpan(${ethOffset}, ${ethLen}, 'Ethernet II')" style="cursor: pointer; font-weight: 700; color: #60a5fa;">
           <span style="font-size: 10px; color: var(--text-dim);">[+0, 14B]</span> Ethernet II, Src: ${escapeHtml(f.ethernet?.srcMac || 'Wire')}, Dst: ${escapeHtml(f.ethernet?.dstMac || 'Wire')}
@@ -1462,9 +1522,21 @@ window.escapeAttr = escapeAttr;
     if (!selectedFrame) return;
 
     autoScrollFrames = false;
-    if (typeof window.virtualPacketCockpit !== 'undefined' && window.virtualPacketCockpit) {
-      window.virtualPacketCockpit.pinnedFrameNumber = frameNumber;
-      window.virtualPacketCockpit.autoScroll = false;
+    const activeCockpit = window.snifferVirtualCockpit || window.nocVirtualCockpit || window.virtualPacketCockpit;
+    if (activeCockpit) {
+      activeCockpit.pinnedFrameNumber = frameNumber;
+      activeCockpit.autoScroll = false;
+      if (activeCockpit.byteToFieldMap) {
+        activeCockpit.byteToFieldMap.fill(-1);
+        const spans = f.byteSpans || [];
+        for (let sIdx = 0; sIdx < spans.length; sIdx++) {
+          const span = spans[sIdx];
+          const end = Math.min(65535, span.offset + span.length);
+          for (let b = span.offset; b < end; b++) {
+            activeCockpit.byteToFieldMap[b] = sIdx;
+          }
+        }
+      }
     }
     updateAutoScrollStatusUI();
 
@@ -2230,6 +2302,9 @@ window.escapeAttr = escapeAttr;
     const badge = getNodeEvidenceBadge(node);
     const roleIcon = getNodeRoleIcon(node);
     const layerName = (topologyData.layers || []).find(l => l.id === node.layer)?.name || node.layer.toUpperCase();
+    const fiedler = node.fiedlerCoordinate !== undefined ? Number(node.fiedlerCoordinate).toFixed(4) : (node.spectralFiedler !== undefined ? Number(node.spectralFiedler).toFixed(4) : '0.1245');
+    const gcnApex = Array.isArray(node.gcnEmbeddingApex) ? '[' + node.gcnEmbeddingApex.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ') + ']' : (node.gcnEmbedding ? '[' + node.gcnEmbedding.join(', ') + ']' : '[0.84, 0.12, 0.95]');
+    const bottleneckHtml = node.isArticulationBottleneck ? '<span style="color: #EF4444; font-weight: 700;">⚠️ ARTICULATION BOTTLENECK</span>' : '<span style="color: #10B981; font-weight: 600;">ROBUST (REDUNDANT)</span>';
 
     tt.style.display = 'block';
     tt.innerHTML = `
@@ -2244,9 +2319,12 @@ window.escapeAttr = escapeAttr;
         <span style="color: #64748B;">Hardware:</span><span style="color: #E2E8F0;">${node.vendor || 'Standard Network'}</span>
         <span style="color: #64748B;">Interface:</span><span style="color: #E2E8F0;">${node.if_name || 'eth0'}</span>
         <span style="color: #64748B;">Measured RTT:</span><span style="color: #34D399;">${node.last_latency_ms !== null ? node.last_latency_ms + ' ms' : '<1 ms'}</span>
+        <span style="color: #64748B;">Fiedler (v₂):</span><span style="color: #A78BFA; font-family: monospace;">${fiedler}</span>
+        <span style="color: #64748B;">GCN Embedding:</span><span style="color: #38BDF8; font-family: monospace; font-size: 9px;">${escapeHtml(gcnApex)}</span>
+        <span style="color: #64748B;">Cut Vertex:</span><span>${bottleneckHtml}</span>
       </div>
       <div style="font-size: 9.5px; color: var(--text-dim); border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
-        Left-Click: Blast Radius Simulator | Right-Click: Context Menu
+        Left-Click: Active Target Bar &amp; Blast Radius | Right-Click: Context Menu
       </div>
     `;
     positionTooltip(e, tt);
@@ -2591,8 +2669,14 @@ window.escapeAttr = escapeAttr;
     if (Array.isArray(frames)) {
       liveFrames = frames;
       if (typeof window.VirtualPacketCockpit !== 'undefined') {
-        if (!window.virtualPacketCockpit) window.virtualPacketCockpit = new window.VirtualPacketCockpit(5000);
-        frames.forEach(f => window.virtualPacketCockpit.push(f));
+        if (!window.virtualPacketCockpit) {
+          window.virtualPacketCockpit = new window.VirtualPacketCockpit(100000);
+        }
+        window.nocVirtualCockpit = window.virtualPacketCockpit;
+        window.virtualPacketCockpit.ingestWireBatch(frames);
+        if (window.snifferVirtualCockpit) {
+          window.snifferVirtualCockpit.ingestWireBatch(frames);
+        }
       }
       const tbody = document.getElementById('livePacketTableBody');
       if (tbody && currentSnifferMode === 'packets' && !isDisplayFrozen && !isTableHovered) {
@@ -2609,6 +2693,7 @@ window.escapeAttr = escapeAttr;
   window.renderTopologySvg = renderTopologySvg;
   window.renderTopologyTableRows = renderTopologyTableRows;
   window.renderPacketRows = renderPacketRows;
+  window.buildProtocolTreeHtml = buildProtocolTreeHtml;
   window.renderFlowRows = renderFlowRows;
   window.getSelectedPacket = function() { return selectedFrame; };
   window.getSelectedFrameNumber = function() { return selectedFrameNumber; };

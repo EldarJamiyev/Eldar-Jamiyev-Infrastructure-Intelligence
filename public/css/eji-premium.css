@@ -1000,3 +1000,60 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Sovereign Apex Telemetry & Forensic Badges */
+.ejii-spectral-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface-subtle);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ejii-ja4-badge {
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid #0EA5E9;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+}
+
+.ejii-dga-badge {
+  display: flex;
+  flex-direction: column;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid #10B981;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+}
+
+.ejii-stl-ttv-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.ejii-lyapunov-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
