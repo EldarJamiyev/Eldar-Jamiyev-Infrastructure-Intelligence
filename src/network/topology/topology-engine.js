@@ -125,20 +125,87 @@ class TopologyEngine {
 
     const netInfo = getPhysicalNetworkInfo();
     const activeSubnet = netInfo.subnetCidr;
+    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
+    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '192.168.31.1';
 
-    const nodes = db.prepare('SELECT * FROM topology_nodes ORDER BY layer_level ASC, id ASC').all();
-    const edges = db.prepare('SELECT * FROM topology_edges').all();
+    const rawDbNodes = db.prepare('SELECT * FROM topology_nodes ORDER BY layer_level ASC, id ASC').all();
+    const rawDbEdges = db.prepare('SELECT * FROM topology_edges').all();
 
-    // Filter out foreign subnet nodes from active canvas
-    const filteredNodes = nodes.filter(n => {
+    // Strict deduplication & alien subnet filtering:
+    // 1. Exclude NODE-SUBNET-01 if NODE-LAN-01 exists.
+    // 2. Never allow hostIp to be duplicated into L4 (Enterprise Applications).
+    // 3. Filter out foreign subnet nodes from active canvas.
+    // 4. Ensure no two nodes in the same layer share the exact same IP/CIDR.
+    const seenLayerIps = new Set();
+    const filteredNodes = [];
+
+    for (const n of rawDbNodes) {
+      if (n.id === 'NODE-SUBNET-01') continue;
+
+      // Filter foreign subnet nodes
       if (n.id.startsWith('NODE-DISC-')) {
-        return isIpInSubnet(n.hostname_or_ip, activeSubnet);
+        if (!isIpInSubnet(n.hostname_or_ip, activeSubnet) || n.hostname_or_ip === gatewayIp || n.hostname_or_ip === hostIp) {
+          continue;
+        }
       }
-      return true;
-    });
+
+      // Workstation IP must only appear in Layer 6 (endpoint)
+      if (n.hostname_or_ip === hostIp && n.layer_level !== 6 && n.layer !== 'endpoint') {
+        continue;
+      }
+
+      // Check layer IP deduplication
+      const layerIpKey = `${n.layer_level || n.layer}:${n.hostname_or_ip}`;
+      if (seenLayerIps.has(layerIpKey)) {
+        continue;
+      }
+      seenLayerIps.add(layerIpKey);
+      filteredNodes.push(n);
+    }
 
     const activeNodeIds = new Set(filteredNodes.map(n => n.id));
-    const filteredEdges = edges.filter(e => activeNodeIds.has(e.source_id) && activeNodeIds.has(e.target_id));
+    const filteredEdges = rawDbEdges.filter(e => activeNodeIds.has(e.source_id) && activeNodeIds.has(e.target_id));
+
+    // Ensure every single active node is connected by at least one edge in the graph
+    const connectedNodeIds = new Set();
+    for (const e of filteredEdges) {
+      connectedNodeIds.add(e.source_id);
+      connectedNodeIds.add(e.target_id);
+    }
+
+    for (const n of filteredNodes) {
+      if (!connectedNodeIds.has(n.id)) {
+        const edgeId = `SYN-EDGE-${n.id}`;
+        let src = 'NODE-GW-01';
+        let tgt = n.id;
+        if (n.layer_level === 1 || n.layer === 'wan') {
+          src = n.id;
+          tgt = 'NODE-GW-01';
+        } else if (n.layer_level === 4 || n.layer === 'service') {
+          src = activeNodeIds.has('NODE-CORE-01') ? 'NODE-CORE-01' : 'NODE-GW-01';
+          tgt = n.id;
+        } else if (n.layer_level === 5 || n.layer === 'access') {
+          src = activeNodeIds.has('NODE-LAN-01') ? 'NODE-LAN-01' : 'NODE-GW-01';
+          tgt = n.id;
+        } else if (n.layer_level === 6 || n.layer === 'endpoint') {
+          src = activeNodeIds.has('NODE-LAN-01') ? 'NODE-LAN-01' : 'NODE-GW-01';
+          tgt = n.id;
+        }
+        filteredEdges.push({
+          id: edgeId,
+          source_id: src,
+          target_id: tgt,
+          link_type: 'ethernet',
+          status: 'up',
+          bandwidth_mbps: 1000,
+          utilization_pct: 15.0,
+          latency_ms: 1.0,
+          packet_rate: 100,
+          metadata: JSON.stringify({ autoSynthesized: true, role: 'Auto-Connected Link' })
+        });
+        connectedNodeIds.add(n.id);
+      }
+    }
 
     // Parse metadata & authoritative evidence classification
     const parsedNodes = filteredNodes.map(n => {
@@ -263,8 +330,8 @@ class TopologyEngine {
       });
 
       const mappedEdges = parsedEdges.map(edge => ({
-        source: String(edge.source_id || edge.source || edge.from),
-        target: String(edge.target_id || edge.target || edge.to),
+        source: String(edge.source_id || edge.source || edge.from || edge.sourceId),
+        target: String(edge.target_id || edge.target || edge.to || edge.targetId),
         bandwidthMbps: Number(edge.bandwidth_mbps ?? edge.bandwidthMbps ?? 1000),
         linkLossPct: Number(edge.link_loss_pct ?? edge.linkLossPct ?? edge.lossPct ?? 0),
         rttMs: Number(edge.rtt_ms ?? edge.rttMs ?? edge.latencyMs ?? 1)

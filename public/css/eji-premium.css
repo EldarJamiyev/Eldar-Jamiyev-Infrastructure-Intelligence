@@ -760,6 +760,51 @@
   border: 1px solid var(--border-default) !important;
 }
 
+/* Strict SVG Edge Path Non-Fill Enforcement (Zero Black Crescent Blobs) */
+.topology-light-canvas svg path,
+.topology-svg path,
+svg path.topo-edge,
+svg path.edge-path,
+svg path[id^="link-"],
+svg path#dynamicFlowRoutePath {
+  fill: none !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.link-smooth-green {
+  stroke: #10B981 !important;
+  fill: none !important;
+}
+
+.link-amber {
+  stroke: #D97706 !important;
+  fill: none !important;
+}
+
+.link-flashing-red {
+  stroke: #EF4444 !important;
+  fill: none !important;
+}
+
+.link-default-slate {
+  stroke: #94A3B8 !important;
+  stroke-width: 1.75px !important;
+  fill: none !important;
+}
+
+.link-primary-path {
+  stroke: #0F766E !important;
+  stroke-width: 2.25px !important;
+  fill: none !important;
+}
+
+.link-blast-radius {
+  stroke: #BE123C !important;
+  stroke-width: 2.5px !important;
+  fill: none !important;
+}
+
 /* Floating semi-transparent legend pill */
 .topology-floating-legend {
   position: absolute;

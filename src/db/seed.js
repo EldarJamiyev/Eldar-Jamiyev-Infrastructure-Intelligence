@@ -220,8 +220,8 @@ function seedDatabase() {
       },
       {
         id: 'NODE-APP-01',
-        name: `Local Subnet Service Host (${hostIp})`,
-        hostname_or_ip: hostIp,
+        name: 'Enterprise Cloud Service (1.1.1.1)',
+        hostname_or_ip: '1.1.1.1',
         mac_address: null,
         type: 'service',
         layer: 'service',

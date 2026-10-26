@@ -40,56 +40,72 @@
         window.setNocTopologyData(topoRes);
       }
 
+      const riskMeta = (function(level) {
+        if (level === 'NOMINAL') return { label: 'Healthy Mesh', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)' };
+        if (level === 'FRAGILE_BRIDGE') return { label: 'Single-Bridge Topology', color: '#D97706', bg: 'rgba(217, 119, 6, 0.12)' };
+        return { label: 'Partition Risk', color: '#DC2626', bg: 'rgba(220, 38, 38, 0.12)' };
+      })(topoRes?.partitionRiskLevel);
+
       container.innerHTML = `
         <div class="topology-standalone-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">
           <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
             <!-- Header Toolbar -->
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 32px; height: 32px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 16px;">🌐</div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 28px; height: 28px; border-radius: 6px; background: #F1F5F9; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                </div>
                 <div>
-                  <div class="card-title" style="margin: 0; font-size: 14px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;">
+                  <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;">
                     NOC Network Topology &amp; Dependency Graph Map
                   </div>
-                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); margin-top: 1px;">
+                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-sans); margin-top: 1px;">
                     Hierarchical Fabric: L1 WAN ➔ L2 Edge ➔ L3 Core ➔ L4 Enterprise ➔ L5 Access ➔ L6 Workstation
                   </div>
                 </div>
               </div>
 
               <!-- Controls Toolbar -->
-              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;">
                 <!-- Spectral Graph Health Pill -->
                 <div id="topoSpectralHealthPill" style="display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-subtle); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px;">
                   <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="spectralLambda2Val">${(topoRes?.algebraicConnectivityLambda2 !== undefined ? Number(topoRes.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
                   <span style="color: var(--border-default);">|</span>
-                  <span id="spectralRiskLevelBadge" style="color: #059669; font-weight: 700;">${topoRes?.partitionRiskLevel || 'NOMINAL'}</span>
+                  <span id="spectralRiskLevelBadge" style="color: ${riskMeta.color}; font-weight: 700;">${riskMeta.label}</span>
                   <span style="color: var(--border-default);">|</span>
                   <span style="color: var(--text-secondary);">Cut Edges: <strong id="spectralCutEdgesVal">${Array.isArray(topoRes?.criticalCutEdges) ? topoRes.criticalCutEdges.length : 0}</strong></span>
                 </div>
 
-                <div class="segmented-control" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 3px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 4px;">Map View</button>
-                  <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Node Fleet (${topoRes?.nodes?.length || 0})</button>
-                  <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Service Dependencies</button>
+                <div class="segmented-control" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">Map View</button>
+                  <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topoRes?.nodes?.length || 0})</button>
+                  <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Services</button>
                 </div>
 
-                <button id="topoFleetToggleBtn" class="btn btn-secondary" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
-                  🛡️ Focus Infrastructure
+                <button id="topoFleetToggleBtn" class="btn btn-secondary" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Focus Infrastructure
                 </button>
-                <button id="btnLpmRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">🧭 LPM Routing Trie</button>
+                <button id="btnLpmRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
+                </button>
 
-                <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 3px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Zoom In">➕</button>
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Zoom Out">➖</button>
-                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 9px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
+                <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 2px 7px; border: none; background: transparent;" title="Zoom In">+</button>
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 2px 7px; border: none; background: transparent;" title="Zoom Out">−</button>
+                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 2px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
                 </div>
 
-                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 5px 12px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover L2/3</button>
-                <button class="btn btn-secondary" onclick="window.triggerBlastRadiusModal()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Simulate failure blast radius">💥 Blast Radius</button>
-                <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 5px 11px; font-weight: 600; border-radius: 6px;" title="Trace graphical hop-by-hop route">🧭 Path Trace</button>
-                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 5px 9px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
-                <button class="btn btn-secondary" onclick="window.renderTopologyStandaloneView()" style="font-size: 11px; padding: 5px 9px; border-radius: 6px;" title="Refresh topology from database">↻</button>
+                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Discover L2/3
+                </button>
+                <button class="btn btn-secondary" onclick="window.triggerBlastRadiusModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Simulate failure blast radius">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Blast Radius
+                </button>
+                <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Trace graphical hop-by-hop route">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Path Trace
+                </button>
+                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
+                <button class="btn btn-secondary" onclick="window.renderTopologyStandaloneView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
               </div>
             </div>
 

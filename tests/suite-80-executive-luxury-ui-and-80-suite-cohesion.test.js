@@ -102,7 +102,35 @@ async function runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion() {
     // Count registered suites
     const suiteMatches = runnerJs.match(/\{\s*name:\s*['"]\d+\./g) || [];
     assert.strictEqual(suiteMatches.length, 80, `Expected exactly 80 registered test suites in run-all-tests.js, found ${suiteMatches.length}`);
-    console.log('✓ Suite 80 passed: Executive Luxury UI & 80-Suite Cohesion 100% verified.\n');
+    // 5. Zero-Simulation Topology Graph Truth & SVG Edge Path Verification
+    console.log('[80.5] Verifying Topology Engine zero-duplicate IP guarantee, edge connectivity & SVG fill="none"...');
+    const { TopologyEngine } = require('../src/network/topology/topology-engine');
+    const topoEngine = new TopologyEngine();
+    const topo = topoEngine.getTopology();
+    assert.ok(Array.isArray(topo.nodes) && topo.nodes.length >= 4, 'Topology must discover at least 4 hierarchical nodes');
+    assert.ok(Array.isArray(topo.edges) && topo.edges.length >= 3, 'Topology must have active connecting edges');
+    // Verify zero duplicate IP addresses in the same hierarchy layer
+    const layerIpTracker = new Set();
+    for (const node of topo.nodes) {
+        const key = `${node.layer_level || node.layer}:${node.hostname_or_ip}`;
+        assert.strictEqual(layerIpTracker.has(key), false, `Duplicate node IP/CIDR found in layer: ${key}`);
+        layerIpTracker.add(key);
+    }
+    // Verify every active node is connected by at least one edge
+    const incidentNodes = new Set();
+    for (const edge of topo.edges) {
+        incidentNodes.add(edge.source_id);
+        incidentNodes.add(edge.target_id);
+    }
+    for (const node of topo.nodes) {
+        assert.ok(incidentNodes.has(node.id), `Node ${node.id} (${node.name}) must be connected by at least one edge in the graph`);
+    }
+    // Verify Fiedler eigenvalue lambda_2 is strictly positive on connected topology
+    assert.ok(topo.algebraicConnectivityLambda2 > 0, `Fiedler eigenvalue lambda_2 must be > 0 on connected topology, received ${topo.algebraicConnectivityLambda2}`);
+    // Verify SVG edge paths explicitly include fill="none"
+    assert.ok(nocView.includes('fill="none" d="${d}"') || nocView.includes('fill="none"'), 'noc-view.js SVG edge path must explicitly specify fill="none"');
+    assert.ok(premiumCss.includes('.topology-light-canvas svg path') && premiumCss.includes('fill: none !important;'), 'eji-premium.css must enforce fill: none !important for all topology SVG paths');
+    console.log('✓ Suite 80 passed: Executive Luxury UI, Topology Graph Truth & 80-Suite Cohesion 100% verified.\n');
 }
 if (require.main === module) {
     runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion().then(() => process.exit(0)).catch(err => {

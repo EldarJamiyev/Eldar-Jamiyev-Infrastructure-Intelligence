@@ -40,7 +40,7 @@ window.escapeAttr = escapeAttr;
   let selectedFlow = null;
   let currentSnifferMode = 'packets';
   let currentTopologyMode = 'map';
-  let topoFleetExpanded = false;
+  let topoFleetExpanded = true;
   let topoZoom = 1.0;
   let topoPanX = 0;
   let topoPanY = 0;
@@ -128,42 +128,50 @@ window.escapeAttr = escapeAttr;
           <div class="noc-pane-upper card" style="margin: 0; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface);">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="width: 28px; height: 28px; border-radius: 6px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 14px;">🌐</div>
+                <div style="width: 28px; height: 28px; border-radius: 6px; background: #F1F5F9; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                </div>
                 <div>
                   <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary);">Pillar 1: NOC Network Topology &amp; Dependency Graph</div>
-                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">
+                  <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-sans); margin-top: 1px;">
                     Hierarchical Fabric: Upstream WAN ➔ Edge Gateway ➔ Core Backbone ➔ Enterprise Services ➔ Access LAN ➔ Workstation
                   </div>
                 </div>
               </div>
 
               <!-- Topology Controls -->
-              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;">
                 <!-- Spectral Graph Health Pill -->
                 <div id="nocSpectralHealthPill" style="display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-subtle); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px;">
                   <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="nocSpectralLambda2Val">${(topologyData.algebraicConnectivityLambda2 !== undefined ? Number(topologyData.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
                   <span style="color: var(--border-default);">|</span>
-                  <span id="nocSpectralRiskBadge" style="color: #059669; font-weight: 700;">${topologyData.partitionRiskLevel || 'NOMINAL'}</span>
+                  <span id="nocSpectralRiskBadge" style="color: ${topologyData.partitionRiskLevel === 'NOMINAL' ? '#059669' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? '#D97706' : '#DC2626')}; font-weight: 700;">${topologyData.partitionRiskLevel === 'NOMINAL' ? 'Healthy Mesh' : (topologyData.partitionRiskLevel === 'FRAGILE_BRIDGE' ? 'Single-Bridge Topology' : 'Partition Risk')}</span>
                   <span style="color: var(--border-default);">|</span>
                   <span style="color: var(--text-secondary);">Cut Edges: <strong id="nocSpectralCutVal">${Array.isArray(topologyData.criticalCutEdges) ? topologyData.criticalCutEdges.length : 0}</strong></span>
                 </div>
 
                 <div class="segmented-control" style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">🗺️ Topology Map</button>
-                  <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">📋 Node Fleet (${topologyData.nodes.length})</button>
+                  <button id="topoModeMapBtn" class="btn ${currentTopologyMode === 'map' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">Topology Map</button>
+                  <button id="topoModeTableBtn" class="btn ${currentTopologyMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topologyData.nodes.length})</button>
                 </div>
                 <button id="topoFleetToggleBtn" class="btn ${topoFleetExpanded ? 'btn-primary' : 'btn-secondary'}" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
-                  ${topoFleetExpanded ? '🛡️ Focus Infrastructure' : '🌐 Expand Fleet (' + (topologyData.nodes.length) + ')'}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>${topoFleetExpanded ? 'Focus Infrastructure' : 'Expand Fleet (' + (topologyData.nodes.length) + ')'}
                 </button>
                 <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom In">➕</button>
-                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom Out">➖</button>
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom In">+</button>
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 3px 7px; border: none; background: transparent;" title="Zoom Out">−</button>
                   <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 3px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
                 </div>
-                <button class="btn btn-warning" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">📍 Sync Location &amp; Subnet IPs</button>
-                <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">🧭 LPM Routing Trie</button>
-                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">⚡ Discover Network</button>
-                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺ Reset</button>
+                <button class="btn btn-secondary" id="btnSyncTopologyLocation" onclick="window.syncTopologyLocationNow()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Instantly detect active NIC, default gateway, ARP neighbors &amp; auto-align topology to current location">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Sync Subnet
+                </button>
+                <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
+                </button>
+                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Discover Network
+                </button>
+                <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
                 <button class="btn btn-secondary" onclick="window.refreshTopologyView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
               </div>
             </div>
@@ -377,12 +385,12 @@ window.escapeAttr = escapeAttr;
   }
 
   const TOPOLOGY_LAYERS = [
-    { level: 1, key: 'wan', label: 'L1: WAN TRANSIT & INTERNET', shortLabel: 'L1: WAN TRANSIT', color: '#8B5CF6', icon: '🌐' },
-    { level: 2, key: 'edge', label: 'L2: EDGE ROUTER & PERIMETER', shortLabel: 'L2: EDGE ROUTER', color: '#3B82F6', icon: '🛡️' },
-    { level: 3, key: 'core', label: 'L3: FIREWALL & CORE SWITCHING', shortLabel: 'L3: CORE BACKBONE', color: '#38BDF8', icon: '🔀' },
-    { level: 4, key: 'service', label: 'L4: ENTERPRISE INFRASTRUCTURE', shortLabel: 'L4: ENTERPRISE SERVERS', color: '#34D399', icon: '🖥️' },
-    { level: 5, key: 'access', label: 'L5: DISTRIBUTION & ACCESS FABRIC', shortLabel: 'L5: ACCESS FABRIC', color: '#FBBF24', icon: '📡' },
-    { level: 6, key: 'endpoint', label: 'L6: OPERATOR WORKSTATION', shortLabel: 'L6: OPERATOR HOST', color: '#818CF8', icon: '💻' }
+    { level: 1, key: 'wan', label: 'L1: WAN TRANSIT & INTERNET', shortLabel: 'L1: WAN TRANSIT', color: '#475569', icon: 'WAN' },
+    { level: 2, key: 'edge', label: 'L2: EDGE ROUTER & PERIMETER', shortLabel: 'L2: EDGE ROUTER', color: '#475569', icon: 'GW' },
+    { level: 3, key: 'core', label: 'L3: FIREWALL & CORE SWITCHING', shortLabel: 'L3: CORE BACKBONE', color: '#475569', icon: 'CORE' },
+    { level: 4, key: 'service', label: 'L4: ENTERPRISE INFRASTRUCTURE', shortLabel: 'L4: ENTERPRISE SERVERS', color: '#475569', icon: 'APP' },
+    { level: 5, key: 'access', label: 'L5: DISTRIBUTION & ACCESS FABRIC', shortLabel: 'L5: ACCESS FABRIC', color: '#475569', icon: 'LAN' },
+    { level: 6, key: 'endpoint', label: 'L6: OPERATOR WORKSTATION', shortLabel: 'L6: OPERATOR HOST', color: '#475569', icon: 'HOST' }
   ];
 
   function getNodeRoleIcon(n) {
@@ -485,7 +493,7 @@ window.escapeAttr = escapeAttr;
     const startX = 25;
     const cardW = 240;
     const cardH = 100;
-    const cardGapY = 18;
+    const cardGapY = 16;
 
     let maxNodesInCol = 1;
     for (const bucket of layerBuckets) {
@@ -493,27 +501,19 @@ window.escapeAttr = escapeAttr;
     }
 
     const canvasWidth = startX + 6 * (colWidth + colGap);
-    const canvasHeight = Math.max(480, 52 + maxNodesInCol * (cardH + cardGapY) + 30);
+    const canvasHeight = Math.max(480, 56 + maxNodesInCol * cardH + Math.max(0, maxNodesInCol - 1) * cardGapY + 36);
 
-    // Position each node card
+    // Position each node card - Vertically Centered per Column
     const renderedNodes = [];
     for (let colIdx = 0; colIdx < 6; colIdx++) {
       const bucket = layerBuckets[colIdx];
       const colX = startX + colIdx * (colWidth + colGap);
       const cardX = colX + (colWidth - cardW) / 2;
+      const colTotalSpan = bucket.length * cardH + Math.max(0, bucket.length - 1) * cardGapY;
+      const colStartY = Math.max(54, Math.round((canvasHeight - colTotalSpan) / 2));
 
       bucket.forEach((node, rowIdx) => {
-        let cardY;
-        if (bucket.length === 1) {
-          cardY = Math.max(60, Math.round((canvasHeight - cardH) / 2));
-        } else if (bucket.length === 2) {
-          const totalSpan = 2 * cardH + cardGapY;
-          const startOffset = Math.max(60, Math.round((canvasHeight - totalSpan) / 2));
-          cardY = startOffset + rowIdx * (cardH + cardGapY);
-        } else {
-          cardY = 52 + rowIdx * (cardH + cardGapY);
-        }
-
+        const cardY = colStartY + rowIdx * (cardH + cardGapY);
         const coord = { x: cardX, y: cardY, width: cardW, height: cardH, node, colIdx };
         nodeCoordinatesMap.set(node.id, coord);
         renderedNodes.push(coord);
@@ -530,28 +530,34 @@ window.escapeAttr = escapeAttr;
       }
     }
 
-    // Layer Headers & Divider Lines
+    // Layer Headers & Divider Lines (Unified Executive Typography)
     let layerHeadersSvg = '';
     let dividerLinesSvg = '';
     for (let i = 0; i < 6; i++) {
       const layer = TOPOLOGY_LAYERS[i];
       const colX = startX + i * (colWidth + colGap);
-      const centerX = colX + colWidth / 2;
       const count = layerBuckets[i].length;
       layerHeadersSvg += `
-        <text x="${centerX}" y="22" font-size="9.5" font-family="monospace" font-weight="700" fill="${layer.color}" text-anchor="middle">
-          ${layer.shortLabel} <tspan fill="#64748B" font-size="8">(${count})</tspan>
-        </text>
+        <g transform="translate(${colX}, 14)">
+          <rect width="${colWidth}" height="26" rx="4" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+          <text x="12" y="17" font-size="10.5" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#334155" letter-spacing="0.04em">
+            ${layer.shortLabel}
+          </text>
+          <rect x="${colWidth - 36}" y="5" width="26" height="16" rx="8" fill="#E2E8F0"/>
+          <text x="${colWidth - 23}" y="16.5" font-size="9" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#475569" text-anchor="middle">
+            ${count}
+          </text>
+        </g>
       `;
       if (i < 5) {
         const divX = colX + colWidth + colGap / 2;
         dividerLinesSvg += `
-          <line x1="${divX}" y1="30" x2="${divX}" y2="${canvasHeight - 10}" stroke="#E1E6ED" stroke-dasharray="3,3"/>
+          <line x1="${divX}" y1="44" x2="${divX}" y2="${canvasHeight - 12}" stroke="#E2E8F0" stroke-dasharray="3,3"/>
         `;
       }
     }
 
-    // Generate Edge Connectors
+    // Generate Edge Connectors (Strict fill="none" on all paths to eliminate black blobs)
     let edgesSvg = '';
     const renderedEdgePairs = new Set();
 
@@ -603,7 +609,7 @@ window.escapeAttr = escapeAttr;
       }
 
       edgesSvg += `
-        <path id="link-${edge.id}" d="${d}" stroke="${strokeColor}" stroke-width="2.5" class="${statusClass}" stroke-dasharray="${dashArray}" style="cursor: pointer;" oncontextmenu="window.handleLinkContextMenu(event, '${edge.id}', '${srcCoord.node.hostname_or_ip}', '${tgtCoord.node.hostname_or_ip}')"/>
+        <path id="link-${edge.id}" fill="none" d="${d}" stroke="${strokeColor}" stroke-width="2" class="${statusClass}" stroke-dasharray="${dashArray}" style="cursor: pointer;" oncontextmenu="window.handleLinkContextMenu(event, '${edge.id}', '${srcCoord.node.hostname_or_ip}', '${tgtCoord.node.hostname_or_ip}')"/>
       `;
     }
 
@@ -617,18 +623,16 @@ window.escapeAttr = escapeAttr;
         const x2 = clusterCoord.x + clusterCoord.width / 2;
         const y2 = clusterCoord.y;
         edgesSvg += `
-          <path id="link-EDGE-LAN-CLUSTER" d="M ${x1} ${y1} L ${x2} ${y2}" stroke="#34D399" stroke-width="2.2" stroke-dasharray="4,4" class="link-smooth-green" style="cursor: pointer;"/>
+          <path id="link-EDGE-LAN-CLUSTER" fill="none" d="M ${x1} ${y1} L ${x2} ${y2}" stroke="#10B981" stroke-width="2" stroke-dasharray="4,4" class="link-smooth-green" style="cursor: pointer;"/>
         `;
       }
     }
 
-    // Generate Node Cards
+    // Generate Node Cards (240x100 High-Density Executive Layout with Zero Cartoon Emojis)
     let nodesSvg = '';
     for (const item of renderedNodes) {
       const n = item.node;
-      const layer = TOPOLOGY_LAYERS[item.colIdx] || TOPOLOGY_LAYERS[4];
       const isHealthy = n.status === 'healthy';
-      const roleIcon = getNodeRoleIcon(n);
       const badge = getNodeEvidenceBadge(n);
       const isCluster = n.id === 'NODE-FLEET-CLUSTER';
 
@@ -647,19 +651,37 @@ window.escapeAttr = escapeAttr;
         ? 'window.onClusterNodeClick()'
         : `window.onNodeClick('${n.id}')`;
 
+      const roleBadgeText = (function() {
+        if (isCluster) return 'FLEET';
+        if (item.colIdx === 0) return 'WAN';
+        if (item.colIdx === 1) return 'GATEWAY';
+        if (item.colIdx === 2) return 'CORE';
+        if (item.colIdx === 3) return n.metadata?.port ? `:${n.metadata.port}` : 'SERVICE';
+        if (item.colIdx === 4) return 'LAN';
+        if (item.colIdx === 5) return 'HOST';
+        return 'NODE';
+      })();
+
+      const roleBadgeW = Math.max(38, roleBadgeText.length * 6 + 12);
       const badgeW = Math.max(70, badge.text.length * 6.5 + 10);
 
       nodesSvg += `
         <g id="svgNode-${n.id}" class="topology-svg-node" transform="translate(${item.x}, ${item.y})" style="cursor: pointer;" onclick="${clickHandler}" oncontextmenu="window.handleNodeContextMenu(event, '${n.id}', '${n.hostname_or_ip}')" onmouseenter="window.showTopologyTooltip(event, '${n.id}')" onmouseleave="window.hideTopologyTooltip()">
-          <rect width="${item.width}" height="${item.height}" rx="8" fill="#FFFFFF" stroke="${isCluster ? '#218653' : (n.status === 'healthy' ? '#E1E6ED' : '#C43F45')}" stroke-width="${isCluster ? '2' : '1.5'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
-          <circle cx="16" cy="19" r="4.5" fill="${isHealthy ? '#218653' : '#C43F45'}"/>
-          <text x="26" y="23" font-size="11" style="filter: none; text-shadow: none;">${roleIcon}</text>
-          <text x="44" y="23" font-size="11" font-weight="700" fill="#182230" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
-          <text x="14" y="43" font-size="10" font-family="monospace" font-weight="700" fill="${isCluster ? '#218653' : '#365FCB'}" style="filter: none; text-shadow: none;">${escapeHtml(n.hostname_or_ip)}</text>
-          <text x="14" y="59" font-size="9" fill="#566273" style="filter: none; text-shadow: none;">${escapeHtml(vendorStr)}</text>
-          <text x="14" y="73" font-size="9" fill="${isCluster ? '#A96B12' : '#218653'}" style="filter: none; text-shadow: none;">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
-          <rect x="12" y="79" width="${badgeW}" height="15" rx="3" fill="${badge.bg}"/>
-          <text x="${12 + badgeW / 2}" y="90" font-size="8" font-family="monospace" font-weight="700" fill="${badge.color}" text-anchor="middle" style="filter: none; text-shadow: none;">[${badge.text}]</text>
+          <rect width="${item.width}" height="${item.height}" rx="6" fill="#FFFFFF" stroke="${isCluster ? '#0D7A5F' : (n.status === 'healthy' ? '#E2E8F0' : '#E11D48')}" stroke-width="${isCluster ? '1.75' : '1.25'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
+          <rect x="0" y="0" width="3.5" height="${item.height}" rx="2" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
+          <circle cx="16" cy="18" r="4" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
+          <text x="26" y="21" font-size="11" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#0F172A" style="filter: none; text-shadow: none;">${escapeHtml(titleName)}</text>
+          
+          <rect x="${item.width - roleBadgeW - 10}" y="10" width="${roleBadgeW}" height="15" rx="3" fill="#F1F5F9" stroke="#E2E8F0"/>
+          <text x="${item.width - 10 - roleBadgeW / 2}" y="20.5" font-size="8" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#475569" text-anchor="middle" style="filter: none; text-shadow: none;">${roleBadgeText}</text>
+
+          <text x="14" y="42" font-size="10.5" font-family="monospace" font-weight="600" fill="#1E293B" style="filter: none; text-shadow: none;">${escapeHtml(n.hostname_or_ip)}</text>
+          <text x="14" y="56" font-size="9" font-family="monospace" fill="#64748B" style="filter: none; text-shadow: none;">${escapeHtml(n.mac_address || (n.type === 'service' ? 'TCP Protocol' : ''))}</text>
+          <text x="14" y="70" font-size="9" font-family="system-ui, -apple-system, sans-serif" fill="#64748B" style="filter: none; text-shadow: none;">${escapeHtml(vendorStr.slice(0, 34))}</text>
+          
+          <text x="14" y="86" font-size="9" font-family="monospace" font-weight="600" fill="${isCluster ? '#D97706' : '#0D7A5F'}" style="filter: none; text-shadow: none;">${isCluster ? '⚡ Click to Expand / View Table' : latencyStr}</text>
+          <rect x="${item.width - badgeW - 10}" y="75" width="${badgeW}" height="15" rx="3" fill="${badge.bg}"/>
+          <text x="${item.width - 10 - badgeW / 2}" y="86" font-size="8" font-family="monospace" font-weight="700" fill="${badge.color}" text-anchor="middle" style="filter: none; text-shadow: none;">[${badge.text}]</text>
         </g>
       `;
     }

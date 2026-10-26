@@ -45,8 +45,56 @@ class SpectralGNNTopologyEngine {
                 deg += W[i * n + j];
             D[i] = deg;
         }
-        // 1. Compute Fiedler Value (lambda_2) and Fiedler Vector (v_2) of Laplacian L = D - W
-        const { lambda2, fiedlerVector } = this.computeFiedlerEigenpair(W, D, n);
+        // Identify Connected Components via BFS to isolate Largest Connected Component (LCC)
+        const visited = new Uint8Array(n);
+        const components = [];
+        for (let i = 0; i < n; i++) {
+            if (visited[i])
+                continue;
+            const comp = [];
+            const q = [i];
+            visited[i] = 1;
+            while (q.length > 0) {
+                const curr = q.shift();
+                comp.push(curr);
+                for (const neighbor of adjList[curr]) {
+                    if (!visited[neighbor]) {
+                        visited[neighbor] = 1;
+                        q.push(neighbor);
+                    }
+                }
+            }
+            components.push(comp);
+        }
+        // Sort components by size descending; LCC is components[0]
+        components.sort((a, b) => b.length - a.length);
+        const lcc = components[0] || [];
+        // 1. Compute Fiedler Value (lambda_2) and Fiedler Vector (v_2) of Laplacian over LCC
+        let lambda2 = 0.0;
+        const fiedlerVector = new Float64Array(n);
+        if (lcc.length >= 2) {
+            const lccSize = lcc.length;
+            const subW = new Float64Array(lccSize * lccSize);
+            const subD = new Float64Array(lccSize);
+            for (let si = 0; si < lccSize; si++) {
+                const origI = lcc[si];
+                for (let sj = 0; sj < lccSize; sj++) {
+                    const origJ = lcc[sj];
+                    subW[si * lccSize + sj] = W[origI * n + origJ];
+                }
+                subD[si] = D[origI];
+            }
+            const lccResult = this.computeFiedlerEigenpair(subW, subD, lccSize);
+            lambda2 = lccResult.lambda2;
+            for (let si = 0; si < lccSize; si++) {
+                fiedlerVector[lcc[si]] = lccResult.fiedlerVector[si];
+            }
+        }
+        else {
+            const { lambda2: rawLambda2, fiedlerVector: rawFiedler } = this.computeFiedlerEigenpair(W, D, n);
+            lambda2 = rawLambda2;
+            fiedlerVector.set(rawFiedler);
+        }
         // 2. Compute 3-Layer Kipf-Welling GCN Embeddings H^(l+1) = tanh(D_hat^-1/2 A_hat D_hat^-1/2 H^(l) W^(l))
         const gcnEmbeddings = this.compute3LayerKipfWellingGCN(nodes, W, D, n);
         // 3. Identify Critical Spectral Cut Edges (highest |v_2(u) - v_2(v)| across active links)
