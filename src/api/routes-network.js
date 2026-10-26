@@ -686,7 +686,9 @@ router.post('/tools/async-sweep', async (req, res) => {
         }
       }
     }
-    const result = await wireDiagnostics.asyncSweepNodes(targets, parseInt(concurrency, 10), parseInt(timeoutMs, 10));
+    const safeConcurrency = Math.max(1, Math.min(256, parseInt(concurrency, 10) || 50));
+    const safeTimeout = Math.max(100, Math.min(30000, parseInt(timeoutMs, 10) || 1500));
+    const result = await wireDiagnostics.asyncSweepNodes(targets, safeConcurrency, safeTimeout);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: 'Async sweep failed: ' + err.message });
@@ -698,7 +700,7 @@ router.post('/tools/async-sweep', async (req, res) => {
  * Passive BGP & OSPF Route Listener events
  */
 router.get('/tools/routing-events', (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 50;
+  const limit = Math.max(1, Math.min(500, parseInt(req.query.limit, 10) || 50));
   res.json(wireDiagnostics.getRoutingEvents(limit));
 });
 
@@ -707,7 +709,7 @@ router.get('/tools/routing-events', (req, res) => {
  * Wire-Level Error & Problem Finder: MTU black holes, TCP resets, retransmits, storms
  */
 router.get('/tools/anomalies', (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 50;
+  const limit = Math.max(1, Math.min(500, parseInt(req.query.limit, 10) || 50));
   res.json(wireDiagnostics.getAnomalies(limit));
 });
 
@@ -907,7 +909,7 @@ router.get('/office-device/inventory', (req, res) => {
 router.get('/office-device/local-spooler', async (req, res) => {
   try {
     const { inspectLocalWindowsPrintSpooler } = require('../network/diagnostics/office-device-resolver');
-    const timeoutMs = parseInt(req.query.timeoutMs || 3500, 10);
+    const timeoutMs = Math.max(500, Math.min(15000, parseInt(req.query.timeoutMs, 10) || 3500));
     const result = await inspectLocalWindowsPrintSpooler(timeoutMs);
     res.json({
       success: true,
@@ -1089,7 +1091,7 @@ router.post('/automation/execute', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADM
  */
 router.get(['/scripts/history', '/automation/history'], (req, res) => {
   try {
-    const limit = Math.min(50, parseInt(req.query.limit || 50, 10));
+    const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 50));
     const history = getExecutionHistory(limit);
     res.json({
       success: true,
@@ -1108,7 +1110,7 @@ router.get(['/scripts/history', '/automation/history'], (req, res) => {
 router.get('/diagnostics/trends', (req, res) => {
   try {
     const { hostDiagnosticsEngine } = require('../systems/diagnostics/host-diagnostics-engine');
-    const windowSec = parseInt(req.query.window || 300, 10);
+    const windowSec = Math.max(10, parseInt(req.query.window, 10) || 300);
     const analysis = hostDiagnosticsEngine.getTrendAnalysis(windowSec);
     res.json({
       success: true,

@@ -1051,6 +1051,14 @@ function initDisplaySettings() {
   });
 }
 
+// Global Frontend Error & Rejection Handlers
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[EJII Frontend Unhandled Rejection]:', event.reason);
+});
+window.addEventListener('error', (event) => {
+  console.error('[EJII Frontend Error]:', event.message, event.filename, event.lineno);
+});
+
 // App Initialization
 window.addEventListener('DOMContentLoaded', async () => {
   initDisplaySettings();

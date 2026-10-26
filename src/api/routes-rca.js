@@ -24,7 +24,8 @@ router.post('/generate', async (req, res) => {
   try {
     const params = req.body || {};
     const target = params.target || params.destIp || '10.22.12.204';
-    const port = parseInt(params.port || params.destPort || 443, 10);
+    const rawPort = parseInt(params.port || params.destPort, 10);
+    const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 443;
     const incidentType = params.incidentType || 'TCP_SYN_TIMEOUT';
 
     // 1. Diagnose through AI Brain and Bayesian Reasoning Engine
@@ -124,7 +125,7 @@ router.get('/briefing', (req, res) => {
  */
 router.get('/history', (req, res) => {
   try {
-    const limit = Math.min(100, parseInt(req.query.limit || 30, 10));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 30));
     const history = (aiBrain.incidentHistory || []).slice(-limit).reverse();
     res.json({
       success: true,
@@ -186,7 +187,8 @@ router.post('/probe', authenticate, requirePermission('network.diagnostics.execu
     } else if (probeType === 'ICMP_PING' || probeType === 'ping') {
       result = await toolSandbox.executeTool('ping', { target, ...params }, { role: req.user?.role || 'ANALYST', username: req.user?.username || 'rca-agent' });
     } else if (probeType === 'TCP_HANDSHAKE' || probeType === 'tcp_handshake') {
-      const port = parseInt(params?.port || 443, 10);
+      const rawPort = parseInt(params?.port, 10);
+      const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 443;
       result = await toolSandbox.executeTool('tcp_handshake', { target, port, ...params }, { role: req.user?.role || 'ANALYST', username: req.user?.username || 'rca-agent' });
     } else {
       result = await aiBrain.executeDistinguishingProbe(probeType, target, params || {});
@@ -271,8 +273,10 @@ router.post('/brain/investigate', authenticate, requirePermission('network.diagn
   try {
     const { target, targetIp, port, targetPort, maxSteps } = req.body || {};
     const candidateIp = targetIp || target || '127.0.0.1';
-    const candidatePort = parseInt(targetPort || port || 443, 10);
-    const steps = parseInt(maxSteps || 4, 10);
+    const rawPort = parseInt(targetPort || port, 10);
+    const candidatePort = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 443;
+    const rawSteps = parseInt(maxSteps, 10);
+    const steps = Number.isFinite(rawSteps) && rawSteps >= 1 && rawSteps <= 20 ? rawSteps : 4;
 
     try {
       await resolveAndValidateTarget(candidateIp);
@@ -510,7 +514,7 @@ router.post('/brain/counterfactual-simulate', authenticate, requirePermission('t
  */
 router.get('/brain/shared-outages', authenticate, requirePermission('telemetry.read'), (req, res) => {
   try {
-    const windowMs = parseInt(req.query.windowMs || 120000, 10);
+    const windowMs = Math.max(1000, parseInt(req.query.windowMs, 10) || 120000);
     const result = aiBrain.correlateSharedUpstreamFaults(windowMs);
     res.json({
       success: true,
@@ -590,7 +594,7 @@ router.post('/brain/autonomous-workflow', authenticate, requirePermission('netwo
 router.get('/brain/autonomous-workflow/history', authenticate, requirePermission('telemetry.read'), (req, res) => {
   try {
     const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
-    const limit = parseInt(req.query.limit || 20, 10);
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 20));
     const history = typeof brainPersistenceRepository.getRecentAutonomousWorkflowRuns === 'function'
       ? brainPersistenceRepository.getRecentAutonomousWorkflowRuns(limit)
       : [];
@@ -752,7 +756,7 @@ router.get('/investigations/:sessionId', (req, res) => {
 router.get('/investigations', (req, res) => {
   try {
     const { brainPersistenceRepository } = require('../db/brain-persistence-repository');
-    const limit = parseInt(req.query.limit || 25, 10);
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 25));
     const investigations = brainPersistenceRepository ? brainPersistenceRepository.listRecentInvestigations(limit) : [];
     res.json({
       success: true,

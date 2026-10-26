@@ -56,7 +56,7 @@ router.get('/grafana-dashboard', (req, res) => {
  */
 router.get('/loki-logs', (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = Math.max(1, Math.min(500, parseInt(req.query.limit, 10) || 50));
     const logs = cncfObservabilityExporter.exportLokiStructuredLogs(limit);
     res.json(logs);
   } catch (err) {

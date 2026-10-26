@@ -32,7 +32,7 @@ router.get('/host/audit', authenticate, async (req, res) => {
 // Process Explorer Table
 router.get('/host/processes', authenticate, async (req, res) => {
   try {
-    const limit = Math.min(100, parseInt(req.query.limit || 50, 10));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 50));
     const processes = await hostDiagnosticsEngine.getProcessList(limit);
     res.json({
       success: true,
@@ -118,7 +118,7 @@ router.post('/remediation/execute', authenticate, requireRole('ADMIN', 'SYSADMIN
 // Remediation Audit Trail
 router.get('/remediation/log', authenticate, (req, res) => {
   try {
-    const limit = Math.min(100, parseInt(req.query.limit || 50, 10));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 50));
     const memoryLogs = autonomousRemediationEngine.getRemediationLog(limit);
     const fileAuditLogs = getAuditLogs(limit);
 
@@ -148,7 +148,7 @@ router.get('/remediation/audit-verify', authenticate, requireRole('ADMIN', 'SYSA
 // Rolling Telemetry Trends & Velocity Analysis (Section 5)
 router.get(['/host/trends', '/trends'], authenticate, (req, res) => {
   try {
-    const windowSec = parseInt(req.query.window || 300, 10);
+    const windowSec = Math.max(10, parseInt(req.query.window, 10) || 300);
     const analysis = hostDiagnosticsEngine.getTrendAnalysis(windowSec);
     res.json({
       success: true,

@@ -374,7 +374,7 @@ router.post('/connectivity-matrix', authenticate, requirePermission('diag:connec
  */
 router.get('/connectivity-history', authenticate, requirePermission('diag:connectivity_matrix'), (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = Math.max(1, Math.min(500, parseInt(req.query.limit, 10) || 50));
     const history = getConnectivityHistory(limit);
     res.json({ history });
   } catch (err) {
@@ -411,7 +411,8 @@ router.post('/run-distinguishing-test', authenticate, async (req, res) => {
     } else if (probeType === 'port') {
       const parts = target.split(':');
       const host = parts[0];
-      const port = parseInt(parts[1] || '80', 10);
+      const rawPort = parseInt(parts[1], 10);
+      const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 80;
       probeResult = await checkPort(host, port, 1500);
     } else if (probeType === 'dns_external') {
       probeResult = await resolveRecord(target, 'A', { timeoutMs: 2000 });

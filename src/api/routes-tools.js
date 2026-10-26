@@ -104,7 +104,7 @@ router.get('/audit', (req, res) => {
     return res.status(403).json({ error: 'Access denied: Audit log requires ANALYST or ADMIN role.' });
   }
 
-  const limit = Math.min(200, parseInt(req.query.limit || 50, 10));
+  const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
   const logs = toolSandbox.getAuditLog(limit);
   res.json({
     success: true,

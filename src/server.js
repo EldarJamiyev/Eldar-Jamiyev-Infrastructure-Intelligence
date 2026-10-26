@@ -219,6 +219,23 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+// Centralized error-handling middleware for unhandled exceptions
+app.use((err, req, res, next) => {
+  const correlationId = (req.headers && (req.headers['x-correlation-id'] || req.headers['x-request-id'])) || require('crypto').randomUUID();
+  console.error(`[Unhandled API Exception ${correlationId}]:`, err && (err.stack || err.message || err));
+  if (res.headersSent) {
+    return next(err);
+  }
+  if (req.path && req.path.startsWith('/api/')) {
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || 'Internal Server Error',
+      correlationId
+    });
+  }
+  res.status(500).sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
 // WebSocket real-time connections
 const activeClients = new Set();
 const { verifyToken, hasPermission } = require('./core/security');
@@ -619,6 +636,7 @@ async function gracefulShutdown(signal = 'SIGTERM') {
   if (pollingInterval) clearInterval(pollingInterval);
   if (locationWatcherInterval) clearInterval(locationWatcherInterval);
   if (initialPollTimeout) clearTimeout(initialPollTimeout);
+  if (typeof wsHeartbeatSweep !== 'undefined' && wsHeartbeatSweep) clearInterval(wsHeartbeatSweep);
   try {
     aiBrain.stopContinuousReasoning();
   } catch (_) {}
