@@ -16,8 +16,8 @@
     <a href="#-capability-map">Capabilities</a> ·
     <a href="#-architecture">Architecture</a> ·
     <a href="#-sovereign-academy">Academy</a> ·
-    <a href="#-security--operational-boundaries">Security</a> ·
-    <a href="#-tests--verification">Tests</a>
+    <a href="#-configuration-and-security">Security</a> ·
+    <a href="#-tests-and-verification">Tests</a>
   </p>
 </div>
 
@@ -112,7 +112,7 @@ The governing principle is simple: **an observation, a calculation, a hypothesis
 
 The names above describe the implemented engine areas. They do not imply an independent certification, a calibrated prediction rate, or complete support for every protocol feature.
 
-## ◈ The Sovereign Academy
+## 🎓 Sovereign Academy
 
 EJII includes two separate learning tracks using the same learning interface and API.
 
