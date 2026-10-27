@@ -37,6 +37,12 @@ process.on('unhandledRejection', (reason) => {
   console.error('[EJII Server] Unhandled Promise Rejection:', reason);
 });
 
+const origExit = process.exit;
+process.exit = function (code) {
+  console.error(`[EJII Server] process.exit(${code}) called! Caller stack:`, new Error().stack);
+  return origExit.call(process, code);
+};
+
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const config = require('./config');
