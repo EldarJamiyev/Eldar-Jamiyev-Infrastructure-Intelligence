@@ -43,6 +43,17 @@ process.exit = function (code) {
   return origExit.call(process, code);
 };
 
+if (process.stdout && typeof process.stdout.on === 'function') {
+  process.stdout.on('error', (err) => {
+    if (err && (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED')) return;
+  });
+}
+if (process.stderr && typeof process.stderr.on === 'function') {
+  process.stderr.on('error', (err) => {
+    if (err && (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED')) return;
+  });
+}
+
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const config = require('./config');
@@ -176,8 +187,13 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Explicit high-speed root route
+app.get('/', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
+});
+
 // Serve frontend static files with HTTP cache-control and ETag validation for instant 0ms assets
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', etag: true }));
+app.use(express.static(path.resolve(__dirname, '..', 'public'), { maxAge: '1h', etag: true }));
 
 // Primary NOC Workstation API Routes
 app.get('/api/health', (req, res) => {
