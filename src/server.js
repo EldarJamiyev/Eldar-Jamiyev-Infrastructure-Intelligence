@@ -187,9 +187,14 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Explicit high-speed root route
+const indexPath = path.resolve(__dirname, '..', 'public', 'index.html');
+const indexHtmlContent = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : '';
+
+// Explicit high-speed root route (instant 0ms memory delivery)
 app.get('/', (req, res) => {
-  res.sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(indexHtmlContent);
 });
 
 // Serve frontend static files with HTTP cache-control and ETag validation for instant 0ms assets
@@ -286,7 +291,8 @@ app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' });
   }
-  res.sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(indexHtmlContent);
 });
 
 // Centralized error-handling middleware for unhandled exceptions
@@ -303,7 +309,7 @@ app.use((err, req, res, next) => {
       correlationId
     });
   }
-  res.status(500).sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
+  res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8').send(indexHtmlContent);
 });
 
 // WebSocket real-time connections

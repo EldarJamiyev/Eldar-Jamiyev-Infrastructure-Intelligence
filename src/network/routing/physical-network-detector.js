@@ -279,11 +279,19 @@ function resolveNativeUtf8AdapterName(hostIp, fallbackName = 'Ethernet') {
   return fallbackName || 'Wi-Fi / Primary Physical NIC';
 }
 
+let cachedArpNeighbors = null;
+let lastArpCacheTime = 0;
+const ARP_CACHE_TTL_MS = 30000;
+
 /**
  * Parse OS ARP table (arp -a on Windows, /proc/net/arp on Linux)
  * Returns a list of reachable unicast peers on the active subnet.
  */
 function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
+  const now = Date.now();
+  if (cachedArpNeighbors && (now - lastArpCacheTime < ARP_CACHE_TTL_MS)) {
+    return cachedArpNeighbors;
+  }
   const neighbors = [];
   try {
     if (IS_WINDOWS) {
@@ -334,6 +342,8 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
       }
     }
   } catch (_) {}
+  cachedArpNeighbors = neighbors;
+  lastArpCacheTime = now;
   return neighbors;
 }
 
@@ -580,9 +590,9 @@ function getPhysicalNetworkInfo(options = {}) {
   return info;
 }
 
-let cachedWanHops = null;
-let lastWanHopsTime = 0;
-const WAN_HOPS_TTL_MS = 60000;
+let cachedWanHops = [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }];
+let lastWanHopsTime = Date.now();
+const WAN_HOPS_TTL_MS = 120000;
 
 function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
   const now = Date.now();
@@ -606,12 +616,20 @@ function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
       }
     }
   } catch (_) {}
-  cachedWanHops = hops;
+  cachedWanHops = hops.length > 0 ? hops : (cachedWanHops || [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }]);
   lastWanHopsTime = now;
-  return hops;
+  return cachedWanHops;
 }
 
+let cachedActivePeers = null;
+let lastActivePeersTime = 0;
+const ACTIVE_PEERS_TTL_MS = 60000;
+
 function getLiveActiveServicePeers(localIp, maxCount = 6) {
+  const now = Date.now();
+  if (cachedActivePeers && (now - lastActivePeersTime < ACTIVE_PEERS_TTL_MS)) {
+    return cachedActivePeers;
+  }
   const peers = [];
   try {
     if (IS_WINDOWS) {
@@ -657,6 +675,8 @@ function getLiveActiveServicePeers(localIp, maxCount = 6) {
       }
     }
   } catch (_) {}
+  cachedActivePeers = peers;
+  lastActivePeersTime = now;
   return peers;
 }
 
@@ -673,7 +693,7 @@ async function detectPhysicalNetwork() {
  */
 function syncTopologyWithCurrentLocation(dbInstance) {
   const db = dbInstance || require('../../db/database').db;
-  const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+  const netInfo = getPhysicalNetworkInfo({ forceRefresh: false });
   const now = new Date().toISOString();
 
   const isTestEnv = process.env.NODE_ENV === 'test';

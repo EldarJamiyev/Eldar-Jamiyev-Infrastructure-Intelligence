@@ -474,8 +474,17 @@ class PacketStreamer {
 
       this.snifferProcess.stdout.on('data', (chunk) => {
         lineBuffer += chunk.toString('utf-8');
-        const lines = lineBuffer.split('\n');
+        if (lineBuffer.length > 256 * 1024) {
+          const lastNl = lineBuffer.lastIndexOf('\n');
+          lineBuffer = lastNl !== -1 ? lineBuffer.slice(lastNl + 1) : '';
+        }
+        let lines = lineBuffer.split('\n');
         lineBuffer = lines.pop(); // Keep partial line
+
+        if (lines.length > 50) {
+          this.counters.dropped += (lines.length - 50);
+          lines = lines.slice(-50);
+        }
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -829,7 +838,7 @@ class PacketStreamer {
       };
 
       // Non-blocking asynchronous reverse DNS lookup for external/remote IPs
-      if (destIp && (isPort80 || isPort443) && !destIp.startsWith('127.') && !destIp.startsWith('10.') && !this.reverseDnsPending.has(destIp)) {
+      if (destIp && (isPort80 || isPort443) && !destIp.startsWith('127.') && !destIp.startsWith('10.') && !this.reverseDnsPending.has(destIp) && this.reverseDnsPending.size < 10) {
         this.reverseDnsPending.add(destIp);
         dns.reverse(destIp).then(names => {
           if (names && names.length > 0) {
@@ -1050,6 +1059,14 @@ class PacketStreamer {
         lastServerAck: 0,
         lastKeepAliveProbe: null
       };
+      if (this.tcpStreams.size > 200) {
+        const oldest = Array.from(this.tcpStreams.keys()).slice(0, 50);
+        for (const k of oldest) {
+          const s = this.tcpStreams.get(k);
+          if (s && s.key) this.streamKeyToId.delete(s.key);
+          this.tcpStreams.delete(k);
+        }
+      }
       this.streamKeyToId.set(streamKey, stream);
       this.tcpStreams.set(streamId, stream);
     }
