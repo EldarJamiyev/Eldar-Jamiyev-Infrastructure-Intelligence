@@ -68,7 +68,7 @@ async function runHeadlessUiVerificationTests() {
   assert.ok(indexHtml.includes('3. Ultra IP Scanner'), 'Nav item 3 must be present');
 
   assert.ok(indexHtml.includes('data-view="pc-automation"'), 'Nav link data-view="pc-automation" must exist');
-  assert.ok(indexHtml.includes('4. Automation of Local PC Settings (BAT Files @ e:\\Scripts)'), 'Nav item 4 must be present');
+  assert.ok(indexHtml.includes('Host Automation &amp; Audited Remediation Library') || indexHtml.includes('Host Automation & Audited Remediation Library') || indexHtml.includes('Automation library'), 'Nav item 4 must be present');
 
   // Verify app.js routing
   assert.ok(appJs.includes('renderTopologyStandaloneView'), 'app.js must call renderTopologyStandaloneView');

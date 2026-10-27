@@ -45,6 +45,8 @@ const networkRoutes = require('./api/routes-network');
 const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
 const observabilityRoutes = require('./api/routes-observability');
+const learningRoutes = require('./api/routes-learning');
+const { initLearningSchema } = require('./db/learning-schema');
 const { cncfObservabilityExporter } = require('./integrations/observability/cncf-observability-exporter');
 const { TypeContractValidator } = require('./core/type-contract-validator');
 const { packetAndScanWorkerPool } = require('./network/workers/packet-and-scan-worker-pool');
@@ -70,6 +72,7 @@ const { IncidentFlightRecorder } = require('./observability/incident-flight-reco
 // Ensure database and baseline seeds are ready
 initSchema();
 seedDatabase();
+initLearningSchema(db);
 try {
   process.title = "EJII -- Eldar Jamiyev's Infrastructure Intelligence";
 } catch (_) {}
@@ -211,6 +214,7 @@ app.use('/api/network', networkRoutes);
 app.use('/api/tools', toolsRoutes);
 app.use('/api/rca', rcaRoutes);
 app.use('/api/observability', observabilityRoutes);
+app.use('/api/learning', learningRoutes);
 
 // Native Prometheus Exposition Endpoint (/metrics)
 app.get('/metrics', (req, res) => {

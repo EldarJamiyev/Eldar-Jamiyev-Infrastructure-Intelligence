@@ -153,7 +153,9 @@ window.pivotToTargetContext = function(pivotParams = {}) {
     'pc-automation': 'pc-automation',
     '5': 'core-diagnostics',
     'diagnostics': 'core-diagnostics',
-    'core-diagnostics': 'core-diagnostics'
+    'core-diagnostics': 'core-diagnostics',
+    'learning': 'learning-center',
+    'learning-center': 'learning-center'
   };
 
   const destination = viewAliases[targetView] || 'topology';
@@ -385,11 +387,11 @@ async function loadLoginTelemetry() {
   const hostEl = document.getElementById('loginTelHost');
   const driverEl = document.getElementById('loginTelDriver');
 
-  // Immediately assign non-spinning terminal baseline values
-  if (gwEl && (!gwEl.textContent || gwEl.textContent.includes('Discovering'))) gwEl.textContent = '192.168.31.1';
-  if (subEl && (!subEl.textContent || subEl.textContent.includes('Discovering'))) subEl.textContent = '192.168.31.0/24';
+  // Immediately assign honest, non-spinning terminal baseline states
   if (hostEl && (!hostEl.textContent || hostEl.textContent.includes('Detecting'))) hostEl.textContent = 'LOCAL-WORKSTATION';
   if (driverEl && (!driverEl.textContent || driverEl.textContent.includes('environment'))) driverEl.textContent = 'User-Space Native';
+  if (gwEl && (!gwEl.textContent || gwEl.textContent.includes('Discovering'))) gwEl.textContent = 'Restricted (Sign in)';
+  if (subEl && (!subEl.textContent || subEl.textContent.includes('Discovering'))) subEl.textContent = 'Restricted (Sign in)';
 
   try {
     const fetchPromise = api('/api/network/physical-info');
@@ -401,9 +403,17 @@ async function loadLoginTelemetry() {
       if (subEl && info.subnetCidr) subEl.textContent = info.subnetCidr;
       if (hostEl && info.hostIp) hostEl.textContent = String(info.hostIp);
       if (driverEl && info.driver) driverEl.textContent = info.driver;
+    } else if (info && info.authenticated === false) {
+      if (gwEl) gwEl.textContent = 'Restricted (Sign in)';
+      if (subEl) subEl.textContent = 'Restricted (Sign in)';
+      if (driverEl) driverEl.textContent = 'Active (Protected)';
+    } else {
+      if (gwEl) gwEl.textContent = 'Unavailable';
+      if (subEl) subEl.textContent = 'Unavailable';
     }
   } catch (e) {
-    // Reached terminal state cleanly without unhandled rejection
+    if (gwEl) gwEl.textContent = 'Unavailable';
+    if (subEl) subEl.textContent = 'Unavailable';
   }
 }
 
@@ -631,6 +641,10 @@ function renderView(viewName = 'topology') {
   } else if (target === 'core-diagnostics') {
     if (typeof window.renderCoreDiagnosticsView === 'function') {
       window.renderCoreDiagnosticsView();
+    }
+  } else if (target === 'learning-center' || target === 'learning') {
+    if (typeof window.renderLearningCenterView === 'function') {
+      window.renderLearningCenterView();
     }
   } else {
     if (typeof window.renderTopologyStandaloneView === 'function') {
@@ -1118,11 +1132,23 @@ window.addEventListener('DOMContentLoaded', async () => {
       hideLoginScreen();
       updateUserBadge();
       loadTopbarStats();
-      renderView('topology');
+      if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+        renderView('learning-center');
+      } else {
+        renderView('topology');
+      }
     } catch (e) {
       showLoginScreen();
     }
   } else {
     showLoginScreen();
   }
+
+  window.addEventListener('hashchange', () => {
+    if (state.token && window.location.hash && window.location.hash.startsWith('#/learning')) {
+      if (state.currentView !== 'learning-center') {
+        renderView('learning-center');
+      }
+    }
+  });
 });

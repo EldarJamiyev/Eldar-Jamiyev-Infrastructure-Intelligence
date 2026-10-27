@@ -24,6 +24,9 @@ function parseCookies(header) {
  * Middleware to extract and verify Bearer JWT token or session cookie
  */
 function authenticate(req, res, next) {
+  if (req.user) {
+    return next();
+  }
   let token = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {

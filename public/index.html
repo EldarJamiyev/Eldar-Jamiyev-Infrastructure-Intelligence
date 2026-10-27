@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/css/style.css?v=2026.10.18.5">
   <link rel="stylesheet" href="/css/eji-premium.css?v=2026.10.18.5">
   <link rel="stylesheet" href="/css/ejii-meridian.css?v=2026.10.26.2">
+  <link rel="stylesheet" href="/css/learning-center.css">
   <link rel="manifest" href="/manifest.json">
 </head>
 <body>
@@ -90,11 +91,11 @@
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">DEFAULT GATEWAY</span>
-            <span id="loginTelGateway" class="telemetry-value">192.168.31.1</span>
+            <span id="loginTelGateway" class="telemetry-value">Restricted (Sign in)</span>
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">SUBNET</span>
-            <span id="loginTelSubnet" class="telemetry-value">192.168.31.0/24</span>
+            <span id="loginTelSubnet" class="telemetry-value">Restricted (Sign in)</span>
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">RUNTIME</span>
@@ -226,7 +227,7 @@
       <div class="nav-section">OPERATE</div>
       <ul class="nav-links">
         <li>
-          <a class="nav-link" data-view="pc-automation" data-page-title="Automation library" href="#automation" onclick="event.preventDefault();window.renderView('pc-automation')" title="Host Automation &amp; Audited Remediation Library" data-legacy-ref="4. Automation of Local PC Settings (BAT Files @ e:\Scripts)">
+          <a class="nav-link" data-view="pc-automation" data-page-title="Automation library" href="#automation" onclick="event.preventDefault();window.renderView('pc-automation')" title="Host Automation &amp; Audited Remediation Library">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 9 3 3-3 3m5 0h3"/></svg>
             <span class="nav-label">Automation library</span>
           </a>
@@ -235,6 +236,16 @@
           <a class="nav-link" data-view="core-diagnostics" data-page-title="Diagnostics & recovery" href="#diagnostics" onclick="event.preventDefault();window.renderView('core-diagnostics')" title="Investigate faults and recovery options">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="5"/></svg>
             <span class="nav-label">Diagnostics & recovery</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-section">LEARN</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link" data-view="learning-center" data-page-title="Sovereign Learning Center" href="#/learning" onclick="event.preventDefault();window.renderView('learning-center')" title="Sovereign Learning Center &amp; Academies">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/></svg>
+            <span class="nav-label">Learning Center</span>
           </a>
         </li>
       </ul>
@@ -369,6 +380,25 @@
   <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.18.5"></script>
   <script src="/js/views/pc-automation-view.js?v=2026.10.18.5"></script>
   <script src="/js/views/core-diagnostics-view.js?v=2026.10.18.5"></script>
+  <script src="/js/learning/learning-api.js"></script>
+  <script src="/js/learning/learning-store.js"></script>
+  <script src="/js/learning/learning-router.js"></script>
+  <script src="/js/learning/learning-renderer.js"></script>
+  <script src="/js/learning/labs/subnetting-trainer.js"></script>
+  <script src="/js/learning/labs/packet-journey.js"></script>
+  <script src="/js/learning/labs/vlan-lab.js"></script>
+  <script src="/js/learning/labs/routing-explorer.js"></script>
+  <script src="/js/learning/labs/powershell-sandbox.js"></script>
+  <script src="/js/learning/labs/linux-sandbox.js"></script>
+  <script src="/js/learning/labs/active-directory-lab.js"></script>
+  <script src="/js/learning/labs/dns-dhcp-lab.js"></script>
+  <script src="/js/learning/learning-catalog.js"></script>
+  <script src="/js/learning/learning-course-view.js"></script>
+  <script src="/js/learning/learning-lesson-view.js"></script>
+  <script src="/js/learning/learning-quiz-view.js"></script>
+  <script src="/js/learning/learning-progress-view.js"></script>
+  <script src="/js/learning/learning-flashcards.js"></script>
+  <script src="/js/views/learning-center-view.js"></script>
   <script src="/js/app.js?v=2026.10.18.5"></script>
   <script src="/js/ejii-meridian.js?v=2026.10.26.2"></script>
 </body>

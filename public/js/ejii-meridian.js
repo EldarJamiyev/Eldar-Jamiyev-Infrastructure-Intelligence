@@ -15,7 +15,8 @@
     'packet-sniffer': { title: 'Packet analysis', eyebrow: 'Inspect & investigate' },
     'ultra-ip-scanner': { title: 'IP & asset discovery', eyebrow: 'Discover & map' },
     'pc-automation': { title: 'Automation library', eyebrow: 'Execute & maintain' },
-    'core-diagnostics': { title: 'Diagnostics & recovery', eyebrow: 'Diagnose & resolve' }
+    'core-diagnostics': { title: 'Diagnostics & recovery', eyebrow: 'Diagnose & resolve' },
+    'learning-center': { title: 'Sovereign Learning Center', eyebrow: 'Academies & Labs' }
   };
 
   function setup() {
