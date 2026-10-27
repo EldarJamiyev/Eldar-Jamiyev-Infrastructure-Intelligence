@@ -746,6 +746,7 @@ async function gracefulShutdown(signal = 'SIGTERM') {
 }
 
 function handleSignal(signal) {
+  console.log(`[EJII SIGNAL RECEIVED]: ${signal}`);
   gracefulShutdown(signal).then(() => {
     process.exit(0);
   }).catch(() => {
