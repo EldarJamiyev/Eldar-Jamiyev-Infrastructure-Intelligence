@@ -1022,3 +1022,89 @@ body.ejii-sidebar-collapsed .sidebar-footer .status-pill { justify-content: cent
   overflow: hidden;
   color: #ECFDF5;
 }
+
+/* Responsive containment for the Junior-Admin Field Manual. */
+/* Keep the manual's fixed-width search field and six tabs inside narrow dialogs. */
+#juniorAdminGuideModal .modal-dialog,
+#juniorAdminModal .modal-dialog {
+  box-sizing: border-box;
+  min-width: 0;
+}
+#juniorAdminGuideModal #manualSearchInput,
+#juniorAdminModal #manualSearchInput {
+  width: min(300px, 100%) !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+#juniorAdminGuideModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"],
+#juniorAdminModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  min-width: 0;
+  gap: 6px !important;
+}
+#juniorAdminGuideModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"] > button,
+#juniorAdminModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"] > button {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.35;
+}
+@media (max-width: 760px) {
+  #juniorAdminGuideModal,
+  #juniorAdminModal {
+    padding: 12px !important;
+  }
+  #juniorAdminGuideModal .modal-dialog,
+  #juniorAdminModal .modal-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 24px) !important;
+    padding: 16px !important;
+    border-radius: 12px !important;
+  }
+  #juniorAdminGuideModal .modal-header,
+  #juniorAdminModal .modal-header {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+  #juniorAdminGuideModal .modal-header > div:first-child,
+  #juniorAdminModal .modal-header > div:first-child {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  #juniorAdminGuideModal .modal-header > div:first-child > div:last-child,
+  #juniorAdminModal .modal-header > div:first-child > div:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  #juniorAdminGuideModal .modal-header > button,
+  #juniorAdminModal .modal-header > button {
+    flex: 0 0 32px;
+  }
+  #juniorAdminGuideModal .modal-body,
+  #juniorAdminModal .modal-body {
+    min-width: 0;
+    min-height: 0;
+  }
+}
+@media (max-width: 420px) {
+  #juniorAdminGuideModal .modal-dialog,
+  #juniorAdminModal .modal-dialog {
+    padding: 12px !important;
+  }
+  #juniorAdminGuideModal .modal-header > div:first-child,
+  #juniorAdminModal .modal-header > div:first-child {
+    flex-basis: 180px;
+    gap: 8px !important;
+  }
+  #juniorAdminGuideModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"] > button,
+  #juniorAdminModal .modal-body > div[style*="border-bottom: 1px solid var(--border-color)"] > button {
+    flex-basis: 100%;
+  }
+}
+
