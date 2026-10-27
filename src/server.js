@@ -547,7 +547,7 @@ let lastNetworkSignatureHash = null;
 const locationWatcherInterval = (process.env.NODE_ENV !== 'test' && process.env.EJII_DISABLE_BG_SYNC !== 'true')
   ? setInterval(() => {
   try {
-    const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+    const netInfo = getPhysicalNetworkInfo({ forceRefresh: false });
     if (netInfo && netInfo.networkSignatureHash) {
       if (lastNetworkSignatureHash && lastNetworkSignatureHash !== netInfo.networkSignatureHash) {
         syncTopologyWithCurrentLocation(db);
