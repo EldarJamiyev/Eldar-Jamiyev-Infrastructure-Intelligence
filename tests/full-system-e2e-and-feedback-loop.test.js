@@ -324,6 +324,7 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
       'routes-auth.js',
       'routes-diagnostics-remediation.js',
       'routes-diagnostics.js',
+      'routes-learning.js',
       'routes-network.js',
       'routes-observability.js',
       'routes-rca.js',
@@ -364,6 +365,7 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
     assert.ok(serverCode.includes("require('./api/routes-tools')"), 'server.js must mount routes-tools');
     assert.ok(serverCode.includes("require('./api/routes-rca')"), 'server.js must mount routes-rca');
     assert.ok(serverCode.includes("require('./api/routes-observability')"), 'server.js must mount routes-observability');
+    assert.ok(serverCode.includes("require('./api/routes-learning')"), 'server.js must mount routes-learning');
 
     console.log('  ✓ API route hygiene and complete architectural mounting verified.');
 
