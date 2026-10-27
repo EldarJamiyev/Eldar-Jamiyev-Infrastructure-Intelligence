@@ -353,6 +353,12 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
 function getPhysicalNetworkInfo(options = {}) {
   const forceRefresh = options && options.forceRefresh === true;
   const now = Date.now();
+
+  // Fast cache hit: return cached physical info immediately without expensive os.networkInterfaces() syscalls
+  if (!forceRefresh && cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return cachedPhysicalInfo;
+  }
+
   const currentSig = getFastInterfaceSignature();
 
   if (cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {

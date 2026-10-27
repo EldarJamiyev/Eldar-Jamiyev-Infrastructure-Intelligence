@@ -13,6 +13,31 @@ const { dissectPacket } = require('../../tools/wireshark-engine');
 const { getPhysicalNetworkInfo } = require('../routing/physical-network-detector');
 const { PacketDecoder } = require('../packet-decoding/packet-decoder');
 
+// Fast module-level lazy references to eliminate require() overhead in hot frame loop
+let _cachedWireDiagnostics = null;
+function getWireDiagnostics() {
+  if (!_cachedWireDiagnostics) {
+    try { _cachedWireDiagnostics = require('../diagnostics/wire-diagnostics').wireDiagnostics; } catch (_) {}
+  }
+  return _cachedWireDiagnostics;
+}
+
+let _cachedAiBrain = null;
+function getAiBrain() {
+  if (!_cachedAiBrain) {
+    try { _cachedAiBrain = require('../../core/ai-brain').aiBrain; } catch (_) {}
+  }
+  return _cachedAiBrain;
+}
+
+let _cachedEquipmentRepo = null;
+function getEquipmentRepo() {
+  if (!_cachedEquipmentRepo) {
+    try { _cachedEquipmentRepo = require('../../db/equipment-inventory-repository').equipmentInventoryRepository; } catch (_) {}
+  }
+  return _cachedEquipmentRepo;
+}
+
 // Target Roster (empty in pure passive wire capture; zero pre-seeded phantom domains)
 const GOVERNMENT_TARGETS = [];
 
@@ -481,9 +506,9 @@ class PacketStreamer {
         let lines = lineBuffer.split('\n');
         lineBuffer = lines.pop(); // Keep partial line
 
-        if (lines.length > 50) {
-          this.counters.dropped += (lines.length - 50);
-          lines = lines.slice(-50);
+        if (lines.length > 20) {
+          this.counters.dropped += (lines.length - 20);
+          lines = lines.slice(-20);
         }
 
         for (const line of lines) {
@@ -894,25 +919,27 @@ class PacketStreamer {
 
     // 4b. Wire Diagnostics & Anomaly Flashing (Pillars 3 & 4)
     try {
-      const { wireDiagnostics } = require('../diagnostics/wire-diagnostics');
-      wireDiagnostics.processWireRoutingFrame(rawFrame);
-      const anomalies = wireDiagnostics.inspectWireErrors(rawFrame, rawFrame.tcpAnalysis);
-      if (anomalies && anomalies.length > 0 && this.broadcastCallback) {
-        for (const anom of anomalies) {
-          this.broadcastCallback('NETWORK_ANOMALY', anom);
+      const wd = getWireDiagnostics();
+      if (wd) {
+        wd.processWireRoutingFrame(rawFrame);
+        const anomalies = wd.inspectWireErrors(rawFrame, rawFrame.tcpAnalysis);
+        if (anomalies && anomalies.length > 0 && this.broadcastCallback) {
+          for (const anom of anomalies) {
+            this.broadcastCallback('NETWORK_ANOMALY', anom);
+          }
         }
       }
     } catch (e) {}
 
     // 4c. Continuous AI Reasoning Brain Telemetry Ingestion (Milestone 2)
     try {
-      const { aiBrain } = require('../../core/ai-brain');
-      aiBrain.ingestWireFrame(rawFrame);
+      const ab = getAiBrain();
+      if (ab) ab.ingestWireFrame(rawFrame);
     } catch (e) {}
 
     // 4d. Passive Wire Office Inventory & DHCP DORA Tracking (RFC 2131 / RFC 5227)
     try {
-      const { equipmentInventoryRepository } = require('../../db/equipment-inventory-repository');
+      const equipmentInventoryRepository = getEquipmentRepo();
       if (equipmentInventoryRepository) {
         // A. DHCP Frame Ingestion
         if (rawFrame.dhcp || (rawFrame.protocol === 'DHCP') || (rawFrame.udp && (rawFrame.udp.srcPort === 67 || rawFrame.udp.dstPort === 67 || rawFrame.udp.srcPort === 68 || rawFrame.udp.dstPort === 68))) {
@@ -1016,8 +1043,10 @@ class PacketStreamer {
     this.counters.delivered++;
     rawFrame.counters = { ...this.counters };
 
-    // 7. WebSocket broadcast
-    if (this.broadcastCallback) {
+    // 7. WebSocket broadcast (throttled to 30 FPS in production to maintain event-loop responsiveness)
+    const nowMs = Date.now();
+    if (this.broadcastCallback && (process.env.NODE_ENV === 'test' || !this._lastWsBroadcast || nowMs - this._lastWsBroadcast >= 33)) {
+      this._lastWsBroadcast = nowMs;
       this.broadcastCallback('PACKET_STREAM_FRAME', rawFrame);
     }
   }
