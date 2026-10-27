@@ -29,6 +29,14 @@ function sanitizeWorkspaceScratchFiles() {
   } catch (_) {}
 }
 sanitizeWorkspaceScratchFiles();
+
+process.on('uncaughtException', (err) => {
+  console.error('[EJII Server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[EJII Server] Unhandled Promise Rejection:', reason);
+});
+
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const config = require('./config');
@@ -617,26 +625,32 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
         if (process.platform === 'win32') {
           try {
             const { execSync } = require('child_process');
-            const netstatOut = execSync(`netstat -ano | findstr ":${PORT}" | findstr "LISTENING"`, { encoding: 'utf8' });
-            const lines = netstatOut.trim().split(/\r?\n/);
-            for (const line of lines) {
-              const parts = line.trim().split(/\s+/);
-              const pid = Number(parts[parts.length - 1]);
-              if (pid && pid !== process.pid && pid > 4) {
-                execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+            let netstatOut = '';
+            try {
+              netstatOut = execSync(`netstat -ano | findstr ":${PORT}" | findstr "LISTENING"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+            } catch (_) {}
+            if (netstatOut) {
+              const lines = netstatOut.trim().split(/\r?\n/);
+              for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = Number(parts[parts.length - 1]);
+                if (pid && pid !== process.pid && pid > 4) {
+                  try {
+                    execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+                  } catch (_) {}
+                }
               }
             }
-            setTimeout(() => {
-              try {
-                server.listen(PORT, HOST);
-              } catch (_) {
-                process.exit(1);
-              }
-            }, 500);
-            return;
           } catch (_) {}
         }
-        process.exit(1);
+        setTimeout(() => {
+          try {
+            server.listen(PORT, HOST);
+          } catch (retryErr) {
+            console.error('[EJII Server] Port reclamation retry listen failed:', retryErr.message);
+            process.exit(1);
+          }
+        }, 800);
       }
     } else {
       console.error('[EJII Server] Fatal HTTP Server Error:', err);

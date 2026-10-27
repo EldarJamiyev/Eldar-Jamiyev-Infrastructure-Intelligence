@@ -678,6 +678,7 @@ function renderView(viewName = 'topology') {
       window.renderCoreDiagnosticsView();
     }
   } else if (target === 'learning-center' || target === 'learning') {
+    hideLoginScreen();
     if (!window.location.hash || !window.location.hash.startsWith('#/learning')) {
       try { history.replaceState(null, '', '#/learning'); } catch (_) { window.location.hash = '#/learning'; }
     }
@@ -1176,10 +1177,38 @@ window.addEventListener('DOMContentLoaded', async () => {
         renderView('topology');
       }
     } catch (e) {
-      showLoginScreen();
+      if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+        hideLoginScreen();
+        renderView('learning-center');
+      } else {
+        showLoginScreen();
+      }
     }
   } else {
-    showLoginScreen();
+    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+      // Sovereign Learning Center direct entry: authenticate in evaluation mode or open as guest student
+      try {
+        const authConfig = await api('/api/auth/config').catch(() => null);
+        if (authConfig && authConfig.evaluationMode !== false) {
+          const res = await api('/api/auth/quick-noc', {
+            method: 'POST',
+            body: JSON.stringify({ username: 'admin' })
+          });
+          if (res && res.token) {
+            state.token = res.token;
+            state.user = res.user;
+            localStorage.setItem('ejii_token', res.token);
+            initWebSocket();
+            updateUserBadge();
+            loadTopbarStats();
+          }
+        }
+      } catch (_) {}
+      hideLoginScreen();
+      renderView('learning-center');
+    } else {
+      showLoginScreen();
+    }
   }
 
   window.toggleDvrModal = async function () {
@@ -1302,9 +1331,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   };
 
   window.addEventListener('hashchange', () => {
-    if (state.token && window.location.hash && window.location.hash.startsWith('#/learning')) {
+    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+      hideLoginScreen();
       if (state.currentView !== 'learning-center') {
         renderView('learning-center');
+      } else if (typeof window.renderLearningCenterView === 'function') {
+        window.renderLearningCenterView();
       }
     }
   });

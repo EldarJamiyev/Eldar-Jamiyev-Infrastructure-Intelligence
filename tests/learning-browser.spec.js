@@ -55,7 +55,7 @@ function captureScreenshot(url, outputPath, width = 1440, height = 900) {
   return new Promise((resolve, reject) => {
     const tempProfile = path.join(os.tmpdir(), `ejii_chrome_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
     const args = [
-      '--headless=new',
+      '--headless',
       '--no-sandbox',
       '--disable-gpu',
       '--disable-software-rasterizer',
@@ -63,39 +63,38 @@ function captureScreenshot(url, outputPath, width = 1440, height = 900) {
       '--disable-background-networking',
       '--disable-sync',
       '--disable-default-apps',
+      '--no-first-run',
+      '--no-default-browser-check',
       `--user-data-dir=${tempProfile}`,
       `--window-size=${width},${height}`,
-      '--virtual-time-budget=3500',
-      '--run-all-compositor-stages-before-draw',
       `--screenshot=${outputPath}`,
       url
     ];
 
     console.log(`  [Chrome] Capturing ${url} (${width}x${height}) -> ${path.basename(outputPath)}...`);
-    const proc = spawn(CHROME_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    let stderr = '';
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    const proc = spawn(CHROME_PATH, args, { stdio: 'ignore' });
 
     const killTimer = setTimeout(() => {
       try {
         proc.kill('SIGKILL');
       } catch (_) {}
-    }, 15000);
+    }, 20000);
 
-    proc.on('close', (code) => {
+    proc.on('exit', (code) => {
       clearTimeout(killTimer);
-      // Clean up temp user-data-dir
-      try {
-        fs.rmSync(tempProfile, { recursive: true, force: true });
-      } catch (_) {}
+      // Wait brief 200ms to allow file flushes if needed
+      setTimeout(() => {
+        try {
+          fs.rmSync(tempProfile, { recursive: true, force: true });
+        } catch (_) {}
 
-      if (fs.existsSync(outputPath)) {
-        const stats = fs.statSync(outputPath);
-        resolve({ code, size: stats.size, path: outputPath });
-      } else {
-        reject(new Error(`Screenshot failed to create ${outputPath}. Exit code: ${code}. Stderr: ${stderr}`));
-      }
+        if (fs.existsSync(outputPath)) {
+          const stats = fs.statSync(outputPath);
+          resolve({ code, size: stats.size, path: outputPath });
+        } else {
+          reject(new Error(`Screenshot failed to create ${outputPath}. Exit code: ${code}.`));
+        }
+      }, 200);
     });
 
     proc.on('error', (err) => {
