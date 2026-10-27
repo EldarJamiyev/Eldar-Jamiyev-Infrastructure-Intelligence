@@ -34,7 +34,16 @@
     if (!rawProof) return 'RFC Deterministic Horn Clause Veto';
     if (typeof rawProof === 'string') return rawProof;
     if (typeof rawProof === 'object') {
-      return rawProof.clause || rawProof.formula || rawProof.description || rawProof.rule || rawProof.name || rawProof.id || JSON.stringify(rawProof);
+      const candidate = rawProof.clause || rawProof.formula || rawProof.description || rawProof.rule || rawProof.name || rawProof.id;
+      if (candidate) {
+        if (typeof candidate === 'string') return candidate;
+        if (typeof candidate === 'object') return formatVetoRule(candidate);
+      }
+      try {
+        return JSON.stringify(rawProof);
+      } catch (_) {
+        return 'RFC Deterministic Horn Clause Veto';
+      }
     }
     return String(rawProof);
   }

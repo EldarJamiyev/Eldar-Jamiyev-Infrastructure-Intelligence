@@ -101,7 +101,7 @@ async function runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion() {
     assert.ok(runnerJs.includes('suite-80-executive-luxury-ui-and-80-suite-cohesion.test'), 'Runner must import Suite 80');
     // Count registered suites
     const suiteMatches = runnerJs.match(/\{\s*name:\s*['"]\d+\./g) || [];
-    assert.strictEqual(suiteMatches.length, 80, `Expected exactly 80 registered test suites in run-all-tests.js, found ${suiteMatches.length}`);
+    assert.ok(suiteMatches.length >= 80, `Expected at least 80 registered test suites in run-all-tests.js, found ${suiteMatches.length}`);
     // 5. Zero-Simulation Topology Graph Truth & SVG Edge Path Verification
     console.log('[80.5] Verifying Topology Engine zero-duplicate IP guarantee, edge connectivity & SVG fill="none"...');
     const { TopologyEngine } = require('../src/network/topology/topology-engine');

@@ -18,8 +18,8 @@
 
 ---
 
-[![Release](https://img.shields.io/badge/Release-v3.0.0--sovereign--enterprise-38BDF8?style=for-the-badge&logo=git&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
-[![Test Suites](https://img.shields.io/badge/Test%20Suites-80%2F80%20PASSING%20(100%25)-10B981?style=for-the-badge&logo=checkmarx&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
+[![Release](https://img.shields.io/badge/Release-v4.0.0--sovereign--omni--apex-38BDF8?style=for-the-badge&logo=git&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
+[![Test Suites](https://img.shields.io/badge/Test%20Suites-85%2F85%20PASSING%20(100%25)-10B981?style=for-the-badge&logo=checkmarx&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
 [![Zero-Simulation](https://img.shields.io/badge/Doctrine-Zero--Simulation%20%7C%20Zero--Elevation-8B5CF6?style=for-the-badge&logo=securityscorecard&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
 [![Packet Engine](https://img.shields.io/badge/Packet%20Engine-Npcap%20BPF%20%7C%20Wireshark--Grade-F59E0B?style=for-the-badge&logo=wireshark&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
 [![Node Runtime](https://img.shields.io/badge/Node.js-v20%20%7C%20v22%20%7C%20v24-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
@@ -27,7 +27,7 @@
 [![Cryptographic Audit](https://img.shields.io/badge/Audit%20Chain-HMAC--SHA256%20Anchored-EC4899?style=for-the-badge&logo=blockchaindotcom&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
 [![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Enterprise-64748B?style=for-the-badge&logo=lock&logoColor=white)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
 
-[Key Features](#-key-capabilities--system-highlights) • [Visual UI Tour](#-visual-workstation-tour--ascii-interface-mockups) • [Architecture](#-system-architecture--dataflow) • [The 5 Pillars](#-the-5-core-operational-views--pillars) • [AI Brain & RAG](#-continuous-adaptive-ai-brain--local-rag-knowledge-engine) • [The 24 Native Tools](#-the-24-integrated-native-diagnostic-tools) • [Security & RBAC](#-security-hardening-defense-in-depth--rbac) • [80 Test Suites](#-the-80-verified-test-suites-matrix) • [Quick Start](#-quick-start--turnkey-launchers) • [CLI Utility](#-cli-diagnostics-utility)
+[Key Features](#-key-capabilities--system-highlights) • [Visual UI Tour](#-visual-workstation-tour--ascii-interface-mockups) • [Architecture](#-system-architecture--dataflow) • [The 5 Pillars](#-the-5-core-operational-views--pillars) • [AI Brain & RAG](#-continuous-adaptive-ai-brain--local-rag-knowledge-engine) • [The 24 Native Tools](#-the-24-integrated-native-diagnostic-tools) • [Security & RBAC](#-security-hardening-defense-in-depth--rbac) • [85 Test Suites](#-the-85-verified-test-suites-matrix) • [Quick Start](#-quick-start--turnkey-launchers) • [CLI Utility](#-cli-diagnostics-utility)
 
 </div>
 
@@ -494,13 +494,13 @@ EJII enforces bank-grade defense-in-depth across every layer of the software sta
 
 ---
 
-## 🧪 The 80 Verified Test Suites Matrix
+## 🧪 The 85 Verified Test Suites Matrix
 
-All 80 test suites execute asynchronously within `tests/run-all-tests.js` with **100% pass rate**:
+All 85 test suites execute asynchronously within `tests/run-all-tests.js` with **100% pass rate**:
 
 ```
 ========================================================================
-  ALL 80 / 80 NOC TEST SUITES PASSED PERFECTLY
+  ALL 85 / 85 NOC TEST SUITES PASSED PERFECTLY
   Evidence-Grounded Suite Verification Completed — Local OS Telemetry & Isolated Test Sandboxes
   EJII NOC Topology & Packet Dissection Workstation is 100% OPERATIONAL
 ========================================================================
@@ -588,6 +588,11 @@ All 80 test suites execute asynchronously within `tests/run-all-tests.js` with *
 | **78** | CUSUM Statistical Change-Point & Adaptive Anomaly | Page's Cumulative Sum (CUSUM) drift detector, Welford running variance, EWMA dynamic baselining | **PASS** |
 | **79** | Incident Flight Recorder & Forensic Dossier Exporter | In-memory circular blackbox ring buffer, cryptographic HMAC-SHA256 sealed bundle, self-contained HTML forensic dossier | **PASS** |
 | **80** | Executive Luxury UI Design System & 80-Suite Cohesion | Meridian architectural palette, SVG topology clip-path, zero-clipping headers, fixed modal overlay & 80-suite full cohesion | **PASS** |
+| **81** | Live Screenshot Visual & Functional Defect Audit | Automated regression audit of 10 screenshot defect locks (Horn clause veto formatting, SVG title clipPath, full headers, modal overlay) | **PASS** |
+| **82** | Live Visual Remediation & Behavioral Regression | 18 visual defects across 7 views: login breathing room, topology header wrap, AI brain light executive theme, sniffer contrast, fixed overlay | **PASS** |
+| **83** | TCP Stream Waterfall & RFC 3550 Jitter Engine | Bidirectional 5-tuple canonical grouping, pure Float64Array RFC 3550 jitter calculation ($J_i = J_{i-1} + (|D| - J_{i-1})/16$), handshake RTT, waterfall points | **PASS** |
+| **84** | AIMD Turbo Scanner & Hardware Fingerprinting | AIMD adaptive worker pool (16-96 workers, 280ms socket timeouts), ARP cache ingestion, OUI vendor database, passive OS/device classification | **PASS** |
+| **85** | Holt-Winters SLA Forecaster, Topology Inspector & 85-Suite Cohesion | Holt's damped linear smoothing ($\alpha=0.35, \beta=0.15, \phi=0.90$), 95% CI, SLA breach CDF risk, inline SVG sparklines, topology drawer inspector & 85-suite cohesion | **PASS** |
 
 ---
 
@@ -745,5 +750,5 @@ Eldar Jamiyev Infrastructure Intelligence/
 
 - **Architect & Author**: **Eldar Jamiyev**
 - **Repository**: [https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
-- **Status**: **Sovereign-Apex Production Verified (`v3.0.0-sovereign-enterprise`)**
+- **Status**: **Sovereign-Apex Production Verified (`v4.0.0-sovereign-omni-apex`)**
 - **Inquiries & Deployments**: Enterprise licensing and mission-critical NOC deployment inquiries can be submitted via the official GitHub repository portal.

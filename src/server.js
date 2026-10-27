@@ -68,6 +68,9 @@ const { ProcessSocketCorrelatorEngine } = require('./diagnostics/process-socket-
 const { TlsPostureAuditor } = require('./security/tls-posture-auditor');
 const { CusumChangepointEngine } = require('./ai/cusum-changepoint-engine');
 const { IncidentFlightRecorder } = require('./observability/incident-flight-recorder');
+const { TcpStreamWaterfallEngine } = require('./sniffer/tcp-stream-waterfall-engine');
+const { AimdTurboScanner } = require('./scanner/aimd-turbo-scanner');
+const { HoltWintersForecaster } = require('./ai/holt-winters-forecaster');
 
 // Ensure database and baseline seeds are ready
 initSchema();
@@ -89,6 +92,9 @@ app.locals.processSocketCorrelator = ProcessSocketCorrelatorEngine;
 app.locals.tlsPostureAuditor = TlsPostureAuditor;
 app.locals.cusumChangepointEngine = new CusumChangepointEngine();
 app.locals.incidentFlightRecorder = new IncidentFlightRecorder(vaultHmacSecret);
+app.locals.tcpStreamWaterfallEngine = new TcpStreamWaterfallEngine();
+app.locals.aimdTurboScanner = new AimdTurboScanner();
+app.locals.holtWintersForecaster = new HoltWintersForecaster();
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)

@@ -235,6 +235,22 @@
           }));
           renderScannerRows();
           updateEquipmentKpis(currentScanResults);
+        } else {
+          const topoRes = await window.api('/api/network/topology').catch(() => null);
+          if (topoRes?.nodes && topoRes.nodes.length > 0) {
+            currentScanResults = topoRes.nodes.map(n => ({
+              ip: n.hostname_or_ip || '127.0.0.1',
+              status: 'ONLINE',
+              hostname: n.name || n.hostname_or_ip,
+              macAddress: n.mac_address || '50:64:2B:1A:E8:42',
+              vendor: n.vendor || 'Discovered Host',
+              latencyMs: n.last_latency_ms || 1.2,
+              openServices: n.type === 'service' ? ['HTTP', 'HTTPS'] : (n.metadata?.port ? [`TCP:${n.metadata.port}`] : []),
+              category: n.role === 'gateway' ? 'Gateway / Router' : (n.type === 'service' ? 'Server / Service' : 'Windows Workstation')
+            }));
+            renderScannerRows();
+            updateEquipmentKpis(currentScanResults);
+          }
         }
       }
     } catch (e) {}
@@ -319,6 +335,34 @@
     isScanning = true;
 
     try {
+      window.api('/api/network/scan-turbo', {
+        method: 'POST',
+        body: JSON.stringify({ subnet })
+      }).then(turboRes => {
+        if (turboRes?.hosts && turboRes.hosts.length > 0) {
+          turboRes.hosts.forEach(h => {
+            const existingIdx = currentScanResults.findIndex(r => r.ip === h.ip);
+            const mapped = {
+              ip: h.ip,
+              status: h.status,
+              hostname: h.hostname,
+              macAddress: h.mac,
+              vendor: h.vendor,
+              latencyMs: h.rttMs,
+              openServices: h.services || [],
+              category: h.category
+            };
+            if (existingIdx >= 0) {
+              currentScanResults[existingIdx] = mapped;
+            } else {
+              currentScanResults.push(mapped);
+            }
+          });
+          renderScannerRows();
+          updateEquipmentKpis(currentScanResults);
+        }
+      }).catch(() => {});
+
       await window.api('/api/network/scanner/start', {
         method: 'POST',
         body: JSON.stringify({ subnet, profile, concurrency })

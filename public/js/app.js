@@ -365,6 +365,25 @@ async function loadTopbarStats() {
   } catch (e) {}
 }
 
+window.onTopbarBpfClick = function() {
+  renderView('packet-sniffer');
+  setTimeout(() => {
+    const bpfInput = document.getElementById('bpfFilterInput') || document.querySelector('.bpf-filter-input');
+    if (bpfInput) {
+      bpfInput.focus();
+      if (typeof bpfInput.select === 'function') bpfInput.select();
+    }
+  }, 120);
+};
+
+window.onTopbarAnomaliesClick = function() {
+  renderView('core-diagnostics');
+};
+
+window.onTopbarNodesClick = function() {
+  renderView('topology');
+};
+
 /**
  * Dedicated Standalone Login Screen Controller
  */

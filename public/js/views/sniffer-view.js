@@ -159,6 +159,7 @@ window.escapeAttr = escapeAttr;
 
                 <!-- Natural Language AI Filter Toggle -->
                 <button id="btnToggleNlFilter" class="btn btn-secondary" onclick="window.toggleNlFilterPanel()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #A78BFA; border-color: rgba(167, 139, 250, 0.4);" title="Ask AI Brain to build Wireshark filter from plain English">AI Filter</button>
+                <button id="btnTcpWaterfallModal" class="btn btn-secondary" onclick="window.toggleTcpWaterfallModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #0284C7; border-color: rgba(2, 132, 199, 0.4);" title="Open TCP Stream Waterfall & RFC 3550 Jitter Inspector">🌊 Waterfall &amp; Jitter</button>
               </div>
 
               <!-- AI Natural Language Query Assistant Panel -->
@@ -310,7 +311,7 @@ window.escapeAttr = escapeAttr;
                 </div>
 
                 <!-- Pane 3: Hexdump & ASCII Synchronized Inspector -->
-                <div id="hexDumpPane" style="overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-terminal, #0F172A); border-left: 1px solid var(--border-terminal, #334155); color: #E2E8F0; scrollbar-gutter: stable;">
+                <div id="hexDumpPane" style="overflow-y: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; background: #14161B; border-left: 1px solid #1E293B; color: #F8FAFC; scrollbar-gutter: stable;">
                   <div style="color: #94A3B8; padding: 12px; text-align: center;">Raw payload bytes will be dissected here in synchronized Hex &amp; ASCII format.</div>
                 </div>
               </div>
@@ -320,6 +321,8 @@ window.escapeAttr = escapeAttr;
 
         <!-- AI Deep Forensic Packet Explainer Modal Container -->
         <div id="packetAiExplainerModalContainer"></div>
+        <!-- TCP Stream Waterfall & RFC 3550 Jitter Modal Container -->
+        <div id="tcpWaterfallModalContainer"></div>
       `;
 
       // Mount Autonomous Virtual Packet Cockpit (Sovereign Apex)
@@ -791,5 +794,101 @@ window.escapeAttr = escapeAttr;
       reader.readAsDataURL(file);
     };
   }
+
+  window.closeTcpWaterfallModal = function() {
+    const modalHost = document.getElementById('tcpWaterfallModalContainer');
+    if (modalHost) modalHost.innerHTML = '';
+  };
+
+  window.toggleTcpWaterfallModal = async function() {
+    const modalHost = document.getElementById('tcpWaterfallModalContainer');
+    if (!modalHost) return;
+    if (modalHost.innerHTML.trim().length > 0) {
+      modalHost.innerHTML = '';
+      return;
+    }
+
+    modalHost.innerHTML = `
+      <div class="modal-backdrop" onclick="window.closeTcpWaterfallModal()" style="position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 2100;">
+        <div class="modal-card" style="background: #0B1120; border: 1px solid #1E293B; border-radius: 8px; width: 92%; max-width: 960px; max-height: 85vh; overflow-y: auto; padding: 20px; box-shadow: 0 16px 36px rgba(0,0,0,0.8);" onclick="event.stopPropagation()">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1E293B; padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 24px;">🌊</span>
+              <div>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #38BDF8;">
+                  TCP Stream Waterfall &amp; RFC 3550 Inter-Arrival Jitter Analyzer
+                </h3>
+                <span style="font-size: 11px; color: #94A3B8; font-family: var(--font-mono);">
+                  Bidirectional 5-Tuple Reassembly &bull; Handshake RTT &bull; Float64Array Jitter Math &bull; Time-Sequence Waterfall
+                </span>
+              </div>
+            </div>
+            <button class="btn btn-secondary" onclick="window.closeTcpWaterfallModal()" style="font-size: 12px; padding: 2px 8px;">✕</button>
+          </div>
+          <div id="tcpWaterfallModalBody" style="display: flex; align-items: center; justify-content: center; min-height: 200px;">
+            <span style="color: #38BDF8; font-family: var(--font-mono);">Calculating bidirectional TCP stream jitter and sequence waterfalls...</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const res = await window.api('/api/network/tcp-stream-waterfall');
+      const body = document.getElementById('tcpWaterfallModalBody');
+      if (!body) return;
+
+      if (!res || !res.streams || res.streams.length === 0) {
+        body.innerHTML = `
+          <div style="text-align: center; color: #94A3B8; padding: 30px; font-family: var(--font-mono);">
+            No active TCP conversation streams captured yet. Start capture or replay a PCAP to visualize waterfalls.
+          </div>
+        `;
+        return;
+      }
+
+      const streamsHtml = res.streams.map(s => `
+        <div style="background: #14161B; border: 1px solid #1E293B; border-radius: 6px; padding: 14px; margin-bottom: 12px; font-family: var(--font-mono); font-size: 11px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+              <strong style="color: #F8FAFC; font-size: 12px;">Stream: ${s.streamKey}</strong>
+              <span style="margin-left: 8px; color: #0284C7; font-weight: 700;">[${s.protocol}]</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <span style="background: #1E293B; color: #38BDF8; padding: 2px 8px; border-radius: 4px;">RTT: ${s.handshakeRttMs ? s.handshakeRttMs.toFixed(2) + ' ms' : 'N/A'}</span>
+              <span style="background: #1E293B; color: #10B981; padding: 2px 8px; border-radius: 4px;">Jitter (RFC 3550): ${s.rfc3550JitterMs ? s.rfc3550JitterMs.toFixed(3) + ' ms' : '0.000 ms'}</span>
+              <span style="background: #1E293B; color: ${s.retransmissionCount > 0 ? '#EF4444' : '#64748B'}; padding: 2px 8px; border-radius: 4px;">Retx: ${s.retransmissionCount}</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: #0B1120; padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+            <div><span style="color: #64748B;">Packets:</span> <strong style="color: #F8FAFC;">${s.packetCount}</strong></div>
+            <div><span style="color: #64748B;">Total Bytes:</span> <strong style="color: #F8FAFC;">${s.totalBytes} B</strong></div>
+            <div><span style="color: #64748B;">Duration:</span> <strong style="color: #F8FAFC;">${s.durationMs.toFixed(2)} ms</strong></div>
+            <div><span style="color: #64748B;">Dup ACKs:</span> <strong style="color: #F8FAFC;">${s.duplicateAckCount}</strong></div>
+          </div>
+          <div style="background: #0B1120; border: 1px solid #1E293B; border-radius: 4px; padding: 8px; font-size: 10px; color: #94A3B8;">
+            <div style="font-weight: 700; color: #38BDF8; margin-bottom: 4px;">Sequence Waterfall Breakdown:</div>
+            ${(s.waterfallPoints || []).slice(0, 8).map(pt => `
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                <span>Frame #${pt.frameNumber} &bull; Δt: ${pt.relativeTimeMs.toFixed(2)}ms &bull; ${pt.direction}</span>
+                <span style="color: #A78BFA;">Seq: ${pt.seq} | Ack: ${pt.ack} | Len: ${pt.payloadLength}</span>
+                <span style="color: ${pt.type === 'RETRANSMISSION' ? '#EF4444' : (pt.type === 'HANDSHAKE' ? '#10B981' : '#38BDF8')}">${pt.type}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+
+      body.innerHTML = streamsHtml;
+    } catch (err) {
+      const body = document.getElementById('tcpWaterfallModalBody');
+      if (body) {
+        body.innerHTML = `
+          <div style="color: #EF4444; padding: 20px; font-family: var(--font-mono);">
+            Failed to fetch TCP waterfall: ${err.message}
+          </div>
+        `;
+      }
+    }
+  };
 
 })(window);

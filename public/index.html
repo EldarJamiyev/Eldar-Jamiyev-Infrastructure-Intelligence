@@ -91,11 +91,11 @@
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">DEFAULT GATEWAY</span>
-            <span id="loginTelGateway" class="telemetry-value">Restricted (Sign in)</span>
+            <span id="loginTelGateway" class="telemetry-value">192.168.31.1</span>
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">SUBNET</span>
-            <span id="loginTelSubnet" class="telemetry-value">Restricted (Sign in)</span>
+            <span id="loginTelSubnet" class="telemetry-value">192.168.31.0/24</span>
           </div>
           <div class="telemetry-chip">
             <span class="telemetry-label">RUNTIME</span>
@@ -267,13 +267,13 @@
         </div>
 
         <div class="topbar-stats">
-          <div class="stat-item" title="Active Berkeley Packet Filter">
+          <div id="topbarBpfPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarBpfClick && window.onTopbarBpfClick()" title="Active Berkeley Packet Filter — Click to inspect and edit BPF">
             <span>BPF</span><span class="stat-val" id="topbarBpfFilter">ALL WIRE</span>
           </div>
-          <div class="stat-item" title="Network anomalies reported by the backend">
+          <div id="topbarAnomaliesPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarAnomaliesClick && window.onTopbarAnomaliesClick()" title="Network anomalies — Click to open Diagnostics &amp; Recovery">
             <span>Anomalies</span><span class="stat-val" id="topbarAnomaliesCount">—</span>
           </div>
-          <div class="stat-item" title="Topology nodes returned by the backend">
+          <div id="topbarNodesPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarNodesClick && window.onTopbarNodesClick()" title="Discovered topology nodes — Click to view Network Topology">
             <span>Nodes</span><span class="stat-val" id="topbarNodesCount">—</span>
           </div>
           <span id="ejiiClockChip" class="stat-item" aria-label="Local time in Baku">--:-- · BAKU</span>

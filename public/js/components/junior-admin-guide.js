@@ -408,10 +408,10 @@
   }
 
   window.toggleJuniorAdminCheatSheet = function() {
-    let modal = document.getElementById('juniorAdminModal');
+    let modal = document.getElementById('juniorAdminGuideModal') || document.getElementById('juniorAdminModal');
     if (!modal) {
       renderCheatSheetModal();
-      modal = document.getElementById('juniorAdminModal');
+      modal = document.getElementById('juniorAdminGuideModal') || document.getElementById('juniorAdminModal');
     }
 
     isOpen = !isOpen;

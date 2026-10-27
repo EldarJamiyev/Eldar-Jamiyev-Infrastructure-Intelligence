@@ -110,6 +110,21 @@ const { runSuite77TlsX509PostureAuditor } = require('./suite-77-tls-x509-posture
 const { runSuite78CusumChangepointForensics } = require('./suite-78-cusum-changepoint-forensics.test');
 const { runSuite79IncidentFlightRecorderDossier } = require('./suite-79-incident-flight-recorder-dossier.test');
 const { runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion } = require('./suite-80-executive-luxury-ui-and-80-suite-cohesion.test');
+const { runSuite81VisualScreenshotAudit } = require('./suite-81-visual-screenshot-audit.test');
+const { runSuite82LiveVisualRemediation } = require('./suite-82-live-visual-remediation.test');
+const { runSuite83TcpStreamWaterfallAndJitter } = require('./suite-83-tcp-stream-waterfall-and-jitter.test');
+const { runSuite84AimdTurboScannerAndFingerprinting } = require('./suite-84-aimd-turbo-scanner-and-fingerprinting.test');
+const { runSuite85HoltWintersAndTopologyInspectorCohesion } = require('./suite-85-holt-winters-and-topology-inspector-cohesion.test');
+
+// Sovereign Learning Academy Spec & Companion Verification Modules
+const COMPANION_TEST_MODULES = [
+  './learning-api.test',
+  './learning-browser.spec',
+  './learning-catalog.test',
+  './learning-labs.test',
+  './learning-quiz-engine.test',
+  './learning-router.test'
+];
 
 async function runAllTests() {
   const fs = require('fs');
@@ -208,7 +223,12 @@ async function runAllTests() {
     { name: '77. Cryptographic Zero-Trust TLS & X.509 Posture Auditor', fn: runSuite77TlsX509PostureAuditor },
     { name: '78. Page\'s CUSUM Metric Changepoint Forensics & Causal Precedence', fn: runSuite78CusumChangepointForensics },
     { name: '79. Incident Flight Recorder & Signed Post-Mortem Dossier', fn: runSuite79IncidentFlightRecorderDossier },
-    { name: '80. Executive Luxury UI & 80-Suite Cohesion Verification', fn: runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion }
+    { name: '80. Executive Luxury UI & 80-Suite Cohesion Verification', fn: runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion },
+    { name: '81. Live Screenshot Visual & Functional Defect Audit', fn: runSuite81VisualScreenshotAudit },
+    { name: '82. Live Visual Remediation & Behavioral Regression', fn: runSuite82LiveVisualRemediation },
+    { name: '83. TCP Stream Waterfall Engine & RFC 3550 Inter-Arrival Jitter', fn: runSuite83TcpStreamWaterfallAndJitter },
+    { name: '84. AIMD Turbo Scanner & Passive Hardware Fingerprinting', fn: runSuite84AimdTurboScannerAndFingerprinting },
+    { name: '85. Holt-Winters SLA Forecaster, Topology Inspector & 85-Suite Cohesion', fn: runSuite85HoltWintersAndTopologyInspectorCohesion }
   ];
 
   for (const s of suites) {
