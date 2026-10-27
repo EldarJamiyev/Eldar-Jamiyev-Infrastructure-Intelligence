@@ -286,7 +286,7 @@ app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' });
   }
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
 });
 
 // Centralized error-handling middleware for unhandled exceptions
@@ -303,7 +303,7 @@ app.use((err, req, res, next) => {
       correlationId
     });
   }
-  res.status(500).sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.status(500).sendFile(path.resolve(__dirname, '..', 'public', 'index.html'));
 });
 
 // WebSocket real-time connections
