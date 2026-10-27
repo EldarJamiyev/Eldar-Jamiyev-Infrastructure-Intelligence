@@ -183,6 +183,9 @@ window.escapeAttr = escapeAttr;
                   <button id="btnNocRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
                   </button>
+                  <button id="btnNocChaosSimulator" class="btn btn-secondary exec-btn-secondary" onclick="window.openDigitalTwinChaosModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Digital Twin Chaos & M/M/1/K What-If Network Simulator">
+                    <span style="margin-right: 4px;">🧪</span>Chaos Simulator
+                  </button>
                 </div>
               </div>
             </div>
@@ -2905,6 +2908,132 @@ window.escapeAttr = escapeAttr;
   window.getSelectedPacket = function() { return selectedFrame; };
   window.getSelectedFrameNumber = function() { return selectedFrameNumber; };
   window.setSelectedFrameNumber = function(fn) { selectedFrameNumber = fn; };
+  window.openDigitalTwinChaosModal = async function() {
+    let modal = document.getElementById('nocDigitalTwinChaosModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'nocDigitalTwinChaosModal';
+      modal.className = 'ejii-workbench-modal';
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div class="ejii-workbench-dialog" role="dialog" aria-modal="true" aria-labelledby="chaosModalTitle">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.85);">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px;">🧪</span>
+            <div>
+              <div id="chaosModalTitle" style="font-weight:700; font-size:15px; color:#ECFDF5;">Digital Twin Chaos &amp; Queuing-Theory (M/M/1/K) Simulator</div>
+              <div style="font-size:11px; color:#9CA3AF;">What-If Network Perturbation, Post-Chaos Algebraic Connectivity (λ₂') &amp; Finite-Buffer Drops</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="window.closeDigitalTwinChaosModal()">✕ Close</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1;">
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px;">
+            <div>
+              <label style="font-size:11px; font-weight:600; color:#9CA3AF; display:block; margin-bottom:4px;">Traffic Multiplier</label>
+              <select id="chaosTrafficMultiplier" style="width:100%; background:#0D1914; border:1px solid rgba(52,211,153,0.2); color:#ECFDF5; border-radius:4px; padding:6px; font-size:12px;">
+                <option value="1.0">1.0x (Baseline Traffic)</option>
+                <option value="1.5" selected>1.5x (Peak Surge)</option>
+                <option value="2.5">2.5x (Overload Surge)</option>
+                <option value="4.0">4.0x (Extreme Flash Crowd)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px; font-weight:600; color:#9CA3AF; display:block; margin-bottom:4px;">Degrade Node (Latency + Capacity)</label>
+              <select id="chaosDegradeNode" style="width:100%; background:#0D1914; border:1px solid rgba(52,211,153,0.2); color:#ECFDF5; border-radius:4px; padding:6px; font-size:12px;">
+                <option value="">None (All Healthy)</option>
+                <option value="L2-EDGE-ROUTER">L2-EDGE-ROUTER (Gateway)</option>
+                <option value="L3-CORE-SWITCH">L3-CORE-SWITCH</option>
+                <option value="L1-WAN-ROUTER">L1-WAN-ROUTER (Upstream)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px; font-weight:600; color:#9CA3AF; display:block; margin-bottom:4px;">Sever Critical Link</label>
+              <select id="chaosSeverLink" style="width:100%; background:#0D1914; border:1px solid rgba(52,211,153,0.2); color:#ECFDF5; border-radius:4px; padding:6px; font-size:12px;">
+                <option value="">None (Full Mesh)</option>
+                <option value="L1-WAN-ROUTER-L2-EDGE-ROUTER">L1-WAN &lt;-&gt; L2-EDGE (WAN Cut)</option>
+                <option value="L2-EDGE-ROUTER-L3-CORE-SWITCH">L2-EDGE &lt;-&gt; L3-CORE (Uplink Cut)</option>
+                <option value="L3-CORE-SWITCH-L5-ACCESS-LAN">L3-CORE &lt;-&gt; L5-ACCESS (Access Cut)</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-primary" id="btnExecuteChaosSim" onclick="window.runDigitalTwinChaosSim()" style="font-size:12px; font-weight:700; padding:6px 14px;">⚡ Run What-If Simulation</button>
+          </div>
+          <div id="chaosSimOutputContainer" style="background:#070D0A; border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:14px; min-height:120px; font-size:12px;">
+            <span style="color:#9CA3AF;">Select scenario parameters and click "Run What-If Simulation" to calculate post-chaos M/M/1/K queuing delays, packet loss, and Fiedler algebraic connectivity shift.</span>
+          </div>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+  };
+
+  window.runDigitalTwinChaosSim = async function() {
+    const out = document.getElementById('chaosSimOutputContainer');
+    if (!out) return;
+    out.innerHTML = '<span style="color:#38BDF8;">Running M/M/1/K finite buffer queuing simulation...</span>';
+
+    const mult = parseFloat(document.getElementById('chaosTrafficMultiplier')?.value || '1.5');
+    const degNode = document.getElementById('chaosDegradeNode')?.value;
+    const severLink = document.getElementById('chaosSeverLink')?.value;
+
+    const scenario = {
+      trafficMultiplier: mult,
+      degradedNodeIds: degNode ? [degNode] : [],
+      severedEdgeKeys: severLink ? [severLink] : []
+    };
+
+    try {
+      const res = await window.apiFetch('/api/network/digital-twin/simulate', {
+        method: 'POST',
+        body: JSON.stringify(scenario)
+      });
+
+      let html = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+          <div><strong style="color:#34D399;">Pre-Chaos λ₂:</strong> ${res.preChaosLambda2} &nbsp;→&nbsp; <strong style="color:#38BDF8;">Post-Chaos λ₂':</strong> ${res.postChaosLambda2} &nbsp;(<span style="color:${res.deltaLambda2 < 0 ? '#F43F5E' : '#10B981'}; font-family:monospace;">Δλ₂: ${res.deltaLambda2}</span>)</div>
+          <div><strong style="color:#F59E0B;">Avg Drop Prob:</strong> ${res.averageDropProbabilityPct}% &nbsp;|&nbsp; <strong style="color:#F59E0B;">Max Queue Delay:</strong> ${res.maxQueuingDelayMs}ms</div>
+        </div>
+        <div style="font-weight:600; color:#ECFDF5; margin-bottom:6px;">Node M/M/1/K Queue &amp; SLA Breakdown:</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:8px;">
+      `;
+
+      (res.nodeMetrics || []).forEach(m => {
+        html += `
+          <div style="background:rgba(16,29,23,0.6); border:1px solid ${m.isSlaBreached ? 'rgba(244,63,94,0.4)' : 'rgba(52,211,153,0.18)'}; border-radius:4px; padding:8px; font-family:monospace; font-size:11px;">
+            <div style="display:flex; justify-content:space-between; font-weight:700; color:${m.isSlaBreached ? '#F43F5E' : '#ECFDF5'};">
+              <span>${m.nodeId}</span>
+              <span>${m.isSlaBreached ? '⚠️ SLA BREACH' : '✓ OK'}</span>
+            </div>
+            <div style="color:#9CA3AF; margin-top:4px;">
+              <div>Utilization ρ: <span style="color:#ECFDF5;">${m.utilizationRho}</span></div>
+              <div>Drop Prob: <span style="color:${m.dropProbabilityPct > 1 ? '#F43F5E' : '#34D399'};">${m.dropProbabilityPct}%</span></div>
+              <div>Queue Delay: <span style="color:#ECFDF5;">${m.queuingDelayMs} ms</span></div>
+              <div>Total Latency: <span style="color:${m.totalSimulatedLatencyMs > 50 ? '#F59E0B' : '#ECFDF5'};">${m.totalSimulatedLatencyMs} ms</span></div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+
+      if (res.slaBreachCascadeOrder && res.slaBreachCascadeOrder.length > 0) {
+        html += `<div style="margin-top:10px; font-size:11px; color:#F43F5E; font-family:monospace;"><strong>SLA Breach Cascade Order:</strong> ${res.slaBreachCascadeOrder.join(' → ')}</div>`;
+      }
+
+      out.innerHTML = html;
+    } catch (err) {
+      out.innerHTML = `<span style="color:#F43F5E;">Simulation Error: ${err.message}</span>`;
+    }
+  };
+
+  window.closeDigitalTwinChaosModal = function() {
+    const modal = document.getElementById('nocDigitalTwinChaosModal');
+    if (modal) modal.style.display = 'none';
+  };
+
   window.updateFilterCounterBadge = updateFilterCounterBadge;
   window.updateAutoScrollStatusUI = updateAutoScrollStatusUI;
   window.renderNocView = renderNocView;

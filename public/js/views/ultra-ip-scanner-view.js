@@ -30,25 +30,35 @@
   let activeSearchQuery = '';
   let isScanning = false;
   let hideNoPing = false;
+  let cachedScannerSubnet = null;
+
+  window.stopUltraIpScanPolling = function() {
+    if (scanPollingTimer) {
+      clearInterval(scanPollingTimer);
+      scanPollingTimer = null;
+    }
+  };
 
   async function renderUltraIpScannerView() {
     const container = document.getElementById('mainContent');
     if (!container) return;
 
-    // Detect default physical subnet from live environment
-    let defaultSubnet = '10.168.195.0/24';
-    try {
-      const physRes = await window.api('/api/network/physical-info').catch(() => null);
-      if (physRes?.subnetCidr) {
-        defaultSubnet = physRes.subnetCidr;
-      } else {
-        const topoRes = await window.api('/api/network/topology').catch(() => null);
-        if (topoRes?.nodes) {
-          const subnetNode = topoRes.nodes.find(n => n.hostname_or_ip && n.hostname_or_ip.includes('/24'));
-          if (subnetNode) defaultSubnet = subnetNode.hostname_or_ip;
+    // Fast instant subnet resolution from memory/bootstrap cache (0ms non-blocking)
+    let defaultSubnet = cachedScannerSubnet ||
+      window.EJIIStore?.bootstrap?.topology?.nodes?.find(n => n.hostname_or_ip && n.hostname_or_ip.includes('/24'))?.hostname_or_ip ||
+      '192.168.31.0/24';
+
+    if (!cachedScannerSubnet) {
+      window.api('/api/network/physical-info').then(physRes => {
+        if (physRes?.subnetCidr) {
+          cachedScannerSubnet = physRes.subnetCidr;
+          const inp = document.getElementById('scannerSubnetInput');
+          if (inp && inp.value === '192.168.31.0/24' && !isScanning) {
+            inp.value = physRes.subnetCidr;
+          }
         }
-      }
-    } catch (e) {}
+      }).catch(() => {});
+    }
 
     container.innerHTML = `
       <div class="ultra-ip-scanner-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">
@@ -103,6 +113,9 @@
               </button>
               <button class="btn btn-secondary" onclick="window.clearScanResults()" style="font-size: 11px; padding: 5px 8px; border-radius: 6px;">
                 Clear
+              </button>
+              <button id="btnSynthesizeZeroTrust" class="btn btn-secondary" onclick="window.openZeroTrustPolicyModal()" style="font-size: 11px; padding: 5px 10px; font-weight: 700; border-radius: 6px; color: #10B981; border-color: rgba(16, 185, 129, 0.4);" title="Synthesize Zero-Trust Micro-Segmentation Firewall Policies">
+                🛡️ Zero-Trust Policies
               </button>
             </div>
 
@@ -1238,6 +1251,104 @@
       const body = document.getElementById('tlsPostureModalBody');
       if (body) body.innerHTML = `<div style="color: var(--status-critical);">Audit failed: ${escapeHtml(err.message)}</div>`;
     }
+  };
+
+  window.openZeroTrustPolicyModal = async function() {
+    let modal = document.getElementById('zeroTrustPolicyModalContainer');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'zeroTrustPolicyModalContainer';
+      modal.className = 'ejii-workbench-modal';
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div class="ejii-workbench-dialog" role="dialog" aria-modal="true" aria-labelledby="zeroTrustTitle">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.85);">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px;">🛡️</span>
+            <div>
+              <div id="zeroTrustTitle" style="font-weight:700; font-size:15px; color:#ECFDF5;">Zero-Trust Micro-Segmentation Firewall Policy Synthesizer</div>
+              <div style="font-size:11px; color:#9CA3AF;">Automated Least-Privilege Rules in Windows netsh, Linux nftables &amp; Kubernetes NetworkPolicy YAML</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="window.closeZeroTrustPolicyModal()">✕ Close</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1;" id="zeroTrustModalBody">
+          <div style="color:#9CA3AF; font-size:12px;">Synthesizing zero-trust policies from discovered assets...</div>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+
+    try {
+      const res = await window.apiFetch('/api/network/zero-trust-policies');
+      const body = document.getElementById('zeroTrustModalBody');
+      if (!body) return;
+
+      const netshText = (res.windowsNetshRules || []).join('\n');
+      const nftablesText = res.linuxNftablesManifest || '';
+      const k8sText = res.kubernetesNetworkPolicyYaml || '';
+      const violations = res.lateralMovementViolations || [];
+
+      let html = `
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:16px;">
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.2); border-radius:6px; padding:10px; font-family:monospace; font-size:11px;">
+            <div style="color:#9CA3AF;">Target Subnet</div>
+            <div style="font-weight:700; color:#38BDF8; font-size:13px;">${res.targetSubnet || '192.168.31.0/24'}</div>
+          </div>
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.2); border-radius:6px; padding:10px; font-family:monospace; font-size:11px;">
+            <div style="color:#9CA3AF;">Fleet Assets Protected</div>
+            <div style="font-weight:700; color:#10B981; font-size:13px;">${res.assetCount || 0} Hosts</div>
+          </div>
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.2); border-radius:6px; padding:10px; font-family:monospace; font-size:11px;">
+            <div style="color:#9CA3AF;">Shadow Admin Ports Blocked</div>
+            <div style="font-weight:700; color:#F59E0B; font-size:13px;">${(res.shadowAdminPortsBlocked || []).join(', ')}</div>
+          </div>
+        </div>
+
+        ${violations.length > 0 ? `
+          <div style="background:rgba(244,63,94,0.1); border:1px solid rgba(244,63,94,0.3); border-radius:6px; padding:10px; margin-bottom:16px; font-size:11px;">
+            <div style="font-weight:700; color:#F43F5E; margin-bottom:4px;">⚠️ Lateral Movement &amp; Flow Violations (${violations.length}):</div>
+            ${violations.map(v => `<div style="color:#ECFDF5; padding:2px 0;">&bull; [${v.severity}] ${v.reason}</div>`).join('')}
+          </div>
+        ` : ''}
+
+        <div style="margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <strong style="color:#34D399; font-size:12px;">1. Windows Defender Firewall (netsh)</strong>
+            <button class="btn btn-secondary btn-xs" onclick="navigator.clipboard.writeText(document.getElementById('netshCodeBlock').innerText)">📋 Copy netsh</button>
+          </div>
+          <pre id="netshCodeBlock" style="background:#070D0A; border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:10px; font-family:monospace; font-size:11px; color:#ECFDF5; max-height:140px; overflow-y:auto; margin:0;">${netshText}</pre>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <strong style="color:#38BDF8; font-size:12px;">2. Linux nftables Manifest (/etc/nftables.conf)</strong>
+            <button class="btn btn-secondary btn-xs" onclick="navigator.clipboard.writeText(document.getElementById('nftablesCodeBlock').innerText)">📋 Copy nftables</button>
+          </div>
+          <pre id="nftablesCodeBlock" style="background:#070D0A; border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:10px; font-family:monospace; font-size:11px; color:#ECFDF5; max-height:140px; overflow-y:auto; margin:0;">${nftablesText}</pre>
+        </div>
+
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <strong style="color:#F59E0B; font-size:12px;">3. Kubernetes NetworkPolicy YAML</strong>
+            <button class="btn btn-secondary btn-xs" onclick="navigator.clipboard.writeText(document.getElementById('k8sCodeBlock').innerText)">📋 Copy YAML</button>
+          </div>
+          <pre id="k8sCodeBlock" style="background:#070D0A; border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:10px; font-family:monospace; font-size:11px; color:#ECFDF5; max-height:140px; overflow-y:auto; margin:0;">${k8sText}</pre>
+        </div>
+      `;
+
+      body.innerHTML = html;
+    } catch (err) {
+      const body = document.getElementById('zeroTrustModalBody');
+      if (body) body.innerHTML = `<div style="color:#F43F5E;">Error: ${err.message}</div>`;
+    }
+  };
+
+  window.closeZeroTrustPolicyModal = function() {
+    const modal = document.getElementById('zeroTrustPolicyModalContainer');
+    if (modal) modal.style.display = 'none';
   };
 
 })(window);

@@ -72,6 +72,16 @@ const { TcpStreamWaterfallEngine } = require('./sniffer/tcp-stream-waterfall-eng
 const { AimdTurboScanner } = require('./scanner/aimd-turbo-scanner');
 const { HoltWintersForecaster } = require('./ai/holt-winters-forecaster');
 
+// Sovereign-Singularity v5.0.0 Flagship Engines
+const { L7DeepProtocolDissector } = require('./sniffer/l7-deep-protocol-dissector');
+const { SpectralFourierDetector } = require('./ai/spectral-fourier-detector');
+const { DigitalTwinChaosSimulator } = require('./topology/digital-twin-chaos-simulator');
+const { ZeroTrustPolicySynthesizer } = require('./security/zero-trust-policy-synthesizer');
+const { MultipathQosAuditor } = require('./topology/multipath-qos-auditor');
+const { HardwareKernelInspector } = require('./diagnostics/hardware-kernel-inspector');
+const { TelemetryDvrTimeMachine } = require('./observability/telemetry-dvr-timemachine');
+const { AutonomousWarRoomOrchestrator } = require('./ai/autonomous-war-room');
+
 // Ensure database and baseline seeds are ready
 initSchema();
 seedDatabase();
@@ -95,6 +105,14 @@ app.locals.incidentFlightRecorder = new IncidentFlightRecorder(vaultHmacSecret);
 app.locals.tcpStreamWaterfallEngine = new TcpStreamWaterfallEngine();
 app.locals.aimdTurboScanner = new AimdTurboScanner();
 app.locals.holtWintersForecaster = new HoltWintersForecaster();
+app.locals.l7DeepProtocolDissector = L7DeepProtocolDissector;
+app.locals.spectralFourierDetector = SpectralFourierDetector;
+app.locals.digitalTwinChaosSimulator = new DigitalTwinChaosSimulator();
+app.locals.zeroTrustPolicySynthesizer = ZeroTrustPolicySynthesizer;
+app.locals.multipathQosAuditor = MultipathQosAuditor;
+app.locals.hardwareKernelInspector = HardwareKernelInspector;
+app.locals.telemetryDvrTimeMachine = new TelemetryDvrTimeMachine();
+app.locals.autonomousWarRoom = new AutonomousWarRoomOrchestrator(vaultHmacSecret);
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)
@@ -144,8 +162,8 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve frontend static files
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Serve frontend static files with HTTP cache-control and ETag validation for instant 0ms assets
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', etag: true }));
 
 // Primary NOC Workstation API Routes
 app.get('/api/health', (req, res) => {

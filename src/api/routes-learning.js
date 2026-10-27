@@ -22,7 +22,8 @@ const {
   getQuiz,
   getLabs,
   getLab,
-  searchCatalog
+  searchCatalog,
+  getCatalog
 } = require('../learning/catalog');
 const {
   validateTrackId,
@@ -53,37 +54,22 @@ function optionalAuthenticate(req, res, next) {
  */
 router.get('/catalog', (req, res) => {
   try {
-    const tracks = getTracks();
-    const courses = getCourses();
-    const modules = getModules();
-    const lessons = getLessons();
-    const labs = getLabs();
-
+    const fullCatalog = getCatalog();
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
-      tracks: tracks.map(t => ({
-        ...t,
-        courseCount: (t.courseIds || []).length
-      })),
-      courseCount: courses.length,
-      moduleCount: modules.length,
-      lessonCount: lessons.length,
-      labCount: labs.length,
-      courses: courses.map(c => ({
-        id: c.id,
-        trackId: c.trackId,
-        slug: c.slug,
-        title: c.title,
-        subtitle: c.subtitle,
-        description: c.description,
-        level: c.level,
-        estimatedMinutes: c.estimatedMinutes,
-        prerequisites: c.prerequisites,
-        accent: c.accent,
-        moduleCount: (c.moduleIds || []).length,
-        lessonCount: lessons.filter(l => l.courseId === c.id).length
-      }))
+      tracks: fullCatalog.tracks,
+      courses: fullCatalog.courses,
+      modules: fullCatalog.modules,
+      lessons: fullCatalog.lessons,
+      quizzes: fullCatalog.quizzes,
+      labs: fullCatalog.labs,
+      summary: fullCatalog.summary,
+      courseCount: fullCatalog.courses.length,
+      moduleCount: fullCatalog.modules.length,
+      lessonCount: fullCatalog.lessons.length,
+      labCount: fullCatalog.labs.length,
+      catalog: fullCatalog
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to retrieve catalog: ' + err.message });

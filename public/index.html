@@ -284,6 +284,10 @@
             <button type="button" id="themeBtnSystem" class="btn-theme-toggle" onclick="window.setTheme('system')" title="Use system theme" aria-label="Use system theme">▣</button>
           </div>
 
+          <button id="btnTopbarDvr" class="topbar-action" type="button" onclick="window.toggleDvrModal && window.toggleDvrModal()" title="Telemetry Time-Machine DVR & Historical State Diff" aria-label="Time-Machine DVR">
+            <span style="font-size: 13px;" aria-hidden="true">⏱️</span>
+            <span class="action-label">Time-Machine DVR</span>
+          </button>
           <button class="topbar-action" type="button" onclick="window.openSettingsModal()" title="Workspace and display settings" aria-label="Workspace settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19 13.5 1.3 1-.9 2-1.6-.2a7.6 7.6 0 0 1-1.3 1l-.3 1.6h-2.2l-.5-1.5a7.6 7.6 0 0 1-1.5-.5l-1.4.8-1.6-1.6.8-1.4a7.6 7.6 0 0 1-.5-1.5l-1.5-.5v-2.2l1.5-.5a7.6 7.6 0 0 1 .5-1.5l-.8-1.4 1.6-1.6 1.4.8a7.6 7.6 0 0 1 1.5-.5l.5-1.5h2.2l.5 1.5a7.6 7.6 0 0 1 1.5.5l1.4-.8 1.6 1.6-.8 1.4a7.6 7.6 0 0 1 .5 1.5l1.5.5v2.2Z"/></svg>
             <span class="action-label">Settings</span>
@@ -400,6 +404,7 @@
   <script src="/js/learning/learning-flashcards.js"></script>
   <script src="/js/views/learning-center-view.js"></script>
   <script src="/js/app.js?v=2026.10.18.5"></script>
+  <div id="dvrModalContainer" style="display:none"></div>
   <script src="/js/ejii-meridian.js?v=2026.10.26.2"></script>
 </body>
 </html>

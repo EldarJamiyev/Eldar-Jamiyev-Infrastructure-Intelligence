@@ -13,7 +13,7 @@ if (typeof window !== 'undefined') {
   function renderHub(containerEl, catalog, progress) {
     if (!containerEl) return;
     const completedCount = (progress && progress.stats && progress.stats.completedCount) || 0;
-    const totalLessons = (catalog && catalog.summary && catalog.summary.totalLessons) || 72;
+    const totalLessons = (catalog && catalog.summary && catalog.summary.totalLessons) || (catalog && catalog.lessonCount) || 72;
     const percent = Math.round((completedCount / totalLessons) * 100);
 
     containerEl.innerHTML = `
@@ -79,13 +79,14 @@ if (typeof window !== 'undefined') {
         <!-- Academies (Tracks) Grid -->
         <h2 style="font-size: 18px; font-weight: 700; margin: 0 0 16px 0;">Available Learning Tracks</h2>
         <div class="ejii-learning-grid">
-          ${(catalog.tracks || []).map(track => {
+          ${((catalog && catalog.tracks) || []).map(track => {
             const isNet = track.id === 'network';
+            const courses = track.courses || [];
             return `
               <div class="ejii-learning-card">
                 <div class="ejii-learning-card-header">
                   <div>
-                    <span class="ejii-learning-badge ejii-learning-badge--accent">${track.estimatedHours} Hours</span>
+                    <span class="ejii-learning-badge ejii-learning-badge--accent">${track.estimatedHours || 40} Hours</span>
                     <h3 class="ejii-learning-card-title" style="margin-top: 8px;">${track.title}</h3>
                   </div>
                 </div>
@@ -94,12 +95,12 @@ if (typeof window !== 'undefined') {
                 <div style="margin-bottom: 14px; font-size: 12px; color: var(--text-secondary);">
                   <strong>Syllabus Includes:</strong>
                   <ul style="margin: 6px 0 0 16px; padding: 0;">
-                    ${track.courses.map(c => `<li>${c.title} (${c.lessonCount} lessons)</li>`).join('')}
+                    ${courses.map(c => `<li>${c.title} (${c.lessonCount || (c.modules ? c.modules.reduce((a, m) => a + (m.lessons ? m.lessons.length : 0), 0) : 0)} lessons)</li>`).join('')}
                   </ul>
                 </div>
 
                 <div class="ejii-learning-card-footer">
-                  <span style="font-size: 12px; color: var(--text-muted);">${track.courses.length} Courses &bull; 36 Lessons</span>
+                  <span style="font-size: 12px; color: var(--text-muted);">${courses.length} Courses &bull; 36 Lessons</span>
                   <a href="#/learning/${track.id}" class="ejii-learning-btn ejii-learning-btn--primary" style="font-size: 12px; padding: 6px 14px; min-height: 32px;">
                     Enter Track &rarr;
                   </a>
@@ -122,16 +123,16 @@ if (typeof window !== 'undefined') {
           </div>
 
           <div class="ejii-learning-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
-            ${(catalog.labs || []).map(lab => `
+            ${((catalog && catalog.labs) || []).map(lab => `
               <div class="ejii-learning-card" style="padding: 16px;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                  <span class="ejii-learning-badge" style="font-size: 10px;">${lab.trackId.toUpperCase()}</span>
-                  <span class="ejii-learning-badge ejii-learning-badge--warning" style="font-size: 10px;">${lab.difficulty}</span>
+                  <span class="ejii-learning-badge" style="font-size: 10px;">${(lab.trackId || '').toUpperCase()}</span>
+                  <span class="ejii-learning-badge ejii-learning-badge--warning" style="font-size: 10px;">${lab.difficulty || 'Intermediate'}</span>
                 </div>
                 <h4 style="font-size: 14px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary);">${lab.title}</h4>
-                <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 12px 0; line-height: 1.4;">${lab.instructions}</p>
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 12px 0; line-height: 1.4;">${lab.instructions || ''}</p>
                 <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-size: 11px; color: var(--text-muted);">&sim;${lab.estimatedMinutes} mins</span>
+                  <span style="font-size: 11px; color: var(--text-muted);">&sim;${lab.estimatedMinutes || 30} mins</span>
                   <a href="#/learning/lab/${lab.id}" class="ejii-learning-btn ejii-learning-btn--secondary" style="font-size: 11px; padding: 4px 10px; min-height: 28px;">
                     Launch Lab &#9658;
                   </a>

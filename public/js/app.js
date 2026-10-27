@@ -523,7 +523,11 @@ window.quickNocLogin = async function() {
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
-    renderView('topology');
+    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+      renderView('learning-center');
+    } else {
+      renderView('topology');
+    }
   } catch (err) {
     const errAlert = document.getElementById('loginErrorAlert');
     const errMsg = document.getElementById('loginErrorMessage');
@@ -562,7 +566,11 @@ window.handleLoginFormSubmit = async function(event) {
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
-    renderView('topology');
+    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+      renderView('learning-center');
+    } else {
+      renderView('topology');
+    }
   } catch (err) {
     if (errAlert && errMsg) {
       errAlert.style.display = 'flex';
@@ -595,10 +603,11 @@ async function loadWarmBootstrap() {
   if (!state.token) return null;
   try {
     const data = await api('/api/system/bootstrap');
-    if (data && data.ok) {
+    if (data && (data.ok || data.success)) {
       window.EJIIStore.bootstrap = data;
-      if (data.network?.topology && typeof window.setNocTopologyData === 'function') {
-        window.setNocTopologyData(data.network.topology);
+      const topo = data.topology || data.network?.topology;
+      if (topo && typeof window.setNocTopologyData === 'function') {
+        window.setNocTopologyData(topo);
       }
       if (data.sniffer?.counters && typeof window.handlePacketStats === 'function') {
         window.handlePacketStats({ counters: data.sniffer.counters });
@@ -626,6 +635,12 @@ function renderView(viewName = 'topology') {
   if (typeof window.stopPacketBatchFlusher === 'function' && target !== 'packet-sniffer' && target !== 'topology') {
     window.stopPacketBatchFlusher();
   }
+  if (typeof window.stopCoreDiagnosticsRefresh === 'function' && target !== 'core-diagnostics') {
+    window.stopCoreDiagnosticsRefresh();
+  }
+  if (typeof window.stopUltraIpScanPolling === 'function' && target !== 'ultra-ip-scanner') {
+    window.stopUltraIpScanPolling();
+  }
   const danglingModals = document.querySelectorAll('.modal-backdrop, #deepInspectHostModal, #officeDeviceDiagnoseModal, #troubleshootEndpointModal');
   danglingModals.forEach(m => { if (m.style.display !== 'none') m.style.display = 'none'; });
 
@@ -635,7 +650,8 @@ function renderView(viewName = 'topology') {
     const isActive = linkView === target ||
       (linkView === 'ultra-ip-scanner' && target === 'ip-scanner') ||
       (linkView === 'ip-scanner' && target === 'ultra-ip-scanner') ||
-      (linkView === 'noc' && target === 'topology');
+      (linkView === 'noc' && target === 'topology') ||
+      (linkView === 'learning-center' && (target === 'learning' || target === 'learning-center'));
     link.classList.toggle('active', isActive);
   });
 
@@ -662,6 +678,9 @@ function renderView(viewName = 'topology') {
       window.renderCoreDiagnosticsView();
     }
   } else if (target === 'learning-center' || target === 'learning') {
+    if (!window.location.hash || !window.location.hash.startsWith('#/learning')) {
+      try { history.replaceState(null, '', '#/learning'); } catch (_) { window.location.hash = '#/learning'; }
+    }
     if (typeof window.renderLearningCenterView === 'function') {
       window.renderLearningCenterView();
     }
@@ -1162,6 +1181,125 @@ window.addEventListener('DOMContentLoaded', async () => {
   } else {
     showLoginScreen();
   }
+
+  window.toggleDvrModal = async function () {
+    const container = document.getElementById('dvrModalContainer');
+    if (!container) return;
+    if (container.style.display !== 'none') {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="ejii-workbench-modal" id="dvrWorkbenchOverlay">
+        <div class="ejii-workbench-dialog" role="dialog" aria-modal="true" aria-labelledby="dvrDialogTitle">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.85);">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:18px;">⏱️</span>
+              <div>
+                <div id="dvrDialogTitle" style="font-weight:700; font-size:15px; color:#ECFDF5;">Telemetry Time-Machine DVR &amp; Historical State Diff</div>
+                <div style="font-size:11px; color:#9CA3AF;">Sovereign-Singularity 240-Frame Ring Buffer &amp; Structural Diff Engine</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm" id="btnRecordDvrSnapshot" onclick="window.recordDvrCheckpoint()">📸 Snapshot Now</button>
+              <button class="btn btn-secondary btn-sm" onclick="window.closeDvrModal()">✕ Close</button>
+            </div>
+          </div>
+          <div style="padding:16px 20px; overflow-y:auto; flex:1;" id="dvrModalBody">
+            <div style="color:#9CA3AF; font-size:12px;">Loading recorded keyframes...</div>
+          </div>
+        </div>
+      </div>
+    `;
+    container.style.display = 'block';
+
+    try {
+      const res = await apiFetch('/api/observability/dvr/frames');
+      const frames = res.frames || [];
+      const body = document.getElementById('dvrModalBody');
+      if (!body) return;
+
+      let html = `
+        <div style="margin-bottom:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span style="font-size:12px; color:#9CA3AF; font-weight:600;">Recorded Keyframes (${frames.length}):</span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; margin-bottom:20px;">
+      `;
+
+      frames.forEach((f, idx) => {
+        html += `
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:12px; font-size:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+              <span style="font-weight:700; color:#34D399;">#${idx + 1} ${f.label}</span>
+              <span style="font-family:monospace; color:#9CA3AF;">${new Date(f.timestampMs).toLocaleTimeString()}</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-family:monospace; font-size:11px; color:#ECFDF5; margin-top:6px;">
+              <div>λ₂: <span style="color:#38BDF8;">${f.lambda2}</span></div>
+              <div>Nodes: <span style="color:#F59E0B;">${f.topologyNodeCount}</span></div>
+              <div>CPU: <span>${f.cpuPct}%</span></div>
+              <div>STL ρ̃: <span>+${f.stlRobustness}</span></div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+
+      html += `
+        <div style="border-top:1px solid rgba(52,211,153,0.18); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div style="font-weight:700; color:#ECFDF5; font-size:13px;">Delta Diff Analysis (t₁ ↔ t₂)</div>
+            <button class="btn btn-secondary btn-sm" onclick="window.runDvrDiff()">Compute Structural Delta</button>
+          </div>
+          <div id="dvrDiffContainer" style="background:#070D0A; border:1px solid rgba(52,211,153,0.14); border-radius:6px; padding:12px; font-family:monospace; font-size:12px; color:#9CA3AF;">
+            Select two keyframes or click "Compute Structural Delta" to inspect the exact topology, routing, and socket state mutations.
+          </div>
+        </div>
+      `;
+      body.innerHTML = html;
+    } catch (err) {
+      const body = document.getElementById('dvrModalBody');
+      if (body) body.innerHTML = `<div style="color:#F43F5E;">Failed to load DVR frames: ${err.message}</div>`;
+    }
+  };
+
+  window.recordDvrCheckpoint = async function () {
+    try {
+      await apiFetch('/api/observability/dvr/record', {
+        method: 'POST',
+        body: JSON.stringify({ label: `Manual Operator Checkpoint @ ${new Date().toLocaleTimeString()}` })
+      });
+      window.toggleDvrModal();
+      window.toggleDvrModal();
+    } catch (_) {}
+  };
+
+  window.runDvrDiff = async function () {
+    const diffContainer = document.getElementById('dvrDiffContainer');
+    if (!diffContainer) return;
+    try {
+      const res = await apiFetch('/api/observability/dvr/diff');
+      const diff = res.diff || {};
+      diffContainer.innerHTML = `
+        <div style="color:#34D399; font-weight:700; margin-bottom:6px;">Summary: ${diff.summary || 'Nominal'}</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+          <div>Time Span: <span style="color:#ECFDF5;">${diff.timeDeltaMs || 0} ms</span></div>
+          <div>Algebraic Connectivity Δλ₂: <span style="color:#38BDF8;">${diff.lambda2Delta || 0}</span></div>
+          <div>Added Nodes: <span style="color:#10B981;">${(diff.addedNodes || []).join(', ') || 'None'}</span></div>
+          <div>Severed Nodes: <span style="color:#F43F5E;">${(diff.removedNodes || []).join(', ') || 'None'}</span></div>
+          <div>New Sockets: <span style="color:#F59E0B;">${(diff.newSockets || []).length} active</span></div>
+          <div>Closed Sockets: <span style="color:#9CA3AF;">${(diff.closedSockets || []).length}</span></div>
+        </div>
+      `;
+    } catch (err) {
+      diffContainer.innerHTML = `<div style="color:#F43F5E;">Diff error: ${err.message}</div>`;
+    }
+  };
+
+  window.closeDvrModal = function () {
+    const container = document.getElementById('dvrModalContainer');
+    if (container) container.style.display = 'none';
+  };
 
   window.addEventListener('hashchange', () => {
     if (state.token && window.location.hash && window.location.hash.startsWith('#/learning')) {

@@ -9,21 +9,23 @@
   window.EJIILearning = window.EJIILearning || {};
 
   async function renderLearningCenterView(targetContainer) {
-    const container = targetContainer || document.getElementById('main-content');
+    const container = targetContainer || document.getElementById('mainContent') || document.getElementById('main-content');
     if (!container) return;
 
     const api = window.EJIILearning.Api;
     const store = window.EJIILearning.Store;
     const router = window.EJIILearning.Router;
 
-    // Show initial elegant loading placeholder
-    container.innerHTML = `
-      <div class="ejii-learning-container" style="text-align: center; padding: 60px 20px;">
-        <div style="font-size: 24px; color: var(--accent-primary); margin-bottom: 12px;">&#9881;</div>
-        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">Loading Sovereign Learning Center...</div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Synchronizing curriculum catalog and authenticated progress ledger</div>
-      </div>
-    `;
+    // Show initial elegant loading placeholder only on first load
+    if (!store.catalog) {
+      container.innerHTML = `
+        <div class="ejii-learning-container" style="text-align: center; padding: 60px 20px;">
+          <div style="font-size: 24px; color: var(--accent-primary); margin-bottom: 12px;">&#9881;</div>
+          <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">Loading Sovereign Learning Center...</div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Synchronizing curriculum catalog and authenticated progress ledger</div>
+        </div>
+      `;
+    }
 
     try {
       // 1. Fetch catalog and progress in parallel
@@ -32,8 +34,8 @@
         api.getProgress().catch(() => ({ progress: null }))
       ]);
 
-      const catalog = catalogRes.catalog || null;
-      const progress = progressRes.progress || {
+      const catalog = (catalogRes && (catalogRes.catalog || (catalogRes.tracks ? catalogRes : null))) || null;
+      const progress = (progressRes && (progressRes.progress || progressRes.dashboard)) || {
         lessonProgress: {},
         quizAttempts: [],
         stats: { totalLessons: 72, completedCount: 0, overallPercentage: 0 }
@@ -55,9 +57,19 @@
         const activeRoute = route || router.parseRoute(window.location.hash) || { view: 'hub' };
 
         if (activeRoute.view === 'hub') {
+          if (!catalog) {
+            container.innerHTML = `
+              <div class="ejii-learning-container" style="text-align: center; padding: 60px 20px;">
+                <h3 style="color: var(--text-primary); margin-bottom: 8px;">Learning Curriculum Offline or Initializing</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 16px;">The curriculum catalog is currently synchronizing with the EJII backend engine.</p>
+                <button onclick="window.renderLearningCenterView()" class="ejii-learning-btn ejii-learning-btn--primary">Retry Connection</button>
+              </div>
+            `;
+            return;
+          }
           window.EJIILearning.CatalogViews.renderHub(container, catalog, store.progress);
         } else if (activeRoute.view === 'track') {
-          const track = (catalog.tracks || []).find(t => t.id === activeRoute.trackId);
+          const track = ((catalog && catalog.tracks) || []).find(t => t.id === activeRoute.trackId || t.slug === activeRoute.trackId || (activeRoute.trackId && activeRoute.trackId.startsWith(t.id)));
           if (track) {
             window.EJIILearning.CatalogViews.renderTrack(container, track, store.progress);
           } else {

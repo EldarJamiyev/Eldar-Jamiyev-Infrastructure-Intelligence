@@ -617,4 +617,21 @@ router.get('/sla-forecast', (req, res) => {
   }
 });
 
+/**
+ * GET /api/diagnostics/kernel-radio-inspector
+ * Physical Wi-Fi radio and kernel TCP stack inspector
+ */
+router.get('/kernel-radio-inspector', (req, res) => {
+  try {
+    const { HardwareKernelInspector } = require('../diagnostics/hardware-kernel-inspector');
+    const report = HardwareKernelInspector.inspect();
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -4,6 +4,7 @@
  */
 
 const { WireDissectorApex } = require('../../sniffer/wire-dissector-apex');
+const { L7DeepProtocolDissector } = require('../../sniffer/l7-deep-protocol-dissector');
 
 class PacketDecoder {
   /**
@@ -55,6 +56,18 @@ class PacketDecoder {
         }
       } catch (_) {}
     }
+
+    // 3. Deep L7 Wire Protocol Dissection (QUIC, SSH HASSH, SMB2/3, HTTP/2)
+    try {
+      const l7Result = L7DeepProtocolDissector.dissect(u8, payloadOffset, effLen);
+      if (l7Result) {
+        if (l7Result.quic) result.quic = l7Result.quic;
+        if (l7Result.ssh) result.ssh = l7Result.ssh;
+        if (l7Result.smb2) result.smb2 = l7Result.smb2;
+        if (l7Result.http2) result.http2 = l7Result.http2;
+        if (l7Result.identifiedProtocol) result.l7Protocol = l7Result.identifiedProtocol;
+      }
+    } catch (_) {}
 
     return result;
   }
@@ -1474,7 +1487,12 @@ class PacketDecoder {
       dnsApex: dnsApexResult,
       shannonEntropyBitsPerChar: dnsApexResult?.shannonEntropyBitsPerChar ?? null,
       dgaOrTunnelSuspected: dnsApexResult?.dgaOrTunnelSuspected ?? null,
-      dnsPointerCompressionJumps: dnsApexResult?.pointerCompressionJumps ?? null
+      dnsPointerCompressionJumps: dnsApexResult?.pointerCompressionJumps ?? null,
+      quic: null,
+      ssh: null,
+      smb2: null,
+      http2: null,
+      l7Protocol: null
     };
   }
 
@@ -1537,7 +1555,12 @@ class PacketDecoder {
       dnsApex: detailed.dnsApex || null,
       shannonEntropyBitsPerChar: detailed.shannonEntropyBitsPerChar !== undefined ? detailed.shannonEntropyBitsPerChar : null,
       dgaOrTunnelSuspected: detailed.dgaOrTunnelSuspected !== undefined ? detailed.dgaOrTunnelSuspected : null,
-      dnsPointerCompressionJumps: detailed.dnsPointerCompressionJumps !== undefined ? detailed.dnsPointerCompressionJumps : null
+      dnsPointerCompressionJumps: detailed.dnsPointerCompressionJumps !== undefined ? detailed.dnsPointerCompressionJumps : null,
+      quic: detailed.quic || null,
+      ssh: detailed.ssh || null,
+      smb2: detailed.smb2 || null,
+      http2: detailed.http2 || null,
+      l7Protocol: detailed.l7Protocol || null
     };
   }
 

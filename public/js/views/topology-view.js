@@ -24,18 +24,41 @@
       .replace(/>/g, '&gt;');
   };
 
+  let cachedTopologyRes = null;
+
   async function renderTopologyStandaloneView() {
     const container = document.getElementById('mainContent');
     if (!container) return;
 
-    container.innerHTML = `
-      <div style="display: flex; align-items: center; justify-content: center; height: 350px;">
-        <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono);">Loading Section 1: NOC Network Topology &amp; Dependency Graph...</span>
-      </div>
-    `;
+    const initialData = cachedTopologyRes || window.EJIIStore?.bootstrap?.topology;
+    let topoRes = initialData;
+
+    if (!topoRes) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 350px;">
+          <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono);">Loading Section 1: NOC Network Topology &amp; Dependency Graph...</span>
+        </div>
+      `;
+
+      try {
+        topoRes = await window.api('/api/network/topology');
+        cachedTopologyRes = topoRes;
+      } catch (err) {
+        container.innerHTML = `<div class="card" style="color: var(--danger); padding: 24px;">Failed to load Topology Workstation: ${err.message}</div>`;
+        return;
+      }
+    } else {
+      window.api('/api/network/topology').then(fresh => {
+        if (fresh) {
+          cachedTopologyRes = fresh;
+          if (typeof window.setNocTopologyData === 'function') {
+            window.setNocTopologyData(fresh);
+          }
+        }
+      }).catch(() => {});
+    }
 
     try {
-      const topoRes = await window.api('/api/network/topology');
       if (typeof window.setNocTopologyData === 'function') {
         window.setNocTopologyData(topoRes);
       }

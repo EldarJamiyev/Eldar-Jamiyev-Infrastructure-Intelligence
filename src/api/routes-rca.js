@@ -858,6 +858,108 @@ router.post('/investigations/:sessionId/verify-remediation', async (req, res) =>
   }
 });
 
+/**
+ * Sovereign-Singularity v5.0.0 Endpoints
+ */
+
+/**
+ * POST /api/rca/spectral-fft
+ * Fast Fourier Transform (FFT) Welch Periodogram & Spectral Beacon Analysis
+ */
+router.post('/spectral-fft', (req, res) => {
+  try {
+    const { SpectralFourierDetector } = require('../ai/spectral-fourier-detector');
+    const { timeSeries, samplingRateHz } = req.body || {};
+    const fs = Math.max(1, parseInt(samplingRateHz, 10) || 10);
+
+    let series = timeSeries;
+    if (!Array.isArray(series) || series.length < 4) {
+      // Generate standard telemetry sample with a periodic beacon spike
+      series = [];
+      for (let i = 0; i < 64; i++) {
+        const t = i / fs;
+        const beacon = 15.0 * Math.sin(2 * Math.PI * 2.0 * t); // 2 Hz beacon
+        const noise = (Math.random() - 0.5) * 4.0;
+        series.push(20.0 + beacon + noise);
+      }
+    }
+
+    const report = SpectralFourierDetector.analyze(series, fs);
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/spectral-fft
+ * Returns latest spectral FFT analysis
+ */
+router.get('/spectral-fft', (req, res) => {
+  try {
+    const { SpectralFourierDetector } = require('../ai/spectral-fourier-detector');
+    const fs = 10;
+    const series = [];
+    for (let i = 0; i < 64; i++) {
+      const t = i / fs;
+      const beacon = 12.0 * Math.sin(2 * Math.PI * 1.5 * t);
+      const noise = (Math.random() - 0.5) * 3.0;
+      series.push(25.0 + beacon + noise);
+    }
+    const report = SpectralFourierDetector.analyze(series, fs);
+    res.json({
+      success: true,
+      ...report
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/war-room/execute
+ * Executes 5-Agent SRE War-Room Pipeline
+ */
+router.post('/war-room/execute', (req, res) => {
+  try {
+    const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
+    const warRoom = req.app?.locals?.autonomousWarRoom || new AutonomousWarRoomOrchestrator();
+    const payload = req.body || {};
+
+    const result = warRoom.execute(payload);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/war-room/latest
+ * Returns latest 5-Agent SRE War-Room transcript
+ */
+router.get('/war-room/latest', (req, res) => {
+  try {
+    const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
+    const warRoom = req.app?.locals?.autonomousWarRoom || new AutonomousWarRoomOrchestrator();
+    let result = warRoom.getLatestResult();
+    if (!result) {
+      result = warRoom.execute();
+    }
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 
 

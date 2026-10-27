@@ -65,8 +65,10 @@ export class SpectralGNNTopologyEngine {
       if (u === undefined || v === undefined || u === v) continue;
 
       // Conductance weight inversely proportional to RTT and loss
-      const healthFactor = Math.max(0.05, 1.0 - edge.linkLossPct / 100.0);
-      const latencyPenalty = 1.0 / (1.0 + Math.max(0, edge.rttMs) / 25.0);
+      const linkLoss = typeof edge.linkLossPct === 'number' ? edge.linkLossPct : 0.0;
+      const rtt = typeof edge.rttMs === 'number' ? edge.rttMs : 1.0;
+      const healthFactor = Math.max(0.05, 1.0 - linkLoss / 100.0);
+      const latencyPenalty = 1.0 / (1.0 + Math.max(0, rtt) / 25.0);
       const weight = healthFactor * latencyPenalty;
 
       if (W[u * n + v] === 0) {
@@ -119,15 +121,18 @@ export class SpectralGNNTopologyEngine {
 
       for (let si = 0; si < lccSize; si++) {
         const origI = lcc[si];
+        let subDeg = 0.0;
         for (let sj = 0; sj < lccSize; sj++) {
           const origJ = lcc[sj];
-          subW[si * lccSize + sj] = W[origI * n + origJ];
+          const w = W[origI * n + origJ];
+          subW[si * lccSize + sj] = w;
+          subDeg += w;
         }
-        subD[si] = D[origI];
+        subD[si] = subDeg;
       }
 
       const lccResult = this.computeFiedlerEigenpair(subW, subD, lccSize);
-      lambda2 = lccResult.lambda2;
+      lambda2 = components.length > 1 ? 0.0 : lccResult.lambda2;
       for (let si = 0; si < lccSize; si++) {
         fiedlerVector[lcc[si]] = lccResult.fiedlerVector[si];
       }

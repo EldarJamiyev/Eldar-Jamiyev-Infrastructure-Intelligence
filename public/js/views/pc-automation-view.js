@@ -19,13 +19,21 @@
 
     const routeGen = window.currentRouteGeneration;
     const bootstrapScripts = window.EJIIStore?.bootstrap?.scripts;
-    if (bootstrapScripts?.scripts && discoveredScripts.length === 0) {
-      discoveredScripts = bootstrapScripts.scripts;
+    const rawScripts = Array.isArray(bootstrapScripts) ? bootstrapScripts : (bootstrapScripts?.scripts || []);
+    if (rawScripts.length > 0 && discoveredScripts.length === 0) {
+      discoveredScripts = rawScripts;
     }
 
     try {
-      const data = (discoveredScripts.length > 0) ? { scripts: discoveredScripts, mountMetadata: bootstrapScripts?.mountMetadata } : await window.api('/api/network/automation/scripts');
+      const data = (discoveredScripts.length > 0)
+        ? { scripts: discoveredScripts, mountMetadata: window.EJIIStore?.bootstrap?.mountMetadata }
+        : await window.api('/api/network/automation/scripts');
       discoveredScripts = data?.scripts || [];
+      if (discoveredScripts.length > 0) {
+        window.api('/api/network/automation/scripts').then(fresh => {
+          if (fresh?.scripts) discoveredScripts = fresh.scripts;
+        }).catch(() => {});
+      }
 
       container.innerHTML = `
         <div class="pc-automation-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">

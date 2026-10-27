@@ -13,12 +13,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 console.log('=== [SPEC] SOVEREIGN LEARNING CENTER REAL-BROWSER VALIDATION ===');
 
-const ARTIFACT_DIR = path.resolve('C:/Users/eldar/.gemini/antigravity/brain/fc841c7c-48e9-482c-96c9-05a82ceeba38');
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || path.resolve('C:/Users/eldar/.gemini/antigravity/brain/df08984b-675c-48e4-abf6-57432e6c675b');
 const CHROME_PATH = process.env.CHROME_BIN || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = process.env.EJII_PORT || process.env.PORT || 8443;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -52,14 +53,20 @@ function checkServerHealth(url, timeoutMs = 2000) {
 // Helper: run chrome screenshot
 function captureScreenshot(url, outputPath, width = 1440, height = 900) {
   return new Promise((resolve, reject) => {
+    const tempProfile = path.join(os.tmpdir(), `ejii_chrome_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
     const args = [
       '--headless=new',
       '--no-sandbox',
       '--disable-gpu',
       '--disable-software-rasterizer',
       '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-default-apps',
+      `--user-data-dir=${tempProfile}`,
       `--window-size=${width},${height}`,
       '--virtual-time-budget=3500',
+      '--run-all-compositor-stages-before-draw',
       `--screenshot=${outputPath}`,
       url
     ];
@@ -70,7 +77,19 @@ function captureScreenshot(url, outputPath, width = 1440, height = 900) {
     let stderr = '';
     proc.stderr.on('data', (d) => { stderr += d.toString(); });
 
+    const killTimer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch (_) {}
+    }, 15000);
+
     proc.on('close', (code) => {
+      clearTimeout(killTimer);
+      // Clean up temp user-data-dir
+      try {
+        fs.rmSync(tempProfile, { recursive: true, force: true });
+      } catch (_) {}
+
       if (fs.existsSync(outputPath)) {
         const stats = fs.statSync(outputPath);
         resolve({ code, size: stats.size, path: outputPath });
@@ -79,7 +98,13 @@ function captureScreenshot(url, outputPath, width = 1440, height = 900) {
       }
     });
 
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      clearTimeout(killTimer);
+      try {
+        fs.rmSync(tempProfile, { recursive: true, force: true });
+      } catch (_) {}
+      reject(err);
+    });
   });
 }
 

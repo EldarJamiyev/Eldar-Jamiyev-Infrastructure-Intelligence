@@ -72,7 +72,10 @@
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: #171c19;
+  --bg-canvas: #060B09;
+  --bg-surface-1: #0B1410;
+  --bg-surface-2: rgba(16, 29, 23, 0.78);
+  --bg-surface-elevated: #13241C;
   --bg-surface: #202722;
   --bg-surface-subtle: #252e28;
   --bg-surface-hover: #303b33;
@@ -80,15 +83,19 @@
   --bg-terminal: #111713;
   --bg-terminal-subtle: #1c251f;
   --border-terminal: #39463d;
-  --text-primary: #edf1e9;
-  --text-secondary: #b6c0b7;
-  --text-muted: #8c9a8e;
+  --text-primary: #ECFDF5;
+  --accent-nominal: #10B981;
+  --accent-info: #38BDF8;
+  --accent-warn: #F59E0B;
+  --accent-critical: #F43F5E;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
   --text-dim: #5e6b61;
   --text-inverse: #141a16;
-  --border-subtle: #2a332c;
+  --border-subtle: rgba(52, 211, 153, 0.14);
   --border-default: #364139;
   --border-strong: #4b594d;
-  --border-focus: #8cac96;
+  --border-focus: rgba(16, 185, 129, 0.45);
   --accent-primary: #8fb39a;
   --accent-hover: #a6c7ad;
   --accent-subtle: #28372d;
@@ -471,7 +478,12 @@ label { color: var(--text-secondary); }
 .topology-light-canvas, #nocTopologyCanvasWrap {
   background: #f8f8f3 !important; border-color: var(--border-default) !important; border-radius: 9px !important;
 }
-[data-theme="dark"] .topology-light-canvas, [data-theme="dark"] #nocTopologyCanvasWrap { background: #1b221d !important; }
+[data-theme="dark"] .topology-light-canvas, [data-theme="dark"] #nocTopologyCanvasWrap {
+  background-color: #060B09 !important;
+  background-image: radial-gradient(rgba(52, 211, 153, 0.12) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
+  border-color: rgba(52, 211, 153, 0.18) !important;
+}
 .topology-floating-legend {
   border: 1px solid var(--border-default) !important; border-radius: 7px !important;
   background: rgba(255,254,250,.96) !important; color: #68746b !important; box-shadow: var(--shadow-sm) !important;
@@ -880,4 +892,133 @@ body.ejii-sidebar-collapsed .sidebar-footer .status-pill { justify-content: cent
 }
 #topoNodeContextMenu .menu-item:hover, .topo-context-menu .menu-item:hover {
   background: #F1F5F9;
+}
+
+/* Sovereign-Singularity v5.0.0 UI/UX Theme & Studio Styling */
+[data-theme="dark"] #topoNodeInspectorDrawer {
+  background: rgba(11, 20, 16, 0.94) !important;
+  border-left-color: rgba(52, 211, 153, 0.2) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: blur(16px);
+}
+[data-theme="dark"] #topoNodeContextMenu, [data-theme="dark"] .topo-context-menu {
+  background: rgba(14, 25, 20, 0.95) !important;
+  border-color: rgba(52, 211, 153, 0.25) !important;
+  color: #ECFDF5 !important;
+  backdrop-filter: blur(12px);
+}
+[data-theme="dark"] #topoNodeContextMenu .menu-item:hover, [data-theme="dark"] .topo-context-menu .menu-item:hover {
+  background: rgba(16, 185, 129, 0.16) !important;
+}
+
+/* Translucent Node Cards */
+[data-theme="dark"] .topo-node-card-rect {
+  fill: rgba(14, 25, 20, 0.85) !important;
+  stroke: rgba(52, 211, 153, 0.25) !important;
+}
+
+/* Low-Glare Translucent Telemetry Badges */
+.badge-streaming-live, .pill-streaming-live, [data-theme="dark"] #snifferLivePill {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+.badge-frames-visible, .pill-frames-visible, [data-theme="dark"] #snifferFrameCounterPill {
+  background: rgba(56, 189, 248, 0.12) !important;
+  color: #38BDF8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.3) !important;
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* Sticky Blurred Packet Table Header */
+.packet-table-wrapper thead th, #packetSnifferTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(11, 20, 16, 0.88) !important;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(52, 211, 153, 0.2) !important;
+}
+
+/* Mini-Waterfall Bar inside TCP DELTA / RETX */
+.mini-waterfall-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.mini-waterfall-bar {
+  display: inline-block;
+  height: 5px;
+  min-width: 4px;
+  max-width: 60px;
+  background: linear-gradient(90deg, #10B981 0%, #F59E0B 70%, #F43F5E 100%);
+  border-radius: 3px;
+}
+
+/* Dark-Glass Login Panel */
+[data-theme="dark"] .login-form-panel {
+  background: rgba(11, 20, 16, 0.88) !important;
+  backdrop-filter: blur(16px) !important;
+  border-left: 1px solid rgba(52, 211, 153, 0.14) !important;
+}
+[data-theme="dark"] .login-shell {
+  background: #060B09 !important;
+  border: 1px solid rgba(52, 211, 153, 0.14) !important;
+}
+[data-theme="dark"] .profile-card {
+  background: rgba(16, 29, 23, 0.6) !important;
+  border: 1px solid rgba(52, 211, 153, 0.14) !important;
+  color: #ECFDF5 !important;
+}
+[data-theme="dark"] .profile-card:hover, [data-theme="dark"] .profile-card.active {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25) !important;
+}
+
+/* Column 2 Diagnosis Feed & Anomaly Triage Cards */
+[data-theme="dark"] .diag-feed-card, [data-theme="dark"] .diag-triage-card, [data-theme="dark"] .anomaly-triage-card {
+  background: rgba(16, 29, 23, 0.78) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(52, 211, 153, 0.14) !important;
+  border-left: 3px solid #10B981 !important;
+  color: #ECFDF5 !important;
+}
+
+/* Multi-Model AI Brain Orchestrator Bar Chips */
+[data-theme="dark"] .orchestrator-chip, [data-theme="dark"] .ai-metric-chip {
+  background: #0D1914 !important;
+  border: 1px solid rgba(52, 211, 153, 0.22) !important;
+  color: #ECFDF5 !important;
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* Workbenches & Modals */
+.ejii-workbench-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ejii-workbench-dialog {
+  background: #0B1410;
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  width: 900px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #ECFDF5;
 }

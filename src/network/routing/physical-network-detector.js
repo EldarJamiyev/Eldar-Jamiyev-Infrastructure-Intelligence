@@ -21,7 +21,25 @@ const { IS_WINDOWS } = require('../../config');
 
 let cachedPhysicalInfo = null;
 let lastCacheTime = 0;
-const CACHE_TTL_MS = 3000;
+let lastInterfaceSignature = '';
+const CACHE_TTL_MS = 60000;
+
+function getFastInterfaceSignature() {
+  try {
+    const ifaces = os.networkInterfaces();
+    const parts = [];
+    for (const [name, addrs] of Object.entries(ifaces)) {
+      for (const a of addrs || []) {
+        if (!a.internal && a.family === 'IPv4') {
+          parts.push(`${name}:${a.address}/${a.netmask}`);
+        }
+      }
+    }
+    return parts.sort().join(';');
+  } catch (_) {
+    return '';
+  }
+}
 
 /**
  * Built-in IEEE OUI Vendor Database for Gateways, Switches & Office Hardware
@@ -325,7 +343,15 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
 function getPhysicalNetworkInfo(options = {}) {
   const forceRefresh = options && options.forceRefresh === true;
   const now = Date.now();
-  if (!forceRefresh && cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
+  const currentSig = getFastInterfaceSignature();
+
+  if (cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return cachedPhysicalInfo;
+  }
+  if (!forceRefresh && cachedPhysicalInfo && currentSig === lastInterfaceSignature && (now - lastCacheTime < 300000)) {
+    return cachedPhysicalInfo;
+  }
+  if (forceRefresh && cachedPhysicalInfo && currentSig === lastInterfaceSignature && (now - lastCacheTime < 15000)) {
     return cachedPhysicalInfo;
   }
 
@@ -549,6 +575,7 @@ function getPhysicalNetworkInfo(options = {}) {
   info.allActiveInterfaces = allActiveIfaces;
 
   cachedPhysicalInfo = info;
+  lastInterfaceSignature = currentSig;
   lastCacheTime = now;
   return info;
 }

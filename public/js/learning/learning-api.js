@@ -12,7 +12,7 @@ if (typeof window !== 'undefined') {
 (function() {
   async function request(endpoint, options = {}) {
     if (typeof window !== 'undefined' && typeof window.api === 'function') {
-      return window.api(`/learning${endpoint}`, options);
+      return window.api(`/api/learning${endpoint}`, options);
     }
 
     const headers = {

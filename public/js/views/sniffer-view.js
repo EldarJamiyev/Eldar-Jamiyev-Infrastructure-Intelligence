@@ -160,6 +160,7 @@ window.escapeAttr = escapeAttr;
                 <!-- Natural Language AI Filter Toggle -->
                 <button id="btnToggleNlFilter" class="btn btn-secondary" onclick="window.toggleNlFilterPanel()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #A78BFA; border-color: rgba(167, 139, 250, 0.4);" title="Ask AI Brain to build Wireshark filter from plain English">AI Filter</button>
                 <button id="btnTcpWaterfallModal" class="btn btn-secondary" onclick="window.toggleTcpWaterfallModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #0284C7; border-color: rgba(2, 132, 199, 0.4);" title="Open TCP Stream Waterfall & RFC 3550 Jitter Inspector">🌊 Waterfall &amp; Jitter</button>
+                <button id="btnFftQosModal" class="btn btn-secondary" onclick="window.toggleFftQosModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 700; color: #10B981; border-color: rgba(16, 185, 129, 0.4);" title="Open FFT Periodogram & Multi-Path DSCP/ECN QoS Matrix">📊 FFT Spectrum &amp; QoS</button>
               </div>
 
               <!-- AI Natural Language Query Assistant Panel -->
@@ -889,6 +890,113 @@ window.escapeAttr = escapeAttr;
         `;
       }
     }
+  };
+
+  window.toggleFftQosModal = async function() {
+    let modal = document.getElementById('fftQosModalContainer');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'fftQosModalContainer';
+      modal.className = 'ejii-workbench-modal';
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div class="ejii-workbench-dialog" role="dialog" aria-modal="true" aria-labelledby="fftQosTitle">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.85);">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px;">📊</span>
+            <div>
+              <div id="fftQosTitle" style="font-weight:700; font-size:15px; color:#ECFDF5;">Fast Fourier Transform (FFT) Spectrum &amp; Multi-Path QoS Matrix</div>
+              <div style="font-size:11px; color:#9CA3AF;">Welch Periodogram, Wiener Entropy (Spectral Flatness) &amp; RFC 4594 DSCP/ECN Congestion Audit</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="window.closeFftQosModal()">✕ Close</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1;" id="fftQosModalBody">
+          <div style="color:#9CA3AF; font-size:12px;">Computing FFT Welch Periodogram &amp; DSCP Matrix...</div>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+
+    try {
+      const [fftRes, qosRes] = await Promise.all([
+        window.apiFetch('/api/rca/spectral-fft'),
+        window.apiFetch('/api/network/qos-dscp-audit')
+      ]);
+
+      const body = document.getElementById('fftQosModalBody');
+      if (!body) return;
+
+      const peaks = fftRes.dominantPeaks || [];
+      const spectrum = fftRes.powerSpectrumDb || [];
+      const maxPower = spectrum.length > 0 ? Math.max(...spectrum) : 10;
+      const minPower = spectrum.length > 0 ? Math.min(...spectrum) : -80;
+
+      let html = `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.2); border-radius:6px; padding:12px;">
+            <div style="font-weight:700; color:#34D399; margin-bottom:8px;">Fast Fourier Transform (FFT) Summary</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-family:monospace; font-size:11px; color:#ECFDF5;">
+              <div>Spectral Flatness: <strong style="color:#38BDF8;">${fftRes.spectralFlatness}</strong></div>
+              <div>Noise Floor: <strong style="color:#9CA3AF;">${fftRes.noiseFloorDb} dB</strong></div>
+              <div>Periodic Anomaly: <strong style="color:${fftRes.periodicAnomalyDetected ? '#F43F5E' : '#10B981'};">${fftRes.periodicAnomalyDetected ? 'DETECTED' : 'NOMINAL'}</strong></div>
+              <div>Classification: <strong style="color:#F59E0B;">${fftRes.anomalyClassification || 'NOMINAL'}</strong></div>
+            </div>
+            ${peaks.length > 0 ? `
+              <div style="margin-top:10px; font-size:11px; font-family:monospace;">
+                <div style="color:#9CA3AF; font-weight:600;">Top Dominant Frequency Peaks:</div>
+                ${peaks.map((p, idx) => `
+                  <div style="color:#ECFDF5; padding:2px 0;">#${idx+1} <strong>${p.frequencyHz} Hz</strong> (T = ${p.periodSeconds}s) | SNR: <span style="color:#38BDF8;">${p.signalToNoiseRatioDb} dB</span></div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.2); border-radius:6px; padding:12px;">
+            <div style="font-weight:700; color:#38BDF8; margin-bottom:8px;">DSCP / ECN QoS &amp; PMTU Health</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-family:monospace; font-size:11px; color:#ECFDF5;">
+              <div>Audited Frames: <strong>${qosRes.totalPacketsAudited || 0}</strong></div>
+              <div>ECN-CE Congestion: <strong style="color:${qosRes.activeEcnCongestionCount > 0 ? '#F43F5E' : '#10B981'};">${qosRes.activeEcnCongestionCount || 0}</strong></div>
+              <div>Large Frames (>1472B): <strong>${qosRes.pmtuDistribution?.largeFramesCount || 0}</strong></div>
+              <div>PMTU Blackhole Risks: <strong style="color:${(qosRes.pmtuDistribution?.pmtuRiskCount || 0) > 0 ? '#F43F5E' : '#10B981'};">${qosRes.pmtuDistribution?.pmtuRiskCount || 0}</strong></div>
+            </div>
+            <div style="margin-top:10px; font-size:11px; font-family:monospace; color:#9CA3AF;">
+              <div style="font-weight:600;">DSCP Distribution:</div>
+              ${Object.entries(qosRes.dscpDistribution || {}).map(([cls, cnt]) => `
+                <span style="display:inline-block; background:#0D1914; border:1px solid rgba(52,211,153,0.18); border-radius:3px; padding:1px 6px; margin:2px; color:#ECFDF5;">${cls}: ${cnt}</span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#070D0A; border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:14px;">
+          <div style="font-weight:700; color:#ECFDF5; font-size:12px; margin-bottom:8px;">Power Spectral Density (PSD) Periodogram Bar Chart</div>
+          <div style="display:flex; align-items:flex-end; gap:2px; height:90px; padding:4px 0; border-bottom:1px solid rgba(52,211,153,0.2);">
+            ${spectrum.slice(0, 48).map((db, i) => {
+              const heightPct = Math.max(5, Math.min(100, Math.round(((db - minPower) / (maxPower - minPower || 1)) * 100)));
+              const isPeak = peaks.some(p => Math.abs(p.powerDb - db) < 0.1);
+              return `<div title="${fftRes.frequencies[i] || i} Hz: ${db} dB" style="flex:1; height:${heightPct}%; background:${isPeak ? '#F43F5E' : '#10B981'}; border-radius:1px 1px 0 0;"></div>`;
+            }).join('')}
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:#9CA3AF; font-family:monospace; margin-top:4px;">
+            <span>0 Hz (DC)</span>
+            <span>${fftRes.nyquistFrequencyHz || 5} Hz (Nyquist)</span>
+          </div>
+        </div>
+      `;
+
+      body.innerHTML = html;
+    } catch (err) {
+      const body = document.getElementById('fftQosModalBody');
+      if (body) body.innerHTML = `<div style="color:#F43F5E;">Error: ${err.message}</div>`;
+    }
+  };
+
+  window.closeFftQosModal = function() {
+    const modal = document.getElementById('fftQosModalContainer');
+    if (modal) modal.style.display = 'none';
   };
 
 })(window);

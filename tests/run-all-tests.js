@@ -115,6 +115,21 @@ const { runSuite82LiveVisualRemediation } = require('./suite-82-live-visual-reme
 const { runSuite83TcpStreamWaterfallAndJitter } = require('./suite-83-tcp-stream-waterfall-and-jitter.test');
 const { runSuite84AimdTurboScannerAndFingerprinting } = require('./suite-84-aimd-turbo-scanner-and-fingerprinting.test');
 const { runSuite85HoltWintersAndTopologyInspectorCohesion } = require('./suite-85-holt-winters-and-topology-inspector-cohesion.test');
+const { runSuite86QuicWireDissector } = require('./suite-86-quic-rfc9000-wire-dissector.test');
+const { runSuite87SshHasshAndSmb2Dissector } = require('./suite-87-ssh-hassh-and-smb2-dissector.test');
+const { runSuite88Http2FrameDissectorAndL7Api } = require('./suite-88-http2-frame-dissector-and-l7-api.test');
+const { runSuite89SpectralFftWelchPeriodogram } = require('./suite-89-spectral-fft-welch-periodogram.test');
+const { runSuite90DigitalTwinChaosSimulator } = require('./suite-90-digital-twin-mm1k-chaos-simulator.test');
+const { runSuite91ZeroTrustFirewallPolicySynthesizer } = require('./suite-91-zero-trust-firewall-policy-synthesizer.test');
+const { runSuite92MultipathQosAuditor } = require('./suite-92-multipath-dscp-ecn-qos-auditor.test');
+const { runSuite93HardwareKernelInspector } = require('./suite-93-hardware-wifi-and-kernel-tcp-inspector.test');
+const { runSuite94TelemetryDvrTimeMachine } = require('./suite-94-telemetry-dvr-timemachine-diff-engine.test');
+const { runSuite95AutonomousWarRoom } = require('./suite-95-multi-agent-sre-war-room-orchestrator.test');
+const { runSuite96FrontendChaosAndDvrWiring } = require('./suite-96-frontend-chaos-and-dvr-studio-wiring.test');
+const { runSuite97FrontendFftAndQosWiring } = require('./suite-97-frontend-l7-fft-and-qos-studio-wiring.test');
+const { runSuite98FrontendZeroTrustAndWarRoomWiring } = require('./suite-98-frontend-zerotrust-and-warroom-studio-wiring.test');
+const { runSuite99ApiContractMatrix } = require('./suite-99-full-api-route-and-schema-contract-matrix.test');
+const { runSuite100Capstone } = require('./suite-100-sovereign-singularity-100-suite-capstone.test');
 
 // Sovereign Learning Academy Spec & Companion Verification Modules
 const COMPANION_TEST_MODULES = [
@@ -228,7 +243,22 @@ async function runAllTests() {
     { name: '82. Live Visual Remediation & Behavioral Regression', fn: runSuite82LiveVisualRemediation },
     { name: '83. TCP Stream Waterfall Engine & RFC 3550 Inter-Arrival Jitter', fn: runSuite83TcpStreamWaterfallAndJitter },
     { name: '84. AIMD Turbo Scanner & Passive Hardware Fingerprinting', fn: runSuite84AimdTurboScannerAndFingerprinting },
-    { name: '85. Holt-Winters SLA Forecaster, Topology Inspector & 85-Suite Cohesion', fn: runSuite85HoltWintersAndTopologyInspectorCohesion }
+    { name: '85. Holt-Winters SLA Forecaster, Topology Inspector & 85-Suite Cohesion', fn: runSuite85HoltWintersAndTopologyInspectorCohesion },
+    { name: '86. QUIC (RFC 9000/9369) Wire Protocol Dissector', fn: runSuite86QuicWireDissector },
+    { name: '87. SSH HASSH & SMBv2/3 Lateral Movement Dissector', fn: runSuite87SshHasshAndSmb2Dissector },
+    { name: '88. HTTP/2 Frame Dissector & Deep L7 REST API', fn: runSuite88Http2FrameDissectorAndL7Api },
+    { name: '89. Spectral FFT & Wiener Entropy Periodogram', fn: runSuite89SpectralFftWelchPeriodogram },
+    { name: '90. Digital Twin M/M/1/K Chaos Simulator & Synthetic Network Telemetry', fn: runSuite90DigitalTwinChaosSimulator },
+    { name: '91. Zero-Trust Microsegmentation & Firewall Policy Synthesizer', fn: runSuite91ZeroTrustFirewallPolicySynthesizer },
+    { name: '92. Multipath DSCP / ECN QoS & PMTU Auditor', fn: runSuite92MultipathQosAuditor },
+    { name: '93. Physical Radio & Kernel TCP Stack Inspector', fn: runSuite93HardwareKernelInspector },
+    { name: '94. Telemetry DVR Time-Machine & Snapshot Diff Engine', fn: runSuite94TelemetryDvrTimeMachine },
+    { name: '95. 5-Agent SRE War-Room Autonomous Consensus Orchestrator', fn: runSuite95AutonomousWarRoom },
+    { name: '96. Digital Twin Chaos Simulator & Time-Machine DVR UI Wiring', fn: runSuite96FrontendChaosAndDvrWiring },
+    { name: '97. Spectral FFT Welch Periodogram & QoS DSCP Studio Wiring', fn: runSuite97FrontendFftAndQosWiring },
+    { name: '98. Zero-Trust Microsegmentation & 5-Agent SRE War-Room UI Wiring', fn: runSuite98FrontendZeroTrustAndWarRoomWiring },
+    { name: '99. Sovereign Singularity 13-API Route & Schema Contract Matrix', fn: runSuite99ApiContractMatrix },
+    { name: '100. Sovereign Singularity 100-Suite Master Capstone', fn: runSuite100Capstone }
   ];
 
   for (const s of suites) {
