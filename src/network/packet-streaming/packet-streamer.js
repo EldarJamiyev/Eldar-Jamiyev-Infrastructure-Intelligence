@@ -67,7 +67,7 @@ class PacketStreamer {
   constructor() {
     this.frameRingBuffer = [];
     this.highSpeedRingBuffer = new HighSpeedPacketRingBuffer(4096);
-    this.maxBufferSize = 2000;
+    this.maxBufferSize = 500;
     this.flowTable = new Map();
     this.isStreaming = false;
     this.broadcastCallback = null;
@@ -199,13 +199,13 @@ class PacketStreamer {
     // Spawn native Npcap physical wire sniffer
     this._startNpcapSniffer();
 
-    // Periodic socket process refresher
+    // Periodic socket process refresher (15s throttle prevents OS process churn)
     this.pollInterval = setInterval(() => {
       this._refreshSocketProcessMap();
       if (!this.snifferProcess) {
         this._captureCycle();
       }
-    }, 2000);
+    }, 15000);
 
     // Periodic Flow Matrix broadcaster (emit active flows every 1000ms while streaming)
     this.flowBroadcastInterval = setInterval(() => {
@@ -1332,7 +1332,7 @@ class PacketStreamer {
    */
   async _refreshSocketProcessMap() {
     const now = Date.now();
-    if (now - this.lastProcessRefresh < 3000 && this.socketProcessMap.size > 0) {
+    if (now - this.lastProcessRefresh < 15000 && this.socketProcessMap.size > 0) {
       return;
     }
     this.lastProcessRefresh = now;
@@ -1551,6 +1551,9 @@ class PacketStreamer {
         urlIntelligence: frame.urlIntelligence,
         plainLanguageGuide: `Operational ${frame.protocol} flow between ${frame.srcIp}:${p1} and ${frame.dstIp}:${p2}${flowDomain ? ' (' + flowDomain + ')' : ''}. Managed by ${frame.processName || 'Unknown process'}.`
       };
+      if (this.flowTable.size > 500) {
+        this._pruneMapIfNeeded(this.flowTable, 500);
+      }
       this.flowTable.set(flowKey, flow);
     }
   }
@@ -1650,6 +1653,9 @@ class PacketStreamer {
         lastTimeMs: now,
         durationSec: 1
       };
+      if (this.flowTable.size > 500) {
+        this._pruneMapIfNeeded(this.flowTable, 500);
+      }
       this.flowTable.set(flowKey, flow);
     }
   }
@@ -1868,6 +1874,9 @@ class PacketStreamer {
         lastTimeMs: now,
         durationSec: 1
       };
+      if (this.flowTable.size > 500) {
+        this._pruneMapIfNeeded(this.flowTable, 500);
+      }
       this.flowTable.set(flowKey, flow);
     }
   }
