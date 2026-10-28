@@ -96,8 +96,7 @@ function validateSecurityConfiguration(opts = {}) {
   const port = Number(opts.port || env.EJII_PORT || PORT);
   const isProduction = env.NODE_ENV === 'production';
   const isLoopback = isLocalLoopbackHost(host);
-  const isAiStudioDevPreview = !isProduction && port === 3000;
-  const requiresExplicitSecrets = isProduction || env.EJII_REQUIRE_EXPLICIT_SECRETS === 'true' || (!isLoopback && !isAiStudioDevPreview && env.NODE_ENV !== 'test');
+  const requiresExplicitSecrets = isProduction || env.EJII_REQUIRE_EXPLICIT_SECRETS === 'true' || (!isLoopback && env.NODE_ENV !== 'test');
 
   const hmac = env.EJII_HMAC_SECRET;
   const jwt = env.EJII_JWT_SECRET;
@@ -132,7 +131,7 @@ function validateSecurityConfiguration(opts = {}) {
   }
 
   // Prevent unsafe network exposure with evaluation mode or default admin password
-  if (!isLoopback && !isAiStudioDevPreview && env.NODE_ENV !== 'test') {
+  if (!isLoopback && env.NODE_ENV !== 'test') {
     if (env.EJII_EVALUATION_MODE === 'true') {
       throw new Error(
         `FATAL CONFIGURATION ERROR: Unsafe network exposure blocked. Cannot enable EJII_EVALUATION_MODE=true when bound to non-loopback interface (${host}).`
@@ -190,11 +189,11 @@ const AUTOMATION_TIERS = {
   }
 };
 
-// Evaluation mode is NEVER permitted in production, and only allowed on loopback or dev preview
+// Evaluation mode is strictly forbidden in production, and ONLY permitted on local loopback hosts (never 0.0.0.0)
 const IS_EVALUATION_MODE =
   process.env.NODE_ENV !== 'production' &&
-  process.env.EJII_EVALUATION_MODE !== 'false' &&
-  (isLocalLoopbackHost(HOST) || Number(PORT) === 3000 || process.env.NODE_ENV === 'test');
+  process.env.EJII_EVALUATION_MODE === 'true' &&
+  (isLocalLoopbackHost(HOST) || process.env.NODE_ENV === 'test');
 
 module.exports = {
   PORT,

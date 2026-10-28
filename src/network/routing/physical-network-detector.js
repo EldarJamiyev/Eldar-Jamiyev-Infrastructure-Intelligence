@@ -524,11 +524,18 @@ function getPhysicalNetworkInfo(options = {}) {
           const sub = calculateSubnet(ip, prefix);
           info.hostIp = ip;
           info.localIp = ip;
+          const isApipa = ip.startsWith('169.254.');
+          info.isLinkLocalApipa = isApipa;
+          info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
+
           if (!gw || gw === ip) {
             const p = ip.split('.');
             p[3] = p[3] === '1' ? '254' : '1';
             info.gatewayIp = p.join('.');
             info.defaultGateway = info.gatewayIp;
+          }
+          if (isApipa) {
+            info.gatewayVendor = 'Container Runtime Virtual Interface (Cloud Sandbox)';
           }
           info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
           info.subnetMask = sub.subnetMask;
@@ -807,7 +814,14 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     `).run(`EDGE-${hopNodeId}-GW`, hopNodeId, hop.rttMs || 10.2, JSON.stringify({ role: 'WAN Next-Hop Link', autoDiscovered: true }));
   });
 
-  // L2: Edge Perimeter Router (Current Gateway)
+  // L2: Gateway (Perimeter Router on LAN or Virtual vNIC Gateway in Container Sandbox)
+  const isSandbox = Boolean(netInfo.isSandboxRuntime || netInfo.isLinkLocalApipa || (hostIp && hostIp.startsWith('169.254.')));
+  const gwNodeName = isSandbox
+    ? `Virtual Container Gateway (${gwIp})`
+    : `Edge Perimeter Router (${gwIp})`;
+  const gwRole = isSandbox ? 'Container Virtual Gateway' : 'Border Router';
+  const gwEvidenceClass = isSandbox ? 'Runtime-Environment' : 'Observed';
+
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
     VALUES ('NODE-GW-01', ?, ?, ?, 'router', 'edge', 2, 'NODE-WAN-01', 'healthy', ?, 0.8, ?, 'ether1', 280, 140, ?)
@@ -818,12 +832,12 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       vendor = excluded.vendor,
       last_checked = excluded.last_checked
   `).run(
-    `Edge Perimeter Router (${gwIp})`,
+    gwNodeName,
     gwIp,
     gwMac,
     now,
     gwVendor,
-    JSON.stringify({ role: 'Border Router', vendor: gwVendor, discovery: 'dynamic_route', evidenceClassification: 'Observed' })
+    JSON.stringify({ role: gwRole, vendor: gwVendor, discovery: 'dynamic_route', isSandboxRuntime: isSandbox, isLinkLocalApipa: isSandbox, physicalHardwareUnverified: isSandbox, evidenceClassification: gwEvidenceClass })
   );
 
   // L3: Core Switch & Services (Internal / Primary DNS)
@@ -838,7 +852,10 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   }
   const coreVendor = coreDnsIp === '1.1.1.1'
     ? 'Cloudflare Anycast Resolver'
-    : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : 'Core Backbone Switch & Services');
+    : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch & Services'));
+  const coreNodeName = isSandbox
+    ? `Configured DNS Resolver (${coreDnsIp})`
+    : `Core Switch & DNS (${coreDnsIp})`;
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
@@ -849,11 +866,11 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       vendor = excluded.vendor,
       last_checked = excluded.last_checked
   `).run(
-    `Core Switch & DNS (${coreDnsIp})`,
+    coreNodeName,
     coreDnsIp,
     now,
     coreVendor,
-    JSON.stringify({ role: 'Core Backbone Switch', vlan: 10, evidenceClassification: 'Observed' })
+    JSON.stringify({ role: isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch', vlan: 10, isSandboxRuntime: isSandbox, evidenceClassification: 'Observed' })
   );
 
   // L4: Enterprise Applications & Active Service Endpoints

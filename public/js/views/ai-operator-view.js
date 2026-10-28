@@ -68,6 +68,10 @@
         : 'var(--accent-primary, #1d4ed8)';
 
     banner.style.display = 'block';
+    const confLabel = typeof b.rootCause?.confidence === 'number'
+      ? `Root-Cause Confidence ${(Number(b.rootCause.confidence) * 100).toFixed(0)}%`
+      : `Telemetry Completeness ${(Number(b.telemetryCompleteness ?? 1) * 100).toFixed(0)}% (Nominal)`;
+
     banner.innerHTML = `
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 20px;background:var(--bg-surface, #ffffff);border-bottom:1px solid var(--border-default, #e2e8f0);">
         <div style="flex:1;min-width:300px;">
@@ -76,7 +80,8 @@
             <span aria-hidden="true">·</span>
             <span style="white-space:nowrap;">${esc(statusLabel)}</span>
             <span aria-hidden="true">·</span>
-            <span style="color:var(--text-secondary);font-weight:500;white-space:nowrap;">Confidence ${(Number(b.rootCause?.confidence || 0.94) * 100).toFixed(0)}%</span>
+            <span style="color:var(--text-secondary);font-weight:500;white-space:nowrap;">${esc(confLabel)}</span>
+            ${b.sandboxNotice ? `<span class="ai-op-tag" style="font-size:10px;padding:2px 6px;background:rgba(217,119,6,0.1);color:var(--status-warning);border:1px solid rgba(217,119,6,0.3);">Cloud Sandbox Runtime (gVisor/vNIC)</span>` : ''}
           </div>
           <div style="font-size:13px;line-height:1.45;color:var(--text-primary);font-weight:500;">
             <strong>AI Operator:</strong> &ldquo;${esc(b.operatorMessage)}&rdquo;
@@ -662,15 +667,16 @@
     if (panelId === 'fleet_and_predictive') {
       const fleet = state.fleetCommand || { hosts: [], summary: {} };
       const pred = state.predictiveIntelligence || { forecasts: [] };
+      const reqVerifCount = fleet.summary?.nodesRequiringVerification ?? fleet.summary?.driftedCount ?? 0;
       return `
         <section class="ai-op-card" data-panel-id="fleet_and_predictive">
           <div class="ai-op-card-header">
             <div>
               <div class="ai-op-kicker">6. MULTI-HOST FLEET COMMAND &amp; 8. PREDICTIVE INFRASTRUCTURE INTELLIGENCE</div>
-              <h3 class="ai-op-title">Authorized Windows &amp; Linux Fleet Health, Configuration Drift &amp; Outage Forecasting</h3>
+              <h3 class="ai-op-title">Authorized Windows &amp; Linux Fleet Health, Reachability Verification &amp; Outage Forecasting</h3>
             </div>
             <div style="display:flex;gap:6px;align-items:center;">
-              <span class="ai-op-tag">${esc(fleet.summary?.totalAuthorizedHosts || 4)} Hosts · ${esc(fleet.summary?.driftedCount || 2)} Drift Alerts</span>
+              <span class="ai-op-tag">${esc(fleet.summary?.totalAuthorizedHosts || 4)} Hosts · ${esc(reqVerifCount)} Requiring Verification</span>
               <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 9px;" onclick="window.promoteCockpitPanel('fleet_and_predictive')">Pin to Top</button>
             </div>
           </div>
@@ -708,7 +714,7 @@
                         </div>
                       </div>
                       <div style="font-size:11px;color:${h.healthStatus === 'NOMINAL' ? 'var(--text-muted)' : 'var(--status-warning)'};padding-top:4px;border-top:1px solid var(--border-subtle);">
-                        <strong>Status:</strong> ${esc(h.configurationDrift)}
+                        <strong>Verification:</strong> ${esc(h.verificationStatus || h.configurationDrift)}
                       </div>
                     </div>
                   `;

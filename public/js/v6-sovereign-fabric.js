@@ -47,8 +47,8 @@
     const kpiEl = document.getElementById('v6StudioKpiStrip');
     if (kpiEl) {
       const avgQuality = evList.length
-        ? (evList.reduce((acc, r) => acc + (Number(r.qualityScore) || 0.9), 0) / evList.length).toFixed(2)
-        : '0.94';
+        ? (evList.reduce((acc, r) => acc + (Number(r.qualityScore) || 0), 0) / evList.length).toFixed(2)
+        : '0.00';
       kpiEl.innerHTML = `
         <div class="v6-kpi-cell">
           <span class="v6-kpi-label">CAPABILITY REGISTRY</span>

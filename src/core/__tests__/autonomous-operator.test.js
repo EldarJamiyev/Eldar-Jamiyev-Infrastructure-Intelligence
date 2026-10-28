@@ -239,4 +239,117 @@ test('AutonomousInfrastructureOperator — Security Defaults, Honest Telemetry, 
       restoreStmt.run(n.status, n.last_checked, n.last_latency_ms, n.id);
     }
   });
+
+  await t.test('6. Test Task Isolation: Automated tests never pollute user-facing task history or activeTasks', async () => {
+    // Execute a test task explicitly marked with isTest=true
+    await operator.executeOperatorGoal({
+      goal: 'Automated test task on port 34047',
+      role: 'ADMIN',
+      autoApproveLowRisk: false,
+      isTest: true
+    });
+
+    const state = await operator.getOperatorState();
+    assert.notEqual(state.activeTask?.goal, 'Automated test task on port 34047');
+    assert.equal(state.activeTask?.isTest, false);
+
+    for (const t of state.activeTasks) {
+      assert.ok(!t.goal.includes('34047'), `Test task port 34047 found in activeTasks: ${t.goal}`);
+      assert.ok(!t.isTest, `isTest=true found in activeTasks: ${t.taskId}`);
+    }
+
+    for (const h of state.taskHistory) {
+      assert.ok(!h.goal.includes('34047'), `Test task port 34047 found in taskHistory: ${h.goal}`);
+      assert.ok(!h.isTest, `isTest=true found in taskHistory: ${h.taskId}`);
+    }
+  });
+
+  await t.test('7. Action-Specific Postconditions: DNS resolution succeeds without requiring target TCP port 80', async () => {
+    // closedPort has no listener, but verify_and_refresh_dns_resolution should only evaluate DNS postconditions
+    const closedPort = 65431;
+    const dnsResult = await operator.approveAndExecuteSelfHealing({
+      role: 'ADMIN',
+      actionId: 'verify_and_refresh_dns_resolution',
+      target: '127.0.0.1',
+      port: closedPort,
+      simulateVerificationFailure: false
+    });
+
+    assert.equal(dnsResult.allowed, true);
+    assert.equal(dnsResult.status, 'APPLIED_AND_VERIFIED');
+    assert.equal(dnsResult.verification.postconditionPassed, true);
+    assert.equal(dnsResult.verification.rolledBack, false);
+    assert.ok(dnsResult.verification.flushOutcome);
+  });
+
+  await t.test('8. Fail-Closed Audit Logging: Post-execution audit failure rolls back state with AUDIT_PERSISTENCE_FAILED_ROLLED_BACK', async () => {
+    let auditModule = null;
+    try {
+      auditModule = require('../audit-logger');
+    } catch (_) {}
+
+    if (auditModule && typeof auditModule.logAction === 'function') {
+      const origLog = auditModule.logAction;
+      auditModule.logAction = function (params) {
+        if (params.action === 'OPERATOR_SELF_HEALING_VERIFIED') {
+          throw new Error('Simulated HMAC audit write failure');
+        }
+        return origLog.apply(this, arguments);
+      };
+
+      try {
+        const res = await operator.approveAndExecuteSelfHealing({
+          role: 'ADMIN',
+          actionId: 'verify_and_refresh_dns_resolution',
+          target: '127.0.0.1',
+          port: listeningPort,
+          simulateVerificationFailure: false
+        });
+
+        assert.equal(res.status, 'AUDIT_PERSISTENCE_FAILED_ROLLED_BACK');
+        assert.equal(res.approved, false);
+        assert.equal(res.verification.rolledBack, true);
+        assert.match(res.error, /cryptographic audit log persistence failed/i);
+      } finally {
+        auditModule.logAction = origLog;
+      }
+    }
+  });
+
+  await t.test('9. Strict Rollback Verification: Mismatched database state flags ROLLBACK_FAILED_ESCALATION_REQUIRED', async () => {
+    const origPrepare = db.prepare.bind(db);
+    let checkCalled = false;
+    db.prepare = function (sql) {
+      if (typeof sql === 'string' && sql.includes('SELECT id, status, last_checked, last_latency_ms FROM topology_nodes')) {
+        checkCalled = true;
+        return {
+          all() {
+            // Return mismatched rows so rollback verification detects failure
+            return [{ id: 9999, status: 'corrupted_state', last_checked: null, last_latency_ms: null }];
+          }
+        };
+      }
+      return origPrepare(sql);
+    };
+
+    try {
+      const closedPort = 65431;
+      const res = await operator.approveAndExecuteSelfHealing({
+        role: 'ADMIN',
+        actionId: 'verify_tcp_service_endpoint',
+        target: '127.0.0.1',
+        port: closedPort,
+        simulateVerificationFailure: false
+      });
+
+      assert.ok(checkCalled, 'Rollback read-back verification query must be called');
+      assert.equal(res.status, 'ROLLBACK_FAILED_ESCALATION_REQUIRED');
+      assert.equal(res.verification.rollbackVerified, false);
+      assert.equal(res.verification.lifecycleState, 'ROLLBACK_FAILED');
+      assert.match(res.verification.summary, /CRITICAL: Automated rollback verification failed/i);
+    } finally {
+      db.prepare = origPrepare;
+    }
+  });
 });
+

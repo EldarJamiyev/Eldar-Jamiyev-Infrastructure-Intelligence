@@ -193,3 +193,146 @@ test('Part VIII, IX, X: Simulation Branch Isolation, Policy Governance & Governe
   assert.ok(executed.actionEvidenceId);
   assert.ok(executed.verificationEvidenceId);
 });
+
+test('Part XI: Protected v6 Fabric API endpoints, Authentication enforcement, Minimum Role RBAC, and SSRF guardrails', async () => {
+  const express = require('express');
+  const http = require('node:http');
+  const { createToken } = require('../security');
+  const v6Router = require('../../api/routes-v6-fabric');
+  const authRouter = require('../../api/routes-auth');
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/v6', v6Router);
+  app.use('/api/auth', authRouter);
+
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const viewerToken = createToken({ id: 'u-viewer', username: 'viewer-user', role: 'VIEWER' });
+    const analystToken = createToken({ id: 'u-analyst', username: 'analyst-user', role: 'ANALYST' });
+    const operatorToken = createToken({ id: 'u-operator', username: 'operator-user', role: 'OPERATOR' });
+
+    // 1. POST /api/v6/evidence
+    // Unauthenticated -> 401
+    const unauthEv = await fetch(`${baseUrl}/api/v6/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'probe_result', subject: 'node:test', claim: 'ping passed' })
+    });
+    assert.equal(unauthEv.status, 401, 'POST /api/v6/evidence must reject unauthenticated requests with 401');
+
+    // VIEWER (insufficient role) -> 403
+    const viewerEv = await fetch(`${baseUrl}/api/v6/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${viewerToken}` },
+      body: JSON.stringify({ type: 'probe_result', subject: 'node:test', claim: 'ping passed' })
+    });
+    assert.equal(viewerEv.status, 403, 'POST /api/v6/evidence must reject VIEWER role with 403');
+
+    // OPERATOR (valid role, valid body) -> 200
+    const opEv = await fetch(`${baseUrl}/api/v6/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${operatorToken}` },
+      body: JSON.stringify({ type: 'probe_result', subject: 'node:test', claim: 'ping passed' })
+    });
+    assert.equal(opEv.status, 200, 'POST /api/v6/evidence must accept OPERATOR role with 200');
+
+    // Invalid body (missing claim) -> 400
+    const badEv = await fetch(`${baseUrl}/api/v6/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${operatorToken}` },
+      body: JSON.stringify({ type: 'probe_result', subject: 'node:test' })
+    });
+    assert.equal(badEv.status, 400, 'POST /api/v6/evidence must reject missing required fields with 400');
+
+    // 2. POST /api/v6/correlate
+    // Unauthenticated -> 401
+    const unauthCorr = await fetch(`${baseUrl}/api/v6/correlate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    assert.equal(unauthCorr.status, 401, 'POST /api/v6/correlate must reject unauthenticated requests with 401');
+
+    // VIEWER -> 403
+    const viewerCorr = await fetch(`${baseUrl}/api/v6/correlate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${viewerToken}` },
+      body: JSON.stringify({})
+    });
+    assert.equal(viewerCorr.status, 403, 'POST /api/v6/correlate must reject VIEWER role with 403');
+
+    // SSRF attempt -> 400 blocked
+    const ssrfCorr = await fetch(`${baseUrl}/api/v6/correlate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ target: '169.254.169.254' })
+    });
+    assert.equal(ssrfCorr.status, 400, 'POST /api/v6/correlate must block SSRF metadata IP with 400');
+
+    // ANALYST -> 200
+    const analystCorr = await fetch(`${baseUrl}/api/v6/correlate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ target: 'localhost' })
+    });
+    assert.equal(analystCorr.status, 200, 'POST /api/v6/correlate must accept ANALYST role with 200');
+
+    // 3. POST /api/v6/diagnose-hostname
+    // Unauthenticated -> 401
+    const unauthDiag = await fetch(`${baseUrl}/api/v6/diagnose-hostname`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostname: '127.0.0.1' })
+    });
+    assert.equal(unauthDiag.status, 401, 'POST /api/v6/diagnose-hostname must reject unauthenticated with 401');
+
+    // SSRF attempt -> 400 blocked
+    const ssrfDiag = await fetch(`${baseUrl}/api/v6/diagnose-hostname`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ hostname: '169.254.169.254' })
+    });
+    assert.equal(ssrfDiag.status, 400, 'POST /api/v6/diagnose-hostname must block SSRF metadata target with 400');
+
+    // 4. POST /api/v6/actions/:id/preview
+    // Unauthenticated -> 401
+    const unauthPrev = await fetch(`${baseUrl}/api/v6/actions/verify_and_refresh_dns_resolution/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: '127.0.0.1' })
+    });
+    assert.equal(unauthPrev.status, 401, 'POST /api/v6/actions/:id/preview must reject unauthenticated with 401');
+
+    // VIEWER -> 403
+    const viewerPrev = await fetch(`${baseUrl}/api/v6/actions/verify_and_refresh_dns_resolution/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${viewerToken}` },
+      body: JSON.stringify({ target: '127.0.0.1' })
+    });
+    assert.equal(viewerPrev.status, 403, 'POST /api/v6/actions/:id/preview must reject VIEWER role with 403');
+
+    // ANALYST -> 200
+    const analystPrev = await fetch(`${baseUrl}/api/v6/actions/verify_and_refresh_dns_resolution/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ target: '127.0.0.1' })
+    });
+    assert.equal(analystPrev.status, 200, 'POST /api/v6/actions/:id/preview must accept ANALYST role with 200');
+
+    // 5. POST /api/auth/quick-noc
+    // Role escalation attempt in body -> 400
+    const escalatedNoc = await fetch(`${baseUrl}/api/auth/quick-noc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'ADMIN' })
+    });
+    assert.equal(escalatedNoc.status, 400, 'POST /api/auth/quick-noc must reject role parameter in body with 400');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

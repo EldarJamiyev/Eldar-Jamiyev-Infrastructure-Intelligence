@@ -227,7 +227,9 @@ class TemporalInfrastructureGraph {
         lastSeenAt: nowIso,
         validFrom: existingEdge ? existingEdge.validFrom : nowIso,
         validTo: null,
-        confidence: 0.94,
+        confidence: (srcNode?.confidence && tgtNode?.confidence)
+          ? Math.min(srcNode.confidence, tgtNode.confidence)
+          : (e.status === 'up' ? 0.95 : 0.40),
         evidenceIds: existingEdge ? existingEdge.evidenceIds : []
       };
 

@@ -616,17 +616,36 @@ class GovernedActionControlPlane {
           ...osFlushResult
         };
       }
+      const lookupSuccess = Boolean(dnsRes && dnsRes.success && Array.isArray(dnsRes.addresses) && dnsRes.addresses.length > 0);
+      const osFlushSuccess = Boolean(osFlushResult && osFlushResult.osFlushExecuted);
+
+      let flushOutcome = 'DNS_RESOLUTION_FAILED';
+      let postSummary = '';
+      if (lookupSuccess && osFlushSuccess) {
+        flushOutcome = 'OS_CACHE_FLUSHED_AND_RESOLVED';
+        postSummary = `Postcondition verified: Operating system DNS cache flushed successfully, and ${dnsHost} resolved to ${(dnsRes.addresses || []).join(', ')} in ${dnsRes.latencyMs}ms`;
+      } else if (lookupSuccess && !osFlushSuccess) {
+        flushOutcome = 'RESOLVER_REFRESHED_PARTIAL_NO_OS_FLUSH';
+        postSummary = `Postcondition partially satisfied: Process c-ares resolver channel refreshed and live lookup succeeded for ${dnsHost} (${dnsRes.latencyMs}ms), but host OS DNS cache flush command was unavailable or unprivileged (${osFlushResult.osFlushNote || 'OS command skipped'})`;
+      } else {
+        flushOutcome = 'DNS_RESOLUTION_FAILED';
+        postSummary = `Postcondition failed: ${dnsHost} failed resolution (${dnsRes?.errorCode || 'ENOTFOUND'})`;
+      }
+
       actionOutcome = {
         executed: true,
         summary: `DNS resolver refreshed (c-ares=${cAresRefreshed}, osFlush=${osFlushResult.osFlushExecuted}) and live lookup executed for ${dnsHost}`,
-        details: dnsRes
+        details: {
+          ...dnsRes,
+          flushOutcome
+        }
       };
       postconditionVerification = {
-        verified: Boolean(dnsRes && dnsRes.success && Array.isArray(dnsRes.addresses) && dnsRes.addresses.length > 0),
-        checkMethod: 'live_dns_lookup',
-        summary: dnsRes && dnsRes.success
-          ? `Postcondition verified: ${dnsHost} resolved to ${(dnsRes.addresses || []).join(', ')} in ${dnsRes.latencyMs}ms`
-          : `Postcondition failed: ${dnsHost} failed resolution (${dnsRes?.errorCode || 'ENOTFOUND'})`
+        verified: lookupSuccess,
+        osFlushSuccess,
+        flushOutcome,
+        checkMethod: 'live_dns_lookup_and_resolver_audit',
+        summary: postSummary
       };
     } else if (actionId === 'verify_gateway_and_route_table') {
       const pingRes = await pingHost(target, 1, 1500).catch((e) => ({ alive: false, error: e.message }));
@@ -714,7 +733,9 @@ class GovernedActionControlPlane {
       port,
       operatorUsername,
       operatorRole,
-      lifecycleState: postconditionVerification.verified ? 'VERIFIED_RESOLVED' : 'EXECUTED_UNVERIFIED',
+      lifecycleState: postconditionVerification.flushOutcome === 'RESOLVER_REFRESHED_PARTIAL_NO_OS_FLUSH'
+        ? 'RESOLVER_REFRESHED_PARTIAL'
+        : (postconditionVerification.verified ? 'VERIFIED_RESOLVED' : 'EXECUTED_UNVERIFIED'),
       preconditionsPassed: true,
       safetyGatePassed: true,
       postconditionVerified: postconditionVerification.verified,

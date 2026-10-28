@@ -34,8 +34,10 @@ router.post('/login', loginRateLimiter, (req, res) => {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
 
-  const { HOST, PORT, KNOWN_DEFAULT_PASSWORDS, isLocalLoopbackHost } = require('../config');
-  const isNetworkExposed = !isLocalLoopbackHost(HOST) && Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test';
+  const { HOST, KNOWN_DEFAULT_PASSWORDS, isLocalLoopbackHost } = require('../config');
+  const clientIp = req.ip || req.socket?.remoteAddress || '';
+  const isClientLoopback = isLocalLoopbackHost(clientIp);
+  const isNetworkExposed = (!isLocalLoopbackHost(HOST) && !isClientLoopback) && process.env.NODE_ENV !== 'test';
   if ((process.env.NODE_ENV === 'production' || isNetworkExposed) && KNOWN_DEFAULT_PASSWORDS.includes(password)) {
     recordLoginAttempt(req, false);
     return res.status(403).json({
@@ -87,37 +89,37 @@ router.post('/login', loginRateLimiter, (req, res) => {
 
 /**
  * POST /api/auth/quick-noc
- * 1-click single-operator unprivileged NOC workstation sign-in (Local / Evaluation Only)
+ * 1-click single-operator unprivileged NOC workstation sign-in (Local Loopback / Evaluation Only)
  */
 router.post('/quick-noc', (req, res) => {
-  const { IS_EVALUATION_MODE, HOST, PORT, isLocalLoopbackHost } = require('../config');
-  const isNetworkExposed = !isLocalLoopbackHost(HOST) && Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test';
-  if (!IS_EVALUATION_MODE || process.env.NODE_ENV === 'production' || isNetworkExposed) {
-    return res.status(403).json({
-      error: 'Quick NOC login is disabled in production and on non-loopback network-exposed interfaces.'
+  const { IS_EVALUATION_MODE, HOST, isLocalLoopbackHost } = require('../config');
+  const clientIp = req.ip || req.connection?.remoteAddress || '';
+  const isLoopbackClient = isLocalLoopbackHost(clientIp);
+  const isLoopbackHost = isLocalLoopbackHost(HOST);
+
+  if (req.body && (req.body.role || req.body.username)) {
+    return res.status(400).json({
+      error: 'ROLE_ELEVATION_PROHIBITED: Client cannot specify role or username in quick-noc.'
     });
   }
 
-  const requestedTarget = (req.body && (req.body.role || req.body.username)) ? String(req.body.role || req.body.username).trim() : null;
-  let user = null;
-
-  if (requestedTarget) {
-    user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = UPPER(?) OR LOWER(username) = LOWER(?)) AND is_active = 1 LIMIT 1").get(requestedTarget, requestedTarget);
+  if (!IS_EVALUATION_MODE || process.env.NODE_ENV === 'production' || !isLoopbackHost || !isLoopbackClient) {
+    return res.status(403).json({
+      error: 'Quick NOC login is strictly forbidden on network-exposed interfaces (0.0.0.0) or remote connections. Authentication requires valid operator credentials.'
+    });
   }
 
-  // Default to workstation owner (Admin / Lead Architect) so all workstation operations succeed out-of-the-box
+  // Quick-NOC is strictly for standard local loopback NOC workstation evaluation (OPERATOR or ANALYST, never ADMIN/SYSADMIN)
+  let user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = 'OPERATOR' OR LOWER(username) = 'noc') AND is_active = 1 LIMIT 1").get();
   if (!user) {
-    user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ADMIN' OR LOWER(username) = 'admin' LIMIT 1").get();
+    user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ANALYST' AND is_active = 1 LIMIT 1").get();
   }
   if (!user) {
-    user = db.prepare("SELECT * FROM users WHERE LOWER(role) = 'noc_operator' OR LOWER(username) = 'noc' LIMIT 1").get();
-  }
-  if (!user) {
-    user = db.prepare("SELECT * FROM users WHERE is_active = 1 LIMIT 1").get();
+    user = db.prepare("SELECT * FROM users WHERE is_active = 1 AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') LIMIT 1").get();
   }
 
   if (!user) {
-    return res.status(500).json({ error: 'No operational user account found in database.' });
+    return res.status(403).json({ error: 'No non-administrative operator account available for Quick NOC evaluation.' });
   }
 
   const token = createToken({

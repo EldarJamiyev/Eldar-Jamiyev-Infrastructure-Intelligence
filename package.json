@@ -4,7 +4,7 @@
   "description": "EJII v6 — Sovereign Evidence-Driven Infrastructure Intelligence Fabric & NOC Packet Dissection Workstation",
   "main": "src/server.js",
   "scripts": {
-    "dev": "EJII_PORT=3000 EJII_HOST=0.0.0.0 EJII_EVALUATION_MODE=true node src/server.js",
+    "dev": "EJII_PORT=3000 EJII_HOST=0.0.0.0 node src/server.js",
     "build": "tsc",
     "pretest": "tsc",
     "start": "node src/server.js",

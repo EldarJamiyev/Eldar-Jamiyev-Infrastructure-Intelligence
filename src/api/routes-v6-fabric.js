@@ -34,7 +34,7 @@ const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../core/opera
  * Permits voluntary role downgrade ONLY when an authenticated higher-privilege user (e.g. ADMIN)
  * explicitly tests least-privilege RBAC boundaries.
  */
-function resolveVerifiedUser(req) {
+function resolveVerifiedUser(req, minRole = null) {
   const verified = req.user;
   if (!verified || !verified.role) {
     return { allowed: false, status: 401, error: 'Authentication required. Verified JWT session missing.' };
@@ -46,6 +46,9 @@ function resolveVerifiedUser(req) {
     ? String(req.body.role || req.body.operatorRole).toUpperCase()
     : null;
 
+  let effectiveRole = actualRole;
+  let effectiveLevel = actualLevel;
+
   if (requestedOverride && requestedOverride !== actualRole) {
     const requestedLevel = ROLE_LEVELS[requestedOverride] || 1;
     if (requestedLevel > actualLevel) {
@@ -55,15 +58,26 @@ function resolveVerifiedUser(req) {
         error: `PRIVILEGE_ESCALATION_BLOCKED: Authenticated role '${actualRole}' cannot escalate to '${requestedOverride}' via request body.`
       };
     }
-    return {
-      allowed: true,
-      user: { ...verified, role: requestedOverride, authenticatedRole: actualRole, isDowngradedSimulation: true }
-    };
+    effectiveRole = requestedOverride;
+    effectiveLevel = requestedLevel;
+  }
+
+  if (minRole) {
+    const minLevel = ROLE_LEVELS[String(minRole).toUpperCase()] || 1;
+    if (effectiveLevel < minLevel) {
+      return {
+        allowed: false,
+        status: 403,
+        error: `INSUFFICIENT_PERMISSIONS: Operation requires minimum role '${minRole}', current role is '${effectiveRole}'.`
+      };
+    }
   }
 
   return {
     allowed: true,
-    user: { ...verified, role: actualRole, authenticatedRole: actualRole }
+    user: requestedOverride && requestedOverride !== actualRole
+      ? { ...verified, role: effectiveRole, authenticatedRole: actualRole, isDowngradedSimulation: true }
+      : { ...verified, role: actualRole, authenticatedRole: actualRole }
   };
 }
 
@@ -173,8 +187,38 @@ router.get('/evidence', (req, res) => {
   }));
 });
 
-router.post('/evidence', (req, res) => {
-  const rec = evidenceFabric.recordEvidence(req.body || {});
+router.post('/evidence', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.evidence_fabric.record',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+  const body = req.body || {};
+  if (!body.type || typeof body.type !== 'string' || !body.subject || typeof body.subject !== 'string' || !body.claim || typeof body.claim !== 'string') {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.evidence_fabric.record',
+      status: 'invalid_input',
+      error: { code: 'VALIDATION_FAILED', message: 'Fields type, subject, and claim are required strings.' }
+    }));
+  }
+  if (body.type.length > 64 || body.subject.length > 256 || body.claim.length > 2048) {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.evidence_fabric.record',
+      status: 'invalid_input',
+      error: { code: 'VALIDATION_FAILED', message: 'Field length limits exceeded (type: 64, subject: 256, claim: 2048).' }
+    }));
+  }
+  const rec = evidenceFabric.recordEvidence({
+    ...body,
+    recordedBy: authCheck.user.username,
+    operatorRole: authCheck.user.role
+  });
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.v6.evidence_fabric.record',
@@ -238,23 +282,64 @@ router.get('/temporal-graph/diff', (req, res) => {
 });
 
 // Part VI & VII: Cross-Layer Incident Correlation & Explainable Causal Investigation
-router.post('/correlate', (req, res) => {
-  const report = crossLayerIncidentCorrelator.correlateSignals(req.body || {});
+router.post('/correlate', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.correlation.cross_layer_rca',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+  const body = req.body || {};
+  if (body.target && typeof body.target === 'string') {
+    const rawTarget = body.target.trim();
+    if (/^169\.254\.169\.254$/i.test(rawTarget) || /metadata\.google/i.test(rawTarget)) {
+      return res.status(400).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.correlation.cross_layer_rca',
+        status: 'blocked',
+        error: { code: 'SECURITY_VIOLATION_SSRF', message: 'Target hostname rejected by SSRF guard.' }
+      }));
+    }
+  }
+  const report = crossLayerIncidentCorrelator.correlateSignals(body);
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.correlation.cross_layer_rca',
-    source: { module: 'CrossLayerIncidentCorrelator', method: 'correlateSignals', privilege: 'unprivileged', fidelity: 'derived' },
+    source: { module: 'CrossLayerIncidentCorrelator', method: 'correlateSignals', privilege: authCheck.user.role, fidelity: 'derived' },
     status: 'ok',
     data: report,
     evidenceIds: (report.evidenceRecords || []).map((e) => e.id)
   }));
 });
 
-router.post('/diagnose-hostname', async (req, res) => {
+router.post('/diagnose-hostname', authenticate, async (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.diagnostics.unreachable_hostname_workflow',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
   try {
-    const hostname = (req.body && (req.body.hostname || req.body.target)) || 'localhost';
-    const port = Number((req.body && req.body.port) || 3000);
-    const result = await crossLayerIncidentCorrelator.diagnoseUnreachableHostname(hostname, port);
+    const rawHost = String((req.body && (req.body.hostname || req.body.target)) || 'localhost').trim();
+    const port = Math.max(1, Math.min(65535, Number((req.body && req.body.port) || 3000)));
+
+    // SSRF & injection protection: block cloud metadata and invalid characters
+    if (/^169\.254\.169\.254$/i.test(rawHost) || /metadata\.google/i.test(rawHost) || /[^a-zA-Z0-9.-]/.test(rawHost)) {
+      return res.status(400).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.diagnostics.unreachable_hostname_workflow',
+        status: 'blocked',
+        error: { code: 'SECURITY_VIOLATION_SSRF', message: 'Target hostname rejected by SSRF guard.' }
+      }));
+    }
+
+    const result = await crossLayerIncidentCorrelator.diagnoseUnreachableHostname(rawHost, port);
     res.json(createEjiiResult({
       success: true,
       capabilityId: 'ejii.diagnostics.unreachable_hostname_workflow',
@@ -329,7 +414,16 @@ router.get('/actions', (req, res) => {
   }));
 });
 
-router.post('/actions/:id/preview', (req, res) => {
+router.post('/actions/:id/preview', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.governance.preview_action',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
   const preview = governedActionControlPlane.previewAction(req.params.id, req.body || {});
   res.status(preview.success ? 200 : 404).json(createEjiiResult({
     success: preview.success,
@@ -340,7 +434,7 @@ router.post('/actions/:id/preview', (req, res) => {
 });
 
 router.post('/actions/:id/execute', authenticate, async (req, res) => {
-  const authCheck = resolveVerifiedUser(req);
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
   if (!authCheck.allowed) {
     return res.status(authCheck.status).json(createEjiiResult({
       success: false,
