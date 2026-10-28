@@ -723,8 +723,8 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
           });
         });
         previewServer.on('error', () => {});
-        previewServer.listen(3000, '0.0.0.0', () => {
-          console.log(`  [EJII Preview Bridge] Listening on http://0.0.0.0:3000`);
+        previewServer.listen(3000, HOST, () => {
+          console.log(`  [EJII Preview Bridge] Listening on http://${HOST}:3000`);
         });
       } catch (_) {}
     }

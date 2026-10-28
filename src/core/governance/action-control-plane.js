@@ -7,6 +7,9 @@
  */
 
 const crypto = require('crypto');
+const dns = require('dns');
+const { execFile } = require('child_process');
+const { performance } = require('perf_hooks');
 const { db } = require('../../db/database');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
 const { temporalInfrastructureGraph } = require('../topology/temporal-graph-engine');
@@ -24,6 +27,28 @@ const resolveDns = async (hostname) => {
   const r = await resolveRecord(hostname, 'A');
   return { ...r, addresses: r.records || [], latencyMs: r.durationMs };
 };
+
+function attemptOsDnsFlush(timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const cmd = process.platform === 'win32' ? 'ipconfig' : 'resolvectl';
+    const args = process.platform === 'win32' ? ['/flushdns'] : ['flush-caches'];
+    execFile(cmd, args, { timeout: timeoutMs, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({
+          osFlushExecuted: false,
+          osFlushCommand: `${cmd} ${args.join(' ')}`,
+          osFlushNote: err.code === 'ENOENT' ? `${cmd} binary not installed on host` : (stderr || err.message || 'OS flush requires elevated privileges')
+        });
+      } else {
+        resolve({
+          osFlushExecuted: true,
+          osFlushCommand: `${cmd} ${args.join(' ')}`,
+          osFlushOutput: String(stdout || '').trim().slice(0, 200)
+        });
+      }
+    });
+  });
+}
 
 function ensureGovernanceTables() {
   try {
@@ -328,17 +353,17 @@ class PolicyGovernanceEngine {
 const ACTION_DEFINITIONS = Object.freeze([
   {
     id: 'verify_and_refresh_dns_resolution',
-    name: 'Flush & Re-Verify Authoritative DNS Resolution',
+    name: 'Refresh Process DNS Resolver & Verify Live Resolution',
     category: 'network_dns',
     requiredRole: 'OPERATOR',
     riskLevel: 'low',
     blastRadius: 'none',
-    description: 'Validates local DNS resolver reachability, clears stale application DNS cache entries, and verifies RFC 1035 A-record resolution.',
+    description: 'Re-initializes the Node.js c-ares resolver channel, attempts OS resolver cache flush if permitted, and performs a live timed DNS lookup.',
     commandPreview: {
       win32: 'ipconfig /flushdns && nslookup <target>',
-      linux: 'resolvectl flush-caches || dig +short <target>'
+      linux: 'resolvectl flush-caches || getent hosts <target>'
     },
-    rollbackPlan: 'Automatic fallback to secondary recursive resolver (1.1.1.1 / 8.8.8.8) if primary resolver fails.',
+    rollbackPlan: 'Restore previous c-ares DNS server list via dns.setServers(previousServers) if postcondition verification fails.',
     linkedAcademyModuleId: 'mod-dns-tls-application',
     linkedAcademyLabId: 'lab-dns-failure-vs-tcp-refusal'
   },
@@ -553,20 +578,55 @@ class GovernedActionControlPlane {
 
     if (actionId === 'verify_and_refresh_dns_resolution') {
       const dnsHost = target === '127.0.0.1' ? 'localhost' : target;
-      const dnsRes = dnsHost === 'localhost'
-        ? { success: true, addresses: ['127.0.0.1'], latencyMs: 0.4 }
-        : await resolveDns(dnsHost);
+      const previousServers = dns.getServers();
+      let cAresRefreshed = false;
+      try {
+        dns.setServers(previousServers);
+        cAresRefreshed = true;
+      } catch (_) {
+        cAresRefreshed = false;
+      }
+      const osFlushResult = await attemptOsDnsFlush(1200);
+      const t0 = performance.now();
+      let dnsRes;
+      try {
+        const records = await dns.promises.lookup(dnsHost, { all: true });
+        const latencyMs = Number((performance.now() - t0).toFixed(2));
+        const addresses = Array.isArray(records) ? records.map((r) => r.address).filter(Boolean) : [];
+        dnsRes = {
+          success: addresses.length > 0,
+          addresses,
+          latencyMs,
+          cAresRefreshed,
+          configuredResolvers: previousServers,
+          ...osFlushResult
+        };
+      } catch (lookupErr) {
+        const fallbackRes = await resolveDns(dnsHost).catch((e) => ({
+          success: false,
+          addresses: [],
+          errorCode: e.code || lookupErr.code || 'ENOTFOUND',
+          errorMessage: e.message || lookupErr.message
+        }));
+        dnsRes = {
+          ...fallbackRes,
+          success: Boolean(fallbackRes && fallbackRes.success && Array.isArray(fallbackRes.addresses) && fallbackRes.addresses.length > 0),
+          cAresRefreshed,
+          configuredResolvers: previousServers,
+          ...osFlushResult
+        };
+      }
       actionOutcome = {
         executed: true,
-        summary: `DNS resolution audit executed for ${dnsHost}`,
+        summary: `DNS resolver refreshed (c-ares=${cAresRefreshed}, osFlush=${osFlushResult.osFlushExecuted}) and live lookup executed for ${dnsHost}`,
         details: dnsRes
       };
       postconditionVerification = {
-        verified: Boolean(dnsRes && dnsRes.success),
-        checkMethod: 'rfc1035_udp_dns',
+        verified: Boolean(dnsRes && dnsRes.success && Array.isArray(dnsRes.addresses) && dnsRes.addresses.length > 0),
+        checkMethod: 'live_dns_lookup',
         summary: dnsRes && dnsRes.success
-          ? `Postcondition verified: ${dnsHost} resolves to ${(dnsRes.addresses || []).join(', ')}`
-          : `Postcondition failed: ${dnsHost} remains unresolved (${dnsRes?.errorCode || 'ENOTFOUND'})`
+          ? `Postcondition verified: ${dnsHost} resolved to ${(dnsRes.addresses || []).join(', ')} in ${dnsRes.latencyMs}ms`
+          : `Postcondition failed: ${dnsHost} failed resolution (${dnsRes?.errorCode || 'ENOTFOUND'})`
       };
     } else if (actionId === 'verify_gateway_and_route_table') {
       const pingRes = await pingHost(target, 1, 1500).catch((e) => ({ alive: false, error: e.message }));
@@ -692,7 +752,20 @@ class GovernedActionControlPlane {
         JSON.stringify(executionRecord),
         executedAt
       );
-    } catch (_) {}
+    } catch (persistErr) {
+      this.executions.delete(executionId);
+      return {
+        success: false,
+        status: 'persistence_failed',
+        executionId,
+        actionId: def.id,
+        target,
+        error: {
+          code: 'EXECUTION_PERSISTENCE_FAILED',
+          message: `Failed to persist governed action execution record: ${persistErr.message}`
+        }
+      };
+    }
 
     return executionRecord;
   }

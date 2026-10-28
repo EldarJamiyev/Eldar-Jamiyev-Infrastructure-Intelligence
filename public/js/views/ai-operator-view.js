@@ -24,7 +24,7 @@
   function operatorAuthFetch(url, options = {}) {
     const headers = Object.assign({}, options.headers || {});
     try {
-      const token = localStorage.getItem('ejii_token');
+      const token = localStorage.getItem('eji_token') || localStorage.getItem('ejii_token');
       if (token && !headers.Authorization) {
         headers.Authorization = 'Bearer ' + token;
       }
@@ -104,7 +104,6 @@
   }
 
   window.refreshProactiveOperatorBanner = async function () {
-    if (!localStorage.getItem('ejii_token')) return;
     await fetchOperatorState();
   };
 
@@ -550,11 +549,11 @@
             <!-- 3. Infrastructure Time Machine -->
             <div class="ai-op-col-12 ai-op-card-subtle">
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
-                <div class="ai-op-kicker" style="margin:0;">3. INFRASTRUCTURE TIME MACHINE · SYNCHRONIZED INCIDENT TIMELINE REPLAY</div>
+                <div class="ai-op-kicker" style="margin:0;">3. INFRASTRUCTURE TIME MACHINE · EMPIRICAL TELEMETRY &amp; SNAPSHOT REPLAY</div>
                 <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:440px;">
-                  <span class="ai-op-mono" style="font-size:11px;color:var(--text-muted);">T-15m</span>
+                  <span class="ai-op-mono" style="font-size:11px;color:var(--text-muted);">${esc(frames[0]?.offsetLabel || 'INIT')}</span>
                   <input type="range" id="aiOpTimeScrubber" min="0" max="${Math.max(0, frames.length - 1)}" value="${curIdx}" style="flex:1;accent-color:var(--accent-primary);" oninput="window.scrubOperatorTimeMachine(this.value)" aria-label="Incident Time Machine Scrubber">
-                  <span class="ai-op-mono" style="font-size:11px;color:var(--text-muted);">T-00m</span>
+                  <span class="ai-op-mono" style="font-size:11px;color:var(--text-muted);">${esc(frames[frames.length - 1]?.offsetLabel || 'LIVE')}</span>
                 </div>
               </div>
               ${buildTimeMachineSparklineSvg(frames)}
@@ -607,16 +606,28 @@
                 <strong>Directive:</strong> &ldquo;${esc(task.goal)}&rdquo;
               </div>
               <div style="display:flex;flex-direction:column;gap:7px;">
-                ${(task.steps || []).map((s) => `
+                ${(task.steps || []).map((s) => {
+                  const stCls = s.status === 'COMPLETED'
+                    ? 'ai-op-tag-nominal'
+                    : (s.status === 'FAILED' || s.status === 'FAILED_AND_ROLLED_BACK' || s.status === 'BLOCKED_PRECONDITION')
+                      ? 'ai-op-tag-critical'
+                      : 'ai-op-tag-warning';
+                  return `
                   <div style="padding:8px 10px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border-default);font-size:11.5px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
                       <strong>Step ${esc(s.step)}: <code class="ai-op-mono">${esc(s.tool)}</code></strong>
-                      <span class="ai-op-tag ${s.status === 'COMPLETED' ? 'ai-op-tag-nominal' : 'ai-op-tag-warning'}">${esc(s.status)}</span>
+                      <span class="ai-op-tag ${stCls}">${esc(s.status)}</span>
                     </div>
                     <div style="color:var(--text-secondary);margin-top:4px;line-height:1.4;">${esc(s.finding)}</div>
                   </div>
-                `).join('')}
+                `;
+                }).join('')}
               </div>
+              ${Array.isArray(task.uncertainties) && task.uncertainties.length > 0 ? `
+                <div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.35);font-size:11px;color:var(--text-secondary);">
+                  <strong>Recorded Uncertainties / Probe Failures:</strong> ${esc(task.uncertainties.join(' · '))}
+                </div>
+              ` : ''}
             </div>
 
             <!-- 5. AI Operations Council -->
@@ -672,29 +683,32 @@
                 ${(fleet.hosts || []).map((h) => {
                   const tagCls = h.healthStatus === 'NOMINAL' ? 'ai-op-tag-nominal' : 'ai-op-tag-warning';
                   const barCol = h.healthStatus === 'NOMINAL' ? 'var(--status-nominal)' : 'var(--status-warning)';
+                  const latLabel = typeof h.latencyMs === 'number' ? `${h.latencyMs}ms` : 'Unprobed';
+                  const cpuLabel = typeof h.cpuPct === 'number' ? `${h.cpuPct}%` : 'N/A (No Agent)';
+                  const ramLabel = typeof h.ramPct === 'number' ? `${h.ramPct}%` : 'N/A (No Agent)';
                   return `
                     <div style="padding:10px 12px;border-radius:7px;background:var(--bg-surface);border:1px solid var(--border-default);font-size:11.5px;display:flex;flex-direction:column;gap:6px;">
                       <div style="display:flex;justify-content:space-between;align-items:center;">
                         <strong class="ai-op-mono" style="font-size:12px;">${esc(h.hostname)}</strong>
-                        <span class="ai-op-tag ${tagCls}">${esc(h.healthStatus)} · ${esc(h.latencyMs)}ms</span>
+                        <span class="ai-op-tag ${tagCls}">${esc(h.healthStatus)} · ${esc(latLabel)}</span>
                       </div>
                       <div style="color:var(--text-secondary);font-size:11px;">${esc(h.os)} · <code class="ai-op-mono">${esc(h.ip)}</code></div>
                       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px;">
                         <div>
                           <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:3px;">
-                            <span>CPU</span><span class="ai-op-mono">${esc(h.cpuPct)}%</span>
+                            <span>CPU</span><span class="ai-op-mono">${esc(cpuLabel)}</span>
                           </div>
-                          <div class="ai-op-meter-track"><div class="ai-op-meter-fill" style="width:${Math.min(100, Number(h.cpuPct) || 0)}%;background:${barCol};"></div></div>
+                          <div class="ai-op-meter-track"><div class="ai-op-meter-fill" style="width:${typeof h.cpuPct === 'number' ? Math.min(100, h.cpuPct) : 0}%;background:${barCol};"></div></div>
                         </div>
                         <div>
                           <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:3px;">
-                            <span>RAM</span><span class="ai-op-mono">${esc(h.ramPct)}%</span>
+                            <span>RAM</span><span class="ai-op-mono">${esc(ramLabel)}</span>
                           </div>
-                          <div class="ai-op-meter-track"><div class="ai-op-meter-fill" style="width:${Math.min(100, Number(h.ramPct) || 0)}%;background:var(--accent-primary);"></div></div>
+                          <div class="ai-op-meter-track"><div class="ai-op-meter-fill" style="width:${typeof h.ramPct === 'number' ? Math.min(100, h.ramPct) : 0}%;background:var(--accent-primary);"></div></div>
                         </div>
                       </div>
-                      <div style="font-size:11px;color:${h.configurationDrift === 'NONE' ? 'var(--text-muted)' : 'var(--status-warning)'};padding-top:4px;border-top:1px solid var(--border-subtle);">
-                        <strong>Drift:</strong> ${esc(h.configurationDrift)}
+                      <div style="font-size:11px;color:${h.healthStatus === 'NOMINAL' ? 'var(--text-muted)' : 'var(--status-warning)'};padding-top:4px;border-top:1px solid var(--border-subtle);">
+                        <strong>Status:</strong> ${esc(h.configurationDrift)}
                       </div>
                     </div>
                   `;

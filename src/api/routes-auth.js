@@ -34,6 +34,15 @@ router.post('/login', loginRateLimiter, (req, res) => {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
 
+  const { HOST, PORT, KNOWN_DEFAULT_PASSWORDS, isLocalLoopbackHost } = require('../config');
+  const isNetworkExposed = !isLocalLoopbackHost(HOST) && Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test';
+  if ((process.env.NODE_ENV === 'production' || isNetworkExposed) && KNOWN_DEFAULT_PASSWORDS.includes(password)) {
+    recordLoginAttempt(req, false);
+    return res.status(403).json({
+      error: 'Default credentials are prohibited in production or on network-exposed interfaces. Please rotate the operator password.'
+    });
+  }
+
   // Find user in database
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim());
 
@@ -78,12 +87,15 @@ router.post('/login', loginRateLimiter, (req, res) => {
 
 /**
  * POST /api/auth/quick-noc
- * 1-click single-operator unprivileged NOC workstation sign-in
+ * 1-click single-operator unprivileged NOC workstation sign-in (Local / Evaluation Only)
  */
 router.post('/quick-noc', (req, res) => {
-  const { IS_EVALUATION_MODE } = require('../config');
-  if (!IS_EVALUATION_MODE) {
-    return res.status(403).json({ error: 'Quick NOC login is disabled in production environments.' });
+  const { IS_EVALUATION_MODE, HOST, PORT, isLocalLoopbackHost } = require('../config');
+  const isNetworkExposed = !isLocalLoopbackHost(HOST) && Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test';
+  if (!IS_EVALUATION_MODE || process.env.NODE_ENV === 'production' || isNetworkExposed) {
+    return res.status(403).json({
+      error: 'Quick NOC login is disabled in production and on non-loopback network-exposed interfaces.'
+    });
   }
 
   const requestedTarget = (req.body && (req.body.role || req.body.username)) ? String(req.body.role || req.body.username).trim() : null;
