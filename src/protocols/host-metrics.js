@@ -252,15 +252,35 @@ async function getServices(filter = '') {
       const { execSync } = require('child_process');
       const out = execSync('systemctl list-units --type=service --state=running --no-legend --no-pager 2>/dev/null || true', { encoding: 'utf8' });
       const lines = out.trim().split('\n').filter(Boolean).slice(0, 50);
-      return lines.map(line => {
+      if (lines.length > 0) {
+        return lines.map(line => {
+          const parts = line.trim().split(/\s+/);
+          return {
+            name: parts[0] || 'service',
+            displayName: parts[0] || 'service',
+            status: parts[3] === 'running' ? 'Running' : 'Stopped',
+            startType: 'Systemd'
+          };
+        });
+      }
+      // Container / non-systemd POSIX fallback using active processes
+      const psOut = execSync('ps -eo pid,comm --no-headers 2>/dev/null || true', { encoding: 'utf8' });
+      const psLines = psOut.trim().split('\n').filter(Boolean).slice(0, 25);
+      const services = psLines.map(line => {
         const parts = line.trim().split(/\s+/);
+        const comm = parts[1] || 'daemon';
         return {
-          name: parts[0] || 'service',
-          displayName: parts[0] || 'service',
-          status: parts[3] === 'running' ? 'Running' : 'Stopped',
-          startType: 'Systemd'
+          name: comm,
+          displayName: `${comm} (PID ${parts[0]})`,
+          status: 'Running',
+          startType: 'Daemon'
         };
       });
+      if (sanitizedFilter) {
+        const lower = sanitizedFilter.toLowerCase();
+        return services.filter(s => s.name.toLowerCase().includes(lower) || s.displayName.toLowerCase().includes(lower));
+      }
+      return services;
     } catch (e) {
       return [];
     }

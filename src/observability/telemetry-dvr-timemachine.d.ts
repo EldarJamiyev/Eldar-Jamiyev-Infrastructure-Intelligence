@@ -13,7 +13,10 @@ export interface DvrSocketSnapshot {
 }
 export interface DvrKeyframe {
     readonly id: string;
+    readonly sequenceNumber?: number;
     readonly timestampMs: number;
+    readonly capturedAtMs?: number;
+    readonly ingestedAtMs?: number;
     readonly isoTime: string;
     readonly label: string;
     readonly topologyNodeCount: number;
@@ -29,8 +32,15 @@ export interface DvrSnapshotDiff {
     readonly fromId: string;
     readonly toId: string;
     readonly timeDeltaMs: number;
+    readonly sequenceDelta?: number;
+    readonly intervalStatus?: 'CONTINUOUS' | 'INCOMPLETE_INTERVAL' | 'TELEMETRY_GAP';
+    readonly missingFramesCount?: number;
     readonly addedNodes: readonly string[];
     readonly removedNodes: readonly string[];
+    readonly modifiedNodeAttributes?: Readonly<Record<string, {
+        readonly ipChanged?: boolean;
+        readonly roleChanged?: boolean;
+    }>>;
     readonly latencyDeltaByNode: Readonly<Record<string, number>>;
     readonly newSockets: readonly string[];
     readonly closedSockets: readonly string[];
@@ -46,6 +56,12 @@ export declare class TelemetryDvrTimeMachine {
     private readonly ringBuffer;
     private frameCounter;
     constructor(maxFrames?: number);
+    private seedInitialBaseline;
+    /**
+     * Resets the DVR ring buffer and sequence counter cleanly
+     */
+    reset(reseedBaseline?: boolean): void;
+    shutdown(): void;
     /**
      * Records a new keyframe into the ring buffer
      */

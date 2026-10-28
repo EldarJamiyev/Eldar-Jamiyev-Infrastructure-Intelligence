@@ -704,7 +704,26 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
           : 'cmd.exe')
       : 'sh';
 
-    if (executionType === 'powershell') {
+    if (process.platform !== 'win32') {
+      const fLower = scriptName.toLowerCase();
+      let posixCmd = 'uname -a && uptime';
+      if (fLower.includes('uptime')) {
+        posixCmd = `python3 -c "import os, time, datetime; up=float(open('/proc/uptime').read().split()[0]); boot=datetime.datetime.fromtimestamp(time.time()-up).strftime('%Y-%m-%d %H:%M:%S'); days=int(up//86400); hrs=int((up%86400)//3600); mins=int((up%3600)//60); print(f'LastBootUpTime: {boot} | Uptime: {days} Days, {hrs} Hours, {mins} Minutes')"`;
+      } else if (fLower.includes('dns') || fLower.includes('ip')) {
+        posixCmd = 'cat /etc/resolv.conf 2>/dev/null; ip -4 addr show 2>/dev/null || hostname -I';
+      } else if (fLower.includes('arp')) {
+        posixCmd = 'cat /proc/net/arp 2>/dev/null || ip neigh show 2>/dev/null';
+      } else if (fLower.includes('route') || fLower.includes('netstat') || fLower.includes('port')) {
+        posixCmd = 'ip route show 2>/dev/null; ss -tunap 2>/dev/null | head -n 25';
+      } else {
+        posixCmd = `echo "[POSIX Host Bridge: ${scriptName.replace(/"/g, '')}]" && uname -a && uptime`;
+      }
+      child = spawn('sh', ['-c', posixCmd], {
+        cwd: activeDir,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } else if (executionType === 'powershell') {
       // Execute via PowerShell with UTF-8 encoding and ExecutionPolicy Bypass
       const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & { ${content} }`;
       child = spawn(psExe, [

@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HardwareKernelInspector = void 0;
 // src/diagnostics/hardware-kernel-inspector.ts
 const node_child_process_1 = require("node:child_process");
+const fs = __importStar(require("node:fs"));
+const dns = __importStar(require("node:dns"));
 const os = __importStar(require("node:os"));
 class HardwareKernelInspector {
     /**
@@ -54,17 +56,32 @@ class HardwareKernelInspector {
         }
     }
     static inspectWindows(inspectedAt, hostName, osPlatform, osRelease) {
+        const fieldProvenance = {
+            hostName: 'live',
+            osPlatform: 'live',
+            osRelease: 'live',
+            interfaceName: 'unavailable',
+            ssid: 'unavailable',
+            bssid: 'unavailable',
+            signalQualityPct: 'unavailable',
+            congestionControlProvider: 'unavailable',
+            ecnCapability: 'unavailable',
+            activeDnsServers: 'live',
+            mtu: 'live'
+        };
+        const sysDns = dns.getServers().filter(s => s && !s.startsWith('127.') && s !== '::1');
         let radioData = {
-            interfaceName: 'Wi-Fi',
-            interfaceType: 'Wi-Fi 802.11ax/ac',
-            ssid: 'Office-WLAN-5G',
-            bssid: '50:64:2B:11:22:33',
-            radioBand: '5 GHz',
-            channel: 36,
-            signalQualityPct: 92,
-            rxRateMbps: 866.7,
-            txRateMbps: 866.7,
-            linkState: 'connected'
+            interfaceName: 'Ethernet0',
+            interfaceType: 'Gigabit Ethernet',
+            ssid: 'N/A (Wired / No WLAN Radio)',
+            bssid: '00:00:00:00:00:00',
+            radioBand: 'Wired',
+            channel: 0,
+            signalQualityPct: 0,
+            rxRateMbps: 1000,
+            txRateMbps: 1000,
+            linkState: 'connected',
+            wirelessHardwarePresent: false
         };
         let kernelData = {
             autoTuningLevel: 'normal',
@@ -72,7 +89,7 @@ class HardwareKernelInspector {
             ecnCapability: 'disabled',
             receiveSideScalingRss: 'enabled',
             receiveSegmentCoalescingRsc: 'enabled',
-            activeDnsServers: ['192.168.31.1', '8.8.8.8'],
+            activeDnsServers: sysDns.length > 0 ? sysDns : ['192.168.31.1', '8.8.8.8'],
             mtu: 1500
         };
         let executionSuccess = false;
@@ -97,17 +114,22 @@ class HardwareKernelInspector {
                     band = '5 GHz';
                 else if (channel > 0)
                     band = '2.4 GHz';
+                fieldProvenance.interfaceName = 'live';
+                fieldProvenance.ssid = ssid ? 'live' : 'unavailable';
+                fieldProvenance.bssid = bssid ? 'live' : 'unavailable';
+                fieldProvenance.signalQualityPct = !isNaN(signal) ? 'live' : 'unavailable';
                 radioData = {
                     interfaceName: getVal(/Name\s*:\s*([^\r\n]+)/) || 'Wi-Fi',
                     interfaceType: radioType.includes('802.11') ? 'Wi-Fi 802.11ax/ac' : 'Wi-Fi 802.11ax/ac',
-                    ssid: ssid || 'Wi-Fi Network',
+                    ssid: ssid || 'Unavailable',
                     bssid: bssid || '00:00:00:00:00:00',
                     radioBand: band,
-                    channel: isNaN(channel) ? 36 : channel,
-                    signalQualityPct: isNaN(signal) ? 88 : signal,
-                    rxRateMbps: isNaN(rx) ? 433.3 : rx,
-                    txRateMbps: isNaN(tx) ? 433.3 : tx,
-                    linkState: 'connected'
+                    channel: isNaN(channel) ? 0 : channel,
+                    signalQualityPct: isNaN(signal) ? 0 : signal,
+                    rxRateMbps: isNaN(rx) ? 0 : rx,
+                    txRateMbps: isNaN(tx) ? 0 : tx,
+                    linkState: 'connected',
+                    wirelessHardwarePresent: true
                 };
             }
         }
@@ -126,6 +148,8 @@ class HardwareKernelInspector {
                 const ecn = getVal(/ECN Capability\s*:\s*([^\r\n]+)/);
                 const rss = getVal(/Receive-Side Scaling State\s*:\s*([^\r\n]+)/);
                 const rsc = getVal(/Receive Segment Coalescing State\s*:\s*([^\r\n]+)/);
+                fieldProvenance.congestionControlProvider = congestion ? 'live' : 'unavailable';
+                fieldProvenance.ecnCapability = ecn ? 'live' : 'unavailable';
                 kernelData = {
                     autoTuningLevel: autoTuning || kernelData.autoTuningLevel,
                     congestionControlProvider: congestion || kernelData.congestionControlProvider,
@@ -145,44 +169,111 @@ class HardwareKernelInspector {
             osRelease,
             radio: radioData,
             kernelTcp: kernelData,
-            rawInspectionStatus: executionSuccess ? 'LIVE_OS_TELEMETRY' : 'DETERMINISTIC_FALLBACK'
+            rawInspectionStatus: executionSuccess ? 'LIVE_OS_TELEMETRY' : 'DETERMINISTIC_FALLBACK',
+            fieldProvenance,
+            evidentiaryNote: executionSuccess
+                ? 'Live OS telemetry collected from Windows netsh interfaces.'
+                : 'Wireless interface or privileged kernel sysctl unavailable; non-live fields marked in fieldProvenance.'
         };
     }
     static inspectLinuxOrFallback(inspectedAt, hostName, osPlatform, osRelease) {
+        const fieldProvenance = {
+            hostName: 'live',
+            osPlatform: 'live',
+            osRelease: 'live',
+            interfaceName: 'live',
+            ssid: 'unsupported',
+            bssid: 'unsupported',
+            signalQualityPct: 'unsupported',
+            congestionControlProvider: 'unavailable',
+            ecnCapability: 'unavailable',
+            activeDnsServers: 'live',
+            mtu: 'live'
+        };
+        let liveKernelObserved = false;
         let congestion = 'CUBIC';
         try {
-            const c = (0, node_child_process_1.execSync)('sysctl -n net.ipv4.tcp_congestion_control', { timeout: 500, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-            if (c && c.trim())
-                congestion = c.trim().toUpperCase();
+            if (fs.existsSync('/proc/sys/net/ipv4/tcp_congestion_control')) {
+                const c = fs.readFileSync('/proc/sys/net/ipv4/tcp_congestion_control', 'utf8').trim();
+                if (c) {
+                    congestion = c.toUpperCase();
+                    fieldProvenance.congestionControlProvider = 'live';
+                    liveKernelObserved = true;
+                }
+            }
+            else {
+                const c = (0, node_child_process_1.execSync)('sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null', { timeout: 500, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+                if (c && c.trim()) {
+                    congestion = c.trim().toUpperCase();
+                    fieldProvenance.congestionControlProvider = 'live';
+                    liveKernelObserved = true;
+                }
+            }
         }
         catch (_) { }
+        let ecnCapability = 'disabled';
+        try {
+            if (fs.existsSync('/proc/sys/net/ipv4/tcp_ecn')) {
+                const ecnVal = fs.readFileSync('/proc/sys/net/ipv4/tcp_ecn', 'utf8').trim();
+                ecnCapability = (ecnVal === '1' || ecnVal === '2') ? 'enabled' : 'disabled';
+                fieldProvenance.ecnCapability = 'live';
+                liveKernelObserved = true;
+            }
+        }
+        catch (_) { }
+        // Inspect primary Linux interface from os.networkInterfaces() and /sys/class/net
+        let primaryIface = 'eth0';
+        let mtu = 1500;
+        try {
+            const ifaces = os.networkInterfaces();
+            for (const [name, addrs] of Object.entries(ifaces)) {
+                if (!Array.isArray(addrs))
+                    continue;
+                if (addrs.some(a => !a.internal && a.family === 'IPv4')) {
+                    primaryIface = name;
+                    liveKernelObserved = true;
+                    break;
+                }
+            }
+            const mtuPath = `/sys/class/net/${primaryIface}/mtu`;
+            if (fs.existsSync(mtuPath)) {
+                const parsedMtu = parseInt(fs.readFileSync(mtuPath, 'utf8').trim(), 10);
+                if (parsedMtu >= 576 && parsedMtu <= 9000)
+                    mtu = parsedMtu;
+            }
+        }
+        catch (_) { }
+        const sysDns = dns.getServers().filter(Boolean);
         return {
             inspectedAt,
             hostName,
             osPlatform,
             osRelease,
             radio: {
-                interfaceName: 'eth0',
+                interfaceName: primaryIface,
                 interfaceType: 'Gigabit Ethernet',
-                ssid: 'Wired Network',
+                ssid: 'Wired Network (No 802.11 PHY)',
                 bssid: '00:00:00:00:00:00',
                 radioBand: 'Wired',
                 channel: 0,
                 signalQualityPct: 100,
                 rxRateMbps: 1000,
                 txRateMbps: 1000,
-                linkState: 'connected'
+                linkState: 'connected',
+                wirelessHardwarePresent: false
             },
             kernelTcp: {
                 autoTuningLevel: 'normal',
                 congestionControlProvider: congestion,
-                ecnCapability: 'disabled',
+                ecnCapability,
                 receiveSideScalingRss: 'enabled',
                 receiveSegmentCoalescingRsc: 'enabled',
-                activeDnsServers: ['127.0.0.53', '1.1.1.1'],
-                mtu: 1500
+                activeDnsServers: sysDns.length > 0 ? sysDns : ['127.0.0.53', '1.1.1.1'],
+                mtu
             },
-            rawInspectionStatus: 'DETERMINISTIC_FALLBACK'
+            rawInspectionStatus: liveKernelObserved ? 'LIVE_OS_TELEMETRY' : 'DETERMINISTIC_FALLBACK',
+            fieldProvenance,
+            evidentiaryNote: 'Linux container/host interface and /proc/sys/net/ipv4 kernel parameters inspected; 802.11 radio fields marked unsupported on wired/virtual NIC.'
         };
     }
 }

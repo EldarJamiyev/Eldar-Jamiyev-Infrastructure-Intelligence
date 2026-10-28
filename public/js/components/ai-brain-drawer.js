@@ -553,15 +553,16 @@ function escapeHtml(str) {
    */
   async function fetchLiveBrainState() {
     try {
+      if (!window.state || !window.state.token) return;
       if (typeof window.api === 'function') {
-        const data = await window.api('/api/network/ai-brain/live');
+        const data = await window.api('/api/network/ai-brain/live', { silent: true });
         if (data) {
           currentBrainState = data;
           updateDrawerDom(data);
         }
       }
     } catch (e) {
-      // Backend may be momentarily busy
+      // Backend may be momentarily busy or session not yet authenticated
     }
   }
 

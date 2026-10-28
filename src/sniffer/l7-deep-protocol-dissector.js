@@ -72,11 +72,22 @@ const HTTP2_FRAME_TYPES = {
     0x9: 'CONTINUATION'
 };
 class L7DeepProtocolDissector {
+    static isValidSlice(rawBuffer, offset, length, minLen) {
+        if (!rawBuffer || !(rawBuffer instanceof Uint8Array))
+            return false;
+        if (!Number.isInteger(offset) || !Number.isInteger(length))
+            return false;
+        if (offset < 0 || length < minLen)
+            return false;
+        if (offset + length > rawBuffer.byteLength)
+            return false;
+        return true;
+    }
     /**
      * Dissects QUIC wire packets (RFC 9000 / RFC 9369)
      */
-    static dissectQuicPacket(rawBuffer, offset = 0, length = rawBuffer.byteLength - offset) {
-        if (length < 6 || offset + length > rawBuffer.byteLength)
+    static dissectQuicPacket(rawBuffer, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
+        if (!this.isValidSlice(rawBuffer, offset, length, 6))
             return null;
         const view = new DataView(rawBuffer.buffer, rawBuffer.byteOffset + offset, length);
         const firstByte = view.getUint8(0);
@@ -128,6 +139,10 @@ class L7DeepProtocolDissector {
                 }
             }
             const dcidLen = view.getUint8(5);
+            // RFC 9000 Section 17.2: In QUIC v1/v2, CID length MUST NOT exceed 20 bytes
+            if ((versionInt === 0x00000001 || versionInt === 0x6b3343cf) && dcidLen > 20) {
+                return null;
+            }
             if (length < 6 + dcidLen + 1)
                 return null;
             let dcidHex = '';
@@ -136,13 +151,21 @@ class L7DeepProtocolDissector {
             }
             const scidOffset = 6 + dcidLen;
             const scidLen = view.getUint8(scidOffset);
+            if ((versionInt === 0x00000001 || versionInt === 0x6b3343cf) && scidLen > 20) {
+                return null;
+            }
             let scidHex = '';
+            let truncatedHeader = false;
             if (length >= scidOffset + 1 + scidLen) {
                 for (let i = 0; i < scidLen; i++) {
                     scidHex += view.getUint8(scidOffset + 1 + i).toString(16).padStart(2, '0');
                 }
             }
+            else {
+                truncatedHeader = true;
+            }
             const packetNumberLength = (firstByte & 0x03) + 1;
+            const isVersionNeg = packetType === 'Version-Negotiation';
             return {
                 isQuic: true,
                 headerForm: 'long',
@@ -152,7 +175,10 @@ class L7DeepProtocolDissector {
                 versionHex,
                 dcidHex,
                 scidHex,
-                packetNumberLength
+                packetNumberLength,
+                payloadEncrypted: !isVersionNeg,
+                decryptionStatus: isVersionNeg ? 'NOT_ENCRYPTED' : 'KEYS_UNAVAILABLE',
+                truncatedHeader
             };
         }
         else {
@@ -177,18 +203,21 @@ class L7DeepProtocolDissector {
                 scidHex: '',
                 packetNumberLength,
                 spinBit,
-                keyPhase
+                keyPhase,
+                payloadEncrypted: true,
+                decryptionStatus: 'KEYS_UNAVAILABLE',
+                truncatedHeader: false
             };
         }
     }
     /**
      * Dissects SSHv2 (RFC 4253) identification banner and SSH_MSG_KEXINIT HASSH fingerprinter
      */
-    static dissectSshPacket(rawBuffer, offset = 0, length = rawBuffer.byteLength - offset) {
-        if (length < 4 || offset + length > rawBuffer.byteLength)
+    static dissectSshPacket(rawBuffer, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
+        if (!this.isValidSlice(rawBuffer, offset, length, 4))
             return null;
         const slice = Buffer.from(rawBuffer.buffer, rawBuffer.byteOffset + offset, length);
-        const asciiPrefix = slice.subarray(0, 8).toString('ascii');
+        const asciiPrefix = slice.subarray(0, Math.min(8, length)).toString('ascii');
         // 1. Check for SSH-2.0 banner identification string
         if (asciiPrefix.startsWith('SSH-2.0-') || asciiPrefix.startsWith('SSH-1.99-')) {
             const lineEnd = slice.indexOf('\n');
@@ -196,7 +225,8 @@ class L7DeepProtocolDissector {
             return {
                 isSsh: true,
                 banner,
-                isKexInit: false
+                isKexInit: false,
+                identityProvenance: 'UNAUTHENTICATED_BANNER_ADVERTISEMENT'
             };
         }
         // 2. Binary SSH packet parsing
@@ -205,7 +235,7 @@ class L7DeepProtocolDissector {
         const view = new DataView(rawBuffer.buffer, rawBuffer.byteOffset + offset, length);
         const packetLength = view.getUint32(0, false);
         const paddingLength = view.getUint8(4);
-        if (packetLength > 65536 || paddingLength >= packetLength) {
+        if (packetLength < 2 || packetLength > 65536 || paddingLength >= packetLength) {
             return null;
         }
         const msgCode = view.getUint8(5);
@@ -213,19 +243,33 @@ class L7DeepProtocolDissector {
         if (msgCode !== 20) {
             return {
                 isSsh: true,
-                isKexInit: false
+                isKexInit: false,
+                identityProvenance: 'BINARY_TRANSPORT'
             };
         }
         // Parse SSH_MSG_KEXINIT
         // 16 bytes cookie starting at offset 6
+        if (length < 22) {
+            return {
+                isSsh: true,
+                isKexInit: true,
+                truncatedKexInit: true,
+                identityProvenance: 'PRE_AUTH_KEX_FINGERPRINT'
+            };
+        }
         let cur = 6 + 16;
+        let truncatedKexInit = false;
         const readNameList = () => {
-            if (cur + 4 > length)
+            if (cur + 4 > length) {
+                truncatedKexInit = true;
                 return [];
+            }
             const strLen = view.getUint32(cur, false);
             cur += 4;
-            if (cur + strLen > length || strLen > 4096)
+            if (cur + strLen > length || strLen > 4096) {
+                truncatedKexInit = true;
                 return [];
+            }
             const str = slice.subarray(cur, cur + strLen).toString('ascii');
             cur += strLen;
             return str.split(',').filter(Boolean);
@@ -249,14 +293,16 @@ class L7DeepProtocolDissector {
             kexAlgorithms: kexAlgos,
             encryptionAlgorithms: encClientServer,
             macAlgorithms: macClientServer,
-            compressionAlgorithms: compClientServer
+            compressionAlgorithms: compClientServer,
+            identityProvenance: 'PRE_AUTH_KEX_FINGERPRINT',
+            truncatedKexInit
         };
     }
     /**
      * Dissects SMBv2/v3 header and flags lateral movement signatures
      */
-    static dissectSmb2Packet(rawBuffer, offset = 0, length = rawBuffer.byteLength - offset) {
-        if (length < 64 || offset + length > rawBuffer.byteLength)
+    static dissectSmb2Packet(rawBuffer, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
+        if (!this.isValidSlice(rawBuffer, offset, length, 64))
             return null;
         // Check magic 0xFE 'S' 'M' 'B'
         if (rawBuffer[offset] !== SMB2_MAGIC[0] ||
@@ -281,6 +327,7 @@ class L7DeepProtocolDissector {
         // Inspect lateral movement indicators (IPC$, ADMIN$, C$, or named pipes)
         let lateralMovementSuspected = false;
         let lateralTargetOrShare;
+        let lateralMovementAssessment = 'NONE';
         // Look for ASCII / UTF-16 strings in payload past the 64-byte header
         if (length > 68) {
             const payloadSlice = Buffer.from(rawBuffer.buffer, rawBuffer.byteOffset + offset + 64, length - 64);
@@ -289,6 +336,7 @@ class L7DeepProtocolDissector {
             const combined = (textUtf8 + ' ' + textUtf16).toUpperCase();
             if (combined.includes('ADMIN$') || combined.includes('C$') || combined.includes('IPC$') || combined.includes('D$')) {
                 lateralMovementSuspected = true;
+                lateralMovementAssessment = 'ADMINISTRATIVE_SHARE_INDICATOR';
                 if (combined.includes('ADMIN$'))
                     lateralTargetOrShare = 'ADMIN$';
                 else if (combined.includes('C$'))
@@ -298,6 +346,7 @@ class L7DeepProtocolDissector {
             }
             if (combined.includes('PSEXEC') || combined.includes('SVCCTL') || combined.includes('ATSVC') || combined.includes('SAMR')) {
                 lateralMovementSuspected = true;
+                lateralMovementAssessment = 'REMOTE_EXECUTION_PIPE_INDICATOR';
                 lateralTargetOrShare = lateralTargetOrShare ? `${lateralTargetOrShare}+PIPE` : 'NAMED_PIPE';
             }
         }
@@ -313,14 +362,18 @@ class L7DeepProtocolDissector {
             sessionId,
             isResponse,
             lateralMovementSuspected,
-            lateralTargetOrShare
+            lateralTargetOrShare,
+            lateralMovementAssessment,
+            evidentiaryNote: lateralMovementSuspected
+                ? 'SMB share/pipe indicator observed in wire payload; requires correlation with host authentication and authorization policy before confirming unauthorized lateral movement.'
+                : 'Standard SMB2/3 protocol header observed.'
         };
     }
     /**
      * Dissects HTTP/2 (RFC 9113) connection preface and 9-byte frame headers
      */
-    static dissectHttp2Frame(rawBuffer, offset = 0, length = rawBuffer.byteLength - offset) {
-        if (length < 9 || offset + length > rawBuffer.byteLength)
+    static dissectHttp2Frame(rawBuffer, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
+        if (!this.isValidSlice(rawBuffer, offset, length, 9))
             return null;
         const slice = Buffer.from(rawBuffer.buffer, rawBuffer.byteOffset + offset, length);
         let cur = 0;
@@ -332,6 +385,7 @@ class L7DeepProtocolDissector {
         }
         const frames = [];
         const view = new DataView(rawBuffer.buffer, rawBuffer.byteOffset + offset, length);
+        let truncatedStream = false;
         // Parse up to 16 HTTP/2 frames in the slice
         while (cur + 9 <= length && frames.length < 16) {
             const b0 = view.getUint8(cur);
@@ -355,12 +409,17 @@ class L7DeepProtocolDissector {
                     return null;
                 }
             }
+            const partialFrame = (cur + 9 + frameLength) > length;
+            if (partialFrame) {
+                truncatedStream = true;
+            }
             frames.push({
                 length: frameLength,
                 typeCode,
                 typeName: typeName || `FRAME_0x${typeCode.toString(16)}`,
                 flags,
-                streamId
+                streamId,
+                partialFrame
             });
             // Advance to next frame header
             cur += 9 + frameLength;
@@ -371,13 +430,17 @@ class L7DeepProtocolDissector {
         return {
             isHttp2: true,
             hasConnectionPreface,
-            frames
+            frames,
+            truncatedStream
         };
     }
     /**
      * Universal L7 protocol detector and dissector
      */
-    static dissect(rawBuffer, offset = 0, length = rawBuffer.byteLength - offset) {
+    static dissect(rawBuffer, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
+        if (!this.isValidSlice(rawBuffer, offset, length, 4)) {
+            return { protocol: 'Unknown', confidence: 0.0 };
+        }
         // Try SMB2 (magic 0xFE 'S' 'M' 'B')
         const smb2 = this.dissectSmb2Packet(rawBuffer, offset, length);
         if (smb2) {
@@ -403,7 +466,7 @@ class L7DeepProtocolDissector {
     /**
      * Instance-level convenience wrapper for dissecting payloads
      */
-    dissectPayload(rawBuffer, sport, dport, offset = 0, length = rawBuffer.byteLength - offset) {
+    dissectPayload(rawBuffer, sport, dport, offset = 0, length = rawBuffer ? rawBuffer.byteLength - offset : 0) {
         return L7DeepProtocolDissector.dissect(rawBuffer, offset, length);
     }
 }

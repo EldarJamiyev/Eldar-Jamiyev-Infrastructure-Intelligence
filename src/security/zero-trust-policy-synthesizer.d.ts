@@ -34,8 +34,19 @@ export interface ZeroTrustPolicyBundle {
     readonly kubernetesNetworkPolicyYaml: string;
     readonly lateralMovementViolations: readonly LateralMovementViolation[];
     readonly shadowAdminPortsBlocked: readonly number[];
+    readonly artifactStatus?: 'PROPOSED_PREVIEW_ONLY';
+    readonly autoApplied?: false;
+    readonly validationWarnings?: readonly string[];
+    readonly changeSummaryReport?: {
+        readonly rulesAdded: number;
+        readonly shadowPortsBlockedCount: number;
+        readonly leastPrivilegeScore: number;
+        readonly humanReadableSummary: string;
+    };
 }
 export declare class ZeroTrustPolicySynthesizer {
+    static isValidPort(port: unknown): port is number;
+    static isValidIpOrCidr(val: unknown): boolean;
     /**
      * Synthesizes 3-format firewall policies and analyzes flow violations
      */

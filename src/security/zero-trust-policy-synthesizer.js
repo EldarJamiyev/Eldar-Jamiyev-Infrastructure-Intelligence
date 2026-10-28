@@ -9,12 +9,35 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ZeroTrustPolicySynthesizer = void 0;
 const SHADOW_ADMIN_PORTS = [22, 445, 135, 139, 3389, 5985, 5986];
 class ZeroTrustPolicySynthesizer {
+    static isValidPort(port) {
+        return typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535;
+    }
+    static isValidIpOrCidr(val) {
+        if (typeof val !== 'string' || !val.trim())
+            return false;
+        const s = val.trim();
+        const ipv4Cidr = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+        const ipv6Cidr = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
+        return ipv4Cidr.test(s) || (s.includes(':') && ipv6Cidr.test(s));
+    }
     /**
      * Synthesizes 3-format firewall policies and analyzes flow violations
      */
     static synthesize(assets, flows = [], targetSubnet = '192.168.31.0/24') {
         const timestamp = new Date().toISOString();
+        const safeAssets = Array.isArray(assets) ? assets : [];
+        const safeFlows = Array.isArray(flows) ? flows : [];
+        const warnings = [];
+        let cleanSubnet = (targetSubnet || '192.168.31.0/24').trim();
+        if (!this.isValidIpOrCidr(cleanSubnet)) {
+            warnings.push(`Invalid targetSubnet "${targetSubnet}" supplied; defaulting to 192.168.31.0/24.`);
+            cleanSubnet = '192.168.31.0/24';
+        }
+        if (cleanSubnet === '0.0.0.0/0' || cleanSubnet === '::/0') {
+            warnings.push(`Overly permissive targetSubnet "${cleanSubnet}" detected; least-privilege score penalized.`);
+        }
         const netshRules = [];
+        const seenRuleKeys = new Set();
         // Base hardening: Block untrusted inbound by default
         netshRules.push('netsh advfirewall set allprofiles firewallpolicy blockinbound,allowoutbound');
         netshRules.push('netsh advfirewall firewall add rule name="EJII-Allow-Loopback" dir=in action=allow localip=127.0.0.1 enable=yes');
@@ -23,17 +46,35 @@ class ZeroTrustPolicySynthesizer {
         for (const port of SHADOW_ADMIN_PORTS) {
             netshRules.push(`netsh advfirewall firewall add rule name="EJII-Block-ShadowAdmin-${port}" protocol=TCP localport=${port} dir=in action=block remoteip=any enable=yes`);
         }
-        // Add allow rules for discovered server endpoints
-        for (const asset of assets) {
+        // Add deduplicated allow rules for discovered server endpoints
+        const validAllowPorts = [];
+        for (const asset of safeAssets) {
+            if (!asset || !this.isValidIpOrCidr(asset.ip)) {
+                warnings.push(`Skipped asset with invalid IP "${asset?.ip ?? ''}".`);
+                continue;
+            }
             if (asset.openPorts && asset.openPorts.length > 0) {
                 for (const port of asset.openPorts) {
-                    if (!SHADOW_ADMIN_PORTS.includes(port)) {
-                        netshRules.push(`netsh advfirewall firewall add rule name="EJII-Allow-${asset.hostname || asset.ip}-P${port}" protocol=TCP localport=${port} dir=in action=allow remoteip=${targetSubnet} enable=yes`);
+                    if (!this.isValidPort(port)) {
+                        warnings.push(`Skipped invalid port "${String(port)}" on asset ${asset.ip}.`);
+                        continue;
                     }
+                    if (SHADOW_ADMIN_PORTS.includes(port)) {
+                        warnings.push(`Suppressed allow rule for shadow admin port ${port} on ${asset.ip} (conflicts with block rule).`);
+                        continue;
+                    }
+                    const ruleKey = `${asset.hostname || asset.ip}:${port}`;
+                    if (seenRuleKeys.has(ruleKey))
+                        continue;
+                    seenRuleKeys.add(ruleKey);
+                    validAllowPorts.push({ assetLabel: asset.hostname || asset.ip, port });
+                    netshRules.push(`netsh advfirewall firewall add rule name="EJII-Allow-${asset.hostname || asset.ip}-P${port}" protocol=TCP localport=${port} dir=in action=allow remoteip=${cleanSubnet} enable=yes`);
                 }
             }
         }
         // Synthesize Linux nftables ruleset
+        const isIpv6Subnet = cleanSubnet.includes(':');
+        const addrKeyword = isIpv6Subnet ? 'ip6 saddr' : 'ip saddr';
         const nftablesLines = [
             '#!/usr/sbin/nft -f',
             '# EJII Sovereign-Singularity Zero-Trust Micro-Segmentation Table',
@@ -51,13 +92,13 @@ class ZeroTrustPolicySynthesizer {
         for (const port of SHADOW_ADMIN_PORTS) {
             nftablesLines.push(`    tcp dport ${port} counter log prefix "[EJII-BLOCK-SHADOW] " drop`);
         }
-        // Allow legitimate services
-        for (const asset of assets) {
-            for (const port of asset.openPorts || []) {
-                if (!SHADOW_ADMIN_PORTS.includes(port)) {
-                    nftablesLines.push(`    ip saddr ${targetSubnet} tcp dport ${port} accept`);
-                }
-            }
+        // Allow legitimate services (deduplicated by port)
+        const nftSeenPorts = new Set();
+        for (const item of validAllowPorts) {
+            if (nftSeenPorts.has(item.port))
+                continue;
+            nftSeenPorts.add(item.port);
+            nftablesLines.push(`    ${addrKeyword} ${cleanSubnet} tcp dport ${item.port} accept`);
         }
         nftablesLines.push('  }');
         nftablesLines.push('  chain outbound {', '    type filter hook output priority 0; policy accept;', '  }');
@@ -82,7 +123,7 @@ spec:
   ingress:
     - from:
         - ipBlock:
-            cidr: ${targetSubnet}
+            cidr: ${cleanSubnet}
             except:
               - 0.0.0.0/0
       ports:
@@ -105,7 +146,9 @@ spec:
 `;
         // Detect lateral movement & shadow admin access in live flows
         const violations = [];
-        for (const flow of flows) {
+        for (const flow of safeFlows) {
+            if (!flow || !flow.localIp || !flow.remoteIp)
+                continue;
             const isShadowPort = SHADOW_ADMIN_PORTS.includes(flow.remotePort) || SHADOW_ADMIN_PORTS.includes(flow.localPort);
             if (isShadowPort) {
                 violations.push({
@@ -141,15 +184,25 @@ spec:
                 }
             }
         }
+        const leastPrivilegeScore = (cleanSubnet === '0.0.0.0/0' || cleanSubnet === '::/0') ? 45 : Math.max(70, 100 - validAllowPorts.length * 2);
         return {
             generatedAt: timestamp,
-            targetSubnet,
-            assetCount: assets.length,
+            targetSubnet: cleanSubnet,
+            assetCount: safeAssets.length,
             windowsNetshRules: netshRules,
             linuxNftablesManifest,
             kubernetesNetworkPolicyYaml: k8sManifest,
             lateralMovementViolations: violations,
-            shadowAdminPortsBlocked: SHADOW_ADMIN_PORTS
+            shadowAdminPortsBlocked: SHADOW_ADMIN_PORTS,
+            artifactStatus: 'PROPOSED_PREVIEW_ONLY',
+            autoApplied: false,
+            validationWarnings: warnings,
+            changeSummaryReport: {
+                rulesAdded: netshRules.length,
+                shadowPortsBlockedCount: SHADOW_ADMIN_PORTS.length,
+                leastPrivilegeScore,
+                humanReadableSummary: `Proposed ${netshRules.length} firewall rules scoped to ${cleanSubnet} (blocking ${SHADOW_ADMIN_PORTS.length} shadow admin ports). Artifact is preview-only and requires explicit operator authorization before enforcement.`
+            }
         };
     }
 }

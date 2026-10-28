@@ -100,7 +100,7 @@
           <!-- Quick Search Filter -->
           <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
             <input type="text" id="manualSearchInput" class="form-input" placeholder="Search ports (e.g. 443, 53, SSH)..." style="width: 300px; font-size: 11.5px; padding: 8px 14px 8px 36px; border-radius: 6px; border: 1px solid var(--border-default);" oninput="window.filterManual(this.value)">
-          </div>`;
+          </div>
 
           <!-- Section Tabs -->
           <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">

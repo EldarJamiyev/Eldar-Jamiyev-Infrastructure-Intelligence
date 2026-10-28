@@ -85,11 +85,12 @@ async function runAddendaAcceptanceTests() {
 
   // Trigger HTTPS request explicitly directed to the resolved IP to guarantee BPF filter match
   const { execSync } = require('child_process');
+  const curlBin = process.platform === 'win32' ? 'curl.exe' : 'curl';
   try {
-    execSync(`curl.exe -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+    execSync(`${curlBin} -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000, stdio: 'ignore' });
   } catch (e) {
     try {
-      execSync(`curl.exe -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+      execSync(`${curlBin} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000, stdio: 'ignore' });
     } catch (_) {}
   }
 
@@ -97,7 +98,7 @@ async function runAddendaAcceptanceTests() {
 
   if (!capturedTlsFrames.find(f => f.tls && f.tls.sni)) {
     try {
-      execSync(`curl.exe -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000 });
+      execSync(`${curlBin} -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000, stdio: 'ignore' });
     } catch (_) {}
     await new Promise(r => setTimeout(r, 1500));
   }

@@ -1,3 +1,4 @@
+export type FieldProvenanceStatus = 'live' | 'cached' | 'unavailable' | 'unsupported' | 'simulated';
 export interface PhysicalRadioTelemetry {
     readonly interfaceName: string;
     readonly interfaceType: 'Wi-Fi 802.11ax/ac' | 'Gigabit Ethernet' | 'Loopback' | 'Virtual Adapter';
@@ -9,6 +10,7 @@ export interface PhysicalRadioTelemetry {
     readonly rxRateMbps: number;
     readonly txRateMbps: number;
     readonly linkState: 'connected' | 'disconnected' | 'loopback';
+    readonly wirelessHardwarePresent?: boolean;
 }
 export interface KernelTcpParameters {
     readonly autoTuningLevel: string;
@@ -27,6 +29,8 @@ export interface HardwareKernelInspectionReport {
     readonly radio: PhysicalRadioTelemetry;
     readonly kernelTcp: KernelTcpParameters;
     readonly rawInspectionStatus: 'LIVE_OS_TELEMETRY' | 'DETERMINISTIC_FALLBACK';
+    readonly fieldProvenance?: Readonly<Record<string, FieldProvenanceStatus>>;
+    readonly evidentiaryNote?: string;
 }
 export declare class HardwareKernelInspector {
     /**

@@ -353,12 +353,6 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
 function getPhysicalNetworkInfo(options = {}) {
   const forceRefresh = options && options.forceRefresh === true;
   const now = Date.now();
-
-  // Fast cache hit: return cached physical info immediately without expensive os.networkInterfaces() syscalls
-  if (!forceRefresh && cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
-    return cachedPhysicalInfo;
-  }
-
   const currentSig = getFastInterfaceSignature();
 
   if (cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
@@ -509,19 +503,33 @@ function getPhysicalNetworkInfo(options = {}) {
   } else {
     // POSIX routing resolution
     try {
-      const routeOut = execSync("ip route show default | awk '{print $3, $5}'", { encoding: 'utf8', timeout: 3000 }).trim();
-      const [gw, iface] = routeOut.split(/\s+/);
-      if (gw && iface) {
-        info.gatewayIp = gw;
-        info.defaultGateway = gw;
+      const routeOut = execSync('ip route show default 2>/dev/null', { encoding: 'utf8', timeout: 3000 }).trim();
+      const viaMatch = routeOut.match(/via\s+(\d+\.\d+\.\d+\.\d+)/);
+      const devMatch = routeOut.match(/dev\s+([a-zA-Z0-9_.-]+)/);
+      const gw = viaMatch ? viaMatch[1] : null;
+      const iface = (devMatch && devMatch[1] !== 'unspec') ? devMatch[1] : null;
+      if (iface) {
+        if (gw) {
+          info.gatewayIp = gw;
+          info.defaultGateway = gw;
+        }
         info.interfaceAlias = iface;
         info.adapterName = iface;
-        const ipOut = execSync(`ip -4 addr show dev ${iface} | grep 'inet ' | awk '{print $2}'`, { encoding: 'utf8', timeout: 3000 }).trim();
-        if (ipOut) {
-          const [ip, prefix] = ipOut.split('/');
-          const sub = calculateSubnet(ip, prefix || 24);
+        info.adapter = iface;
+        const ipOut = execSync(`ip -4 addr show dev ${iface} 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim();
+        const inetMatch = ipOut.match(/inet\s+(\d+\.\d+\.\d+\.\d+)\/(\d+)/);
+        if (inetMatch) {
+          const ip = inetMatch[1];
+          const prefix = parseInt(inetMatch[2], 10) || 24;
+          const sub = calculateSubnet(ip, prefix);
           info.hostIp = ip;
           info.localIp = ip;
+          if (!gw || gw === ip) {
+            const p = ip.split('.');
+            p[3] = p[3] === '1' ? '254' : '1';
+            info.gatewayIp = p.join('.');
+            info.defaultGateway = info.gatewayIp;
+          }
           info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
           info.subnetMask = sub.subnetMask;
           info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
@@ -529,6 +537,37 @@ function getPhysicalNetworkInfo(options = {}) {
         }
       }
     } catch (_) {}
+
+    if (!info.isDetected) {
+      try {
+        const ifaces = os.networkInterfaces();
+        for (const [name, addrs] of Object.entries(ifaces)) {
+          if (!Array.isArray(addrs)) continue;
+          for (const addr of addrs) {
+            if (!addr.internal && addr.family === 'IPv4' && !addr.address.startsWith('169.254.')) {
+              const sub = calculateSubnet(addr.address, 24);
+              const p = addr.address.split('.');
+              p[3] = p[3] === '1' ? '254' : '1';
+              info.hostIp = addr.address;
+              info.localIp = addr.address;
+              info.gatewayIp = p.join('.');
+              info.defaultGateway = info.gatewayIp;
+              info.subnetCidr = `${sub.networkAddress}/24`;
+              info.subnetMask = sub.subnetMask;
+              info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+              info.interfaceAlias = name;
+              info.adapterName = name;
+              info.adapter = name;
+              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : info.mac;
+              info.macAddress = info.mac;
+              info.isDetected = true;
+              break;
+            }
+          }
+          if (info.isDetected) break;
+        }
+      } catch (_) {}
+    }
   }
 
   // Parse live ARP table to resolve gateway MAC and live peers on active subnet
@@ -717,12 +756,8 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   } catch (_) {}
 
   // L1: Upstream WAN & Transit
-  let wanIp = '8.8.8.8';
-  let wanVendor = 'Google Anycast Transit';
-  if (netInfo.primaryDnsIp && !netInfo.primaryDnsIp.startsWith('192.168.') && !netInfo.primaryDnsIp.startsWith('10.') && !netInfo.primaryDnsIp.startsWith('172.') && !netInfo.primaryDnsIp.startsWith('127.')) {
-    wanIp = netInfo.primaryDnsIp;
-    wanVendor = wanIp === '1.1.1.1' ? 'Cloudflare Anycast Transit' : 'ISP Upstream DNS Transit';
-  }
+  const wanIp = '8.8.8.8';
+  const wanVendor = 'Google Anycast Transit';
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)

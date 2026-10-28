@@ -30,6 +30,9 @@ export interface ChaosSimulationResult {
     readonly slaBreachCascadeOrder: readonly string[];
     readonly preChaosReport: SpectralTopologyReport;
     readonly postChaosReport: SpectralTopologyReport;
+    readonly modelFidelityLabel?: 'MATHEMATICAL_SIMULATION';
+    readonly inputProvenance?: 'VERIFIED_TOPOLOGY_AND_TELEMETRY' | 'SCENARIO_PARAMETERIZED';
+    readonly assumptions?: readonly string[];
 }
 export declare class DigitalTwinChaosSimulator {
     private readonly spectralEngine;

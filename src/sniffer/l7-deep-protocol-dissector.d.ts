@@ -10,6 +10,9 @@ export interface QuicDissection {
     readonly packetNumberLength: number;
     readonly spinBit?: boolean;
     readonly keyPhase?: boolean;
+    readonly payloadEncrypted?: boolean;
+    readonly decryptionStatus?: 'KEYS_UNAVAILABLE' | 'NOT_ENCRYPTED';
+    readonly truncatedHeader?: boolean;
 }
 export interface SshDissection {
     readonly isSsh: boolean;
@@ -22,6 +25,8 @@ export interface SshDissection {
     readonly encryptionAlgorithms?: readonly string[];
     readonly macAlgorithms?: readonly string[];
     readonly compressionAlgorithms?: readonly string[];
+    readonly identityProvenance?: 'UNAUTHENTICATED_BANNER_ADVERTISEMENT' | 'PRE_AUTH_KEX_FINGERPRINT' | 'BINARY_TRANSPORT';
+    readonly truncatedKexInit?: boolean;
 }
 export interface Smb2Dissection {
     readonly isSmb2: boolean;
@@ -36,6 +41,8 @@ export interface Smb2Dissection {
     readonly isResponse: boolean;
     readonly lateralMovementSuspected: boolean;
     readonly lateralTargetOrShare?: string;
+    readonly lateralMovementAssessment?: 'NONE' | 'ADMINISTRATIVE_SHARE_INDICATOR' | 'REMOTE_EXECUTION_PIPE_INDICATOR';
+    readonly evidentiaryNote?: string;
 }
 export interface Http2FrameInfo {
     readonly length: number;
@@ -43,11 +50,13 @@ export interface Http2FrameInfo {
     readonly typeName: string;
     readonly flags: number;
     readonly streamId: number;
+    readonly partialFrame?: boolean;
 }
 export interface Http2Dissection {
     readonly isHttp2: boolean;
     readonly hasConnectionPreface: boolean;
     readonly frames: readonly Http2FrameInfo[];
+    readonly truncatedStream?: boolean;
 }
 export interface L7DeepDissectionResult {
     readonly quic?: QuicDissection;
@@ -59,6 +68,7 @@ export interface L7DeepDissectionResult {
     readonly confidence?: number;
 }
 export declare class L7DeepProtocolDissector {
+    private static isValidSlice;
     /**
      * Dissects QUIC wire packets (RFC 9000 / RFC 9369)
      */

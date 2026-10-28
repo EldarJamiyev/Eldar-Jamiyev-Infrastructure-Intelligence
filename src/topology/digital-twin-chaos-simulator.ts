@@ -39,6 +39,9 @@ export interface ChaosSimulationResult {
   readonly slaBreachCascadeOrder: readonly string[];
   readonly preChaosReport: SpectralTopologyReport;
   readonly postChaosReport: SpectralTopologyReport;
+  readonly modelFidelityLabel?: 'MATHEMATICAL_SIMULATION';
+  readonly inputProvenance?: 'VERIFIED_TOPOLOGY_AND_TELEMETRY' | 'SCENARIO_PARAMETERIZED';
+  readonly assumptions?: readonly string[];
 }
 
 export class DigitalTwinChaosSimulator {
@@ -57,10 +60,20 @@ export class DigitalTwinChaosSimulator {
     averageQueueLength: number;
     queuingDelaySec: number;
   } {
-    const K = Math.max(1, Math.floor(bufferCapacityK));
-    const mu = Math.max(1.0, serviceRatePps);
-    const lambda = Math.max(0.1, arrivalRatePps);
-    const rho = lambda / mu;
+    const safeK = Number.isFinite(bufferCapacityK) ? Math.max(1, Math.min(10000, Math.floor(bufferCapacityK))) : 40;
+    const safeMu = Number.isFinite(serviceRatePps) && serviceRatePps > 0 ? serviceRatePps : 1.0;
+    const safeLambda = Number.isFinite(arrivalRatePps) ? Math.max(0, arrivalRatePps) : 0;
+
+    if (safeLambda === 0) {
+      return {
+        utilizationRho: 0,
+        dropProbability: 0,
+        averageQueueLength: 0,
+        queuingDelaySec: 0
+      };
+    }
+
+    const rho = safeLambda / safeMu;
 
     let p0: number;
     let pK: number;
@@ -68,28 +81,36 @@ export class DigitalTwinChaosSimulator {
 
     if (Math.abs(rho - 1.0) < 1e-6) {
       // Rho == 1.0 exact degenerate limit
-      p0 = 1.0 / (K + 1);
+      p0 = 1.0 / (safeK + 1);
       pK = p0;
-      avgL = K / 2.0;
+      avgL = safeK / 2.0;
+    } else if (rho > 20.0) {
+      // Asymptotic high-overload regime to avoid floating-point overflow of rho^(K+1)
+      pK = (rho - 1.0) / rho;
+      p0 = 0;
+      avgL = safeK - (1.0 / (rho - 1.0));
     } else {
-      p0 = (1.0 - rho) / (1.0 - Math.pow(rho, K + 1));
-      pK = p0 * Math.pow(rho, K);
+      const rhoPowK = Math.pow(rho, safeK);
+      const rhoPowKPlus1 = rhoPowK * rho;
+      p0 = (1.0 - rho) / (1.0 - rhoPowKPlus1);
+      pK = p0 * rhoPowK;
 
-      // Average queue length L = sum(n * Pn)
-      // Analytical closed form: rho / (1 - rho) - (K + 1) * rho^(K+1) / (1 - rho^(K+1))
-      for (let n = 1; n <= K; n++) {
+      for (let n = 1; n <= safeK; n++) {
         avgL += n * (p0 * Math.pow(rho, n));
       }
     }
 
-    const lambdaEff = lambda * (1.0 - pK);
-    const queuingDelaySec = lambdaEff > 0 ? (avgL / lambdaEff) : (avgL / lambda);
+    pK = Math.min(1.0, Math.max(0.0, Number.isFinite(pK) ? pK : 1.0));
+    avgL = Math.min(safeK, Math.max(0.0, Number.isFinite(avgL) ? avgL : safeK));
+
+    const lambdaEff = safeLambda * (1.0 - pK);
+    const queuingDelaySec = lambdaEff > 1e-9 ? (avgL / lambdaEff) : (avgL / safeMu);
 
     return {
       utilizationRho: Number(rho.toFixed(4)),
       dropProbability: Number(pK.toFixed(6)),
       averageQueueLength: Number(avgL.toFixed(3)),
-      queuingDelaySec: Math.max(0, queuingDelaySec)
+      queuingDelaySec: Math.max(0, Number.isFinite(queuingDelaySec) ? queuingDelaySec : 0)
     };
   }
 
@@ -102,27 +123,30 @@ export class DigitalTwinChaosSimulator {
     rootNodeId = 'L6-HOST-WORKSTATION',
     scenario: ChaosScenario = {}
   ): ChaosSimulationResult {
-    const trafficMultiplier = Math.max(0.1, scenario.trafficMultiplier ?? 1.0);
-    const bufferCapacityK = scenario.bufferCapacityK ?? 40;
-    const degradedSet = new Set(scenario.degradedNodeIds || []);
+    const safeNodes = Array.isArray(nodes) ? nodes : [];
+    const safeEdges = Array.isArray(edges) ? edges : [];
+    const rawMult = scenario?.trafficMultiplier ?? 1.0;
+    const trafficMultiplier = Number.isFinite(rawMult) ? Math.max(0.0, rawMult) : 1.0;
+    const bufferCapacityK = Number.isFinite(scenario?.bufferCapacityK) ? Math.max(1, Math.floor(scenario.bufferCapacityK!)) : 40;
+    const degradedSet = new Set(scenario?.degradedNodeIds || []);
     const severedSet = new Set(
-      (scenario.severedEdgeKeys || []).map(k => k.replace(':', '-').toLowerCase())
+      (scenario?.severedEdgeKeys || []).map(k => String(k).replace(':', '-').toLowerCase())
     );
-    const injectedLatencies = scenario.injectedLatencyMsByNode || {};
+    const injectedLatencies = scenario?.injectedLatencyMsByNode || {};
 
     // 1. Evaluate Pre-Chaos Baseline
-    const preChaosReport = this.spectralEngine.analyzeTopology(nodes, edges, rootNodeId);
+    const preChaosReport = this.spectralEngine.analyzeTopology(safeNodes, safeEdges, rootNodeId);
     const preChaosLambda2 = preChaosReport.algebraicConnectivityLambda2;
 
     // 2. Filter out severed edges for post-chaos graph
-    const postEdges = edges.filter(edge => {
+    const postEdges = safeEdges.filter(edge => {
       const k1 = `${edge.source}-${edge.target}`.toLowerCase();
       const k2 = `${edge.target}-${edge.source}`.toLowerCase();
       return !severedSet.has(k1) && !severedSet.has(k2);
     });
 
     // 3. Evaluate Post-Chaos Graph
-    const postChaosReport = this.spectralEngine.analyzeTopology(nodes, postEdges, rootNodeId);
+    const postChaosReport = this.spectralEngine.analyzeTopology(safeNodes, postEdges, rootNodeId);
     const postChaosLambda2 = postChaosReport.algebraicConnectivityLambda2;
     const deltaLambda2 = Number((postChaosLambda2 - preChaosLambda2).toFixed(4));
 
@@ -131,9 +155,10 @@ export class DigitalTwinChaosSimulator {
     let totalDropProb = 0;
     let maxDelayMs = 0;
 
-    for (const node of nodes) {
+    for (const node of safeNodes) {
       const isDegraded = degradedSet.has(node.id);
-      const injectedLatency = injectedLatencies[node.id] || 0;
+      const rawInj = injectedLatencies[node.id] || 0;
+      const injectedLatency = Number.isFinite(rawInj) ? Math.max(0, rawInj) : 0;
 
       // Base capacity calibrated by role
       let baseCapacity = 300.0; // pps
@@ -150,8 +175,9 @@ export class DigitalTwinChaosSimulator {
 
       const q = DigitalTwinChaosSimulator.computeMM1K(simulatedArrival, baseCapacity, bufferCapacityK);
       const queuingDelayMs = Number((q.queuingDelaySec * 1000.0).toFixed(2));
+      const baseNodeLat = Number.isFinite(node.latencyMs) ? Math.max(0, node.latencyMs) : 0;
       const totalSimulatedLatencyMs = Number(
-        (node.latencyMs + queuingDelayMs + injectedLatency + (isDegraded ? 85.0 : 0)).toFixed(2)
+        (baseNodeLat + queuingDelayMs + injectedLatency + (isDegraded ? 85.0 : 0)).toFixed(2)
       );
       const dropPct = Number((q.dropProbability * 100.0).toFixed(3));
       const isSlaBreached = totalSimulatedLatencyMs > 100.0 || dropPct > 2.0;
@@ -183,7 +209,7 @@ export class DigitalTwinChaosSimulator {
       .sort((a, b) => (b.dropProbabilityPct * b.totalSimulatedLatencyMs) - (a.dropProbabilityPct * a.totalSimulatedLatencyMs))
       .map(m => m.nodeId);
 
-    const averageDropProbabilityPct = nodes.length > 0 ? Number((totalDropProb / nodes.length).toFixed(3)) : 0;
+    const averageDropProbabilityPct = safeNodes.length > 0 ? Number((totalDropProb / safeNodes.length).toFixed(3)) : 0;
 
     return {
       preChaosLambda2,
@@ -197,7 +223,14 @@ export class DigitalTwinChaosSimulator {
       maxQueuingDelayMs: maxDelayMs,
       slaBreachCascadeOrder,
       preChaosReport,
-      postChaosReport
+      postChaosReport,
+      modelFidelityLabel: 'MATHEMATICAL_SIMULATION',
+      inputProvenance: 'SCENARIO_PARAMETERIZED',
+      assumptions: [
+        `Poisson arrival process and exponential service times (M/M/1/K finite buffer K=${bufferCapacityK} packets).`,
+        `Role-calibrated baseline service capacities with traffic multiplier ${trafficMultiplier}x.`,
+        'Simulation outputs represent counterfactual mathematical projections and are never merged into live topology state.'
+      ]
     };
   }
 }

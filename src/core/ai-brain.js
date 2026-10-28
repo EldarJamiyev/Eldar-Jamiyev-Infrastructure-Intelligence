@@ -1150,16 +1150,12 @@ class AIBrain {
       });
     }
 
-    const now = Date.now();
-    if (!this.currentSubnet || !this._lastGatewayCheck || (now - this._lastGatewayCheck > 5000)) {
-      this._lastGatewayCheck = now;
-      const netInfo = getPhysicalNetworkInfo();
-      const activeGateway = netInfo?.gatewayIp || '192.168.31.1';
-      if (!this.currentSubnet) {
-        this.currentSubnet = activeGateway;
-      } else if (this.currentSubnet !== activeGateway) {
-        this._handleSubnetSwitch(activeGateway);
-      }
+    const netInfo = getPhysicalNetworkInfo();
+    const activeGateway = netInfo?.gatewayIp || '192.168.31.1';
+    if (!this.currentSubnet) {
+      this.currentSubnet = activeGateway;
+    } else if (this.currentSubnet !== activeGateway) {
+      this._handleSubnetSwitch(activeGateway);
     }
 
     const targetIp = frame.dstIp || frame.srcIp;

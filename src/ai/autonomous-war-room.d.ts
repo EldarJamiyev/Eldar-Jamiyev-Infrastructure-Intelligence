@@ -12,6 +12,7 @@ export interface WarRoomTelemetryPayload {
     readonly topologyEdges?: readonly TopologyEdge[];
     readonly wireFrames?: readonly any[];
     readonly rootNodeId?: string;
+    readonly operatorRole?: string;
 }
 export interface Agent1TriageReport {
     readonly agentName: 'Agent 1 — Temporal & Spectral Triage';
@@ -19,6 +20,9 @@ export interface Agent1TriageReport {
     readonly onsetTimestampMs: number | null;
     readonly spectralAnalysis: SpectralAnalysisResult;
     readonly verdict: string;
+    readonly epistemicStatus?: 'OBSERVED_AND_DERIVED' | 'DEFAULT_BASELINE_INPUT';
+    readonly supportingEvidenceIds?: readonly string[];
+    readonly unresolvedQuestions?: readonly string[];
 }
 export interface Agent2TopologicalReport {
     readonly agentName: 'Agent 2 — Topological & Queuing Analyst';
@@ -26,12 +30,17 @@ export interface Agent2TopologicalReport {
     readonly bottleneckEdges: readonly string[];
     readonly chaosQueuing: ChaosSimulationResult;
     readonly verdict: string;
+    readonly epistemicStatus?: 'SIMULATED_PROJECTION';
+    readonly supportingEvidenceIds?: readonly string[];
 }
 export interface Agent3WireForensicsReport {
     readonly agentName: 'Agent 3 — Deep Wire Forensics';
     readonly qosAudit: QosAuditReport;
     readonly l7Observations: readonly string[];
     readonly verdict: string;
+    readonly epistemicStatus?: 'WIRE_OBSERVATION' | 'DEFAULT_WIRE_SAMPLE';
+    readonly supportingEvidenceIds?: readonly string[];
+    readonly contradictingEvidenceIds?: readonly string[];
 }
 export interface Agent4CausalPlannerReport {
     readonly agentName: 'Agent 4 — Causal Counterfactual Planner';
@@ -39,11 +48,18 @@ export interface Agent4CausalPlannerReport {
     readonly ttvHorizonSeconds: number;
     readonly holtWintersForecast: MetricSlaTrajectory;
     readonly proposedRemediationAction: string;
+    readonly rejectedProposals?: readonly {
+        readonly action: string;
+        readonly reason: string;
+    }[];
     readonly verdict: string;
+    readonly epistemicStatus?: 'HYPOTHESIS_AND_COUNTERFACTUAL_PLAN';
 }
 export interface Agent5SafetySignoffReport {
     readonly agentName: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer';
     readonly lyapunovBarrierCleared: boolean;
+    readonly operatorRoleChecked?: string;
+    readonly operatorPermitted?: boolean;
     readonly zeroTrustPolicy: ZeroTrustPolicyBundle;
     readonly hmacSignature: string;
     readonly proofChain: string;
@@ -59,6 +75,8 @@ export interface WarRoomExecutionResult {
     readonly agent4: Agent4CausalPlannerReport;
     readonly agent5: Agent5SafetySignoffReport;
     readonly executiveSummary: string;
+    readonly unresolvedUncertainties?: readonly string[];
+    readonly contradictingSignals?: readonly string[];
 }
 export declare class AutonomousWarRoomOrchestrator {
     private readonly hmacSecret;

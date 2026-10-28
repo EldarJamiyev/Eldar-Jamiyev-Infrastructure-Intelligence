@@ -29,6 +29,8 @@ const state = {
 
 window.state = state;
 window.api = api;
+window.apiFetch = api;
+var apiFetch = api;
 window.renderView = renderView;
 
 // Universal Cross-Pillar Target Context & Investigation Store
@@ -206,19 +208,44 @@ async function api(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  if (state.token) {
-    headers['Authorization'] = `Bearer ${state.token}`;
+  const token = state.token || localStorage.getItem('ejii_token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   try {
-    const res = await fetch(endpoint, { ...options, headers });
-    const data = await res.json();
+    const res = await fetch(endpoint, { ...options, headers, credentials: 'same-origin' });
+    const contentType = res.headers.get('content-type') || '';
+    let data = {};
+    if (contentType.includes('application/json')) {
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = { error: `HTTP ${res.status}: ${res.statusText}` };
+      }
+    } else {
+      const rawText = await res.text().catch(() => '');
+      try {
+        data = rawText && rawText.trim().startsWith('{') ? JSON.parse(rawText) : { error: `HTTP ${res.status}: ${res.statusText}` };
+      } catch (_) {
+        data = { error: `HTTP ${res.status}: ${res.statusText}` };
+      }
+    }
     if (!res.ok) {
+      if (res.status === 401 && !String(endpoint).startsWith('/api/auth/login')) {
+        state.token = null;
+        state.user = null;
+        try { localStorage.removeItem('ejii_token'); } catch (_) {}
+      }
       throw new Error(data.error || `HTTP ${res.status}: ${res.statusText}`);
     }
     return data;
   } catch (err) {
-    console.error(`[API Error] ${endpoint}:`, err);
+    const msg = String(err && err.message ? err.message : err);
+    const isAuthCheck = msg.includes('Authentication required') || msg.includes('Invalid or expired session token');
+    if (!options.silent && !isAuthCheck) {
+      console.error(`[API Error] ${endpoint}:`, err);
+    }
     throw err;
   }
 }
@@ -1222,12 +1249,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     container.innerHTML = `
       <div class="ejii-workbench-modal" id="dvrWorkbenchOverlay">
         <div class="ejii-workbench-dialog" role="dialog" aria-modal="true" aria-labelledby="dvrDialogTitle">
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.85);">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid rgba(52,211,153,0.2); background:rgba(7,13,10,0.92);">
             <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:18px;">⏱️</span>
+              <span style="font-size:18px;" aria-hidden="true">⏱️</span>
               <div>
                 <div id="dvrDialogTitle" style="font-weight:700; font-size:15px; color:#ECFDF5;">Telemetry Time-Machine DVR &amp; Historical State Diff</div>
-                <div style="font-size:11px; color:#9CA3AF;">Sovereign-Singularity 240-Frame Ring Buffer &amp; Structural Diff Engine</div>
+                <div style="font-size:11px; color:#9CA3AF;">Sovereign-Singularity 240-Frame Ring Buffer · Monotonic Sequence &amp; Capture/Ingest Provenance</div>
               </div>
             </div>
             <div style="display:flex; gap:8px;">
@@ -1242,7 +1269,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       </div>
     `;
     container.style.display = 'block';
+    await window.refreshDvrFramesView();
+  };
 
+  window.refreshDvrFramesView = async function () {
     try {
       const res = await apiFetch('/api/observability/dvr/frames');
       const frames = res.frames || [];
@@ -1250,20 +1280,23 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (!body) return;
 
       let html = `
-        <div style="margin-bottom:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span style="font-size:12px; color:#9CA3AF; font-weight:600;">Recorded Keyframes (${frames.length}):</span>
+        <div style="margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <span style="font-size:12px; color:#9CA3AF; font-weight:600;">Recorded Keyframes (${frames.length} / 240 ring capacity):</span>
+          <span style="font-size:11px; font-family:var(--font-mono); color:#34D399;">Interval Gap Detection: ACTIVE (Threshold 120s)</span>
         </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; margin-bottom:20px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(255px, 1fr)); gap:12px; margin-bottom:20px;">
       `;
 
       frames.forEach((f, idx) => {
+        const capTime = f.capturedAtMs || f.timestampMs || Date.now();
+        const seq = f.sequenceNumber !== undefined ? f.sequenceNumber : idx + 1;
         html += `
-          <div style="background:rgba(16,29,23,0.7); border:1px solid rgba(52,211,153,0.18); border-radius:6px; padding:12px; font-size:12px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-              <span style="font-weight:700; color:#34D399;">#${idx + 1} ${f.label}</span>
-              <span style="font-family:monospace; color:#9CA3AF;">${new Date(f.timestampMs).toLocaleTimeString()}</span>
+          <div style="background:rgba(16,29,23,0.75); border:1px solid rgba(52,211,153,0.22); border-radius:8px; padding:12px; font-size:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px; gap:8px;">
+              <span style="font-weight:700; color:#34D399;">Seq #${seq} · ${window.escapeHtml(f.label || f.frameId)}</span>
+              <span style="font-family:var(--font-mono); font-size:11px; color:#9CA3AF;">${new Date(capTime).toLocaleTimeString()}</span>
             </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-family:monospace; font-size:11px; color:#ECFDF5; margin-top:6px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-family:var(--font-mono); font-size:11px; color:#ECFDF5; margin-top:6px;">
               <div>λ₂: <span style="color:#38BDF8;">${f.lambda2}</span></div>
               <div>Nodes: <span style="color:#F59E0B;">${f.topologyNodeCount}</span></div>
               <div>CPU: <span>${f.cpuPct}%</span></div>
@@ -1276,11 +1309,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 
       html += `
         <div style="border-top:1px solid rgba(52,211,153,0.18); padding-top:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
             <div style="font-weight:700; color:#ECFDF5; font-size:13px;">Delta Diff Analysis (t₁ ↔ t₂)</div>
             <button class="btn btn-secondary btn-sm" onclick="window.runDvrDiff()">Compute Structural Delta</button>
           </div>
-          <div id="dvrDiffContainer" style="background:#070D0A; border:1px solid rgba(52,211,153,0.14); border-radius:6px; padding:12px; font-family:monospace; font-size:12px; color:#9CA3AF;">
+          <div id="dvrDiffContainer" style="background:#070D0A; border:1px solid rgba(52,211,153,0.14); border-radius:6px; padding:12px; font-family:var(--font-mono); font-size:12px; color:#9CA3AF;">
             Select two keyframes or click "Compute Structural Delta" to inspect the exact topology, routing, and socket state mutations.
           </div>
         </div>
@@ -1298,8 +1331,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         method: 'POST',
         body: JSON.stringify({ label: `Manual Operator Checkpoint @ ${new Date().toLocaleTimeString()}` })
       });
-      window.toggleDvrModal();
-      window.toggleDvrModal();
+      await window.refreshDvrFramesView();
     } catch (_) {}
   };
 
@@ -1309,8 +1341,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     try {
       const res = await apiFetch('/api/observability/dvr/diff');
       const diff = res.diff || {};
+      const integrityColor = diff.intervalIntegrity === 'CONTINUOUS' ? '#10B981' : '#F59E0B';
       diffContainer.innerHTML = `
-        <div style="color:#34D399; font-weight:700; margin-bottom:6px;">Summary: ${diff.summary || 'Nominal'}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+          <span style="color:#34D399; font-weight:700;">Summary: ${window.escapeHtml(diff.summary || 'Nominal')}</span>
+          <span style="padding:2px 7px; border-radius:4px; border:1px solid ${integrityColor}; color:${integrityColor}; font-size:10.5px; font-weight:700;">INTERVAL: ${diff.intervalIntegrity || 'CONTINUOUS'}</span>
+        </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
           <div>Time Span: <span style="color:#ECFDF5;">${diff.timeDeltaMs || 0} ms</span></div>
           <div>Algebraic Connectivity Δλ₂: <span style="color:#38BDF8;">${diff.lambda2Delta || 0}</span></div>

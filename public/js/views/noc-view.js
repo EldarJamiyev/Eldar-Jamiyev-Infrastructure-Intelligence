@@ -515,7 +515,7 @@ window.escapeAttr = escapeAttr;
     }
 
     const canvasWidth = startX + 6 * (colWidth + colGap);
-    const canvasHeight = Math.max(420, 56 + maxNodesInCol * cardH + Math.max(0, maxNodesInCol - 1) * cardGapY + 24);
+    const canvasHeight = Math.max(300, 56 + maxNodesInCol * cardH + Math.max(0, maxNodesInCol - 1) * cardGapY + 28);
 
     // Position each node card - Vertically Centered per Column
     const renderedNodes = [];
@@ -703,7 +703,7 @@ window.escapeAttr = escapeAttr;
     }
 
     return `
-      <svg id="nocTopologySvg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" style="width: 100%; min-width: 980px; height: 100%; min-height: 480px; display: block;" oncontextmenu="window.handleSvgContextMenu(event)">
+      <svg id="nocTopologySvg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" style="width: 100%; min-width: 980px; height: 100%; min-height: 300px; display: block;" oncontextmenu="window.handleSvgContextMenu(event)">
         <defs>
           <linearGradient id="linkGradWan" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stop-color="#5B45B0"/>
@@ -1697,6 +1697,7 @@ window.escapeAttr = escapeAttr;
     selectedFrameNumber = frameNumber;
     selectedFrame = liveFrames.find(f => f.frameNumber === frameNumber) || selectedFrame;
     if (!selectedFrame) return;
+    const f = selectedFrame;
 
     autoScrollFrames = false;
     const activeCockpit = window.snifferVirtualCockpit || window.nocVirtualCockpit || window.virtualPacketCockpit;
@@ -1720,7 +1721,6 @@ window.escapeAttr = escapeAttr;
     const tbody = document.getElementById('livePacketTableBody');
     if (tbody) tbody.innerHTML = renderPacketRows();
 
-    const f = selectedFrame;
     const rawHex = f.rawHex || '';
 
     // 1. Dedicated Section 2 Sniffer Workstation Drawer (#packetDetailsPane)

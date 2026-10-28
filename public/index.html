@@ -16,6 +16,9 @@
         if (localStorage.getItem('ejii_reduced_motion') === 'true') {
           document.documentElement.setAttribute('data-reduced-motion', 'true');
         }
+        sessionStorage.removeItem('warmup_start_time');
+        sessionStorage.removeItem('warmup_last_reload_time');
+        sessionStorage.removeItem('warmup_failed_sent');
       } catch (_) {}
     })();
   </script>
@@ -284,6 +287,10 @@
             <button type="button" id="themeBtnSystem" class="btn-theme-toggle" onclick="window.setTheme('system')" title="Use system theme" aria-label="Use system theme">▣</button>
           </div>
 
+          <button id="btnTopbarV6Fabric" class="topbar-action" type="button" onclick="window.openV6SovereignFabricModal && window.openV6SovereignFabricModal('uncertainty')" title="EJII v6 Sovereign Intelligence Fabric — Evidence Lineage, Uncertainty Panel & Governed Control Plane" aria-label="Sovereign Fabric v6">
+            <span style="font-size: 13px;" aria-hidden="true">🧬</span>
+            <span class="action-label">Sovereign Fabric v6</span>
+          </button>
           <button id="btnTopbarDvr" class="topbar-action" type="button" onclick="window.toggleDvrModal && window.toggleDvrModal()" title="Telemetry Time-Machine DVR & Historical State Diff" aria-label="Time-Machine DVR">
             <span style="font-size: 13px;" aria-hidden="true">⏱️</span>
             <span class="action-label">Time-Machine DVR</span>
@@ -300,6 +307,19 @@
       </header>
 
       <div id="ejiiActiveTargetContextBar" class="eji-context-bar" style="display:none" role="region" aria-label="Active investigation target context"></div>
+      <div id="v6FabricCommandRibbon" class="v6-command-ribbon" role="region" aria-label="Sovereign Intelligence Fabric v6 Live Status">
+        <div class="v6-ribbon-left">
+          <span class="v6-ribbon-tag">SOVEREIGN FABRIC V6</span>
+          <span class="v6-ribbon-meta" id="v6RibbonTelemetrySummary">16 Capabilities · 11 Evidence Classes · Epistemic Guardrail Enforced</span>
+        </div>
+        <div class="v6-ribbon-actions">
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('uncertainty')">Causal &amp; Epistemic Truth</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('evidence')">Evidence Lineage DAG</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('simulation')">M/M/1/K Chaos Twin</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('engines')">8 Flagship Engines</button>
+          <button type="button" class="v6-ribbon-btn v6-ribbon-btn-primary" onclick="window.openV6SovereignFabricModal('governance')">Governed Control Plane</button>
+        </div>
+      </div>
       <section class="content-body" id="mainContent" aria-live="off">
         <!-- The existing EJII view modules render live backend data here. -->
       </section>
@@ -373,38 +393,62 @@
     </div>
   </div>
 
-  <script src="/js/components/filter-compiler.js?v=2026.10.18.5"></script>
-  <script src="/js/components/command-palette.js?v=2026.10.18.5"></script>
-  <script src="/js/components/junior-admin-guide.js?v=2026.10.18.5"></script>
-  <script src="/js/components/ai-brain-drawer.js?v=2026.10.18.5"></script>
-  <script src="/js/virtual-packet-cockpit.js?v=2026.10.18.5"></script>
-  <script src="/js/views/noc-view.js?v=2026.10.18.5"></script>
-  <script src="/js/views/topology-view.js?v=2026.10.18.5"></script>
-  <script src="/js/views/sniffer-view.js?v=2026.10.18.5"></script>
-  <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.18.5"></script>
-  <script src="/js/views/pc-automation-view.js?v=2026.10.18.5"></script>
-  <script src="/js/views/core-diagnostics-view.js?v=2026.10.18.5"></script>
-  <script src="/js/learning/learning-api.js"></script>
-  <script src="/js/learning/learning-store.js"></script>
-  <script src="/js/learning/learning-router.js"></script>
-  <script src="/js/learning/learning-renderer.js"></script>
-  <script src="/js/learning/labs/subnetting-trainer.js"></script>
-  <script src="/js/learning/labs/packet-journey.js"></script>
-  <script src="/js/learning/labs/vlan-lab.js"></script>
-  <script src="/js/learning/labs/routing-explorer.js"></script>
-  <script src="/js/learning/labs/powershell-sandbox.js"></script>
-  <script src="/js/learning/labs/linux-sandbox.js"></script>
-  <script src="/js/learning/labs/active-directory-lab.js"></script>
-  <script src="/js/learning/labs/dns-dhcp-lab.js"></script>
-  <script src="/js/learning/learning-catalog.js"></script>
-  <script src="/js/learning/learning-course-view.js"></script>
-  <script src="/js/learning/learning-lesson-view.js"></script>
-  <script src="/js/learning/learning-quiz-view.js"></script>
-  <script src="/js/learning/learning-progress-view.js"></script>
-  <script src="/js/learning/learning-flashcards.js"></script>
-  <script src="/js/views/learning-center-view.js"></script>
-  <script src="/js/app.js?v=2026.10.18.5"></script>
+  <script src="/js/components/filter-compiler.js?v=2026.10.28.8"></script>
+  <script src="/js/components/command-palette.js?v=2026.10.28.8"></script>
+  <script src="/js/components/junior-admin-guide.js?v=2026.10.28.8"></script>
+  <script src="/js/components/ai-brain-drawer.js?v=2026.10.28.8"></script>
+  <script src="/js/virtual-packet-cockpit.js?v=2026.10.28.8"></script>
+  <script src="/js/views/noc-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/topology-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/sniffer-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/pc-automation-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/core-diagnostics-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-api.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-store.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-router.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-renderer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/subnetting-trainer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/packet-journey.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/vlan-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/routing-explorer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/powershell-sandbox.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/linux-sandbox.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/active-directory-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/dns-dhcp-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-catalog.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-course-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-lesson-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-quiz-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-progress-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-flashcards.js?v=2026.10.28.8"></script>
+  <script src="/js/views/learning-center-view.js?v=2026.10.28.8"></script>
+  <script src="/js/app.js?v=2026.10.28.8"></script>
   <div id="dvrModalContainer" style="display:none"></div>
-  <script src="/js/ejii-meridian.js?v=2026.10.26.2"></script>
+  <div id="v6SovereignFabricModal" class="command-palette-backdrop" style="display:none;z-index:9998;align-items:center;justify-content:center;padding:18px;" role="dialog" aria-modal="true" aria-label="EJII v6 Sovereign Intelligence Fabric">
+    <div class="v6-studio-shell">
+      <div class="v6-studio-header">
+        <div>
+          <div class="v6-studio-eyebrow">EJII V6 · SOVEREIGN INTELLIGENCE FABRIC · UNIFIED EPISTEMIC CONTROL PLANE</div>
+          <h2 class="v6-studio-title">Evidence Fabric · Causal RCA · Temporal Topology · 8 Flagship Engines · Governed Remediation</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:6px 11px;" onclick="window.refreshV6FabricOverview(window.__v6ActiveTab || 'uncertainty')">↻ Sync Live Fabric</button>
+          <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:6px 12px;" onclick="window.closeV6SovereignFabricModal()" aria-label="Close Sovereign Fabric">Close</button>
+        </div>
+      </div>
+      <div id="v6StudioKpiStrip" class="v6-studio-kpi-strip" aria-label="Sovereign Fabric Metrics"></div>
+      <div class="v6-studio-tabs" role="tablist" aria-label="Sovereign Fabric Workbenches">
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="uncertainty" onclick="window.renderV6FabricTab('uncertainty')">1. Uncertainty &amp; Counterfactuals</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="evidence" onclick="window.renderV6FabricTab('evidence')">2. Evidence Fabric &amp; Lineage DAG</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="simulation" onclick="window.renderV6FabricTab('simulation')">3. Temporal Graph &amp; Chaos Twin</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="engines" onclick="window.renderV6FabricTab('engines')">4. 8 Flagship Deep Engines</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="governance" onclick="window.renderV6FabricTab('governance')">5. Governed Remediation &amp; Academy</button>
+      </div>
+      <div id="v6SovereignFabricBody" class="v6-studio-body"></div>
+    </div>
+  </div>
+  <script src="/js/ejii-meridian.js?v=2026.10.28.8"></script>
+  <script src="/js/v6-sovereign-fabric.js?v=2026.10.28.8"></script>
 </body>
 </html>

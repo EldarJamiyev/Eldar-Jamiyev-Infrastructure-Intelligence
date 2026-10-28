@@ -42,7 +42,9 @@ class TelemetryDvrTimeMachine {
     frameCounter = 0;
     constructor(maxFrames = 240) {
         this.maxFrames = Math.max(1, maxFrames);
-        // Automatically record an initial baseline boot keyframe
+        this.seedInitialBaseline();
+    }
+    seedInitialBaseline() {
         this.recordFrame({
             label: 'Initial Baseline Boot',
             topologyNodeCount: 6,
@@ -66,15 +68,33 @@ class TelemetryDvrTimeMachine {
         });
     }
     /**
+     * Resets the DVR ring buffer and sequence counter cleanly
+     */
+    reset(reseedBaseline = false) {
+        this.ringBuffer.length = 0;
+        this.frameCounter = 0;
+        if (reseedBaseline) {
+            this.seedInitialBaseline();
+        }
+    }
+    shutdown() {
+        this.ringBuffer.length = 0;
+    }
+    /**
      * Records a new keyframe into the ring buffer
      */
     recordFrame(data) {
         this.frameCounter++;
         const now = Date.now();
+        const capturedAtMs = data.capturedAtMs ?? data.timestampMs ?? now;
+        const ingestedAtMs = data.ingestedAtMs ?? now;
         const frame = {
             id: data.id || `dvr-frame-${this.frameCounter}-${crypto.randomBytes(3).toString('hex')}`,
-            timestampMs: data.timestampMs || now,
-            isoTime: data.isoTime || new Date(now).toISOString(),
+            sequenceNumber: data.sequenceNumber ?? this.frameCounter,
+            timestampMs: capturedAtMs,
+            capturedAtMs,
+            ingestedAtMs,
+            isoTime: data.isoTime || new Date(capturedAtMs).toISOString(),
             label: data.label || `Telemetry Checkpoint #${this.frameCounter}`,
             topologyNodeCount: data.topologyNodeCount ?? (data.nodesSnapshot ? data.nodesSnapshot.length : 6),
             lambda2: Number((data.lambda2 ?? 0.182).toFixed(4)),
@@ -108,11 +128,23 @@ class TelemetryDvrTimeMachine {
      */
     computeSnapshotDiff(fromFrame, toFrame) {
         const timeDeltaMs = toFrame.timestampMs - fromFrame.timestampMs;
-        const fromNodes = new Map(fromFrame.nodesSnapshot.map(n => [n.id, n]));
-        const toNodes = new Map(toFrame.nodesSnapshot.map(n => [n.id, n]));
+        const seqFrom = fromFrame.sequenceNumber ?? 0;
+        const seqTo = toFrame.sequenceNumber ?? 0;
+        const sequenceDelta = seqTo - seqFrom;
+        const missingFramesCount = sequenceDelta > 1 ? (sequenceDelta - 1) : 0;
+        let intervalStatus = 'CONTINUOUS';
+        if (missingFramesCount > 0) {
+            intervalStatus = 'INCOMPLETE_INTERVAL';
+        }
+        else if (Math.abs(timeDeltaMs) > 300000) {
+            intervalStatus = 'TELEMETRY_GAP';
+        }
+        const fromNodes = new Map((fromFrame.nodesSnapshot || []).map(n => [n.id, n]));
+        const toNodes = new Map((toFrame.nodesSnapshot || []).map(n => [n.id, n]));
         const addedNodes = [];
         const removedNodes = [];
         const latencyDeltaByNode = {};
+        const modifiedNodeAttributes = {};
         for (const [id, toNode] of toNodes) {
             if (!fromNodes.has(id)) {
                 addedNodes.push(id);
@@ -121,6 +153,11 @@ class TelemetryDvrTimeMachine {
                 const fromNode = fromNodes.get(id);
                 const delta = Number((toNode.latencyMs - fromNode.latencyMs).toFixed(2));
                 latencyDeltaByNode[id] = delta;
+                const ipChanged = fromNode.ip !== toNode.ip;
+                const roleChanged = fromNode.role !== toNode.role;
+                if (ipChanged || roleChanged) {
+                    modifiedNodeAttributes[id] = { ipChanged, roleChanged };
+                }
             }
         }
         for (const id of fromNodes.keys()) {
@@ -129,8 +166,8 @@ class TelemetryDvrTimeMachine {
             }
         }
         const socketKey = (s) => `${s.protocol}:${s.localPort}->${s.remoteIp}:${s.remotePort}`;
-        const fromSockets = new Set(fromFrame.socketsSnapshot.map(socketKey));
-        const toSockets = new Set(toFrame.socketsSnapshot.map(socketKey));
+        const fromSockets = new Set((fromFrame.socketsSnapshot || []).map(socketKey));
+        const toSockets = new Set((toFrame.socketsSnapshot || []).map(socketKey));
         const newSockets = [...toSockets].filter(k => !fromSockets.has(k));
         const closedSockets = [...fromSockets].filter(k => !toSockets.has(k));
         const stlRobustnessDelta = Number((toFrame.stlRobustness - fromFrame.stlRobustness).toFixed(4));
@@ -149,14 +186,20 @@ class TelemetryDvrTimeMachine {
             summaryParts.push(`+${newSockets.length} new connections`);
         if (closedSockets.length > 0)
             summaryParts.push(`-${closedSockets.length} closed connections`);
+        if (intervalStatus !== 'CONTINUOUS')
+            summaryParts.push(`[${intervalStatus}]`);
         if (summaryParts.length === 0)
             summaryParts.push('Steady-state telemetry nominal (0 structural diff)');
         return {
             fromId: fromFrame.id,
             toId: toFrame.id,
             timeDeltaMs,
+            sequenceDelta,
+            intervalStatus,
+            missingFramesCount,
             addedNodes,
             removedNodes,
+            modifiedNodeAttributes,
             latencyDeltaByNode,
             newSockets,
             closedSockets,

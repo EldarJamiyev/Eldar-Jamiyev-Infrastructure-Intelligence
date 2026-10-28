@@ -22,13 +22,16 @@ class SpectralFourierDetector {
      * w[n] = 0.5 * (1 - cos(2 * pi * n / (N - 1)))
      */
     static generateHannWindow(N) {
-        const window = new Float64Array(N);
-        if (N <= 1) {
+        const safeN = Math.max(0, Math.floor(N));
+        const window = new Float64Array(safeN);
+        if (safeN === 0)
+            return window;
+        if (safeN === 1) {
             window[0] = 1.0;
             return window;
         }
-        const factor = (2 * Math.PI) / (N - 1);
-        for (let i = 0; i < N; i++) {
+        const factor = (2 * Math.PI) / (safeN - 1);
+        for (let i = 0; i < safeN; i++) {
             window[i] = 0.5 * (1.0 - Math.cos(factor * i));
         }
         return window;
@@ -41,7 +44,7 @@ class SpectralFourierDetector {
         if (n !== imag.length) {
             throw new Error('Real and imaginary buffers must have matching lengths');
         }
-        if ((n & (n - 1)) !== 0) {
+        if (n === 0 || (n & (n - 1)) !== 0) {
             throw new Error(`FFT size must be a power of 2, received: ${n}`);
         }
         // Bit-reversal permutation
@@ -97,46 +100,86 @@ class SpectralFourierDetector {
      * @param samplingRateHz Sampling frequency fs in Hertz (default: 10 Hz)
      */
     static analyze(timeSeries, samplingRateHz = 10) {
-        const rawLen = timeSeries.length;
-        if (rawLen < 4) {
+        const safeFs = Number.isFinite(samplingRateHz) && samplingRateHz > 0 ? samplingRateHz : 10;
+        const rawLen = timeSeries ? timeSeries.length : 0;
+        // Filter/sanitize NaN and Infinity samples
+        const cleanSamples = [];
+        for (let i = 0; i < rawLen; i++) {
+            const v = Number(timeSeries[i]);
+            if (Number.isFinite(v)) {
+                cleanSamples.push(v);
+            }
+        }
+        if (cleanSamples.length < 4) {
             return {
                 sampleCount: rawLen,
-                samplingRateHz,
-                nyquistFrequencyHz: samplingRateHz / 2,
+                samplingRateHz: safeFs,
+                nyquistFrequencyHz: safeFs / 2,
                 frequencyBins: 0,
                 spectralFlatness: 1.0,
                 noiseFloorDb: -100,
                 dominantPeaks: [],
                 periodicAnomalyDetected: false,
+                anomalyClassification: 'NOMINAL_STOCHASTIC',
+                evidenceDistinction: 'STOCHASTIC_BASELINE',
+                corroborationRequired: false,
+                evidentiaryNote: 'Insufficient finite samples (<4) for spectral periodogram analysis.',
                 frequencies: [],
                 powerSpectrumDb: []
             };
         }
+        const effLen = cleanSamples.length;
         // Remove DC offset (mean centering)
         let sum = 0;
-        for (let i = 0; i < rawLen; i++)
-            sum += timeSeries[i];
-        const mean = sum / rawLen;
-        const N = Math.max(16, this.nextPowerOf2(rawLen));
+        for (let i = 0; i < effLen; i++)
+            sum += cleanSamples[i];
+        const mean = sum / effLen;
+        // Check for constant / DC-only series (zero AC variance)
+        let acEnergy = 0;
+        for (let i = 0; i < effLen; i++) {
+            const diff = cleanSamples[i] - mean;
+            acEnergy += diff * diff;
+        }
+        const N = Math.max(16, this.nextPowerOf2(effLen));
+        const halfN = N >> 1;
+        const df = safeFs / N;
+        if (acEnergy < 1e-12) {
+            const flatFreqs = Array.from({ length: halfN }, (_, k) => Number((k * df).toFixed(3)));
+            const flatDb = new Array(halfN).fill(-120);
+            return {
+                sampleCount: rawLen,
+                samplingRateHz: safeFs,
+                nyquistFrequencyHz: safeFs / 2,
+                frequencyBins: halfN,
+                spectralFlatness: 1.0,
+                noiseFloorDb: -120,
+                dominantPeaks: [],
+                periodicAnomalyDetected: false,
+                anomalyClassification: 'NOMINAL_STOCHASTIC',
+                evidenceDistinction: 'STOCHASTIC_BASELINE',
+                corroborationRequired: false,
+                evidentiaryNote: 'Constant DC signal (zero AC variance); no periodic oscillation present.',
+                frequencies: flatFreqs,
+                powerSpectrumDb: flatDb
+            };
+        }
         const real = new Float64Array(N);
         const imag = new Float64Array(N);
-        const window = this.generateHannWindow(rawLen);
+        const window = this.generateHannWindow(effLen);
         // Window and copy into padded buffer
         let windowSumSq = 0;
-        for (let i = 0; i < rawLen; i++) {
+        for (let i = 0; i < effLen; i++) {
             const w = window[i];
             windowSumSq += w * w;
-            real[i] = (timeSeries[i] - mean) * w;
+            real[i] = (cleanSamples[i] - mean) * w;
         }
         if (windowSumSq === 0)
             windowSumSq = 1;
         this.fft(real, imag);
-        const halfN = N >> 1;
         const psd = new Float64Array(halfN);
         const powerDbArr = new Array(halfN);
         const freqArr = new Array(halfN);
-        const scalingFactor = 2.0 / (rawLen * samplingRateHz * (windowSumSq / rawLen));
-        const df = samplingRateHz / N;
+        const scalingFactor = 2.0 / (effLen * safeFs * (windowSumSq / effLen));
         let logPsdSum = 0;
         let psdSum = 0;
         const epsilon = 1e-12;
@@ -184,28 +227,41 @@ class SpectralFourierDetector {
         const highestSnr = dominantPeaks.length > 0 ? dominantPeaks[0].signalToNoiseRatioDb : 0;
         const periodicAnomalyDetected = highestSnr >= 8.0 && spectralFlatness < 0.45;
         let anomalyClassification = 'NOMINAL_STOCHASTIC';
+        let evidenceDistinction = 'STOCHASTIC_BASELINE';
+        let corroborationRequired = false;
+        let evidentiaryNote = 'Stochastic signal distribution within normal Wiener entropy bounds.';
         if (periodicAnomalyDetected && dominantPeaks.length > 0) {
             const topPeak = dominantPeaks[0];
+            corroborationRequired = true;
             if (topPeak.periodSeconds >= 5.0 && topPeak.periodSeconds <= 300.0) {
                 anomalyClassification = 'C2_PERIODIC_BEACON';
+                evidenceDistinction = highestSnr >= 14.0 ? 'SUSPICIOUS_PERIODICITY' : 'BENIGN_PERIODIC_BEHAVIOR';
+                evidentiaryNote = `Periodic spectral peak at T=${topPeak.periodSeconds}s (SNR ${topPeak.signalToNoiseRatioDb} dB). Note: Spectral periodicity alone can reflect benign polling, NTP/keepalive timers, or scheduled health checks; corroboration with process/socket/DNS evidence is required before confirming C2 activity.`;
             }
             else if (topPeak.periodSeconds < 1.0) {
                 anomalyClassification = 'MICROBURST_CYCLE';
+                evidenceDistinction = 'STATISTICAL_ANOMALY';
+                evidentiaryNote = `High-frequency periodic microburst cycle at f=${topPeak.frequencyHz}Hz (T=${topPeak.periodSeconds}s).`;
             }
             else {
                 anomalyClassification = 'ROUTING_TIMER_STORM';
+                evidenceDistinction = 'BENIGN_PERIODIC_BEHAVIOR';
+                evidentiaryNote = `Low-frequency control-plane timer periodicity at T=${topPeak.periodSeconds}s.`;
             }
         }
         return {
             sampleCount: rawLen,
-            samplingRateHz,
-            nyquistFrequencyHz: samplingRateHz / 2,
+            samplingRateHz: safeFs,
+            nyquistFrequencyHz: safeFs / 2,
             frequencyBins: halfN,
             spectralFlatness: Number(spectralFlatness.toFixed(4)),
             noiseFloorDb: Number(noiseFloorDb.toFixed(2)),
             dominantPeaks,
             periodicAnomalyDetected,
             anomalyClassification,
+            evidenceDistinction,
+            corroborationRequired,
+            evidentiaryNote,
             frequencies: freqArr,
             powerSpectrumDb: powerDbArr
         };

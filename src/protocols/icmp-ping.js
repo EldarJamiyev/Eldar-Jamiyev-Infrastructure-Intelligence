@@ -55,6 +55,18 @@ function realPing(host, count = 4, timeoutMs = 2000) {
       const durationMs = Date.now() - startTime;
       const raw = (stdout || '') + (stderr || '');
 
+      // When running in an unprivileged POSIX container without kernel Npcap/libpcap raw tap,
+      // mirror the genuine OS ICMP Echo probe into packetStreamer if active and matching BPF.
+      try {
+        const { packetStreamer } = require('../network/packet-streaming/packet-streamer');
+        if (packetStreamer && packetStreamer.isStreaming && !packetStreamer.snifferProcess) {
+          const bpf = (packetStreamer.bpfFilter || '').toLowerCase();
+          if (!bpf || bpf.includes('icmp') || bpf.includes(sanitizedHost.toLowerCase())) {
+            packetStreamer.recordKernelIcmpProbeFrame(sanitizedHost, safeCount, !error && Boolean(stdout));
+          }
+        }
+      } catch (_) {}
+
       if (!stdout && error) {
         return resolve({
           success: false,

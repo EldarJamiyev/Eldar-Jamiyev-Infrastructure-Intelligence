@@ -19,6 +19,9 @@ export interface SpectralAnalysisResult {
     readonly dominantPeaks: readonly SpectralPeak[];
     readonly periodicAnomalyDetected: boolean;
     readonly anomalyClassification?: 'C2_PERIODIC_BEACON' | 'ROUTING_TIMER_STORM' | 'MICROBURST_CYCLE' | 'NOMINAL_STOCHASTIC';
+    readonly evidenceDistinction?: 'STOCHASTIC_BASELINE' | 'BENIGN_PERIODIC_BEHAVIOR' | 'SUSPICIOUS_PERIODICITY' | 'STATISTICAL_ANOMALY' | 'CORROBORATED_SECURITY_FINDING';
+    readonly corroborationRequired?: boolean;
+    readonly evidentiaryNote?: string;
     readonly frequencies: readonly number[];
     readonly powerSpectrumDb: readonly number[];
 }

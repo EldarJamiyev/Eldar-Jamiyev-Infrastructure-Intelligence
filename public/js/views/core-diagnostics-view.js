@@ -1170,17 +1170,17 @@
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 14px; padding: 16px 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default); padding-bottom: 12px;">
-          <div>
-            <div style="font-size: 18px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default); padding-bottom: 12px; flex-wrap: wrap; gap: 12px;">
+          <div style="flex: 1 0 380px;">
+            <div style="font-size: 17px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <span>🔍</span> Core Diagnostics &amp; Autonomous Remediation
               <span style="font-size: 10px; background: #EFF6FF; color: var(--accent-primary); border: 1px solid #BFDBFE; padding: 2px 8px; border-radius: 4px; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center;">SYSINTERNALS GRADE</span>
             </div>
             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
-              Real Windows Hardware Ingestion &bull; 4-Pillar Health Triage &bull; Audited Remediation Recipes &bull; Zero Simulation
+              Real Windows &amp; Linux Kernel Hardware Ingestion &bull; 4-Pillar Health Triage &bull; Audited Remediation Recipes &bull; Zero Simulation
             </div>
           </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
             <button id="btnLaunchWarRoom" class="btn btn-secondary exec-btn-secondary" onclick="window.openWarRoomModal()" style="font-size: 11px; border-radius: 6px; font-weight: 700; color: #10B981; border-color: rgba(16, 185, 129, 0.4);" title="Launch Multi-Agent Autonomous SRE War-Room">🏛️ 5-Agent War-Room</button>
             <button id="btnKernelRadioAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openKernelRadioModal()" style="font-size: 11px; border-radius: 6px; font-weight: 700; color: #38BDF8; border-color: rgba(56, 189, 248, 0.4);" title="Inspect Physical Wi-Fi Radio and Kernel TCP Stack Parameters">📡 Kernel TCP &amp; Radio</button>
             <button id="btnSocketProcessMatrix" class="btn btn-secondary exec-btn-secondary" onclick="window.openSocketProcessMatrixModal()" style="font-size: 11px; border-radius: 6px;">Process Socket Matrix</button>

@@ -201,15 +201,15 @@
               <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                 <thead>
                   <tr>
-                    <th class="col-nowrap" style="width: 100px; min-width: 100px; white-space: nowrap; text-align: center;">STATUS</th>
-                    <th style="min-width: 160px; white-space: nowrap;">HOSTNAME / NETBIOS</th>
-                    <th class="col-ip" style="min-width: 120px; white-space: nowrap;">IPV4 ADDRESS</th>
-                    <th class="col-nowrap" style="min-width: 130px; white-space: nowrap;">MAC ADDRESS</th>
-                    <th style="min-width: 150px; white-space: nowrap;">HARDWARE VENDOR</th>
-                    <th class="col-nowrap" style="min-width: 120px; white-space: nowrap;">CATEGORY</th>
-                    <th style="min-width: 160px; white-space: nowrap;">OPEN PORTS & SERVICES<!-- OPEN PORTS &amp; SERVICES --></th>
-                    <th class="col-nowrap" style="width: 75px; min-width: 75px; white-space: nowrap;">RTT</th>
-                    <th class="col-nowrap" style="min-width: 180px; white-space: nowrap;">ACTIONS</th>
+                    <th class="col-nowrap" style="width: 96px; min-width: 96px; white-space: nowrap; text-align: center;">STATUS</th>
+                    <th style="min-width: 155px; white-space: nowrap;">HOSTNAME / NETBIOS</th>
+                    <th class="col-ip" style="min-width: 112px; white-space: nowrap;">IPV4 ADDRESS</th>
+                    <th class="col-nowrap" style="min-width: 122px; white-space: nowrap;">MAC ADDRESS</th>
+                    <th style="min-width: 145px; white-space: nowrap;">HARDWARE VENDOR</th>
+                    <th class="col-nowrap" style="min-width: 125px; white-space: nowrap;">CATEGORY</th>
+                    <th style="min-width: 135px; white-space: nowrap;">OPEN PORTS & SERVICES<!-- OPEN PORTS &amp; SERVICES --></th>
+                    <th class="col-nowrap" style="width: 68px; min-width: 68px; white-space: nowrap;">RTT</th>
+                    <th class="col-nowrap" style="min-width: 210px; white-space: nowrap;">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody id="scannerFleetTableBody">
@@ -258,8 +258,10 @@
               macAddress: n.mac_address || '50:64:2B:1A:E8:42',
               vendor: n.vendor || 'Discovered Host',
               latencyMs: n.last_latency_ms || 1.2,
-              openServices: n.type === 'service' ? ['HTTP', 'HTTPS'] : (n.metadata?.port ? [`TCP:${n.metadata.port}`] : []),
-              category: n.role === 'gateway' ? 'Gateway / Router' : (n.type === 'service' ? 'Server / Service' : 'Windows Workstation')
+              openServices: n.type === 'service'
+                ? [{ name: 'HTTP', port: 80 }, { name: 'HTTPS', port: 443 }]
+                : (n.metadata?.port ? [{ name: 'TCP', port: n.metadata.port }] : []),
+              category: n.role === 'gateway' ? 'Gateway / Router' : (n.type === 'service' ? 'Server / Service' : 'Workstation / Host')
             }));
             renderScannerRows();
             updateEquipmentKpis(currentScanResults);
@@ -563,7 +565,11 @@
         (h.vendor && h.vendor.toLowerCase().includes(activeSearchQuery)) ||
         (h.macAddress && h.macAddress.toLowerCase().includes(activeSearchQuery)) ||
         (h.category && h.category.toLowerCase().includes(activeSearchQuery)) ||
-        (h.openServices && h.openServices.some(s => s.name.toLowerCase().includes(activeSearchQuery) || String(s.port).includes(activeSearchQuery)))
+        (h.openServices && h.openServices.some(s => {
+          const sName = typeof s === 'string' ? s : (s?.name || s?.service || '');
+          const sPort = typeof s === 'object' && s !== null ? (s.port || '') : '';
+          return String(sName).toLowerCase().includes(activeSearchQuery) || String(sPort).includes(activeSearchQuery);
+        }))
       );
     }
 
@@ -604,23 +610,37 @@
         statusDot = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #64748B; font-size: 10.5px;"><span class="status-dot" style="background: #94A3B8;"></span> ${escapeHtml(h.status || 'UNKNOWN')}</span>`;
       }
 
-      // Quick connect badges
+      // Quick connect badges (normalized for both object and string entries)
       let serviceBadges = '';
       if (h.openServices && h.openServices.length > 0) {
         serviceBadges = h.openServices.map(s => {
+          let sName = 'TCP';
+          let sPort = '';
+          let sRisk = '';
+          if (typeof s === 'string') {
+            if (s.includes(':')) {
+              const parts = s.split(':');
+              sName = parts[0] || 'TCP';
+              sPort = parts[1] || '';
+            } else {
+              sName = s;
+              sPort = s === 'HTTP' ? 80 : (s === 'HTTPS' ? 443 : (s === 'DNS' ? 53 : (s === 'SSH' ? 22 : '')));
+            }
+          } else if (s && typeof s === 'object') {
+            sName = s.name || s.service || s.protocol || 'TCP';
+            sPort = s.port !== undefined && s.port !== null ? s.port : '';
+            sRisk = s.risk || '';
+          }
+          const label = sPort !== '' ? `${sName}:${sPort}` : String(sName);
           let badgeColor = '#EFF6FF';
           let textColor = '#1D4ED8';
           let borderColor = '#BFDBFE';
-          let clickAction = '';
+          let clickAction = `window.inspectHostDeep('${h.ip}')`;
 
-          if (s.port === 80) clickAction = `window.open('http://${h.ip}', '_blank')`;
-          else if (s.port === 443) clickAction = `window.open('https://${h.ip}', '_blank')`;
-          else if (s.port === 445) clickAction = `window.navigator.clipboard.writeText('\\\\\\\\${h.ip}')`;
+          if (sRisk === 'warning') { badgeColor = '#FFFBEB'; textColor = '#D97706'; borderColor = '#FDE68A'; }
+          if (sRisk === 'danger') { badgeColor = '#FEF2F2'; textColor = '#DC2626'; borderColor = '#FECACA'; }
 
-          if (s.risk === 'warning') { badgeColor = '#FFFBEB'; textColor = '#D97706'; borderColor = '#FDE68A'; }
-          if (s.risk === 'danger') { badgeColor = '#FEF2F2'; textColor = '#DC2626'; borderColor = '#FECACA'; }
-
-          return `<span style="display: inline-block; background: ${badgeColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin: 1px 2px; cursor: pointer;" title="Port ${s.port} (${s.name}) - Click to connect" onclick="${clickAction}">${s.name}:${s.port}</span>`;
+          return `<span style="display: inline-block; background: ${badgeColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin: 1px 2px; cursor: pointer;" title="Service ${escapeAttr(label)} - Click to inspect" onclick="${clickAction}">${escapeHtml(label)}</span>`;
         }).join('');
       } else {
         serviceBadges = '<span style="color: var(--text-muted); font-size: 10px;">None probed</span>';

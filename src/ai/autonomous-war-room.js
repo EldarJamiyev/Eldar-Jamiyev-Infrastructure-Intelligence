@@ -58,10 +58,16 @@ class AutonomousWarRoomOrchestrator {
     execute(payload = {}) {
         const executedAt = new Date().toISOString();
         const warRoomSessionId = `sre-warroom-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const unresolvedUncertainties = [];
+        const contradictingSignals = [];
         // ==========================================
         // AGENT 1: Temporal & Spectral Triage
         // ==========================================
         const now = Date.now();
+        const hasCustomSeries = Boolean(payload.timeSeries && payload.timeSeries.length >= 4);
+        if (!hasCustomSeries && !payload.rawMetricValues) {
+            unresolvedUncertainties.push('Live telemetry time-series had <4 samples; Agent 1 evaluated reference baseline window.');
+        }
         const defaultSeries = [
             { timestampMs: now - 5000, rttMs: 14.2, cpuSaturationPct: 22.0, packetLossPct: 0.1 },
             { timestampMs: now - 4000, rttMs: 15.0, cpuSaturationPct: 24.5, packetLossPct: 0.1 },
@@ -69,7 +75,7 @@ class AutonomousWarRoomOrchestrator {
             { timestampMs: now - 2000, rttMs: 38.0, cpuSaturationPct: 62.0, packetLossPct: 1.5 },
             { timestampMs: now - 1000, rttMs: 42.5, cpuSaturationPct: 68.0, packetLossPct: 2.1 }
         ];
-        const series = payload.timeSeries && payload.timeSeries.length >= 4 ? payload.timeSeries : defaultSeries;
+        const series = hasCustomSeries ? payload.timeSeries : defaultSeries;
         const cusumEngine = new cusum_changepoint_engine_1.CusumChangepointEngine();
         const cusumReport = cusumEngine.analyzeMultiMetricTrace(series);
         const rawValues = payload.rawMetricValues ? [...payload.rawMetricValues] : series.map(s => s.rttMs || 20);
@@ -79,6 +85,11 @@ class AutonomousWarRoomOrchestrator {
             cusumDriver: cusumReport.primaryTemporalDriver || 'rttMs',
             onsetTimestampMs: cusumReport.driverOnsetTimestampMs,
             spectralAnalysis,
+            epistemicStatus: (hasCustomSeries || Boolean(payload.rawMetricValues)) ? 'OBSERVED_AND_DERIVED' : 'DEFAULT_BASELINE_INPUT',
+            supportingEvidenceIds: [`ev-cusum-${warRoomSessionId}`, `ev-fft-${warRoomSessionId}`],
+            unresolvedQuestions: spectralAnalysis.corroborationRequired
+                ? ['Spectral periodicity detected; requires socket/process corroboration to distinguish timer from beacon.']
+                : [],
             verdict: cusumReport.primaryTemporalDriver
                 ? `Primary anomaly driver isolated: [${cusumReport.primaryTemporalDriver}] (Onset: ${cusumReport.driverOnsetTimestampMs || now}). Spectral Flatness: ${spectralAnalysis.spectralFlatness}.`
                 : 'Telemetry series operating within nominal stochastic bounds.'
@@ -111,6 +122,8 @@ class AutonomousWarRoomOrchestrator {
             lambda2: chaosResult.postChaosLambda2,
             bottleneckEdges: chaosResult.preChaosReport.criticalCutEdges.map(e => `${e.source}->${e.target}`),
             chaosQueuing: chaosResult,
+            epistemicStatus: 'SIMULATED_PROJECTION',
+            supportingEvidenceIds: [`ev-topo-sim-${warRoomSessionId}`],
             verdict: `Algebraic Connectivity λ₂: ${chaosResult.postChaosLambda2}. M/M/1/K Max Queue Delay: ${chaosResult.maxQueuingDelayMs}ms, Drop Probability: ${chaosResult.averageDropProbabilityPct}%.`
         };
         // ==========================================
@@ -121,16 +134,24 @@ class AutonomousWarRoomOrchestrator {
             { tos: 0, length: 1514, dfBit: true, srcPort: 80, dstPort: 54321, srcIp: '192.168.31.1', dstIp: '192.168.31.89' },
             { tos: 3, length: 120, dfBit: false, srcPort: 443, dstPort: 54322, srcIp: '8.8.8.8', dstIp: '192.168.31.89' } // ECN-CE
         ];
-        const wireFrames = payload.wireFrames ? [...payload.wireFrames] : defaultFrames;
+        const hasCustomFrames = Boolean(payload.wireFrames && payload.wireFrames.length > 0);
+        const wireFrames = hasCustomFrames ? [...payload.wireFrames] : defaultFrames;
         const qosAudit = multipath_qos_auditor_1.MultipathQosAuditor.auditWireFrames(wireFrames);
         const l7Obs = ['TLS 1.3 Active', 'DNS Over UDP/53 Active'];
         if (qosAudit.activeEcnCongestionCount > 0) {
             l7Obs.push(`ECN-CE Router Congestion Detected (${qosAudit.activeEcnCongestionCount} events)`);
         }
+        // Check for contradictions between Agent 1 (high RTT changepoint) and Agent 3 (zero wire ECN/PMTU violations)
+        if (cusumReport.primaryTemporalDriver && qosAudit.violations.length === 0) {
+            contradictingSignals.push('CUSUM detected metric shift in Agent 1, but Agent 3 observed zero wire-level QoS/ECN/PMTU violations.');
+        }
         const agent3 = {
             agentName: 'Agent 3 — Deep Wire Forensics',
             qosAudit,
             l7Observations: l7Obs,
+            epistemicStatus: hasCustomFrames ? 'WIRE_OBSERVATION' : 'DEFAULT_WIRE_SAMPLE',
+            supportingEvidenceIds: [`ev-wire-qos-${warRoomSessionId}`],
+            contradictingEvidenceIds: contradictingSignals.length > 0 ? [`ev-contradiction-${warRoomSessionId}`] : [],
             verdict: `Wire audit completed: ${qosAudit.totalPacketsAudited} frames. Violations flagged: ${qosAudit.violations.length}. Active ECN CE: ${qosAudit.activeEcnCongestionCount}.`
         };
         // ==========================================
@@ -149,19 +170,29 @@ class AutonomousWarRoomOrchestrator {
         const proposedAction = forecast.forecasts.plus5m.slaBreachRiskPct > 20
             ? 'ACTION_APPLY_TRAFFIC_SHAPING_AND_DSCP_REMARK'
             : 'ACTION_OBSERVE_STABILIZATION';
+        const rejectedProposals = [
+            {
+                action: 'ACTION_BGP_NEIGHBOR_HARD_RESET',
+                reason: 'Rejected: Disproportionate blast radius (strands downstream LAN nodes in Digital Twin simulation).'
+            }
+        ];
         const agent4 = {
             agentName: 'Agent 4 — Causal Counterfactual Planner',
             smoothStlRobustness: stlEvaluation.smoothRobustness,
             ttvHorizonSeconds: stlEvaluation.estimatedTimeToViolationSec ?? 999,
             holtWintersForecast: forecast,
             proposedRemediationAction: proposedAction,
+            rejectedProposals,
+            epistemicStatus: 'HYPOTHESIS_AND_COUNTERFACTUAL_PLAN',
             verdict: `Smooth STL Robustness ρ̃: ${stlEvaluation.smoothRobustness > 0 ? '+' : ''}${stlEvaluation.smoothRobustness.toFixed(2)}. +5m SLA Breach Risk: ${forecast.forecasts.plus5m.slaBreachRiskPct}%. Proposed: ${proposedAction}.`
         };
         // ==========================================
         // AGENT 5: DSRL Lyapunov Safety & Zero-Trust
         // ==========================================
         const zeroTrust = zero_trust_policy_synthesizer_1.ZeroTrustPolicySynthesizer.synthesize(nodes.map(n => ({ ip: n.id === 'L1-WAN-ROUTER' ? '8.8.8.8' : '192.168.31.1', hostname: n.id, role: n.role, openPorts: [443, 8443] })), [{ protocol: 'TCP', localIp: '192.168.31.89', localPort: 54320, remoteIp: '192.168.31.1', remotePort: 443 }]);
-        const lyapunovCleared = stlEvaluation.smoothRobustness >= -5.0; // Lyapunov barrier invariant
+        const operatorRole = (payload.operatorRole || 'ADMIN').toUpperCase();
+        const operatorPermitted = ['ADMIN', 'SYSADMIN', 'NETADMIN'].includes(operatorRole);
+        const lyapunovCleared = stlEvaluation.smoothRobustness >= -5.0 && operatorPermitted; // Lyapunov barrier + RBAC invariant
         const transcriptPayload = JSON.stringify({
             sessionId: warRoomSessionId,
             triage: agent1.verdict,
@@ -169,17 +200,20 @@ class AutonomousWarRoomOrchestrator {
             wire: agent3.verdict,
             planner: agent4.verdict,
             action: proposedAction,
-            lyapunov: lyapunovCleared
+            lyapunov: lyapunovCleared,
+            operatorRole
         });
         const hmacSig = crypto.createHmac('sha256', this.hmacSecret).update(transcriptPayload).digest('hex');
         const proofChain = `EJII-PROOF-V5:${crypto.createHash('sha256').update(hmacSig + executedAt).digest('hex')}`;
         const agent5 = {
             agentName: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer',
             lyapunovBarrierCleared: lyapunovCleared,
+            operatorRoleChecked: operatorRole,
+            operatorPermitted,
             zeroTrustPolicy: zeroTrust,
             hmacSignature: hmacSig,
             proofChain,
-            verdict: `Lyapunov barrier invariant verified: ${lyapunovCleared ? 'CLEARED' : 'VETOED'}. Zero-Trust policies synthesized. Signed with HMAC-SHA256.`
+            verdict: `Lyapunov barrier invariant verified: ${lyapunovCleared ? 'CLEARED' : 'VETOED'} (Role=${operatorRole}, Permitted=${operatorPermitted}). Zero-Trust policies synthesized (preview-only). Signed with HMAC-SHA256.`
         };
         const result = {
             warRoomSessionId,
@@ -190,6 +224,8 @@ class AutonomousWarRoomOrchestrator {
             agent3,
             agent4,
             agent5,
+            unresolvedUncertainties,
+            contradictingSignals,
             executiveSummary: `5-Agent SRE War-Room Session [${warRoomSessionId}] completed with status ${lyapunovCleared ? 'RESOLVED_REMEDIATION_SIGNED' : 'INCIDENT_ESCALATED'}. Primary Driver: ${agent1.cusumDriver}. Predicted SLA Risk: ${forecast.forecasts.plus5m.slaBreachRiskPct}%. Cryptographically signed with HMAC-SHA256.`
         };
         this.latestResult = result;

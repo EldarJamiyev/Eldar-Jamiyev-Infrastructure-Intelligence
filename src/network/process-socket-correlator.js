@@ -148,8 +148,16 @@ class ProcessSocketCorrelator {
       }
 
       // Generate 1-click deep-link URL into Core Diagnostics / RCA
-      const isRemoteValid = sock.remoteAddress && sock.remoteAddress !== '0.0.0.0' && sock.remoteAddress !== '*' && sock.remoteAddress !== '::' && sock.remoteAddress !== '127.0.0.1';
-      const troubleshootUrl = isRemoteValid && sock.remotePort > 0
+      const isRemoteValid = Boolean(
+        sock.remoteAddress &&
+        sock.remoteAddress !== '0.0.0.0' &&
+        sock.remoteAddress !== '*' &&
+        sock.remoteAddress !== '::' &&
+        sock.remoteAddress !== '[::]' &&
+        sock.remoteAddress !== '127.0.0.1' &&
+        sock.remotePort > 0
+      );
+      const troubleshootUrl = isRemoteValid
         ? `/core-diagnostics?host=${encodeURIComponent(sock.remoteAddress)}&port=${sock.remotePort}`
         : null;
 

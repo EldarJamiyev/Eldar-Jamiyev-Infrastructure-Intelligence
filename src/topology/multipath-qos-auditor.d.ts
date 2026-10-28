@@ -20,6 +20,7 @@ export interface QosAuditViolation {
     readonly description: string;
     readonly packetIndex?: number;
     readonly flowKey?: string;
+    readonly bleachingProvenance?: 'SINGLE_OBSERVATION_POINT_INFERENCE' | 'MULTI_HOP_CONFIRMED';
 }
 export interface QosAuditReport {
     readonly totalPacketsAudited: number;
@@ -33,13 +34,22 @@ export interface QosAuditReport {
     };
     readonly activeEcnCongestionCount: number;
     readonly violations: readonly QosAuditViolation[];
+    readonly observationScopeNote?: string;
 }
 export declare const DSCP_RFC4594_MAP: Record<number, DscpClassInfo>;
 export declare class MultipathQosAuditor {
     /**
-     * Decodes an 8-bit TOS byte into DSCP and ECN structures
+     * Decodes an 8-bit IPv4 TOS or IPv6 Traffic Class byte into DSCP and ECN structures
      */
     static decodeTosByte(tosByte: number): {
+        dscp: DscpClassInfo;
+        ecn: EcnStatusInfo;
+        rawTos: number;
+    };
+    /**
+     * Decodes an IPv6 Traffic Class byte (RFC 8200 / RFC 2474)
+     */
+    static decodeIpv6TrafficClass(trafficClassByte: number): {
         dscp: DscpClassInfo;
         ecn: EcnStatusInfo;
         rawTos: number;
@@ -49,6 +59,9 @@ export declare class MultipathQosAuditor {
      */
     static auditWireFrames(frames: Array<{
         tos?: number;
+        ipv6TrafficClass?: number;
+        expectedDscp?: number;
+        hopCountObserved?: number;
         length?: number;
         dfBit?: boolean;
         srcPort?: number;

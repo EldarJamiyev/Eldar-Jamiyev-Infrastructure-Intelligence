@@ -71,6 +71,7 @@ const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
 const observabilityRoutes = require('./api/routes-observability');
 const learningRoutes = require('./api/routes-learning');
+const v6FabricRoutes = require('./api/routes-v6-fabric');
 const { initLearningSchema } = require('./db/learning-schema');
 const { cncfObservabilityExporter } = require('./integrations/observability/cncf-observability-exporter');
 const { TypeContractValidator } = require('./core/type-contract-validator');
@@ -173,7 +174,6 @@ app.use(requestCorrelationAndTelemetryMiddleware);
 // Security Headers Middleware
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   
@@ -190,15 +190,22 @@ app.use(express.urlencoded({ extended: true }));
 const indexPath = path.resolve(__dirname, '..', 'public', 'index.html');
 const indexHtmlContent = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : '';
 
-// Explicit high-speed root route (instant 0ms memory delivery)
+// Explicit high-speed root route
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
-  res.send(indexHtmlContent);
+  const html = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : indexHtmlContent;
+  res.send(html);
 });
 
-// Serve frontend static files with HTTP cache-control and ETag validation for instant 0ms assets
-app.use(express.static(path.resolve(__dirname, '..', 'public'), { maxAge: '1h', etag: true }));
+// Serve frontend static files with no-cache revalidation so updated bundles take effect immediately
+app.use(express.static(path.resolve(__dirname, '..', 'public'), {
+  maxAge: 0,
+  etag: true,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+}));
 
 // Primary NOC Workstation API Routes
 app.get('/api/health', (req, res) => {
@@ -223,9 +230,7 @@ app.get('/api/system/bootstrap', authenticate, async (req, res) => {
     const { getHardwareAnchorStatus } = require('./core/audit-logger');
 
     const topo = topologyEngine.getTopology();
-    const inventory = typeof equipmentInventoryRepository.getAllEquipmentRecords === 'function'
-      ? equipmentInventoryRepository.getAllEquipmentRecords()
-      : (typeof equipmentInventoryRepository.getInventory === 'function' ? equipmentInventoryRepository.getInventory() : []);
+    const inventory = equipmentInventoryRepository.getAllEquipmentRecords();
     const scriptsRes = scriptAutomation.listAutomationScripts();
     const mountAudit = typeof scriptAutomation.getMountResolutionAudit === 'function' ? scriptAutomation.getMountResolutionAudit() : null;
     const warmDiag = hostDiagnosticsEngine.getWarmSnapshot();
@@ -276,6 +281,7 @@ app.use('/api/tools', toolsRoutes);
 app.use('/api/rca', rcaRoutes);
 app.use('/api/observability', observabilityRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api/v6', v6FabricRoutes);
 
 // Native Prometheus Exposition Endpoint (/metrics)
 app.get('/metrics', (req, res) => {
@@ -697,6 +703,28 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
     console.log(`  Access Mode: Unprivileged NOC Operator                        `);
     console.log(`  Zero-Simulation Standard: Real Physical NIC & Sockets Active  `);
     console.log(`================================================================`);
+
+    // Ensure AI Studio preview port 3000 is always served even if started with default PORT=8443
+    if (Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test') {
+      try {
+        const previewServer = http.createServer(app);
+        previewServer.keepAliveTimeout = 65000;
+        previewServer.headersTimeout = 66000;
+        previewServer.on('connection', (socket) => {
+          socket.setNoDelay(true);
+          socket.on('error', () => {});
+        });
+        previewServer.on('upgrade', (request, socket, head) => {
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+          });
+        });
+        previewServer.on('error', () => {});
+        previewServer.listen(3000, '0.0.0.0', () => {
+          console.log(`  [EJII Preview Bridge] Listening on http://0.0.0.0:3000`);
+        });
+      } catch (_) {}
+    }
 
     // Fast non-blocking deferred initialization: background sweeps run AFTER port is bound
     setImmediate(() => {

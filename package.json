@@ -1,9 +1,10 @@
 {
   "name": "eldar-jamiyev-infrastructure-intelligence",
-  "version": "2.0.0-sovereign-apex",
-  "description": "EJII — NOC Network Topology & Wireshark-Grade Wire-Level Packet Dissection Workstation",
+  "version": "6.0.0-sovereign-intelligence-fabric",
+  "description": "EJII v6 — Sovereign Evidence-Driven Infrastructure Intelligence Fabric & NOC Packet Dissection Workstation",
   "main": "src/server.js",
   "scripts": {
+    "dev": "EJII_PORT=3000 EJII_HOST=0.0.0.0 EJII_EVALUATION_MODE=true node src/server.js",
     "build": "tsc",
     "pretest": "tsc",
     "start": "node src/server.js",

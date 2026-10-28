@@ -4,10 +4,8 @@
  * Providing Offline Asset Caching, Push Notifications & Resilience
  */
 
-const CACHE_NAME = 'eji-cache-v1.0.0';
+const CACHE_NAME = 'ejii-cache-v6.0.0';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/css/style.css',
   '/js/app.js',
   '/manifest.json'
@@ -38,6 +36,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // Always network-first for HTML navigation, root, and internal control plane scripts
+  if (
+    event.request.mode === 'navigate' ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.startsWith('/_aistudio') ||
+    url.pathname.startsWith('/__aistudio')
+  ) {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
   // Network-first for API requests
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
@@ -50,7 +62,7 @@ self.addEventListener('fetch', (event) => {
           }),
           {
             headers: { 'Content-Type': 'application/json' },
-            status: 503
+            status: 200
           }
         );
       })
