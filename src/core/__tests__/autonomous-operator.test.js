@@ -215,7 +215,8 @@ test('AutonomousInfrastructureOperator — Security Defaults, Honest Telemetry, 
     const failedGoalState = await operator.executeOperatorGoal({
       goal: 'Verify TCP port 65432 on 127.0.0.1 and fix whatever you safely can.',
       role: 'ADMIN',
-      autoApproveLowRisk: true
+      autoApproveLowRisk: true,
+      isTest: true
     });
     const failedTask = failedGoalState.activeTask;
     assert.equal(failedTask.status, 'ROLLED_BACK_ON_VERIFICATION_FAILURE');
@@ -227,7 +228,8 @@ test('AutonomousInfrastructureOperator — Security Defaults, Honest Telemetry, 
     const passedGoalState = await operator.executeOperatorGoal({
       goal: `Verify DNS and TCP port ${listeningPort} on 127.0.0.1 and fix whatever you safely can.`,
       role: 'ADMIN',
-      autoApproveLowRisk: true
+      autoApproveLowRisk: true,
+      isTest: true
     });
     const passedTask = passedGoalState.activeTask;
     assert.equal(passedTask.status, 'COMPLETED_AND_VERIFIED');
@@ -241,26 +243,27 @@ test('AutonomousInfrastructureOperator — Security Defaults, Honest Telemetry, 
   });
 
   await t.test('6. Test Task Isolation: Automated tests never pollute user-facing task history or activeTasks', async () => {
-    // Execute a test task explicitly marked with isTest=true
+    // Execute a test task explicitly marked with isTest=true and a dynamic non-hardcoded goal
+    const dynamicTestGoal = `Dynamic probe task ${Date.now()}`;
     await operator.executeOperatorGoal({
-      goal: 'Automated test task on port 34047',
+      goal: dynamicTestGoal,
       role: 'ADMIN',
       autoApproveLowRisk: false,
       isTest: true
     });
 
     const state = await operator.getOperatorState();
-    assert.notEqual(state.activeTask?.goal, 'Automated test task on port 34047');
+    assert.notEqual(state.activeTask?.goal, dynamicTestGoal);
     assert.equal(state.activeTask?.isTest, false);
 
     for (const t of state.activeTasks) {
-      assert.ok(!t.goal.includes('34047'), `Test task port 34047 found in activeTasks: ${t.goal}`);
       assert.ok(!t.isTest, `isTest=true found in activeTasks: ${t.taskId}`);
+      assert.notEqual(t.goal, dynamicTestGoal);
     }
 
     for (const h of state.taskHistory) {
-      assert.ok(!h.goal.includes('34047'), `Test task port 34047 found in taskHistory: ${h.goal}`);
       assert.ok(!h.isTest, `isTest=true found in taskHistory: ${h.taskId}`);
+      assert.notEqual(h.goal, dynamicTestGoal);
     }
   });
 
@@ -349,6 +352,53 @@ test('AutonomousInfrastructureOperator — Security Defaults, Honest Telemetry, 
       assert.match(res.verification.summary, /CRITICAL: Automated rollback verification failed/i);
     } finally {
       db.prepare = origPrepare;
+    }
+  });
+
+  await t.test('10. Post-Execution Audit Failure Rollback Verification: State mismatch during audit rollback flags ROLLBACK_FAILED_ESCALATION_REQUIRED', async () => {
+    let auditModule = null;
+    try {
+      auditModule = require('../audit-logger');
+    } catch (_) {}
+
+    if (auditModule && typeof auditModule.logAction === 'function') {
+      const origLog = auditModule.logAction;
+      auditModule.logAction = function (params) {
+        if (params.action === 'OPERATOR_SELF_HEALING_VERIFIED') {
+          throw new Error('Simulated HMAC audit write failure');
+        }
+        return origLog.apply(this, arguments);
+      };
+
+      const origPrepare = db.prepare.bind(db);
+      db.prepare = function (sql) {
+        if (typeof sql === 'string' && sql.includes('SELECT id, status, last_checked, last_latency_ms FROM topology_nodes')) {
+          return {
+            all() {
+              return [{ id: 9999, status: 'corrupted_state', last_checked: null, last_latency_ms: null }];
+            }
+          };
+        }
+        return origPrepare(sql);
+      };
+
+      try {
+        const res = await operator.approveAndExecuteSelfHealing({
+          role: 'ADMIN',
+          actionId: 'verify_and_refresh_dns_resolution',
+          target: '127.0.0.1',
+          port: listeningPort,
+          simulateVerificationFailure: false
+        });
+
+        assert.equal(res.status, 'ROLLBACK_FAILED_ESCALATION_REQUIRED');
+        assert.equal(res.approved, false);
+        assert.equal(res.verification.rollbackVerified, false);
+        assert.match(res.error, /ROLLBACK_FAILED_ESCALATION_REQUIRED|audit logging failed/i);
+      } finally {
+        auditModule.logAction = origLog;
+        db.prepare = origPrepare;
+      }
     }
   });
 });

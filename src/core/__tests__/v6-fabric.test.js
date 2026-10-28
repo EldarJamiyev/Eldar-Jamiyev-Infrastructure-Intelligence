@@ -332,6 +332,70 @@ test('Part XI: Protected v6 Fabric API endpoints, Authentication enforcement, Mi
       body: JSON.stringify({ role: 'ADMIN' })
     });
     assert.equal(escalatedNoc.status, 400, 'POST /api/auth/quick-noc must reject role parameter in body with 400');
+
+    // 6. POST /api/v6/simulation/branch
+    // Unauthenticated -> 401
+    const unauthSim = await fetch(`${baseUrl}/api/v6/simulation/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario: 'test' })
+    });
+    assert.equal(unauthSim.status, 401, 'POST /api/v6/simulation/branch must reject unauthenticated with 401');
+
+    // VIEWER -> 403
+    const viewerSim = await fetch(`${baseUrl}/api/v6/simulation/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${viewerToken}` },
+      body: JSON.stringify({ scenario: 'test' })
+    });
+    assert.equal(viewerSim.status, 403, 'POST /api/v6/simulation/branch must reject VIEWER role with 403');
+
+    // ANALYST -> 200
+    const analystSim = await fetch(`${baseUrl}/api/v6/simulation/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ scenario: 'test' })
+    });
+    assert.equal(analystSim.status, 200, 'POST /api/v6/simulation/branch must accept ANALYST role with 200');
+
+    // 7. POST /api/v6/policy/compile
+    // Unauthenticated -> 401
+    const unauthPol = await fetch(`${baseUrl}/api/v6/policy/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules: [] })
+    });
+    assert.equal(unauthPol.status, 401, 'POST /api/v6/policy/compile must reject unauthenticated with 401');
+
+    // ANALYST -> 200
+    const analystPol = await fetch(`${baseUrl}/api/v6/policy/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystToken}` },
+      body: JSON.stringify({ rules: [] })
+    });
+    assert.equal(analystPol.status, 200, 'POST /api/v6/policy/compile must accept ANALYST role with 200');
+
+    // 8. GET /api/v6/temporal-graph?sync=true
+    // Unauthenticated sync trigger -> 401
+    const unauthSync = await fetch(`${baseUrl}/api/v6/temporal-graph?sync=true`);
+    assert.equal(unauthSync.status, 401, 'GET /api/v6/temporal-graph?sync=true must reject unauthenticated with 401');
+
+    // Authenticated sync trigger -> 200
+    const authSync = await fetch(`${baseUrl}/api/v6/temporal-graph?sync=true`, {
+      headers: { Authorization: `Bearer ${analystToken}` }
+    });
+    assert.equal(authSync.status, 200, 'GET /api/v6/temporal-graph?sync=true must accept authenticated with 200');
+
+    // 9. GET /api/v6/system/preflight
+    // Authenticated preflight diagnostic check -> 200 with SQLite and HMAC audit chain verification
+    const preflightRes = await fetch(`${baseUrl}/api/v6/system/preflight`, {
+      headers: { Authorization: `Bearer ${analystToken}` }
+    });
+    assert.equal(preflightRes.status, 200, 'GET /api/v6/system/preflight must return 200');
+    const preflightJson = await preflightRes.json();
+    assert.equal(preflightJson.success, true);
+    assert.equal(preflightJson.data.checks.sqliteIntegrity.passed, true, 'SQLite integrity must pass in preflight');
+    assert.equal(preflightJson.data.checks.hmacAuditTrail.passed, true, 'HMAC audit trail must pass in preflight');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -227,9 +227,9 @@ class TemporalInfrastructureGraph {
         lastSeenAt: nowIso,
         validFrom: existingEdge ? existingEdge.validFrom : nowIso,
         validTo: null,
-        confidence: (srcNode?.confidence && tgtNode?.confidence)
+        confidence: (srcNode?.confidence != null && tgtNode?.confidence != null)
           ? Math.min(srcNode.confidence, tgtNode.confidence)
-          : (e.status === 'up' ? 0.95 : 0.40),
+          : (e.evidenceClassification === 'Observed' ? 0.90 : null),
         evidenceIds: existingEdge ? existingEdge.evidenceIds : []
       };
 
@@ -370,7 +370,9 @@ class TemporalInfrastructureGraph {
       lastSeenAt: nodeInput.observedAt || nowIso,
       validFrom: existing ? existing.validFrom : (nodeInput.validFrom || nowIso),
       validTo: nodeInput.validTo || null,
-      confidence: typeof nodeInput.confidence === 'number' ? nodeInput.confidence : 0.95,
+      confidence: typeof nodeInput.confidence === 'number'
+        ? nodeInput.confidence
+        : (nodeInput.evidenceClassification === 'Observed' ? 0.90 : null),
       evidenceIds: Array.isArray(nodeInput.evidenceIds)
         ? nodeInput.evidenceIds
         : (existing ? existing.evidenceIds : [])
@@ -405,7 +407,9 @@ class TemporalInfrastructureGraph {
       lastSeenAt: edgeInput.observedAt || nowIso,
       validFrom: existing ? existing.validFrom : (edgeInput.validFrom || nowIso),
       validTo: edgeInput.validTo || null,
-      confidence: typeof edgeInput.confidence === 'number' ? edgeInput.confidence : 0.95,
+      confidence: typeof edgeInput.confidence === 'number'
+        ? edgeInput.confidence
+        : (edgeInput.evidenceClassification === 'Observed' ? 0.85 : null),
       evidenceIds: Array.isArray(edgeInput.evidenceIds)
         ? edgeInput.evidenceIds
         : (existing ? existing.evidenceIds : [])

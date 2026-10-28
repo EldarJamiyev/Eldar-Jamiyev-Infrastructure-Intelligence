@@ -110,9 +110,10 @@ router.post('/quick-noc', (req, res) => {
   }
 
   // Quick-NOC is strictly for standard local loopback NOC workstation evaluation (OPERATOR or ANALYST, never ADMIN/SYSADMIN)
-  let user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = 'OPERATOR' OR LOWER(username) = 'noc') AND is_active = 1 LIMIT 1").get();
+  // Unconditionally mandate non-administrative role on every lookup branch
+  let user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = 'OPERATOR' OR LOWER(username) = 'noc') AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') AND is_active = 1 LIMIT 1").get();
   if (!user) {
-    user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ANALYST' AND is_active = 1 LIMIT 1").get();
+    user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ANALYST' AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') AND is_active = 1 LIMIT 1").get();
   }
   if (!user) {
     user = db.prepare("SELECT * FROM users WHERE is_active = 1 AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') LIMIT 1").get();

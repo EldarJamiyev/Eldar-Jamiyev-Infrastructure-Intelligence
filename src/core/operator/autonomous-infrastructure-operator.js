@@ -75,9 +75,6 @@ function ensureOperatorTables() {
   try {
     db.exec(`ALTER TABLE ai_operator_tasks ADD COLUMN is_test INTEGER DEFAULT 0;`);
   } catch (_) {}
-  try {
-    db.exec(`DELETE FROM ai_operator_tasks WHERE is_test = 1 OR goal LIKE '%6543%' OR goal LIKE '%34047%' OR goal LIKE '%test%' OR trigger_source = 'TEST_RUNNER';`);
-  } catch (_) {}
 }
 
 try {
@@ -194,7 +191,7 @@ class AutonomousInfrastructureOperator {
     try {
       const sql = includeTest
         ? 'SELECT task_json FROM ai_operator_tasks ORDER BY created_at DESC LIMIT ?'
-        : "SELECT task_json FROM ai_operator_tasks WHERE (is_test = 0 OR is_test IS NULL) AND goal NOT LIKE '%6543%' AND goal NOT LIKE '%34047%' ORDER BY created_at DESC LIMIT ?";
+        : 'SELECT task_json FROM ai_operator_tasks WHERE (is_test = 0 OR is_test IS NULL) ORDER BY created_at DESC LIMIT ?';
       const rows = db.prepare(sql).all(limit);
       return rows.map((r) => JSON.parse(r.task_json));
     } catch (_) {
@@ -206,7 +203,7 @@ class AutonomousInfrastructureOperator {
     let taskCount = 0;
     let snapshotCount = 0;
     try {
-      const tc = db.prepare("SELECT COUNT(*) AS c FROM ai_operator_tasks WHERE (is_test = 0 OR is_test IS NULL) AND goal NOT LIKE '%6543%' AND goal NOT LIKE '%34047%'").get();
+      const tc = db.prepare('SELECT COUNT(*) AS c FROM ai_operator_tasks WHERE (is_test = 0 OR is_test IS NULL)').get();
       const sc = db.prepare('SELECT COUNT(*) AS c FROM ai_operator_snapshots').get();
       if (tc && typeof tc.c === 'number') taskCount = tc.c;
       if (sc && typeof sc.c === 'number') snapshotCount = sc.c;
@@ -1026,10 +1023,11 @@ class AutonomousInfrastructureOperator {
 
     const isTestTask = Boolean(
       isTest ||
-      cleanGoal.includes('34047') ||
-      cleanGoal.toLowerCase().includes('automated test') ||
-      user.id === 'test' ||
-      user.username === 'test'
+      user?.isTest ||
+      user?.id === 'test' ||
+      user?.username === 'test' ||
+      user?.username === 'test-runner' ||
+      cleanGoal.toLowerCase().startsWith('automated test')
     );
 
     const uncertainties = [];
@@ -1596,7 +1594,11 @@ class AutonomousInfrastructureOperator {
       rollbackSummary: `Verified live execution (${executionId}): DNS=${postTargetDns.latencyMs}ms, TCP=${postTargetTcp.rttMs}ms.`
     };
 
-    if (auditLogger && typeof auditLogger.logAction === 'function') {
+    if (!auditLogger || typeof auditLogger.logAction !== 'function') {
+      auditPersisted = false;
+      auditErrorMsg = 'Audit logger service unavailable: cryptographic audit logging is mandatory for state mutations.';
+      verificationProof.auditError = auditErrorMsg;
+    } else {
       try {
         auditLogger.logAction({
           userId: user.id || 'operator',
@@ -1606,6 +1608,7 @@ class AutonomousInfrastructureOperator {
           resource: validActionId,
           details: verificationProof
         });
+        auditPersisted = true;
       } catch (auditErr) {
         auditPersisted = false;
         auditErrorMsg = auditErr.message;
@@ -1613,29 +1616,78 @@ class AutonomousInfrastructureOperator {
       }
     }
 
-    // Fail closed if post-execution audit logging fails: State mutation must be rolled back!
+    // Fail closed if post-execution audit logging fails: State mutation must be rolled back AND verified!
     if (!auditPersisted) {
+      let rollbackVerified = false;
+      let rollbackError = null;
+      let dnsRestored = false;
+
       try {
-        const nodesToRestore = snapshotPayload.topologyNodesBefore || [];
+        const snapRow = db.prepare('SELECT snapshot_json FROM ai_operator_snapshots WHERE snapshot_id = ?').get(preSnapshotId);
+        const committedSnap = snapRow ? JSON.parse(snapRow.snapshot_json) : snapshotPayload;
+
+        if (Array.isArray(committedSnap.dnsServersBefore) && committedSnap.dnsServersBefore.length > 0) {
+          dns.setServers(committedSnap.dnsServersBefore);
+          const currentServers = dns.getServers();
+          dnsRestored = JSON.stringify(currentServers) === JSON.stringify(committedSnap.dnsServersBefore);
+        } else {
+          dnsRestored = true;
+        }
+
+        const nodesToRestore = committedSnap.topologyNodesBefore || [];
         db.exec('BEGIN IMMEDIATE');
-        const restoreStmt = db.prepare('UPDATE topology_nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?');
-        for (const oldNode of nodesToRestore) {
-          restoreStmt.run(oldNode.status, oldNode.last_checked, oldNode.last_latency_ms, oldNode.id);
+        try {
+          const restoreStmt = db.prepare('UPDATE topology_nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?');
+          for (const oldNode of nodesToRestore) {
+            restoreStmt.run(oldNode.status, oldNode.last_checked, oldNode.last_latency_ms, oldNode.id);
+          }
+          db.exec('COMMIT');
+        } catch (txErr) {
+          try { db.exec('ROLLBACK'); } catch (_) {}
+          throw txErr;
         }
-        db.exec('COMMIT');
-        if (Array.isArray(snapshotPayload.dnsServersBefore) && snapshotPayload.dnsServersBefore.length > 0) {
-          dns.setServers(snapshotPayload.dnsServersBefore);
-        }
-      } catch (_) {
-        try { db.exec('ROLLBACK'); } catch (_) {}
+
+        // Verify restoration in SQLite (comparing id, status, last_checked, last_latency_ms)
+        const currentDbNodes = db.prepare('SELECT id, status, last_checked, last_latency_ms FROM topology_nodes ORDER BY id ASC').all();
+        const expectedNodes = committedSnap.topologyNodesBefore || [];
+        rollbackVerified = dnsRestored && currentDbNodes.length === expectedNodes.length && currentDbNodes.every((cn, idx) => {
+          const exp = expectedNodes[idx];
+          return exp && cn.id === exp.id && cn.status === exp.status && cn.last_checked === exp.last_checked && cn.last_latency_ms === exp.last_latency_ms;
+        });
+      } catch (rbErr) {
+        rollbackError = rbErr.message;
+        rollbackVerified = false;
+      }
+
+      if (!rollbackVerified) {
+        return {
+          allowed: true,
+          approved: false,
+          status: 'ROLLBACK_FAILED_ESCALATION_REQUIRED',
+          error: `CRITICAL: Cryptographic audit logging failed (${auditErrorMsg}) AND automated rollback verification failed (${rollbackError || 'Database state mismatch detected after restoration'}). Immediate manual escalation required.`,
+          verification: {
+            ...verificationProof,
+            rolledBack: false,
+            rollbackVerified: false,
+            postconditionPassed: false,
+            auditPersisted: false,
+            rollbackError
+          }
+        };
       }
 
       return {
         allowed: true,
         approved: false,
         status: 'AUDIT_PERSISTENCE_FAILED_ROLLED_BACK',
-        error: `Remediation rolled back: cryptographic audit log persistence failed (${auditErrorMsg}). System governance mandates strict fail-closed state preservation.`,
-        verification: { ...verificationProof, rolledBack: true, postconditionPassed: false, auditPersisted: false }
+        error: `Remediation rolled back: cryptographic audit log persistence failed (${auditErrorMsg}). System governance mandates strict fail-closed state preservation. State restoration verified against snapshot ${preSnapshotId}.`,
+        verification: {
+          ...verificationProof,
+          rolledBack: true,
+          rollbackVerified: true,
+          postconditionPassed: false,
+          auditPersisted: false
+        }
       };
     }
 

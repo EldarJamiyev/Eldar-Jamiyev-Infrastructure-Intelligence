@@ -850,27 +850,45 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     const vIface = (netInfo.allActiveInterfaces || []).find(i => i.isVirtual && i.address !== gwIp);
     coreDnsIp = vIface ? vIface.address : '1.1.1.1';
   }
+  const coreNodeType = isSandbox ? 'dns_resolver' : 'switch';
+  const coreNodeMac = isSandbox ? null : '64:12:25:E4:68:F0';
+  const coreNodeIfName = isSandbox ? null : 'tengig0/1';
   const coreVendor = coreDnsIp === '1.1.1.1'
     ? 'Cloudflare Anycast Resolver'
-    : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch & Services'));
+    : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver (Service Endpoint)' : 'Core Backbone Switch & Services'));
   const coreNodeName = isSandbox
     ? `Configured DNS Resolver (${coreDnsIp})`
     : `Core Switch & DNS (${coreDnsIp})`;
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-CORE-01', ?, ?, '64:12:25:E4:68:F0', 'switch', 'core', 3, 'NODE-GW-01', 'healthy', ?, 0.9, ?, 'tengig0/1', 480, 80, ?)
+    VALUES ('NODE-CORE-01', ?, ?, ?, ?, 'core', 3, 'NODE-GW-01', 'healthy', ?, 0.9, ?, ?, 480, 80, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
+      mac_address = excluded.mac_address,
+      type = excluded.type,
+      if_name = excluded.if_name,
       vendor = excluded.vendor,
-      last_checked = excluded.last_checked
+      last_checked = excluded.last_checked,
+      metadata = excluded.metadata
   `).run(
     coreNodeName,
     coreDnsIp,
+    coreNodeMac,
+    coreNodeType,
     now,
     coreVendor,
-    JSON.stringify({ role: isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch', vlan: 10, isSandboxRuntime: isSandbox, evidenceClassification: 'Observed' })
+    coreNodeIfName,
+    JSON.stringify({
+      role: isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch',
+      vlan: isSandbox ? null : 10,
+      isSandboxRuntime: isSandbox,
+      hardwareFidelity: isSandbox ? 'UNOBSERVED_SANDBOX_SERVICE' : 'PHYSICAL_MANAGED_SWITCH',
+      macObserved: !isSandbox,
+      interfaceObserved: !isSandbox,
+      evidenceClassification: 'Observed'
+    })
   );
 
   // L4: Enterprise Applications & Active Service Endpoints

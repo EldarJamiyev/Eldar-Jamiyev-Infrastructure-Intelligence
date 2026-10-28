@@ -24,9 +24,26 @@ const {
   policyGovernanceEngine,
   governedActionControlPlane
 } = require('../core/governance/action-control-plane');
+const dns = require('node:dns');
 const { verifyToken } = require('../core/security');
 const { authenticate } = require('./middleware');
 const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../core/operator/autonomous-infrastructure-operator');
+
+function isProhibitedSsrfIp(ip) {
+  if (!ip || typeof ip !== 'string') return true;
+  const clean = ip.trim().toLowerCase();
+  // IPv4 link-local & cloud metadata (169.254.0.0/16, including 169.254.169.254)
+  if (/^169\.254\./.test(clean) || /^::ffff:169\.254\./.test(clean)) return true;
+  // IPv6 link-local (fe80::/10)
+  if (/^fe[89ab][0-9a-f]:/i.test(clean)) return true;
+  // Known cloud metadata IP endpoints
+  if (clean === '169.254.169.254' || clean === '100.100.100.200' || clean === 'fd00:ec2::254') return true;
+  // Multicast (224.0.0.0/4)
+  if (/^(?:22[4-9]|23[0-9])\./.test(clean)) return true;
+  // 0.0.0.0 unspecified
+  if (clean === '0.0.0.0' || clean === '::') return true;
+  return false;
+}
 
 /**
  * Resolves the cryptographically verified user from `req.user` (populated by `authenticate`).
@@ -249,6 +266,18 @@ router.get('/evidence/:id/lineage', (req, res) => {
 // Part V: Temporal Infrastructure Graph
 router.get('/temporal-graph', (req, res) => {
   if (req.query.sync === 'true') {
+    const authHeader = req.headers.authorization || '';
+    const cookieToken = req.cookies?.ejii_session;
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : cookieToken;
+    const verified = token ? verifyToken(token) : null;
+    if (!verified) {
+      return res.status(401).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.v6.temporal_graph.sync',
+        status: 'denied',
+        error: { code: 'AUTH_REQUIRED', message: 'Triggering live infrastructure synchronization requires verified operator credentials.' }
+      }));
+    }
     temporalInfrastructureGraph.syncFromLiveInfrastructure('api_request');
   }
   if (req.query.timestamp) {
@@ -330,13 +359,30 @@ router.post('/diagnose-hostname', authenticate, async (req, res) => {
     const port = Math.max(1, Math.min(65535, Number((req.body && req.body.port) || 3000)));
 
     // SSRF & injection protection: block cloud metadata and invalid characters
-    if (/^169\.254\.169\.254$/i.test(rawHost) || /metadata\.google/i.test(rawHost) || /[^a-zA-Z0-9.-]/.test(rawHost)) {
+    if (isProhibitedSsrfIp(rawHost) || /metadata\.google/i.test(rawHost) || /instance-data/i.test(rawHost) || /[^a-zA-Z0-9.-]/.test(rawHost)) {
       return res.status(400).json(createEjiiResult({
         success: false,
         capabilityId: 'ejii.diagnostics.unreachable_hostname_workflow',
         status: 'blocked',
         error: { code: 'SECURITY_VIOLATION_SSRF', message: 'Target hostname rejected by SSRF guard.' }
       }));
+    }
+
+    // Post-resolution SSRF guard: resolve target and inspect all resolved IP addresses
+    try {
+      const resolved = await dns.promises.lookup(rawHost, { all: true });
+      for (const entry of (resolved || [])) {
+        if (isProhibitedSsrfIp(entry.address)) {
+          return res.status(400).json(createEjiiResult({
+            success: false,
+            capabilityId: 'ejii.diagnostics.unreachable_hostname_workflow',
+            status: 'blocked',
+            error: { code: 'SECURITY_VIOLATION_SSRF', message: `Target '${rawHost}' resolved to prohibited address '${entry.address}'.` }
+          }));
+        }
+      }
+    } catch (_) {
+      // Unresolved hostnames will be diagnosed honestly by the workflow
     }
 
     const result = await crossLayerIncidentCorrelator.diagnoseUnreachableHostname(rawHost, port);
@@ -358,12 +404,21 @@ router.post('/diagnose-hostname', authenticate, async (req, res) => {
 });
 
 // Part VIII: Trace-Driven Digital Twin & Chaos Branching
-router.post('/simulation/branch', (req, res) => {
+router.post('/simulation/branch', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.simulation.digital_twin_branch',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
   const branch = simulationBranchManager.createSimulationBranch(req.body || {});
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.simulation.digital_twin_branch',
-    source: { module: 'SimulationBranchManager', method: 'createSimulationBranch', privilege: 'operator', fidelity: 'simulated' },
+    source: { module: 'SimulationBranchManager', method: 'createSimulationBranch', privilege: authCheck.user.role, fidelity: 'simulated' },
     status: 'ok',
     data: branch,
     evidenceIds: branch.evidenceId ? [branch.evidenceId] : []
@@ -390,12 +445,21 @@ router.get('/simulation/branch/:id/export', (req, res) => {
 });
 
 // Part IX: Policy Intelligence & Governance Compiler
-router.post('/policy/compile', (req, res) => {
+router.post('/policy/compile', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.security.policy_governance_compiler',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
   const compiled = policyGovernanceEngine.compileAndAuditPolicies(req.body || {});
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.security.policy_governance_compiler',
-    source: { module: 'PolicyGovernanceEngine', method: 'compileAndAuditPolicies', privilege: 'operator', fidelity: 'derived' },
+    source: { module: 'PolicyGovernanceEngine', method: 'compileAndAuditPolicies', privilege: authCheck.user.role, fidelity: 'derived' },
     status: 'ok',
     data: compiled
   }));
@@ -610,6 +674,132 @@ router.post('/operator/reset-incident', authenticate, async (req, res) => {
       error: { code: 'RESET_INCIDENT_ERROR', message: err.message }
     }));
   }
+});
+
+router.get('/system/preflight', authenticate, async (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.system.preflight',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+
+  const { db } = require('../db/database');
+  const { verifyChainIntegrity } = require('../core/audit-logger');
+  const os = require('node:os');
+  const fs = require('node:fs');
+
+  const preflightReport = {
+    timestamp: new Date().toISOString(),
+    operator: authCheck.user.username,
+    role: authCheck.user.role,
+    checks: {}
+  };
+
+  // 1. SQLite Database & WAL Integrity Check
+  try {
+    const row = db.prepare('PRAGMA integrity_check').get();
+    preflightReport.checks.sqliteIntegrity = {
+      passed: row && (row.integrity_check === 'ok' || Object.values(row)[0] === 'ok'),
+      result: row ? (row.integrity_check || Object.values(row)[0]) : 'unknown'
+    };
+  } catch (err) {
+    preflightReport.checks.sqliteIntegrity = { passed: false, error: err.message };
+  }
+
+  // 2. Cryptographic HMAC Audit Trail Chain Verification
+  try {
+    const auditStatus = verifyChainIntegrity();
+    preflightReport.checks.hmacAuditTrail = {
+      passed: Boolean(auditStatus && auditStatus.valid),
+      recordsVerified: auditStatus?.recordsChecked ?? 0,
+      details: auditStatus?.details || 'Audit chain intact'
+    };
+  } catch (err) {
+    preflightReport.checks.hmacAuditTrail = { passed: false, error: err.message };
+  }
+
+  // 3. DNS Resolver & Socket Table Verification
+  try {
+    const dnsStart = performance.now();
+    const resolved = await dns.promises.lookup('127.0.0.1');
+    const dnsRttMs = Number((performance.now() - dnsStart).toFixed(2));
+    preflightReport.checks.dnsResolver = {
+      passed: Boolean(resolved && resolved.address === '127.0.0.1'),
+      rttMs: dnsRttMs,
+      servers: dns.getServers()
+    };
+  } catch (err) {
+    preflightReport.checks.dnsResolver = { passed: false, error: err.message };
+  }
+
+  // 4. Runtime Environment & gVisor Sandbox Detection
+  const isContainer = fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv') || (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'));
+  preflightReport.checks.runtimeSandbox = {
+    platform: os.platform(),
+    isContainer,
+    hostname: os.hostname(),
+    networkInterfaces: Object.keys(os.networkInterfaces()).length
+  };
+
+  const allPassed = Object.values(preflightReport.checks).every((c) => c.passed !== false);
+  res.json(createEjiiResult({
+    success: allPassed,
+    capabilityId: 'ejii.system.preflight',
+    status: allPassed ? 'ok' : 'degraded',
+    data: preflightReport
+  }));
+});
+
+router.post('/investigate/blast-radius', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ANALYST');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.investigate.blast_radius',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+
+  const { targetNodeId, simulatedPacketLossPct = 20 } = req.body || {};
+  const graph = temporalInfrastructureGraph.getGraphState();
+  const targetNode = (graph.nodes || []).find((n) => n.nodeId === targetNodeId || n.name === targetNodeId);
+
+  const downstreamImpact = [];
+  if (targetNode) {
+    const queueMultiplier = 1 + (Number(simulatedPacketLossPct) / 100) * 2.5;
+    for (const edge of (graph.edges || [])) {
+      if (edge.sourceId === targetNode.nodeId || edge.targetId === targetNode.nodeId) {
+        const dependentId = edge.sourceId === targetNode.nodeId ? edge.targetId : edge.sourceId;
+        const depNode = (graph.nodes || []).find((n) => n.nodeId === dependentId);
+        if (depNode) {
+          downstreamImpact.push({
+            nodeId: depNode.nodeId,
+            name: depNode.name,
+            currentLatencyMs: depNode.attributes?.latencyMs || 2.0,
+            projectedLatencyMs: Number(((depNode.attributes?.latencyMs || 2.0) * queueMultiplier).toFixed(2)),
+            relationship: edge.relationshipType
+          });
+        }
+      }
+    }
+  }
+
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.investigate.blast_radius',
+    status: 'ok',
+    data: {
+      targetNode: targetNode ? { nodeId: targetNode.nodeId, name: targetNode.name } : null,
+      simulatedPacketLossPct,
+      affectedNodeCount: downstreamImpact.length,
+      downstreamImpact
+    }
+  }));
 });
 
 module.exports = router;

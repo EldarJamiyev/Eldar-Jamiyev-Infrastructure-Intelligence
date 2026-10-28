@@ -70,7 +70,9 @@
     banner.style.display = 'block';
     const confLabel = typeof b.rootCause?.confidence === 'number'
       ? `Root-Cause Confidence ${(Number(b.rootCause.confidence) * 100).toFixed(0)}%`
-      : `Telemetry Completeness ${(Number(b.telemetryCompleteness ?? 1) * 100).toFixed(0)}% (Nominal)`;
+      : (typeof b.telemetryCompleteness === 'number'
+        ? `Telemetry Completeness ${(Number(b.telemetryCompleteness) * 100).toFixed(0)}% (Nominal)`
+        : 'Telemetry Completeness: Unknown');
 
     banner.innerHTML = `
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 20px;background:var(--bg-surface, #ffffff);border-bottom:1px solid var(--border-default, #e2e8f0);">
