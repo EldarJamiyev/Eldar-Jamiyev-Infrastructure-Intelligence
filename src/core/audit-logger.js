@@ -486,7 +486,7 @@ function getHardwareAnchorStatus() {
   } catch (_) {}
 
   const hkdfKey = crypto.hkdfSync('sha256', Buffer.from(machineSeed), Buffer.from('EJII_HARDWARE_SALT_2026'), Buffer.from('AUDIT_LEDGER_ANCHOR'), 32);
-  const anchorHash = hkdfKey.toString('hex');
+  const anchorHash = Buffer.from(hkdfKey).toString('hex');
 
   return {
     hardwareBound: true,

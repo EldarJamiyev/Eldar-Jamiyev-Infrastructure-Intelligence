@@ -230,7 +230,9 @@ app.get('/api/system/bootstrap', authenticate, async (req, res) => {
     const { getHardwareAnchorStatus } = require('./core/audit-logger');
 
     const topo = topologyEngine.getTopology();
-    const inventory = equipmentInventoryRepository.getAllEquipmentRecords();
+    const inventory = typeof equipmentInventoryRepository.getAllEquipmentRecords === 'function'
+      ? equipmentInventoryRepository.getAllEquipmentRecords()
+      : (typeof equipmentInventoryRepository.getInventory === 'function' ? equipmentInventoryRepository.getInventory() : []);
     const scriptsRes = scriptAutomation.listAutomationScripts();
     const mountAudit = typeof scriptAutomation.getMountResolutionAudit === 'function' ? scriptAutomation.getMountResolutionAudit() : null;
     const warmDiag = hostDiagnosticsEngine.getWarmSnapshot();
@@ -241,6 +243,7 @@ app.get('/api/system/bootstrap', authenticate, async (req, res) => {
     const auditAnchor = getHardwareAnchorStatus();
 
     res.json({
+      ok: true,
       success: true,
       timestamp: new Date().toISOString(),
       topology: topo,

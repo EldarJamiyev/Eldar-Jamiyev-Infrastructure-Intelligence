@@ -550,6 +550,7 @@ window.quickNocLogin = async function() {
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
+    if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
     if (window.location.hash && window.location.hash.startsWith('#/learning')) {
       renderView('learning-center');
     } else {
@@ -593,6 +594,7 @@ window.handleLoginFormSubmit = async function(event) {
     hideLoginScreen();
     updateUserBadge();
     loadTopbarStats();
+    if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
     if (window.location.hash && window.location.hash.startsWith('#/learning')) {
       renderView('learning-center');
     } else {
@@ -682,7 +684,11 @@ function renderView(viewName = 'topology') {
     link.classList.toggle('active', isActive);
   });
 
-  if (target === 'topology') {
+  if (target === 'ai-operator') {
+    if (typeof window.renderAiOperatorView === 'function') {
+      window.renderAiOperatorView();
+    }
+  } else if (target === 'topology') {
     if (typeof window.renderTopologyStandaloneView === 'function') {
       window.renderTopologyStandaloneView();
     } else if (typeof window.renderNocView === 'function') {
@@ -1198,6 +1204,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       hideLoginScreen();
       updateUserBadge();
       loadTopbarStats();
+      if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
       if (window.location.hash && window.location.hash.startsWith('#/learning')) {
         renderView('learning-center');
       } else {

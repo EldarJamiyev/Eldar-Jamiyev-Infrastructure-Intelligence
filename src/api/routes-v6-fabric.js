@@ -324,4 +324,140 @@ router.post('/actions/:id/execute', async (req, res) => {
   }));
 });
 
+// Part XI: Autonomous Infrastructure Operator & 9-Capability Flagship Orchestration
+const { autonomousInfrastructureOperator } = require('../core/operator/autonomous-infrastructure-operator');
+
+router.get('/operator/state', (req, res) => {
+  try {
+    const state = autonomousInfrastructureOperator.getOperatorState();
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.operator.state',
+      status: 'ok',
+      data: state
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.state',
+      status: 'failed',
+      error: { code: 'OPERATOR_STATE_ERROR', message: err.message }
+    }));
+  }
+});
+
+router.post('/operator/directive', async (req, res) => {
+  try {
+    const user = extractOptionalUser(req);
+    const role = (req.body && req.body.role) || user.role || 'ADMIN';
+    const state = await autonomousInfrastructureOperator.executeOperatorGoal({
+      goal: req.body && req.body.goal,
+      role,
+      autoApproveLowRisk: Boolean(req.body && req.body.autoApproveLowRisk)
+    });
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.operator.directive',
+      status: 'ok',
+      data: state
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.directive',
+      status: 'failed',
+      error: { code: 'OPERATOR_DIRECTIVE_ERROR', message: err.message }
+    }));
+  }
+});
+
+router.post('/operator/approve-heal', async (req, res) => {
+  try {
+    const user = extractOptionalUser(req);
+    const role = (req.body && req.body.role) || user.role || 'ADMIN';
+    const result = await autonomousInfrastructureOperator.approveAndExecuteSelfHealing({
+      taskId: req.body && req.body.taskId,
+      actionId: (req.body && req.body.actionId) || 'dns_cache_flush',
+      role,
+      simulateVerificationFailure: Boolean(req.body && req.body.simulateVerificationFailure)
+    });
+    const code = result.status === 'DENIED_BY_RBAC' ? 403 : 200;
+    res.status(code).json(createEjiiResult({
+      success: result.approved !== false,
+      capabilityId: 'ejii.operator.self_healing',
+      status: result.status === 'DENIED_BY_RBAC' ? 'denied' : 'ok',
+      data: result,
+      ...(result.error ? { error: { code: 'RBAC_DENIED', message: result.error } } : {})
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.self_healing',
+      status: 'failed',
+      error: { code: 'SELF_HEALING_ERROR', message: err.message }
+    }));
+  }
+});
+
+router.post('/operator/digital-twin', (req, res) => {
+  try {
+    const twin = autonomousInfrastructureOperator.mutateDigitalTwin({
+      action: (req.body && req.body.action) || 'break_dns',
+      targetId: (req.body && req.body.targetId) || 'twin-sw1'
+    });
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.operator.digital_twin',
+      status: 'ok',
+      data: { digitalTwin: twin, operatorState: autonomousInfrastructureOperator.getOperatorState() }
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.digital_twin',
+      status: 'failed',
+      error: { code: 'DIGITAL_TWIN_ERROR', message: err.message }
+    }));
+  }
+});
+
+router.post('/operator/cockpit', (req, res) => {
+  try {
+    const updated = autonomousInfrastructureOperator.updateCockpitWorkspace(req.body || {});
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.operator.cockpit',
+      status: 'ok',
+      data: updated
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.cockpit',
+      status: 'failed',
+      error: { code: 'COCKPIT_ERROR', message: err.message }
+    }));
+  }
+});
+
+router.post('/operator/reset-incident', (req, res) => {
+  try {
+    const state = autonomousInfrastructureOperator.resetIncidentScenario();
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.operator.reset_incident',
+      status: 'ok',
+      data: state
+    }));
+  } catch (err) {
+    res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.operator.reset_incident',
+      status: 'failed',
+      error: { code: 'RESET_INCIDENT_ERROR', message: err.message }
+    }));
+  }
+});
+
 module.exports = router;
+

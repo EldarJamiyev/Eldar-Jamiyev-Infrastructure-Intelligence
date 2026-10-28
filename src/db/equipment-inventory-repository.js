@@ -202,6 +202,10 @@ class EquipmentInventoryRepository {
     }
   }
 
+  getAllEquipmentRecords(options = {}) {
+    return this.getInventory(options);
+  }
+
   getEquipmentSummaryCounts() {
     const all = this.getInventory({ includeUnoccupied: false });
     const summary = {
