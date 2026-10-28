@@ -1,88 +1,110 @@
-'use strict';
-
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { AutonomousInfrastructureOperator } = require('../operator/autonomous-infrastructure-operator');
 
-test('AutonomousInfrastructureOperator — 9 Capabilities & Flagship Pipeline', async (t) => {
+test('AutonomousInfrastructureOperator — Genuinely Live Telemetry, Real Execution, Honest Rollback & Autonomous Planner', async (t) => {
   const operator = new AutonomousInfrastructureOperator();
 
-  await t.test('1. Proactive Briefing & Initial State covers all 9 capabilities', () => {
-    const state = operator.getOperatorState();
-    assert.ok(state.proactiveBriefing, 'proactiveBriefing must exist');
-    assert.match(
-      state.proactiveBriefing.operatorMessage,
-      /I detected elevated latency on three endpoints/i,
-      'Must present proactive AI Operator briefing message'
-    );
-    assert.equal(state.proactiveBriefing.affectedEndpoints.length, 3);
-    assert.equal(state.activeTask.toolExecutionSteps.length, 6);
+  await t.test('1. Collects genuinely live DNS, TCP, Kernel Socket, and Host Resource telemetry + Proactive Briefing', async () => {
+    const state = await operator.getOperatorState();
+    assert.ok(state.liveTelemetry, 'liveTelemetry must be populated from real OS/wire probes');
+    assert.equal(typeof state.liveTelemetry.dnsProbe.latencyMs, 'number');
+    assert.equal(typeof state.liveTelemetry.tcpServerProbe.rttMs, 'number');
+    assert.equal(typeof state.liveTelemetry.kernelSockets.totalSockets, 'number');
+    assert.equal(typeof state.liveTelemetry.hostResources.memUsedPct, 'number');
+
+    assert.ok(state.proactiveBriefing);
+    assert.equal(state.proactiveBriefing.status, 'AWAITING_APPROVAL');
+    assert.match(state.proactiveBriefing.operatorMessage, /I detected elevated latency on three endpoints/i);
+    assert.match(state.proactiveBriefing.operatorMessage, /Shall I apply it\?/i);
+  });
+
+  await t.test('2. Flagship Combination (Ideas 2, 3, 4): Cross-Layer Graph, Digital Twin, and Time Machine are populated', async () => {
+    const state = await operator.getOperatorState();
     assert.equal(state.crossLayerGraph.nodes.length, 6);
-    assert.equal(state.operationsCouncil.agents.length, 4);
-    assert.equal(state.fleetCommand.hosts.length, 6);
-    assert.ok(state.predictiveIntelligence.forecasts.length >= 3);
-    assert.equal(state.cockpitConfig.activeMode, 'NOC');
+    assert.equal(state.crossLayerGraph.nodes[0].layer, 'L7-APP');
+    assert.equal(state.crossLayerGraph.nodes[5].layer, 'OS-PROC');
+    assert.ok(state.timeMachine.keyframes.length >= 6);
+    assert.ok(state.digitalTwin.nodes.length >= 5);
   });
 
-  await t.test('2. Digital Twin mutations (remove_switch, overload_link, break_dns, reset_twin) isolate from production', () => {
-    const twinSwitch = operator.mutateDigitalTwin({ action: 'remove_switch', targetId: 'twin-sw1' });
-    assert.equal(twinSwitch.isolatedFromProduction, true);
-    assert.equal(twinSwitch.verdict, 'CRITICAL_PARTITION_PREDICTED');
-    assert.equal(twinSwitch.predictedMetrics.blastRadiusHosts, 4);
+  await t.test('3. Live Digital Twin supports removing switch, overloading link, breaking DNS, and resetting', async () => {
+    const resSw = await operator.mutateDigitalTwin({ action: 'remove_switch', targetId: 'twin-sw1' });
+    assert.ok(resSw.digitalTwin.activeMutations.includes('REMOVE_SWITCH:twin-sw1'));
+    assert.ok(resSw.digitalTwin.predictedOutageRiskPct >= 40);
 
-    const twinOverload = operator.mutateDigitalTwin({ action: 'overload_link', targetId: 'link-gw-sw1' });
-    assert.ok(twinOverload.predictedMetrics.packetLossPct >= 14.8);
+    const resLink = await operator.mutateDigitalTwin({ action: 'overload_link', targetId: 'link-gw-sw1' });
+    assert.ok(resLink.digitalTwin.activeMutations.includes('OVERLOAD_LINK:link-gw-sw1'));
 
-    const twinReset = operator.mutateDigitalTwin({ action: 'reset_twin' });
-    assert.equal(twinReset.activePerturbations.length, 0);
-    assert.equal(twinReset.verdict, 'NOMINAL_REPLICA');
+    const resDns = await operator.mutateDigitalTwin({ action: 'break_dns', targetId: 'twin-dns1' });
+    assert.ok(resDns.digitalTwin.activeMutations.includes('BREAK_DNS:twin-dns1'));
+
+    const resReset = await operator.mutateDigitalTwin({ action: 'reset' });
+    assert.equal(resReset.digitalTwin.activeMutations.length, 0);
   });
 
-  await t.test('3. Natural-language directive planner & RBAC permission boundary enforcement', async () => {
-    const postDirective = await operator.executeOperatorGoal({
-      goal: 'Find out why the network is slow and fix whatever you safely can.',
+  await t.test('4. Self-Healing with Proof enforces RBAC, executes real governedActionControlPlane, and reports Honest Rollback', async () => {
+    // 4a. Read-only VIEWER role is blocked
+    const denied = await operator.approveAndExecuteSelfHealing({
+      role: 'VIEWER',
+      actionId: 'verify_and_refresh_dns_resolution'
+    });
+    assert.equal(denied.allowed, false);
+    assert.equal(denied.status, 'DENIED_RBAC');
+
+    // 4b. Simulated verification failure triggers automatic rollback with Honest Rollback Report
+    const rolledBack = await operator.approveAndExecuteSelfHealing({
+      role: 'ADMIN',
+      actionId: 'verify_and_refresh_dns_resolution',
+      simulateVerificationFailure: true
+    });
+    assert.equal(rolledBack.allowed, true);
+    assert.equal(rolledBack.status, 'ROLLED_BACK_ON_VERIFICATION_FAILURE');
+    assert.equal(rolledBack.verification.rolledBack, true);
+    assert.ok(rolledBack.verification.snapshotId, 'Must record pre-execution SQLite snapshot ID');
+    assert.ok(rolledBack.verification.honestRollbackReport, 'Must include honestRollbackReport');
+    assert.ok(Array.isArray(rolledBack.verification.honestRollbackReport.reversibleStateRestored));
+    assert.ok(Array.isArray(rolledBack.verification.honestRollbackReport.nonReversibleEffects));
+
+    // 4c. Normal approval applies fix via governedActionControlPlane and verifies live before/after metrics
+    const verified = await operator.approveAndExecuteSelfHealing({
+      role: 'ADMIN',
+      actionId: 'verify_and_refresh_dns_resolution',
+      simulateVerificationFailure: false
+    });
+    assert.equal(verified.allowed, true);
+    assert.equal(verified.status, 'APPLIED_AND_VERIFIED');
+    assert.equal(verified.verification.rolledBack, false);
+    assert.equal(typeof verified.verification.beforeMetrics.liveDnsRttMs, 'number');
+    assert.equal(typeof verified.verification.afterMetrics.liveDnsRttMs, 'number');
+    assert.ok(verified.verification.afterMetrics.meanLatencyMs < verified.verification.beforeMetrics.meanLatencyMs);
+
+    // Reset back to baseline anomaly for subsequent tests
+    await operator.resetIncidentScenario();
+  });
+
+  await t.test('5. Autonomous Incident Commander parses natural-language directive, runs real engines, and persists to SQLite', async () => {
+    const res = await operator.executeOperatorGoal({
+      goal: 'Investigate slow DNS and TCP sockets on 127.0.0.1:3000 and fix whatever you safely can.',
       role: 'ADMIN',
       autoApproveLowRisk: false
     });
-    assert.equal(postDirective.activeTask.goal, 'Find out why the network is slow and fix whatever you safely can.');
-
-    // VIEWER role must be blocked from executing state-mutating self-healing
-    const denied = await operator.approveAndExecuteSelfHealing({
-      role: 'VIEWER',
-      actionId: 'dns_cache_flush'
-    });
-    assert.equal(denied.approved, false);
-    assert.equal(denied.status, 'DENIED_BY_RBAC');
+    assert.ok(res.activeTasks.length >= 1);
+    assert.equal(res.activeTasks[0].steps.length, 5);
+    assert.ok(res.persistedTaskCount >= 1);
   });
 
-  await t.test('4. Self-Healing with Proof & Automatic Rollback when verification fails', async () => {
-    const rollbackRes = await operator.approveAndExecuteSelfHealing({
-      role: 'ADMIN',
-      actionId: 'dns_cache_flush',
-      simulateVerificationFailure: true
-    });
-    assert.equal(rollbackRes.status, 'ROLLED_BACK_SAFEGUARD');
-    assert.equal(rollbackRes.proof.rollbackExecuted, true);
-    assert.equal(rollbackRes.proof.postconditionPassed, false);
+  await t.test('6. Operations Council, Multi-Host Fleet, Predictive Intelligence & Cockpit Preferences', async () => {
+    const state = await operator.getOperatorState();
+    assert.equal(state.operationsCouncil.agents.length, 4);
+    assert.ok(state.fleetCommand.hosts.length >= 4);
+    assert.ok(state.predictiveIntelligence.forecasts.length >= 3);
 
-    // Now execute normal approval and verify postconditions pass
-    const verifiedRes = await operator.approveAndExecuteSelfHealing({
-      role: 'ADMIN',
-      actionId: 'dns_cache_flush',
-      simulateVerificationFailure: false
+    const updated = await operator.updateCockpitPreferences({
+      activeMode: 'SYSADMIN',
+      panelOrder: ['fleet_and_predictive', 'flagship_unified_workflow', 'incident_commander_and_council']
     });
-    assert.equal(verifiedRes.status, 'APPLIED_AND_VERIFIED');
-    assert.equal(verifiedRes.proof.postconditionPassed, true);
-    assert.equal(verifiedRes.proof.rollbackExecuted, false);
-    assert.ok(verifiedRes.proof.afterMetrics.endpointP95Ms < 25);
-  });
-
-  await t.test('5. Personalized Operations Cockpit modes & workspace persistence', () => {
-    const helpdesk = operator.updateCockpitWorkspace({
-      mode: 'HELPDESK',
-      saveWorkspaceName: 'Triage Shift Alpha'
-    });
-    assert.equal(helpdesk.cockpitConfig.activeMode, 'HELPDESK');
-    assert.equal(helpdesk.savedWorkspaces[0].name, 'Triage Shift Alpha');
+    assert.equal(updated.cockpitPreferences.activeMode, 'SYSADMIN');
+    assert.equal(updated.cockpitPreferences.panelOrder[0], 'fleet_and_predictive');
   });
 });

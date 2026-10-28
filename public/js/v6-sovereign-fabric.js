@@ -17,6 +17,17 @@
 
   const esc = (s) => (typeof window.escapeHtml === 'function' ? window.escapeHtml(s) : String(s ?? ''));
 
+  function v6AuthFetch(url, options = {}) {
+    const headers = Object.assign({}, options.headers || {});
+    try {
+      const token = localStorage.getItem('ejii_token');
+      if (token && !headers.Authorization) {
+        headers.Authorization = 'Bearer ' + token;
+      }
+    } catch (_) {}
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, options, { headers }));
+  }
+
   window.__v6ActiveTab = 'uncertainty';
   window.__v6ActiveEngine = 'l7';
   window.__v6SelectedRole = 'ADMIN';
@@ -84,7 +95,7 @@
   window.refreshV6FabricOverview = async function (activeTab) {
     const bodyEl = document.getElementById('v6SovereignFabricBody');
     try {
-      const res = await fetch('/api/v6/overview', { credentials: 'same-origin' });
+      const res = await v6AuthFetch('/api/v6/overview');
       const env = await res.json();
       const d = env.data || {};
       window.__v6FabricData = d;
@@ -309,7 +320,7 @@
     try {
       if (engineId === 'l7') {
         const presetHex = customPayload || 'c300000001088394c8f03e515708050102030405004075c01a2b3c4d';
-        const res = await fetch('/api/network/dissect-l7', {
+        const res = await v6AuthFetch('/api/network/dissect-l7', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hex: presetHex })
@@ -333,7 +344,7 @@
           </div>
         `;
       } else if (engineId === 'fft') {
-        const res = await fetch('/api/rca/spectral-fft');
+        const res = await v6AuthFetch('/api/rca/spectral-fft');
         const data = await res.json();
         const bins = (data.periodogram || []).slice(0, 12);
         const maxPow = Math.max(0.01, ...bins.map((b) => Number(b.power) || 0));
@@ -360,7 +371,7 @@
           <div>${bars}</div>
         `;
       } else if (engineId === 'chaos') {
-        const res = await fetch('/api/network/digital-twin/simulate', {
+        const res = await v6AuthFetch('/api/network/digital-twin/simulate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ arrivalRateMultiplier: 2.1, severedEdges: [{ source: 'L2-EDGE-ROUTER', target: 'L3-CORE-SWITCH' }] })
@@ -376,7 +387,7 @@
           </div>
         `;
       } else if (engineId === 'zerotrust') {
-        const res = await fetch('/api/network/zero-trust-policies');
+        const res = await v6AuthFetch('/api/network/zero-trust-policies');
         const data = await res.json();
         stage.innerHTML = `
           <div class="v6-panel-kicker" style="color:var(--accent-primary);">ENGINE 4 · ZERO-TRUST MICRO-SEGMENTATION POLICY SYNTHESIZER</div>
@@ -395,7 +406,7 @@
           </div>
         `;
       } else if (engineId === 'qos') {
-        const res = await fetch('/api/network/qos-dscp-audit');
+        const res = await v6AuthFetch('/api/network/qos-dscp-audit');
         const data = await res.json();
         stage.innerHTML = `
           <div class="v6-panel-kicker" style="color:var(--accent-primary);">ENGINE 5 · MULTIPATH DSCP / ECN QOS &amp; PMTU BLACK-HOLE AUDITOR (RFC 4594 / RFC 3168)</div>
@@ -405,7 +416,7 @@
           <div style="font-size:12px;color:var(--text-secondary);">${esc(data.summary)}</div>
         `;
       } else if (engineId === 'kernel') {
-        const res = await fetch('/api/diagnostics/kernel-radio-inspector');
+        const res = await v6AuthFetch('/api/diagnostics/kernel-radio-inspector');
         const data = await res.json();
         stage.innerHTML = `
           <div class="v6-panel-kicker" style="color:var(--accent-primary);">ENGINE 6 · PHYSICAL WIFI RADIO &amp; KERNEL TCP CONGESTION PROVENANCE INSPECTOR</div>
@@ -423,7 +434,7 @@
           </div>
         `;
       } else if (engineId === 'warroom') {
-        const res = await fetch('/api/rca/war-room/latest');
+        const res = await v6AuthFetch('/api/rca/war-room/latest');
         const data = await res.json();
         const steps = (data.agentTranscript || []).map((a) => `
           <div style="padding:7px 10px;border-bottom:1px solid var(--border-subtle);font-size:11.5px;">
@@ -437,7 +448,7 @@
           <div style="border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">${steps}</div>
         `;
       } else if (engineId === 'dvr') {
-        const res = await fetch('/api/observability/dvr/frames');
+        const res = await v6AuthFetch('/api/observability/dvr/frames');
         const data = await res.json();
         const frames = data.frames || [];
         stage.innerHTML = `
@@ -460,7 +471,7 @@
     if (!box) return;
     box.innerHTML = `<div class="v6-panel" style="font-size:12px;">Tracing acyclic lineage DAG for <code>${esc(evidenceId)}</code>...</div>`;
     try {
-      const res = await fetch(`/api/v6/evidence/${encodeURIComponent(evidenceId)}/lineage`);
+      const res = await v6AuthFetch(`/api/v6/evidence/${encodeURIComponent(evidenceId)}/lineage`);
       const env = await res.json();
       const lin = env.data || {};
       const chain = (lin.lineageChain || []).map((node, idx) =>
@@ -502,7 +513,7 @@
           sourceEngine: 'LiveWireProbe'
         };
 
-    const res = await fetch('/api/v6/evidence', {
+    const res = await v6AuthFetch('/api/v6/evidence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -527,7 +538,7 @@
     const out = document.getElementById('v6DiagnosisOutput');
     if (out) out.innerHTML = '<div class="v6-panel" style="font-size:12.5px;">Executing 10-step L1–L7 cross-layer diagnosis...</div>';
     try {
-      const res = await fetch('/api/v6/diagnose-hostname', {
+      const res = await v6AuthFetch('/api/v6/diagnose-hostname', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hostname: hostname || 'localhost', port: port || 3000 })
@@ -561,7 +572,7 @@
     const out = document.getElementById('v6DiagnosisOutput');
     if (out) out.innerHTML = '<div class="v6-panel" style="font-size:12px;">Running shared-dependency cross-layer correlation...</div>';
     try {
-      const res = await fetch('/api/v6/correlate', {
+      const res = await v6AuthFetch('/api/v6/correlate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -604,7 +615,7 @@
     const mult = Number(document.getElementById('v6ChaosLambdaInput')?.value || 1.85);
     if (out) out.innerHTML = 'Forking isolated Digital Twin simulation branch...';
     try {
-      const res = await fetch('/api/v6/simulation/branch', {
+      const res = await v6AuthFetch('/api/v6/simulation/branch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ arrivalRateMultiplier: mult, severedEdgeIds: ['EDGE-GW-CORE'] })
@@ -630,7 +641,7 @@
     const out = document.getElementById('v6SimulationOutput');
     if (out) out.innerHTML = 'Computing Temporal Infrastructure Graph snapshot delta...';
     try {
-      const res = await fetch('/api/v6/temporal-graph/diff');
+      const res = await v6AuthFetch('/api/v6/temporal-graph/diff');
       const env = await res.json();
       const diff = env.data || {};
       if (out) {
@@ -648,7 +659,7 @@
 
   window.previewV6GovernedAction = async function (actionId) {
     const out = document.getElementById('v6GovernanceOutput');
-    const res = await fetch(`/api/v6/actions/${encodeURIComponent(actionId)}/preview`, {
+    const res = await v6AuthFetch(`/api/v6/actions/${encodeURIComponent(actionId)}/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: '127.0.0.1', port: 3000 })
@@ -669,7 +680,7 @@
     const out = document.getElementById('v6GovernanceOutput');
     const selectedRole = document.getElementById('v6RoleSelector')?.value || window.__v6SelectedRole || 'ADMIN';
     if (out) out.innerHTML = '<div class="v6-panel" style="font-size:12px;">Executing governed action and verifying postconditions...</div>';
-    const res = await fetch(`/api/v6/actions/${encodeURIComponent(actionId)}/execute`, {
+    const res = await v6AuthFetch(`/api/v6/actions/${encodeURIComponent(actionId)}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: '127.0.0.1', port: 3000, operatorRole: selectedRole })

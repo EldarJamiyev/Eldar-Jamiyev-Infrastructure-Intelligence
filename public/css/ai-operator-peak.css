@@ -1,0 +1,265 @@
+/* ============================================================================
+ * EJII v7.0 — Peak Visual Styling for Autonomous AI Infrastructure Operator
+ * High-Craft Meridian Executive Surface (Light & Dark Adaptive)
+ * ============================================================================ */
+
+.ai-op-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 36px;
+  color: var(--text-primary);
+}
+
+.ai-op-num,
+.ai-op-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live Telemetry Pulse Ribbon */
+.ai-op-telemetry-ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 1px;
+  background: var(--border-default);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.ai-op-telemetry-cell {
+  background: var(--bg-surface);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ai-op-telemetry-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-op-telemetry-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.ai-op-telemetry-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Card & Surface Primitives */
+.ai-op-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ai-op-card-subtle {
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.ai-op-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.ai-op-kicker {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  margin-bottom: 3px;
+}
+
+.ai-op-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ai-op-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* Technical Rectangular Tags (Zero-Pill Discipline) */
+.ai-op-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+}
+
+.ai-op-tag-nominal {
+  color: var(--status-nominal);
+  border-color: rgba(22, 163, 74, 0.32);
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.ai-op-tag-warning {
+  color: var(--status-warning);
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.07);
+}
+
+.ai-op-tag-critical {
+  color: var(--status-critical);
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.07);
+}
+
+.ai-op-tag-accent {
+  color: var(--accent-primary);
+  border-color: rgba(37, 99, 235, 0.32);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+/* Flagship Unified Workflow Grid */
+.ai-op-flagship-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px;
+}
+
+.ai-op-col-7 {
+  grid-column: span 7;
+}
+
+.ai-op-col-5 {
+  grid-column: span 5;
+}
+
+.ai-op-col-6 {
+  grid-column: span 6;
+}
+
+.ai-op-col-12 {
+  grid-column: span 12;
+}
+
+@media (max-width: 1180px) {
+  .ai-op-col-7,
+  .ai-op-col-5,
+  .ai-op-col-6 {
+    grid-column: span 12;
+  }
+}
+
+/* Interactive SVG Stage */
+.ai-op-svg-stage {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-subtle);
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+/* Cross-Layer Node Chain */
+.ai-op-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-op-chain-step {
+  padding: 10px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ai-op-chain-step[data-status="DEGRADED"] {
+  border-color: rgba(217, 119, 6, 0.55);
+  background: rgba(217, 119, 6, 0.04);
+}
+
+.ai-op-chain-step[data-status="CRITICAL"] {
+  border-color: rgba(220, 38, 38, 0.55);
+  background: rgba(220, 38, 38, 0.05);
+}
+
+.ai-op-chain-step[data-status="NOMINAL"] {
+  border-color: rgba(22, 163, 74, 0.32);
+}
+
+/* Progress & Utilization Meter */
+.ai-op-meter-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-surface-subtle);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.ai-op-meter-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.25s ease;
+}
+
+/* Honest Rollback & Proof Comparison Grid */
+.ai-op-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ai-op-proof-box {
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  font-size: 11.5px;
+}

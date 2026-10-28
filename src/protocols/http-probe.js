@@ -15,6 +15,10 @@ const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../core/secur
  * @param {number} timeoutMs 
  */
 async function probeHttp(targetUrl, method = 'GET', timeoutMs = 5000) {
+  if (typeof method === 'number') {
+    timeoutMs = method;
+    method = 'GET';
+  }
   return new Promise(async (resolve) => {
     let parsedUrl;
     try {

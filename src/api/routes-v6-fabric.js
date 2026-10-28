@@ -25,24 +25,46 @@ const {
   governedActionControlPlane
 } = require('../core/governance/action-control-plane');
 const { verifyToken } = require('../core/security');
+const { authenticate } = require('./middleware');
+const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../core/operator/autonomous-infrastructure-operator');
 
-function extractOptionalUser(req) {
-  let token = null;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-    token = req.headers.authorization.slice(7).trim();
-  } else if (req.headers.cookie) {
-    const m = req.headers.cookie.match(/eji_session=([^;]+)/);
-    if (m) token = m[1];
+/**
+ * Resolves the cryptographically verified user from `req.user` (populated by `authenticate`).
+ * Strictly blocks any attempt to escalate privileges via `req.body.role` or `req.body.operatorRole`.
+ * Permits voluntary role downgrade ONLY when an authenticated higher-privilege user (e.g. ADMIN)
+ * explicitly tests least-privilege RBAC boundaries.
+ */
+function resolveVerifiedUser(req) {
+  const verified = req.user;
+  if (!verified || !verified.role) {
+    return { allowed: false, status: 401, error: 'Authentication required. Verified JWT session missing.' };
   }
-  const decoded = token ? verifyToken(token) : null;
-  if (decoded) {
+  const actualRole = String(verified.role).toUpperCase();
+  const actualLevel = ROLE_LEVELS[actualRole] || 1;
+
+  const requestedOverride = (req.body && (req.body.role || req.body.operatorRole))
+    ? String(req.body.role || req.body.operatorRole).toUpperCase()
+    : null;
+
+  if (requestedOverride && requestedOverride !== actualRole) {
+    const requestedLevel = ROLE_LEVELS[requestedOverride] || 1;
+    if (requestedLevel > actualLevel) {
+      return {
+        allowed: false,
+        status: 403,
+        error: `PRIVILEGE_ESCALATION_BLOCKED: Authenticated role '${actualRole}' cannot escalate to '${requestedOverride}' via request body.`
+      };
+    }
     return {
-      id: decoded.id,
-      username: decoded.username,
-      role: String(decoded.role || 'OPERATOR').toUpperCase()
+      allowed: true,
+      user: { ...verified, role: requestedOverride, authenticatedRole: actualRole, isDowngradedSimulation: true }
     };
   }
-  return { id: 'OP-LOCAL', username: 'noc-operator', role: 'OPERATOR' };
+
+  return {
+    allowed: true,
+    user: { ...verified, role: actualRole, authenticatedRole: actualRole }
+  };
 }
 
 // GET /api/v6/overview — Complete v6 Sovereign Intelligence Fabric state summary
@@ -116,12 +138,20 @@ router.get('/capabilities', (req, res) => {
   }));
 });
 
-router.post('/capabilities/:id/invoke', async (req, res) => {
-  const user = extractOptionalUser(req);
+router.post('/capabilities/:id/invoke', authenticate, async (req, res) => {
+  const authCheck = resolveVerifiedUser(req);
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: req.params.id,
+      status: 'denied',
+      error: { code: 'AUTH_OR_ESCALATION_DENIED', message: authCheck.error }
+    }));
+  }
   const envelope = await capabilityRegistry.invokeCapability(req.params.id, req.body || {}, {
     requestId: req.requestId,
     correlationId: req.correlationId,
-    user
+    user: authCheck.user
   });
   res.status(envelope.status === 'denied' ? 403 : envelope.success ? 200 : 400).json(envelope);
 });
@@ -309,10 +339,17 @@ router.post('/actions/:id/preview', (req, res) => {
   }));
 });
 
-router.post('/actions/:id/execute', async (req, res) => {
-  const user = extractOptionalUser(req);
-  const roleOverride = req.body && req.body.operatorRole ? { ...user, role: String(req.body.operatorRole).toUpperCase() } : user;
-  const result = await governedActionControlPlane.executeGovernedAction(req.params.id, req.body || {}, roleOverride);
+router.post('/actions/:id/execute', authenticate, async (req, res) => {
+  const authCheck = resolveVerifiedUser(req);
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.governance.verified_remediation',
+      status: 'denied',
+      error: { code: 'AUTH_OR_ESCALATION_DENIED', message: authCheck.error }
+    }));
+  }
+  const result = await governedActionControlPlane.executeGovernedAction(req.params.id, req.body || {}, authCheck.user);
   const statusCode = result.status === 'denied' ? 403 : result.success ? 200 : 400;
   res.status(statusCode).json(createEjiiResult({
     success: result.success,
@@ -324,17 +361,21 @@ router.post('/actions/:id/execute', async (req, res) => {
   }));
 });
 
-// Part XI: Autonomous Infrastructure Operator & 9-Capability Flagship Orchestration
-const { autonomousInfrastructureOperator } = require('../core/operator/autonomous-infrastructure-operator');
-
-router.get('/operator/state', (req, res) => {
+// Part XI: Autonomous Infrastructure Operator & 9-Capability Flagship Orchestration (Strict JWT Auth)
+router.get('/operator/state', authenticate, async (req, res) => {
   try {
-    const state = autonomousInfrastructureOperator.getOperatorState();
+    const state = await autonomousInfrastructureOperator.getOperatorState();
     res.json(createEjiiResult({
       success: true,
       capabilityId: 'ejii.operator.state',
       status: 'ok',
-      data: state
+      data: {
+        ...state,
+        authenticatedOperator: {
+          username: req.user.username,
+          role: req.user.role
+        }
+      }
     }));
   } catch (err) {
     res.status(500).json(createEjiiResult({
@@ -346,13 +387,20 @@ router.get('/operator/state', (req, res) => {
   }
 });
 
-router.post('/operator/directive', async (req, res) => {
+router.post('/operator/directive', authenticate, async (req, res) => {
   try {
-    const user = extractOptionalUser(req);
-    const role = (req.body && req.body.role) || user.role || 'ADMIN';
+    const authCheck = resolveVerifiedUser(req);
+    if (!authCheck.allowed) {
+      return res.status(authCheck.status).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.operator.directive',
+        status: 'denied',
+        error: { code: 'PRIVILEGE_ESCALATION_BLOCKED', message: authCheck.error }
+      }));
+    }
     const state = await autonomousInfrastructureOperator.executeOperatorGoal({
       goal: req.body && req.body.goal,
-      role,
+      user: authCheck.user,
       autoApproveLowRisk: Boolean(req.body && req.body.autoApproveLowRisk)
     });
     res.json(createEjiiResult({
@@ -371,21 +419,32 @@ router.post('/operator/directive', async (req, res) => {
   }
 });
 
-router.post('/operator/approve-heal', async (req, res) => {
+router.post('/operator/approve-heal', authenticate, async (req, res) => {
   try {
-    const user = extractOptionalUser(req);
-    const role = (req.body && req.body.role) || user.role || 'ADMIN';
+    const authCheck = resolveVerifiedUser(req);
+    if (!authCheck.allowed) {
+      return res.status(authCheck.status).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.operator.self_healing',
+        status: 'denied',
+        error: { code: 'PRIVILEGE_ESCALATION_BLOCKED', message: authCheck.error }
+      }));
+    }
     const result = await autonomousInfrastructureOperator.approveAndExecuteSelfHealing({
       taskId: req.body && req.body.taskId,
-      actionId: (req.body && req.body.actionId) || 'dns_cache_flush',
-      role,
+      actionId: (req.body && req.body.actionId) || 'verify_and_refresh_dns_resolution',
+      target: (req.body && req.body.target) || '127.0.0.1',
+      port: Number(req.body && req.body.port) || 3000,
+      role: authCheck.user.role,
+      user: authCheck.user,
       simulateVerificationFailure: Boolean(req.body && req.body.simulateVerificationFailure)
     });
-    const code = result.status === 'DENIED_BY_RBAC' ? 403 : 200;
+    const isDenied = result.status === 'DENIED_BY_RBAC' || result.status === 'DENIED_RBAC' || result.allowed === false;
+    const code = isDenied ? 403 : 200;
     res.status(code).json(createEjiiResult({
-      success: result.approved !== false,
+      success: !isDenied,
       capabilityId: 'ejii.operator.self_healing',
-      status: result.status === 'DENIED_BY_RBAC' ? 'denied' : 'ok',
+      status: isDenied ? 'denied' : 'ok',
       data: result,
       ...(result.error ? { error: { code: 'RBAC_DENIED', message: result.error } } : {})
     }));
@@ -399,9 +458,9 @@ router.post('/operator/approve-heal', async (req, res) => {
   }
 });
 
-router.post('/operator/digital-twin', (req, res) => {
+router.post('/operator/digital-twin', authenticate, async (req, res) => {
   try {
-    const twin = autonomousInfrastructureOperator.mutateDigitalTwin({
+    const twinRes = await autonomousInfrastructureOperator.mutateDigitalTwin({
       action: (req.body && req.body.action) || 'break_dns',
       targetId: (req.body && req.body.targetId) || 'twin-sw1'
     });
@@ -409,7 +468,7 @@ router.post('/operator/digital-twin', (req, res) => {
       success: true,
       capabilityId: 'ejii.operator.digital_twin',
       status: 'ok',
-      data: { digitalTwin: twin, operatorState: autonomousInfrastructureOperator.getOperatorState() }
+      data: twinRes
     }));
   } catch (err) {
     res.status(500).json(createEjiiResult({
@@ -421,9 +480,9 @@ router.post('/operator/digital-twin', (req, res) => {
   }
 });
 
-router.post('/operator/cockpit', (req, res) => {
+router.post('/operator/cockpit', authenticate, async (req, res) => {
   try {
-    const updated = autonomousInfrastructureOperator.updateCockpitWorkspace(req.body || {});
+    const updated = await autonomousInfrastructureOperator.updateCockpitPreferences(req.body || {});
     res.json(createEjiiResult({
       success: true,
       capabilityId: 'ejii.operator.cockpit',
@@ -440,9 +499,9 @@ router.post('/operator/cockpit', (req, res) => {
   }
 });
 
-router.post('/operator/reset-incident', (req, res) => {
+router.post('/operator/reset-incident', authenticate, async (req, res) => {
   try {
-    const state = autonomousInfrastructureOperator.resetIncidentScenario();
+    const state = await autonomousInfrastructureOperator.resetIncidentScenario();
     res.json(createEjiiResult({
       success: true,
       capabilityId: 'ejii.operator.reset_incident',

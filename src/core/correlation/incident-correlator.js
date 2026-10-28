@@ -598,7 +598,7 @@ class CrossLayerIncidentCorrelator {
       }
       if (tcpOpen && (port === 80 || port === 443 || port === 3000 || port === 8443)) {
         const proto = (port === 443 || port === 8443) ? 'https' : 'http';
-        const httpRes = await probeHttp(`${proto}://${hostname}:${port}/`, 2500).catch((e) => ({ success: false, error: e.message }));
+        const httpRes = await probeHttp(`${proto}://${hostname}:${port}/`, 'GET', 2500).catch((e) => ({ success: false, error: e.message }));
         steps.push({
           stepNumber: 8,
           layer: 'L7 HTTP Application Response & TTFB',
