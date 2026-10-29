@@ -385,6 +385,11 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     const priorResultQuestion = chatOperatorService.parseIntentAndEntities('what is happening?', session);
     assert.equal(priorResultQuestion.intent, 'follow_up_explanation', 'A contextual question should use prior evidence');
 
+    const noTargetSession = { ...session, lastTarget: null, lastValidTarget: null, lastIntent: 'active_connections' };
+    const unresolvedFollowUp = chatOperatorService.parseIntentAndEntities('Now test port 443 on the same host', noTargetSession);
+    assert.equal(unresolvedFollowUp.intent, 'clarification');
+    assert.equal(unresolvedFollowUp.target, null, 'An unresolved same-host reference must not default to localhost');
+
     const vaguePlan = chatOperatorService.parseIntentAndEntities('please do something', session);
     assert.equal(vaguePlan.intent, 'clarification');
   });
