@@ -325,6 +325,9 @@ export class ProcessSocketCorrelatorEngine {
               const [remAddr, remPortStr] = splitEndpoint(remote);
               const localPort = parseInt(locPortStr || '0', 10);
               const remotePort = parseInt(remPortStr || '0', 10);
+              if (proto === 'UDP' && remotePort > 0 && !['0.0.0.0', '::', '*'].includes(String(remAddr))) {
+                state = 'UDP_CONNECTED';
+              }
 
               if (!isNaN(pid)) {
                 sockets.push({
