@@ -1445,7 +1445,9 @@ class HostDiagnosticsEngine {
               local: parseHexAddr(parts[1]),
               remote: parseHexAddr(parts[2]),
               state: stateMap[parts[3]] || 'ESTABLISHED',
-              pid: process.pid
+              // /proc/net/tcp alone does not map a socket inode to its owning process.
+              // Leave attribution unknown rather than falsely assigning every socket to EJII.
+              pid: null
             });
           }
         }
