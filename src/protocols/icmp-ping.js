@@ -48,10 +48,11 @@ function realPing(host, count = 4, timeoutMs = 2000) {
       cmd = `ping.exe -n ${safeCount} -w ${safeTimeoutMs} ${sanitizedHost}`;
     } else {
       const timeoutSec = Math.max(1, Math.ceil(safeTimeoutMs / 1000));
-      cmd = `ping -c ${safeCount} -W ${timeoutSec} ${sanitizedHost}`;
+      const intervalFlag = safeCount > 1 ? '-i 0.2 ' : '';
+      cmd = `ping -c ${safeCount} ${intervalFlag}-W ${timeoutSec} ${sanitizedHost}`;
     }
 
-    exec(cmd, { timeout: (safeCount * safeTimeoutMs) + 4000 }, (error, stdout, stderr) => {
+    exec(cmd, { timeout: Math.min((safeCount * safeTimeoutMs) + 1200, 3500) }, (error, stdout, stderr) => {
       const durationMs = Date.now() - startTime;
       const raw = (stdout || '') + (stderr || '');
 

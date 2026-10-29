@@ -296,4 +296,48 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(impactedApp.currentLatencyMs, null, 'Unobserved baseline latency must remain null');
     assert.equal(impactedApp.projectedLatencyMs, null, 'Unobserved projected latency must remain null');
   });
+
+  it('Scenario J: Typo Auto-Correction (google.ocm -> google.com), Fast System DNS Connection Check & Deep Session Memory', async () => {
+    const sessionId = 'TEST-TYPO-AND-DNS-FAST';
+
+    // 1. User types "check ping google.ocm" -> auto-corrects to google.com and saves google.com as lastTarget
+    const t0 = performance.now();
+    const typoTurn = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'check ping google.ocm',
+      user: { id: 'u1', username: 'admin', role: 'ADMIN' }
+    });
+    const elapsedTypoMs = performance.now() - t0;
+
+    assert.equal(typoTurn.success, true);
+    assert.equal(typoTurn.data.target, 'google.com', 'Should auto-correct google.ocm to google.com');
+    assert.equal(typoTurn.data.sessionContext.lastTarget, 'google.com', 'Session memory must store google.com, never google.ocm');
+    assert.ok(typoTurn.data.reply.includes('google.com'), 'Reply should reference auto-corrected google.com');
+    assert.ok(elapsedTypoMs < 4000, `Ping + typo correction should complete in <4s (took ${elapsedTypoMs.toFixed(1)}ms)`);
+
+    // 2. User types "check dns connection" -> runs fast system DNS health check in <2s without falling back to google.ocm
+    const t1 = performance.now();
+    const dnsConnTurn = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'check dns connection',
+      user: { id: 'u1', username: 'admin', role: 'ADMIN' }
+    });
+    const elapsedDnsMs = performance.now() - t1;
+
+    assert.equal(dnsConnTurn.success, true);
+    assert.ok(!dnsConnTurn.data.reply.includes('google.ocm'), 'Must never test broken typo google.ocm');
+    assert.ok(dnsConnTurn.data.reply.includes('DNS connection check completed'), 'Should execute system DNS connection check');
+    assert.ok(elapsedDnsMs < 2500, `System DNS connection check must complete in <2.5s (took ${elapsedDnsMs.toFixed(1)}ms)`);
+
+    // 3. Deep memory recall: "What have we tested so far?"
+    const memTurn = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'What have we tested so far?',
+      user: { id: 'u1', username: 'admin', role: 'ADMIN' }
+    });
+    assert.equal(memTurn.success, true);
+    assert.ok(memTurn.data.reply.includes('Session Investigation Memory'), 'Should return structured session entity memory');
+    assert.ok(memTurn.data.reply.includes('google.com'), 'Memory should include google.com');
+  });
 });
+

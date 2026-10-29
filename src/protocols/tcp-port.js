@@ -87,10 +87,26 @@ async function checkPort(host, port, timeoutMs = 2500) {
       resolve(result);
     }
 
+    const SERVER_GREETING_PORTS = new Set([21, 22, 23, 25, 110, 143, 587, 3306, 5900]);
+
     socket.on('connect', () => {
       const connectLatencyMs = parseFloat((performance.now() - startTime).toFixed(2));
 
-      // Attempt brief banner read (wait up to 300ms for incoming service identification)
+      if (!SERVER_GREETING_PORTS.has(Number(port))) {
+        return finish({
+          host,
+          port,
+          status: 'OPEN',
+          open: true,
+          connectLatencyMs,
+          latencyMs: connectLatencyMs,
+          banner: null,
+          error: null,
+          errorCode: null
+        });
+      }
+
+      // Attempt brief banner read (wait up to 45ms for server-first greeting protocols like SSH/SMTP/FTP)
       const bannerTimer = setTimeout(() => {
         finish({
           host,
@@ -98,10 +114,12 @@ async function checkPort(host, port, timeoutMs = 2500) {
           status: 'OPEN',
           open: true,
           connectLatencyMs,
+          latencyMs: connectLatencyMs,
           banner: banner.trim() || null,
-          error: null
+          error: null,
+          errorCode: null
         });
-      }, 300);
+      }, 45);
 
       socket.on('data', (data) => {
         banner += data.toString('utf8', 0, 256);
@@ -112,8 +130,10 @@ async function checkPort(host, port, timeoutMs = 2500) {
           status: 'OPEN',
           open: true,
           connectLatencyMs,
+          latencyMs: connectLatencyMs,
           banner: banner.trim() || null,
-          error: null
+          error: null,
+          errorCode: null
         });
       });
     });
@@ -126,8 +146,10 @@ async function checkPort(host, port, timeoutMs = 2500) {
         status: 'FILTERED',
         open: false,
         connectLatencyMs: latencyMs,
+        latencyMs,
         banner: null,
-        error: 'ETIMEDOUT (No response from host, likely dropped by firewall)'
+        error: 'ETIMEDOUT (No response from host, likely dropped by firewall)',
+        errorCode: 'ETIMEDOUT'
       });
     });
 
@@ -153,8 +175,10 @@ async function checkPort(host, port, timeoutMs = 2500) {
         status,
         open: false,
         connectLatencyMs: latencyMs,
+        latencyMs,
         banner: null,
-        error: errorMsg
+        error: errorMsg,
+        errorCode: err.code || status
       });
     });
 

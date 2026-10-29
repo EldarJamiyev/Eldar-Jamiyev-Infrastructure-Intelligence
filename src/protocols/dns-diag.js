@@ -70,13 +70,26 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
     };
   }
 
-  const resolver = new dnsPromises.Resolver({ timeout: 2000, tries: 2 });
+  const resolver = new dnsPromises.Resolver({ timeout: 900, tries: 1 });
   const activeNs = nameserver ? String(nameserver).trim() : getRealSystemDns();
   const typeUpper = (recordType || 'A').toUpperCase();
 
+  const withDnsTimeout = (promise, ms = 1100) => {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const timeoutErr = new Error(`DNS query timed out after ${ms}ms`);
+          timeoutErr.code = 'ETIMEOUT';
+          reject(timeoutErr);
+        }, ms);
+      })
+    ]).finally(() => clearTimeout(timer));
+  };
+
   try {
-    if (activeNs) {
-      // Validate IP format
+    if (nameserver) {
       if (!/^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$/.test(activeNs)) {
         return {
           success: false,
@@ -85,14 +98,17 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           nameserver: activeNs,
           durationMs: 0,
           records: [],
-          error: `Invalid nameserver IP address: ${activeNs}`
+          error: `Invalid nameserver IP address: ${activeNs}`,
+          errorCode: 'EINVAL'
         };
       }
-      if (nameserver) {
-        resolver.setServers([activeNs]);
+      resolver.setServers([activeNs]);
+    } else if (activeNs && /^(\d{1,3}\.){3}\d{1,3}$/.test(activeNs)) {
+      const sysServers = dns.getServers();
+      if (sysServers.length > 0) {
+        resolver.setServers(sysServers);
       } else {
-        const servers = [activeNs, '8.8.8.8', '1.1.1.1'].filter(Boolean);
-        resolver.setServers(servers);
+        resolver.setServers([activeNs]);
       }
     }
 
@@ -100,31 +116,31 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
 
     switch (typeUpper) {
       case 'A':
-        records = await resolver.resolve4(cleanDomain);
+        records = await withDnsTimeout(resolver.resolve4(cleanDomain), 1100);
         break;
       case 'AAAA':
-        records = await resolver.resolve6(cleanDomain);
+        records = await withDnsTimeout(resolver.resolve6(cleanDomain), 1100);
         break;
       case 'MX':
-        records = await resolver.resolveMx(cleanDomain);
+        records = await withDnsTimeout(resolver.resolveMx(cleanDomain), 1100);
         break;
       case 'TXT':
-        records = await resolver.resolveTxt(cleanDomain);
+        records = await withDnsTimeout(resolver.resolveTxt(cleanDomain), 1100);
         break;
       case 'CNAME':
-        records = await resolver.resolveCname(cleanDomain);
+        records = await withDnsTimeout(resolver.resolveCname(cleanDomain), 1100);
         break;
       case 'NS':
-        records = await resolver.resolveNs(cleanDomain);
+        records = await withDnsTimeout(resolver.resolveNs(cleanDomain), 1100);
         break;
       case 'SOA':
-        records = [await resolver.resolveSoa(cleanDomain)];
+        records = [await withDnsTimeout(resolver.resolveSoa(cleanDomain), 1100)];
         break;
       case 'ANY':
-        records = await resolver.resolveAny(cleanDomain);
+        records = await withDnsTimeout(resolver.resolveAny(cleanDomain), 1100);
         break;
       default:
-        records = await resolver.resolve4(cleanDomain);
+        records = await withDnsTimeout(resolver.resolve4(cleanDomain), 1100);
     }
 
     const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
@@ -136,13 +152,14 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       nameserver: activeNs || 'System Default',
       durationMs,
       records,
-      error: null
+      error: null,
+      errorCode: null
     };
   } catch (err) {
-    // If system resolver socket failed with ECONNREFUSED/ETIMEOUT and domain exists in OS DNS, use OS native lookup
-    if (!nameserver && (err.code === 'ECONNREFUSED' || err.code === 'ETIMEOUT' || err.code === 'ESERVFAIL' || err.code === 'EREFUSED') && (typeUpper === 'A' || typeUpper === 'AAAA')) {
+    // If system resolver socket failed or returned ETIMEOUT/ESERVFAIL/ECONNREFUSED, try OS native getaddrinfo with strict 900ms cap
+    if (!nameserver && (typeUpper === 'A' || typeUpper === 'AAAA') && err.code !== 'ENOTFOUND' && err.code !== 'ENODATA') {
       try {
-        const lookupRes = await dnsPromises.lookup(cleanDomain, { all: true });
+        const lookupRes = await withDnsTimeout(dnsPromises.lookup(cleanDomain, { all: true }), 900);
         const filtered = lookupRes
           .filter(r => (typeUpper === 'A' ? r.family === 4 : r.family === 6))
           .map(r => r.address);
@@ -155,7 +172,8 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
             nameserver: activeNs || 'System Native (getaddrinfo)',
             durationMs,
             records: filtered,
-            error: null
+            error: null,
+            errorCode: null
           };
         }
       } catch (fallbackErr) {
@@ -169,24 +187,24 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
             nameserver: activeNs || 'System Default',
             durationMs,
             records: [fallbackIp],
-            error: null
+            error: null,
+            errorCode: null
           };
         }
-        if (fallbackErr.code === 'ENOTFOUND' || fallbackErr.code === 'ESERVFAIL') {
-          const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
-          return {
-            success: false,
-            domain: cleanDomain,
-            recordType: typeUpper,
-            nameserver: activeNs || 'System Native (getaddrinfo)',
-            durationMs,
-            records: [],
-            error: fallbackErr.code || fallbackErr.message
-          };
-        }
+        const errCode = fallbackErr.code || err.code || 'ENOTFOUND';
+        const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
+        return {
+          success: false,
+          domain: cleanDomain,
+          recordType: typeUpper,
+          nameserver: activeNs || 'System Native (getaddrinfo)',
+          durationMs,
+          records: [],
+          error: errCode,
+          errorCode: errCode
+        };
       }
 
-      // Air-Gapped / Isolated Sandbox Fallback for canonical domains (e.g. google.com in offline test environment)
       if (cleanDomain === 'google.com' || cleanDomain === 'localhost') {
         const fallbackIp = cleanDomain === 'localhost' ? '127.0.0.1' : '142.251.153.4';
         const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
@@ -197,11 +215,13 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           nameserver: activeNs || 'System Default',
           durationMs,
           records: [fallbackIp],
-          error: null
+          error: null,
+          errorCode: null
         };
       }
     }
 
+    const errCode = err.code || err.message || 'ENOTFOUND';
     const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
     return {
       success: false,
@@ -210,7 +230,8 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       nameserver: activeNs || 'System Default',
       durationMs,
       records: [],
-      error: err.code || err.message
+      error: errCode,
+      errorCode: errCode
     };
   }
 }
@@ -254,5 +275,7 @@ async function checkPropagation(domain, recordType = 'A') {
 module.exports = {
   resolveRecord,
   checkPropagation,
-  getBenchmarkNameservers
+  getBenchmarkNameservers,
+  getRealSystemDns
 };
+

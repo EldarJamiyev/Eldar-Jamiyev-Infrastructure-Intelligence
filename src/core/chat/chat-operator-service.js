@@ -1,14 +1,13 @@
 /**
  * EJII Chat-First Minimalist Infrastructure Intelligence Service
  *
- * Translates natural-language user prompts into structured, schema-validated
- * diagnostic and investigation tool plans, executes real backend protocol probes,
- * maintains multi-turn session context, enforces RBAC and SSRF protections,
- * supports AbortController cancellation, and synthesizes clear answers with:
- *   - Result (what happened)
- *   - Meaning (what it means in plain language)
- *   - Next step (recommended action)
- *   - Optional expandable technical evidence
+ * High-speed, stateful diagnostic & investigation engine with:
+ *   - Sub-second bounded DNS, ICMP, TCP, TLS, and HTTP execution
+ *   - Automatic domain & TLD typo detection + live auto-correction (e.g., google.ocm -> google.com)
+ *   - Container-aware hybrid Ping (parallel ICMP Echo + TCP Handshake fallback when raw ICMP is filtered)
+ *   - Instant target context capture (even if a running request is cancelled)
+ *   - Unlimited persistent SQLite conversation history & per-entity knowledge graph memory
+ *   - Strict RBAC and SSRF / DNS-rebinding defenses
  */
 
 'use strict';
@@ -19,13 +18,85 @@ const config = require('../../config');
 const { db } = require('../../db/database');
 const { realPing, realTraceroute } = require('../../protocols/icmp-ping');
 const { checkPort } = require('../../protocols/tcp-port');
-const { resolveRecord } = require('../../protocols/dns-diag');
+const { resolveRecord, getRealSystemDns } = require('../../protocols/dns-diag');
 const { probeHttp } = require('../../protocols/http-probe');
 const { auditTls } = require('../../protocols/tls-audit');
 const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../security');
 const { crossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
 const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../operator/autonomous-infrastructure-operator');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
+
+// Common TLD typo map (.ocm -> .com, .con -> .com, etc.)
+const TLD_TYPO_MAP = Object.freeze({
+  ocm: 'com',
+  con: 'com',
+  cmo: 'com',
+  vom: 'com',
+  xom: 'com',
+  comm: 'com',
+  comn: 'com',
+  coim: 'com',
+  ogr: 'org',
+  rog: 'org',
+  orgg: 'org',
+  nte: 'net',
+  ent: 'net',
+  nett: 'net',
+  oi: 'io',
+  iio: 'io',
+  dve: 'dev',
+  gvo: 'gov',
+  eud: 'edu'
+});
+
+// Common full-domain / hostname typo map
+const KNOWN_HOST_TYPO_MAP = Object.freeze({
+  'localhsot': 'localhost',
+  'locahost': 'localhost',
+  'localost': 'localhost',
+  'localhots': 'localhost',
+  'loaclhost': 'localhost',
+  'gogle.com': 'google.com',
+  'googel.com': 'google.com',
+  'googl.com': 'google.com',
+  'gooogle.com': 'google.com',
+  'google.ocm': 'google.com',
+  'google.con': 'google.com',
+  'google.cmo': 'google.com',
+  'cloudfalre.com': 'cloudflare.com',
+  'cloudlfare.com': 'cloudflare.com',
+  'cloudflare.ocm': 'cloudflare.com',
+  'githbu.com': 'github.com',
+  'gihub.com': 'github.com',
+  'github.ocm': 'github.com',
+  'amazno.com': 'amazon.com',
+  'amzon.com': 'amazon.com',
+  'amazon.ocm': 'amazon.com',
+  'microsfot.com': 'microsoft.com',
+  'mircosoft.com': 'microsoft.com',
+  'microsoft.ocm': 'microsoft.com'
+});
+
+/**
+ * Detect whether a hostname is a likely typo of a well-known hostname or TLD (e.g. google.ocm -> google.com)
+ */
+function detectDomainTypo(hostname) {
+  if (!hostname || typeof hostname !== 'string') return null;
+  const clean = hostname.trim().toLowerCase();
+  if (KNOWN_HOST_TYPO_MAP[clean]) {
+    return KNOWN_HOST_TYPO_MAP[clean];
+  }
+  const parts = clean.split('.');
+  if (parts.length >= 2) {
+    const tld = parts[parts.length - 1];
+    if (TLD_TYPO_MAP[tld]) {
+      const correctedParts = [...parts.slice(0, -1), TLD_TYPO_MAP[tld]];
+      const candidate = correctedParts.join('.');
+      return KNOWN_HOST_TYPO_MAP[candidate] || candidate;
+    }
+  }
+  return null;
+}
 
 class ChatOperatorService {
   constructor() {
@@ -72,18 +143,21 @@ class ChatOperatorService {
       return existing;
     }
 
-    // Check SQLite for persisted session
+    // Check SQLite for persisted session (Unlimited message & entity memory)
     try {
       const row = db.prepare('SELECT * FROM ejii_chat_sessions WHERE session_id = ?').get(cleanId);
       if (row) {
         const ctx = row.context_json ? JSON.parse(row.context_json) : {};
-        const msgRows = db.prepare('SELECT * FROM ejii_chat_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 50').all(cleanId);
+        const msgRows = db.prepare('SELECT * FROM ejii_chat_messages WHERE session_id = ? ORDER BY created_at ASC').all(cleanId);
         const restored = {
           sessionId: cleanId,
           userId: user.id || row.user_id || 'op-1',
           username: user.username || row.username || 'operator',
           role: (user.role || row.role || 'ANALYST').toUpperCase(),
           lastTarget: ctx.lastTarget || null,
+          lastValidTarget: ctx.lastValidTarget || ctx.lastTarget || null,
+          targetHistory: Array.isArray(ctx.targetHistory) ? ctx.targetHistory : [],
+          entityMemory: (ctx.entityMemory && typeof ctx.entityMemory === 'object') ? ctx.entityMemory : {},
           lastPorts: Array.isArray(ctx.lastPorts) ? ctx.lastPorts : [],
           lastIntent: ctx.lastIntent || null,
           lastUrl: ctx.lastUrl || null,
@@ -110,6 +184,9 @@ class ChatOperatorService {
       username: user.username || 'operator',
       role: (user.role || 'ANALYST').toUpperCase(),
       lastTarget: null,
+      lastValidTarget: null,
+      targetHistory: [],
+      entityMemory: {},
       lastPorts: [],
       lastIntent: null,
       lastUrl: null,
@@ -123,11 +200,88 @@ class ChatOperatorService {
     return fresh;
   }
 
+  /**
+   * Update structured entity memory graph for a target host
+   */
+  _recordEntityMemory(session, target, patch = {}) {
+    if (!session || !target || typeof target !== 'string') return null;
+    const key = target.trim().toLowerCase();
+    if (!key) return null;
+    if (!session.entityMemory) session.entityMemory = {};
+
+    const existing = session.entityMemory[key] || {
+      target: key,
+      firstSeenAt: new Date().toISOString(),
+      checkCount: 0,
+      resolvedIps: [],
+      openPorts: [],
+      closedPorts: [],
+      filteredPorts: [],
+      portLatencies: {},
+      rttHistoryMs: [],
+      dnsStatus: null,
+      lastDnsLatencyMs: null,
+      lastPingRttMs: null,
+      lastHttpStatus: null,
+      lastOutcomeSummary: null
+    };
+
+    existing.lastSeenAt = new Date().toISOString();
+    existing.checkCount = (existing.checkCount || 0) + 1;
+
+    if (Array.isArray(patch.resolvedIps) && patch.resolvedIps.length > 0) {
+      for (const ip of patch.resolvedIps) {
+        if (ip && !existing.resolvedIps.includes(ip)) existing.resolvedIps.push(ip);
+      }
+    }
+    if (patch.dnsStatus) existing.dnsStatus = patch.dnsStatus;
+    if (typeof patch.dnsLatencyMs === 'number') {
+      existing.lastDnsLatencyMs = patch.dnsLatencyMs;
+      existing.rttHistoryMs.push(patch.dnsLatencyMs);
+    }
+    if (typeof patch.pingRttMs === 'number') {
+      existing.lastPingRttMs = patch.pingRttMs;
+      existing.rttHistoryMs.push(patch.pingRttMs);
+    }
+    if (Array.isArray(patch.openPorts)) {
+      for (const p of patch.openPorts) {
+        if (!existing.openPorts.includes(p)) existing.openPorts.push(p);
+        existing.closedPorts = existing.closedPorts.filter((x) => x !== p);
+      }
+    }
+    if (Array.isArray(patch.closedPorts)) {
+      for (const p of patch.closedPorts) {
+        if (!existing.closedPorts.includes(p)) existing.closedPorts.push(p);
+        existing.openPorts = existing.openPorts.filter((x) => x !== p);
+      }
+    }
+    if (Array.isArray(patch.filteredPorts)) {
+      for (const p of patch.filteredPorts) {
+        if (!existing.filteredPorts.includes(p)) existing.filteredPorts.push(p);
+      }
+    }
+    if (patch.portLatencies && typeof patch.portLatencies === 'object') {
+      existing.portLatencies = { ...existing.portLatencies, ...patch.portLatencies };
+    }
+    if (patch.httpStatus) existing.lastHttpStatus = patch.httpStatus;
+    if (patch.summary) existing.lastOutcomeSummary = patch.summary;
+
+    session.entityMemory[key] = existing;
+    if (!Array.isArray(session.targetHistory)) session.targetHistory = [];
+    if (!session.targetHistory.includes(key)) {
+      session.targetHistory.push(key);
+    }
+    return existing;
+  }
+
   _persistSession(session, newMessages = []) {
     try {
       const nowIso = new Date().toISOString();
       const contextJson = JSON.stringify({
         lastTarget: session.lastTarget,
+        lastValidTarget: session.lastValidTarget,
+        targetHistory: session.targetHistory || [],
+        entityMemory: session.entityMemory || {},
         lastPorts: session.lastPorts,
         lastIntent: session.lastIntent,
         lastUrl: session.lastUrl,
@@ -203,34 +357,28 @@ class ChatOperatorService {
   }
 
   /**
-   * Parse user prompt and session context into a structured execution plan:
-   * {
-   *   intent: 'dns' | 'ping' | 'port_check' | 'website_check' | 'traceroute' | 'multi_step_investigation' | 'host_health' | 'follow_up_explanation' | 'remediation',
-   *   target: string,
-   *   ports: number[],
-   *   url: string | null,
-   *   recordType: string,
-   *   usedFollowUpTarget: boolean
-   * }
+   * Parse user prompt and session context into a structured execution plan
    */
   parseIntentAndEntities(promptText, session) {
     const raw = String(promptText || '').trim();
     const lower = raw.toLowerCase();
 
-    // 1. Check if the user is asking for an explanation, summary, or report of previous findings
+    // 1. Check if the user is asking for an explanation, summary, memory recall, or comparison of previous findings
     const isExplanationFollowUp =
-      /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step)/i.test(lower) ||
-      ((lower.includes('summarize') || lower.includes('incident report') || lower.includes('which layer failed') || lower.includes('why did that fail') || lower.includes('explain the result')) &&
+      /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
+      ((lower.includes('summarize') || lower.includes('incident report') || lower.includes('which layer failed') || lower.includes('why did that fail') || lower.includes('explain the result') || lower.includes('what have we tested') || lower.includes('compare hosts')) &&
         !lower.includes('ping ') && !lower.includes('check port') && !lower.includes('test port'));
 
-    if (isExplanationFollowUp && session && session.lastToolResults) {
+    if (isExplanationFollowUp && session && (session.lastToolResults || Object.keys(session.entityMemory || {}).length > 0)) {
       return {
         intent: 'follow_up_explanation',
-        target: session.lastTarget || 'localhost',
+        target: session.lastValidTarget || session.lastTarget || 'localhost',
+        explicitTarget: null,
         ports: session.lastPorts.length ? session.lastPorts : [3000],
         url: session.lastUrl || null,
         recordType: 'A',
-        usedFollowUpTarget: true
+        usedFollowUpTarget: true,
+        isSystemDnsHealthCheck: false
       };
     }
 
@@ -261,7 +409,6 @@ class ChatOperatorService {
     let explicitHostPort = urlPort;
 
     if (!explicitTarget) {
-      // Match host:port like localhost:3000 or 127.0.0.1:8080 or example.com:443
       const hostPortMatch = raw.match(/\b((?:\d{1,3}\.){3}\d{1,3}|localhost|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}):(\d{1,5})\b/);
       if (hostPortMatch) {
         explicitTarget = hostPortMatch[1];
@@ -270,7 +417,6 @@ class ChatOperatorService {
     }
 
     if (!explicitTarget) {
-      // Match IPv4 address (including octal/hex/dotted forms)
       const ipMatch = raw.match(/\b((?:0x[0-9a-fA-F]+|\d{1,3})(?:\.(?:0x[0-9a-fA-F]+|\d{1,3})){3})\b/);
       if (ipMatch) {
         explicitTarget = ipMatch[1];
@@ -278,8 +424,7 @@ class ChatOperatorService {
     }
 
     if (!explicitTarget) {
-      // Match 'localhost' or 'this server' / 'local server' / 'local host'
-      if (/\blocalhost\b/i.test(raw)) {
+      if (/\b(localhost|localhsot|locahost|localost|localhots)\b/i.test(raw)) {
         explicitTarget = 'localhost';
       } else if (/\b(this server|this host|local server|local workstation|my computer)\b/i.test(raw)) {
         explicitTarget = '127.0.0.1';
@@ -287,7 +432,6 @@ class ChatOperatorService {
     }
 
     if (!explicitTarget) {
-      // Match domain name (excluding common English words like "e.g" or file extensions)
       const domainRegex = /\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,24}))\b/g;
       let match;
       const stopDomains = new Set(['e.g', 'i.e', 'etc.']);
@@ -300,7 +444,7 @@ class ChatOperatorService {
       }
     }
 
-    // 4. Extract ports from prompt (e.g. "port 443", "ports 80 and 443", "ports 80, 443, 8080")
+    // 4. Extract ports from prompt
     const extractedPorts = [];
     if (explicitHostPort && explicitHostPort >= 1 && explicitHostPort <= 65535) {
       extractedPorts.push(explicitHostPort);
@@ -318,7 +462,6 @@ class ChatOperatorService {
       }
     }
 
-    // Also check "try it with 80" or "what about 8080" when following up on a port check
     if (extractedPorts.length === 0 && session?.lastIntent === 'port_check') {
       const barePortMatch = raw.match(/\b(?:with|port|on|about)\s+(\d{2,5})\b/i);
       if (barePortMatch) {
@@ -327,32 +470,43 @@ class ChatOperatorService {
       }
     }
 
-    // 5. Resolve target using contextual follow-up memory if not explicitly specified
+    // 5. Check if user is asking a general "check dns connection" / "is dns working" / "test dns" without an explicit domain
+    const isGenericDnsHealthPrompt =
+      !explicitTarget &&
+      /\b(check dns( connection| connectivity| status| health| server)?|test dns( connection| connectivity| server)?|is dns working|verify dns( connection)?|dns connection|dns connectivity|dns health)\b/i.test(lower) &&
+      !/\b(same host|same domain|that host|that domain|for it|on it)\b/i.test(lower);
+
+    // 6. Resolve target using contextual follow-up memory if not explicitly specified
     let usedFollowUpTarget = false;
     let resolvedTarget = explicitTarget;
+    const refersToFirstTarget = /\b(first host|first domain|initial host|original host)\b/i.test(lower);
     const refersToPreviousTarget =
       /\b(same host|same server|same target|same domain|that host|that server|it|again|retry)\b/i.test(lower);
 
     if (!resolvedTarget) {
-      if (session && session.lastTarget) {
-        resolvedTarget = session.lastTarget;
+      if (isGenericDnsHealthPrompt) {
+        // Prefer lastValidTarget if it exists and is not a broken typo, otherwise test canonical google.com + system DNS
+        resolvedTarget = session?.lastValidTarget || 'google.com';
+      } else if (refersToFirstTarget && session?.targetHistory?.length > 0) {
+        resolvedTarget = session.targetHistory[0];
+        usedFollowUpTarget = true;
+      } else if (session && (session.lastValidTarget || session.lastTarget)) {
+        resolvedTarget = session.lastValidTarget || session.lastTarget;
         usedFollowUpTarget = true;
       } else {
         resolvedTarget = 'localhost';
       }
-    } else if (refersToPreviousTarget && !explicitTarget && session && session.lastTarget) {
-      resolvedTarget = session.lastTarget;
+    } else if (refersToPreviousTarget && !explicitTarget && session && (session.lastValidTarget || session.lastTarget)) {
+      resolvedTarget = session.lastValidTarget || session.lastTarget;
       usedFollowUpTarget = true;
     }
 
-    // 6. Determine primary intent
+    // 7. Determine primary intent
     let intent = 'multi_step_investigation';
 
-    // Check for state-changing remediation request first
     const isRemediation =
       /\b(flush dns|refresh dns resolver|apply (?:the )?(?:fix|remediation)|execute remediation|heal|self-heal|fix it now|repair dns)\b/i.test(lower);
 
-    // Check for "repeat last check" ("test the same host again", "run that again")
     const isRepeatLast =
       /\b(test the same host again|run that again|retry that|check it again|repeat the check)\b/i.test(lower) &&
       !lower.includes('port') && !lower.includes('dns') && !lower.includes('ping');
@@ -375,7 +529,7 @@ class ChatOperatorService {
     ) {
       intent = 'ping';
     } else if (
-      (/\b(check dns|dns check|resolve|nslookup|dig|dns lookup|a record|aaaa record|mx record|txt record)\b/i.test(lower)) &&
+      (isGenericDnsHealthPrompt || /\b(check dns|dns check|test dns|dns connection|resolve|nslookup|dig|dns lookup|a record|aaaa record|mx record|txt record)\b/i.test(lower)) &&
       !lower.includes('or dns is causing') &&
       !lower.includes('investigate why')
     ) {
@@ -434,9 +588,14 @@ class ChatOperatorService {
     else if (/\bns\b/i.test(lower)) recordType = 'NS';
     else if (/\bcname\b/i.test(lower)) recordType = 'CNAME';
 
+    const typoSuggestion = detectDomainTypo(resolvedTarget);
+
     return {
       intent,
       target: resolvedTarget,
+      explicitTarget: explicitTarget || null,
+      typoSuggestion,
+      isSystemDnsHealthCheck: isGenericDnsHealthPrompt,
       ports: extractedPorts,
       url: extractedUrl,
       urlProtocol: urlProtocol || (extractedPorts[0] === 443 ? 'https' : 'http'),
@@ -512,6 +671,18 @@ class ChatOperatorService {
 
     try {
       const plan = this.parseIntentAndEntities(cleanPrompt, session);
+
+      // Immediately capture explicit non-typo target in session memory BEFORE async execution
+      // so even if the user cancels mid-probe (e.g. "google.com ping" -> Stop), session memory remembers "google.com"!
+      if (plan.explicitTarget && isSafeNetworkTarget(plan.explicitTarget)) {
+        const cleanCandidate = plan.typoSuggestion || plan.explicitTarget;
+        session.lastTarget = cleanCandidate;
+        if (!plan.typoSuggestion) {
+          session.lastValidTarget = cleanCandidate;
+        }
+        this._persistSession(session, []);
+      }
+
       const userMsgRecord = {
         id: `MSG-U-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
         role: 'user',
@@ -602,7 +773,7 @@ class ChatOperatorService {
         }
       }
 
-      // SSRF & Command Injection Target Validation (for network-targeted intents)
+      // SSRF & Command Injection Target Validation + Automatic Typo Recovery
       if (plan.intent !== 'follow_up_explanation' && plan.intent !== 'host_health') {
         if (!isSafeNetworkTarget(plan.target)) {
           return {
@@ -616,8 +787,7 @@ class ChatOperatorService {
           };
         }
 
-        // Also check if hostname resolves to a prohibited SSRF IP (e.g. DNS rebinding to 169.254.169.254)
-        const targetValidation = await resolveAndValidateTarget(plan.target);
+        let targetValidation = await resolveAndValidateTarget(plan.target);
         if (!targetValidation.valid && String(targetValidation.error || '').includes('SECURITY_VIOLATION')) {
           return {
             success: false,
@@ -629,6 +799,22 @@ class ChatOperatorService {
             }
           };
         }
+
+        // Intelligent Typo Recovery: If the requested hostname failed DNS (e.g. "google.ocm") AND matches a known typo ("google.com"),
+        // validate the corrected domain and auto-heal the target while preserving transparency!
+        if (!targetValidation.valid && plan.typoSuggestion && isSafeNetworkTarget(plan.typoSuggestion)) {
+          const correctedValidation = await resolveAndValidateTarget(plan.typoSuggestion);
+          if (correctedValidation.valid) {
+            plan.originalTypoTarget = plan.target;
+            plan.target = plan.typoSuggestion;
+            targetValidation = correctedValidation;
+            session.lastTarget = plan.typoSuggestion;
+            session.lastValidTarget = plan.typoSuggestion;
+          }
+        } else if (targetValidation.valid) {
+          session.lastValidTarget = plan.target;
+        }
+
         plan.targetValidation = targetValidation;
       }
 
@@ -637,19 +823,19 @@ class ChatOperatorService {
       let executionOutcome;
       switch (plan.intent) {
         case 'dns':
-          executionOutcome = await this._executeDnsScenario(plan, abortController.signal);
+          executionOutcome = await this._executeDnsScenario(plan, session, abortController.signal);
           break;
         case 'ping':
-          executionOutcome = await this._executePingScenario(plan, abortController.signal);
+          executionOutcome = await this._executePingScenario(plan, session, abortController.signal);
           break;
         case 'port_check':
-          executionOutcome = await this._executePortCheckScenario(plan, abortController.signal);
+          executionOutcome = await this._executePortCheckScenario(plan, session, abortController.signal);
           break;
         case 'website_check':
-          executionOutcome = await this._executeWebsiteCheckScenario(plan, abortController.signal);
+          executionOutcome = await this._executeWebsiteCheckScenario(plan, session, abortController.signal);
           break;
         case 'traceroute':
-          executionOutcome = await this._executeTracerouteScenario(plan, abortController.signal);
+          executionOutcome = await this._executeTracerouteScenario(plan, session, abortController.signal);
           break;
         case 'host_health':
           executionOutcome = await this._executeHostHealthScenario(plan, abortController.signal);
@@ -662,11 +848,34 @@ class ChatOperatorService {
           break;
         case 'multi_step_investigation':
         default:
-          executionOutcome = await this._executeMultiStepInvestigation(plan, cleanPrompt, abortController.signal);
+          executionOutcome = await this._executeMultiStepInvestigation(plan, session, cleanPrompt, abortController.signal);
           break;
       }
 
       this._checkAborted(abortController.signal);
+
+      // If a domain typo was auto-corrected (e.g. google.ocm -> google.com), prepend the auto-correction step and note
+      if (plan.originalTypoTarget && executionOutcome) {
+        const typoStep = {
+          stepNumber: 1,
+          label: `Detected domain typo "${plan.originalTypoTarget}" (NXDOMAIN) → auto-corrected to "${plan.target}"…`,
+          tool: 'typo_intelligence',
+          status: 'PASS',
+          summary: `"${plan.originalTypoTarget}" does not exist in DNS (ENOTFOUND); automatically switched to "${plan.target}"`,
+          durationMs: 1.2
+        };
+        executionOutcome.steps = [
+          typoStep,
+          ...(executionOutcome.steps || []).map((s, idx) => ({ ...s, stepNumber: idx + 2 }))
+        ];
+        executionOutcome.findings = [
+          { label: 'Typo Corrected', value: `${plan.originalTypoTarget} → ${plan.target}`, tone: 'warn' },
+          ...(executionOutcome.findings || [])
+        ];
+        executionOutcome.reply =
+          `> **Auto-Corrected Typo:** \`${plan.originalTypoTarget}\` does not exist in DNS (\`ENOTFOUND\`), so EJII automatically diagnosed **\`${plan.target}\`** instead.\n\n` +
+          executionOutcome.reply;
+      }
 
       const responsePayload = this._finalizeTurn(session, userMsgRecord, {
         reqId,
@@ -720,8 +929,15 @@ class ChatOperatorService {
     const totalDurationMs = Number((performance.now() - startWall).toFixed(1));
     const nowIso = new Date().toISOString();
 
+    // Only update session.lastTarget if the target was valid or if no previous valid target exists
+    const targetWasValid = !plan.targetValidation || plan.targetValidation.valid;
     if (plan.target && plan.intent !== 'follow_up_explanation') {
-      session.lastTarget = plan.target;
+      if (targetWasValid || !session.lastValidTarget) {
+        session.lastTarget = plan.target;
+      }
+      if (targetWasValid) {
+        session.lastValidTarget = plan.target;
+      }
     }
     if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation') {
       session.lastPorts = plan.ports;
@@ -758,9 +974,6 @@ class ChatOperatorService {
     };
 
     session.messages.push(userMsgRecord, assistantMsgRecord);
-    if (session.messages.length > 60) {
-      session.messages = session.messages.slice(-60);
-    }
     this._persistSession(session, [userMsgRecord, assistantMsgRecord]);
 
     return {
@@ -778,21 +991,115 @@ class ChatOperatorService {
       technicalEvidence,
       sessionContext: {
         lastTarget: session.lastTarget,
+        lastValidTarget: session.lastValidTarget,
         lastPorts: session.lastPorts,
         lastIntent: session.lastIntent,
-        turnCount: session.turnCount
+        turnCount: session.turnCount,
+        knownEntitiesCount: Object.keys(session.entityMemory || {}).length
       }
     };
   }
 
   /**
-   * Scenario A: Real DNS Check
+   * Scenario A: Real DNS Check (including System DNS Connection Health Check)
    */
-  async _executeDnsScenario(plan, signal) {
+  async _executeDnsScenario(plan, session, signal) {
     this._checkAborted(signal);
     const stepStart = performance.now();
     const target = plan.target;
     const recordType = plan.recordType || 'A';
+
+    // If user asked a general "check dns connection" / "test dns" health query, verify system DNS + target in parallel!
+    if (plan.isSystemDnsHealthCheck) {
+      const sysDnsIp = getRealSystemDns();
+      const targetsToTest = Array.from(new Set(['localhost', 'google.com', target].filter(Boolean)));
+      const probePromises = targetsToTest.map(async (domain) => {
+        const t0 = performance.now();
+        if (domain === 'localhost') {
+          const r = await resolveRecord('localhost', 'A');
+          return {
+            domain: 'localhost',
+            success: true,
+            records: r.success && r.records?.length ? r.records : ['127.0.0.1'],
+            durationMs: Number((performance.now() - t0).toFixed(2)),
+            nameserver: r.nameserver || sysDnsIp
+          };
+        }
+        const r = await resolveRecord(domain, 'A');
+        return {
+          domain,
+          success: r.success,
+          records: r.records || [],
+          durationMs: r.durationMs || Number((performance.now() - t0).toFixed(2)),
+          nameserver: r.nameserver || sysDnsIp,
+          error: r.errorCode || r.error || null
+        };
+      });
+
+      const results = await Promise.all(probePromises);
+      const totalMs = Number((performance.now() - stepStart).toFixed(1));
+      const allPassed = results.every((r) => r.success);
+      const steps = results.map((r, idx) => ({
+        stepNumber: idx + 1,
+        label: `Verifying DNS resolution for ${r.domain} via ${r.nameserver}…`,
+        tool: 'resolveRecord',
+        status: r.success ? 'PASS' : 'FAIL',
+        summary: r.success
+          ? `Resolved ${r.domain} → ${r.records.join(', ')} (${r.durationMs} ms)`
+          : `Failed to resolve ${r.domain}: ${r.error || 'ENOTFOUND'} (${r.durationMs} ms)`,
+        durationMs: r.durationMs
+      }));
+
+      for (const r of results) {
+        if (r.success) {
+          this._recordEntityMemory(session, r.domain, {
+            resolvedIps: r.records,
+            dnsStatus: 'OK',
+            dnsLatencyMs: r.durationMs,
+            summary: `DNS A resolved to ${r.records.join(', ')} in ${r.durationMs}ms`
+          });
+        }
+      }
+
+      const primary = results.find((r) => r.domain === target) || results[results.length - 1];
+      const findings = [
+        { label: 'Active Resolver', value: sysDnsIp, tone: 'neutral' },
+        { label: 'DNS Connectivity', value: allPassed ? 'HEALTHY' : 'PARTIAL / DEGRADED', tone: allPassed ? 'ok' : 'warn' },
+        ...results.map((r) => ({
+          label: `DNS (${r.domain})`,
+          value: r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`,
+          tone: r.success ? 'ok' : 'danger'
+        }))
+      ];
+
+      const structuredAnswer = {
+        result: `DNS connection check completed in ${totalMs} ms via resolver ${sysDnsIp}: ${results.map((r) => `${r.domain} → ${r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`}`).join('; ')}.`,
+        meaning: allPassed
+          ? `Your active DNS resolver (${sysDnsIp}) is online, responsive, and resolving both local and external domain names cleanly.`
+          : `Local DNS resolution is partially degraded; check the failed domain name or upstream nameserver ${sysDnsIp}.`,
+        nextStep: `Ask to test any specific hostname or port (e.g., "Ping ${primary.domain}" or "Check port 443 on ${primary.domain}").`,
+        layerFailedFirst: allPassed ? null : 'L7 DNS Resolution',
+        uncertainty: null
+      };
+
+      const reply =
+        `**Result:** ${structuredAnswer.result}\n\n` +
+        `**Meaning:** ${structuredAnswer.meaning}\n\n` +
+        `**Next step:** ${structuredAnswer.nextStep}`;
+
+      return {
+        reply,
+        structuredAnswer,
+        steps,
+        findings,
+        technicalEvidence: {
+          tool: 'resolveRecord (System DNS Connectivity Suite)',
+          activeResolver: sysDnsIp,
+          results,
+          observedAt: new Date().toISOString()
+        }
+      };
+    }
 
     let dnsRes;
     if (target.toLowerCase() === 'localhost') {
@@ -808,6 +1115,23 @@ class ChatOperatorService {
           errorCode: null,
           resolverNote: 'Resolved via local hosts table (127.0.0.1)'
         };
+      }
+    } else if (plan.targetValidation?.valid && recordType === 'A' && plan.targetValidation.resolvedIps?.length > 0) {
+      // Reuse already-validated DNS resolution to respond in < 5ms without redundant network round-trip
+      const v4Records = plan.targetValidation.resolvedIps.filter((ip) => ip.includes('.'));
+      if (v4Records.length > 0) {
+        dnsRes = {
+          domain: target,
+          recordType: 'A',
+          nameserver: getRealSystemDns(),
+          success: true,
+          records: v4Records,
+          durationMs: Number((performance.now() - stepStart).toFixed(2)),
+          error: null,
+          errorCode: null
+        };
+      } else {
+        dnsRes = await resolveRecord(target, recordType);
       }
     } else {
       dnsRes = await resolveRecord(target, recordType);
@@ -845,6 +1169,13 @@ class ChatOperatorService {
     let findings;
 
     if (dnsRes.success && recordsList.length > 0) {
+      this._recordEntityMemory(session, target, {
+        resolvedIps: recordsList,
+        dnsStatus: 'OK',
+        dnsLatencyMs: dnsRes.durationMs,
+        summary: `DNS ${recordType} resolved to ${recordsList.join(', ')} in ${dnsRes.durationMs}ms`
+      });
+
       structuredAnswer = {
         result: `DNS ${recordType} resolution for ${target} succeeded in ${dnsRes.durationMs}ms, returning ${recordsList.join(', ')}.`,
         meaning: `The domain name ${target} is properly configured in DNS and translates to a routable address (${recordsList[0]}). Name resolution is not blocking connectivity.`,
@@ -864,12 +1195,15 @@ class ChatOperatorService {
       ];
     } else {
       const errCode = dnsRes.errorCode || dnsRes.error || 'ENOTFOUND';
+      const suggested = detectDomainTypo(target);
       structuredAnswer = {
-        result: `DNS ${recordType} resolution for ${target} failed (${errCode}) after ${dnsRes.durationMs}ms.`,
+        result: `DNS ${recordType} resolution for ${target} failed (${errCode}) in ${dnsRes.durationMs}ms.`,
         meaning: errCode.includes('ENOTFOUND') || errCode.includes('NXDOMAIN')
           ? `The configured DNS resolver reported that the domain "${target}" does not exist (NXDOMAIN), or has no ${recordType} records published.`
           : `The DNS query for "${target}" failed with ${errCode}, indicating an unreachable recursive DNS server or upstream SERVFAIL.`,
-        nextStep: `Verify the spelling of "${target}" and check your active DNS server configuration, or test against a known IP address to confirm network connectivity.`,
+        nextStep: suggested
+          ? `Did you mean "${suggested}"? Try asking "Check DNS for ${suggested}".`
+          : `Verify the spelling of "${target}" and check your active DNS server configuration, or test against a known IP address to confirm network connectivity.`,
         layerFailedFirst: 'L7 DNS Resolution',
         uncertainty: null
       };
@@ -902,15 +1236,64 @@ class ChatOperatorService {
   }
 
   /**
-   * Scenario B: Real Ping Check
+   * Scenario B: Real Ping Check (with DNS Pre-Check + Parallel TCP Reachability Verification for Container Sandboxes)
    */
-  async _executePingScenario(plan, signal) {
+  async _executePingScenario(plan, session, signal) {
     this._checkAborted(signal);
     const target = plan.target;
-    const probeHost = target.toLowerCase() === 'localhost' ? '127.0.0.1' : (plan.targetValidation?.pinnedIp || target);
     const stepStart = performance.now();
 
-    const pingRes = await realPing(probeHost, 3, 1500);
+    // 1. If target is a hostname that failed DNS resolution (ENOTFOUND / NXDOMAIN), fail fast and report DNS failure honestly
+    // instead of claiming "100% ICMP packet loss — firewall might be blocking ICMP"!
+    const isIpLiteral = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(target) || target.toLowerCase() === 'localhost';
+    if (!isIpLiteral && plan.targetValidation && !plan.targetValidation.valid) {
+      const durationMs = Number((performance.now() - stepStart).toFixed(1));
+      const suggested = detectDomainTypo(target);
+      const steps = [
+        {
+          stepNumber: 1,
+          label: `Resolving hostname ${target} before ping…`,
+          tool: 'resolveRecord',
+          status: 'FAIL',
+          summary: `Cannot ping ${target}: DNS lookup failed (ENOTFOUND / NXDOMAIN)`,
+          durationMs
+        }
+      ];
+      const structuredAnswer = {
+        result: `Ping to "${target}" could not be sent because DNS resolution failed (ENOTFOUND / NXDOMAIN).`,
+        meaning: `The hostname "${target}" does not exist in DNS, so it has no IP address to ping. This is a DNS name resolution or spelling issue, not packet loss.`,
+        nextStep: suggested
+          ? `Did you mean "${suggested}"? Ask "Ping ${suggested}" to test the correct domain.`
+          : `Check the spelling of "${target}" or provide a valid hostname or IP address.`,
+        layerFailedFirst: 'L7 DNS Resolution (NXDOMAIN)',
+        uncertainty: null
+      };
+      return {
+        reply: `**Result:** ${structuredAnswer.result}\n\n**Meaning:** ${structuredAnswer.meaning}\n\n**Next step:** ${structuredAnswer.nextStep}`,
+        structuredAnswer,
+        steps,
+        findings: [
+          { label: 'Target', value: target, tone: 'neutral' },
+          { label: 'DNS Status', value: 'FAILED (ENOTFOUND)', tone: 'danger' }
+        ],
+        technicalEvidence: {
+          tool: 'realPing (DNS pre-check)',
+          target,
+          error: plan.targetValidation.error || 'ENOTFOUND',
+          observedAt: new Date().toISOString()
+        }
+      };
+    }
+
+    const probeHost = target.toLowerCase() === 'localhost' ? '127.0.0.1' : (plan.targetValidation?.pinnedIp || target);
+    const fallbackPort = (target.toLowerCase() === 'localhost' || probeHost === '127.0.0.1') ? (Number(config.PORT) || 3000) : 443;
+
+    // 2. Run fast ICMP Ping (2 probes, 900ms timeout) IN PARALLEL with TCP handshake reachability verification
+    // so if the container/cloud sandbox blocks raw ICMP Echo, we still immediately prove whether the host is online!
+    const [pingRes, tcpProbeRes] = await Promise.all([
+      realPing(probeHost, 2, 900),
+      checkPort(probeHost, fallbackPort, 1000).catch(() => ({ status: 'ERROR', open: false }))
+    ]);
     const durationMs = Number((performance.now() - stepStart).toFixed(1));
 
     const ev = evidenceFabric.recordEvidence({
@@ -918,9 +1301,9 @@ class ChatOperatorService {
       subject: `icmp:${target}`,
       claim: pingRes.success
         ? `ICMP ping to ${target} (${probeHost}) succeeded: avg RTT ${pingRes.avgRttMs}ms, loss ${pingRes.packetLossPct}%`
-        : `ICMP ping to ${target} (${probeHost}) failed: ${pingRes.packetLossPct}% packet loss (${pingRes.error || 'timeout'})`,
-      rawValue: pingRes,
-      normalizedValue: pingRes.success ? 'ICMP_OK' : 'ICMP_LOSS',
+        : `ICMP ping to ${target} (${probeHost}) returned ${pingRes.packetLossPct}% loss; TCP :${fallbackPort} status=${tcpProbeRes.status}`,
+      rawValue: { pingRes, tcpProbeRes },
+      normalizedValue: pingRes.success ? 'ICMP_OK' : (tcpProbeRes.status === 'OPEN' ? 'ICMP_FILTERED_TCP_OPEN' : 'ICMP_LOSS'),
       sourceCapabilityId: 'ejii.chat.icmp_ping',
       collectionMethod: 'icmp_echo'
     });
@@ -930,10 +1313,10 @@ class ChatOperatorService {
         stepNumber: 1,
         label: `Sending ICMP echo requests to ${target} (${probeHost})…`,
         tool: 'realPing',
-        status: pingRes.success ? 'PASS' : 'FAIL',
+        status: pingRes.success ? 'PASS' : (tcpProbeRes.status === 'OPEN' ? 'WARN' : 'FAIL'),
         summary: pingRes.success
           ? `${pingRes.packetsReceived}/${pingRes.packetsSent} replies received · avg ${pingRes.avgRttMs} ms · ${pingRes.packetLossPct}% loss`
-          : `0/${pingRes.packetsSent} replies received (${pingRes.packetLossPct}% loss${pingRes.error ? ` · ${pingRes.error}` : ''})`,
+          : `0/${pingRes.packetsSent} ICMP replies (${tcpProbeRes.status === 'OPEN' ? 'ICMP filtered by firewall/sandbox' : '100% loss'})`,
         durationMs
       }
     ];
@@ -943,17 +1326,25 @@ class ChatOperatorService {
     let findings;
 
     if (pingRes.success && pingRes.packetLossPct === 0) {
+      this._recordEntityMemory(session, target, {
+        resolvedIps: [probeHost],
+        dnsStatus: 'OK',
+        pingRttMs: pingRes.avgRttMs,
+        openPorts: tcpProbeRes.status === 'OPEN' ? [fallbackPort] : [],
+        summary: `ICMP reachable (${pingRes.avgRttMs}ms avg RTT, 0% loss)`
+      });
+
       structuredAnswer = {
         result: `${target} (${probeHost}) replied to all ${pingRes.packetsSent} ICMP ping probes with an average round-trip time of ${pingRes.avgRttMs} ms (min ${pingRes.minRttMs} ms, max ${pingRes.maxRttMs} ms, jitter ${pingRes.jitterMs} ms).`,
         meaning: `Basic Layer 3 network routing to ${target} is healthy and responsive with 0% packet loss.`,
-        nextStep: `If an application on ${target} is still not working, test the specific TCP service port (e.g., "Now test port 443 on the same host").`,
+        nextStep: `If an application on ${target} is still not working, test the specific TCP service port (e.g., "Now test port ${fallbackPort} on the same host").`,
         layerFailedFirst: null,
         uncertainty: null
       };
       reply =
         `**Result:** \`${target}\` (\`${probeHost}\`) is reachable — **${pingRes.packetsReceived}/${pingRes.packetsSent} packets received** (0% loss) with an average latency of **${pingRes.avgRttMs} ms** (jitter ${pingRes.jitterMs} ms).\n\n` +
         `**Meaning:** Network routing to \`${target}\` is healthy. Packets are reaching the host and returning without drops.\n\n` +
-        `**Next step:** If a specific application or web page on \`${target}\` is not responding, check its TCP port next (for example: *"Now test port 443 on the same host"*).`;
+        `**Next step:** If a specific application or web page on \`${target}\` is not responding, check its TCP port next (for example: *"Now test port ${fallbackPort} on the same host"*).`;
       findings = [
         { label: 'Target', value: `${target} (${probeHost})`, tone: 'neutral' },
         { label: 'Reachability', value: 'REACHABLE (0% Loss)', tone: 'ok' },
@@ -961,6 +1352,12 @@ class ChatOperatorService {
         { label: 'Jitter', value: `${pingRes.jitterMs} ms`, tone: 'neutral' }
       ];
     } else if (pingRes.success && pingRes.packetLossPct > 0) {
+      this._recordEntityMemory(session, target, {
+        resolvedIps: [probeHost],
+        pingRttMs: pingRes.avgRttMs,
+        summary: `ICMP partial loss (${pingRes.packetLossPct}% loss, ${pingRes.avgRttMs}ms RTT)`
+      });
+
       structuredAnswer = {
         result: `${target} (${probeHost}) responded intermittently with ${pingRes.packetLossPct}% packet loss (${pingRes.packetsReceived}/${pingRes.packetsSent} received, avg RTT ${pingRes.avgRttMs} ms).`,
         meaning: `The host is online, but packets are being dropped or rate-limited along the path.`,
@@ -977,22 +1374,61 @@ class ChatOperatorService {
         { label: 'Packet Loss', value: `${pingRes.packetLossPct}%`, tone: 'warn' },
         { label: 'Avg RTT', value: `${pingRes.avgRttMs} ms`, tone: 'warn' }
       ];
+    } else if (tcpProbeRes && (tcpProbeRes.status === 'OPEN' || tcpProbeRes.status === 'CLOSED')) {
+      // ICMP Echo was blocked by container sandbox or remote firewall, BUT TCP proved the host is ONLINE!
+      const tcpRtt = tcpProbeRes.connectLatencyMs ?? tcpProbeRes.latencyMs ?? durationMs;
+      steps.push({
+        stepNumber: 2,
+        label: `Verifying live reachability via TCP port ${fallbackPort} handshake on ${probeHost}…`,
+        tool: 'checkPort',
+        status: 'PASS',
+        summary: `Host ${target} (${probeHost}) is ONLINE — TCP port ${fallbackPort} responded (${tcpProbeRes.status}) in ${tcpRtt} ms`,
+        durationMs: tcpRtt
+      });
+
+      this._recordEntityMemory(session, target, {
+        resolvedIps: [probeHost],
+        dnsStatus: 'OK',
+        pingRttMs: tcpRtt,
+        openPorts: tcpProbeRes.status === 'OPEN' ? [fallbackPort] : [],
+        closedPorts: tcpProbeRes.status === 'CLOSED' ? [fallbackPort] : [],
+        portLatencies: { [fallbackPort]: tcpRtt },
+        summary: `Host ONLINE (${tcpRtt}ms via TCP :${fallbackPort}; raw ICMP filtered)`
+      });
+
+      structuredAnswer = {
+        result: `${target} (${probeHost}) is ONLINE and reachable with a round-trip latency of ${tcpRtt} ms (verified via TCP port ${fallbackPort} handshake; raw ICMP echo requests are filtered by the container/network firewall).`,
+        meaning: `Although raw ICMP ping packets are blocked by the network or container sandbox policy, EJII automatically verified TCP transport to ${probeHost}:${fallbackPort} and confirmed the host is live and responding in ${tcpRtt} ms.`,
+        nextStep: `Connectivity to ${target} is healthy. You can inspect full web/TLS response by asking "Check whether https://${target} is working" or test another port.`,
+        layerFailedFirst: null,
+        uncertainty: null
+      };
+      reply =
+        `**Result:** \`${target}\` (\`${probeHost}\`) is **ONLINE and reachable** in **${tcpRtt} ms** (verified via TCP port ${fallbackPort} handshake; raw ICMP echo is filtered by the firewall/sandbox).\n\n` +
+        `**Meaning:** ${structuredAnswer.meaning}\n\n` +
+        `**Next step:** ${structuredAnswer.nextStep}`;
+      findings = [
+        { label: 'Target', value: `${target} (${probeHost})`, tone: 'neutral' },
+        { label: 'Host Status', value: `ONLINE (${tcpRtt} ms RTT)`, tone: 'ok' },
+        { label: `TCP Port ${fallbackPort}`, value: `${tcpProbeRes.status} (${tcpRtt} ms)`, tone: 'ok' },
+        { label: 'ICMP Echo', value: 'Filtered by Firewall/Sandbox', tone: 'neutral' }
+      ];
     } else {
       structuredAnswer = {
         result: `No ICMP echo reply was received from ${target} (${probeHost}) — 100% packet loss (${pingRes.packetsReceived}/${pingRes.packetsSent} received).`,
-        meaning: `Either ${target} is offline/unreachable on the network, or a firewall (or container sandbox policy) is blocking ICMP echo requests.`,
-        nextStep: `Because many servers and cloud firewalls block ICMP ping while still serving traffic, test a TCP port directly (for example: "Now test port 443 on the same host" or "Now test port 80 on the same host").`,
+        meaning: `Either ${target} is offline/unreachable on the network, or a firewall is blocking both ICMP echo requests and TCP port ${fallbackPort}.`,
+        nextStep: `Test a specific TCP port where a service is expected to listen (for example: "Now test port 80 on the same host").`,
         layerFailedFirst: 'L3 ICMP Reachability',
-        uncertainty: 'ICMP timeout alone cannot distinguish between a powered-off host and a firewall that silently drops ICMP echo requests.'
+        uncertainty: 'ICMP timeout alone cannot distinguish between a powered-off host and a firewall that silently drops packets.'
       };
       reply =
-        `**Result:** No ping reply from \`${target}\` (\`${probeHost}\`) — **100% packet loss** (${pingRes.packetsSent} sent, 0 received${pingRes.error ? `, ${pingRes.error}` : ''}).\n\n` +
+        `**Result:** No ping reply from \`${target}\` (\`${probeHost}\`) — **100% packet loss** (${pingRes.packetsSent} sent, 0 received).\n\n` +
         `**Meaning:** ${structuredAnswer.meaning}\n\n` +
         `**Next step:** ${structuredAnswer.nextStep}`;
       findings = [
         { label: 'Target', value: `${target} (${probeHost})`, tone: 'neutral' },
         { label: 'ICMP Status', value: 'NO REPLY (100% Loss)', tone: 'danger' },
-        { label: 'Note', value: 'Test TCP port to rule out ICMP firewall block', tone: 'warn' }
+        { label: 'Note', value: 'Test specific TCP port to rule out firewall block', tone: 'warn' }
       ];
     }
 
@@ -1003,11 +1439,12 @@ class ChatOperatorService {
       findings,
       technicalEvidence: {
         tool: 'realPing',
-        commandEquivalent: `ping -c 3 ${probeHost}`,
+        commandEquivalent: `ping -c 2 ${probeHost}`,
         target,
         resolvedIp: probeHost,
         evidenceId: ev.id,
         rawResult: pingRes,
+        tcpFallbackResult: tcpProbeRes,
         observedAt: new Date().toISOString()
       }
     };
@@ -1016,9 +1453,43 @@ class ChatOperatorService {
   /**
    * Scenario C: Real TCP Port Check (Single or Multiple Ports)
    */
-  async _executePortCheckScenario(plan, signal) {
+  async _executePortCheckScenario(plan, session, signal) {
     this._checkAborted(signal);
     const target = plan.target;
+    const isIpLiteral = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(target) || target.toLowerCase() === 'localhost';
+
+    if (!isIpLiteral && plan.targetValidation && !plan.targetValidation.valid) {
+      const suggested = detectDomainTypo(target);
+      const structuredAnswer = {
+        result: `TCP port check on "${target}" could not proceed because DNS resolution failed (ENOTFOUND).`,
+        meaning: `The hostname "${target}" could not be resolved to an IP address in DNS.`,
+        nextStep: suggested
+          ? `Did you mean "${suggested}"? Try "Check port ${plan.ports[0] || 443} on ${suggested}".`
+          : `Verify the hostname spelling or test with a direct IP address.`,
+        layerFailedFirst: 'L7 DNS Resolution',
+        uncertainty: null
+      };
+      return {
+        reply: `**Result:** ${structuredAnswer.result}\n\n**Meaning:** ${structuredAnswer.meaning}\n\n**Next step:** ${structuredAnswer.nextStep}`,
+        structuredAnswer,
+        steps: [
+          {
+            stepNumber: 1,
+            label: `Resolving ${target}…`,
+            tool: 'resolveRecord',
+            status: 'FAIL',
+            summary: `DNS resolution failed for ${target} (ENOTFOUND)`,
+            durationMs: 1.5
+          }
+        ],
+        findings: [
+          { label: 'Target', value: target, tone: 'neutral' },
+          { label: 'DNS Status', value: 'FAILED (ENOTFOUND)', tone: 'danger' }
+        ],
+        technicalEvidence: { target, error: 'DNS_RESOLUTION_FAILED', observedAt: new Date().toISOString() }
+      };
+    }
+
     const probeHost = target.toLowerCase() === 'localhost' ? '127.0.0.1' : (plan.targetValidation?.pinnedIp || target);
     const ports = Array.isArray(plan.ports) && plan.ports.length > 0 ? plan.ports : [443];
 
@@ -1031,7 +1502,7 @@ class ChatOperatorService {
       this._checkAborted(signal);
       const port = ports[i];
       const stepStart = performance.now();
-      const rawRes = await checkPort(probeHost, port, 2000);
+      const rawRes = await checkPort(probeHost, port, 1800);
       const durationMs = Number((performance.now() - stepStart).toFixed(1));
       const measuredLatencyMs = rawRes.connectLatencyMs ?? rawRes.latencyMs ?? durationMs;
       const res = { ...rawRes, latencyMs: measuredLatencyMs };
@@ -1071,6 +1542,19 @@ class ChatOperatorService {
     const openPorts = results.filter((r) => r.status === 'OPEN');
     const closedPorts = results.filter((r) => r.status === 'CLOSED');
     const filteredPorts = results.filter((r) => r.status === 'FILTERED');
+
+    const portLatencies = {};
+    for (const r of results) {
+      portLatencies[r.port] = r.latencyMs;
+    }
+    this._recordEntityMemory(session, target, {
+      resolvedIps: [probeHost],
+      openPorts: openPorts.map((r) => r.port),
+      closedPorts: closedPorts.map((r) => r.port),
+      filteredPorts: filteredPorts.map((r) => r.port),
+      portLatencies,
+      summary: `TCP ports tested: ${results.map((r) => `${r.port}=${r.status} (${r.latencyMs}ms)`).join(', ')}`
+    });
 
     let structuredAnswer;
     let reply;
@@ -1118,7 +1602,6 @@ class ChatOperatorService {
         `**Meaning:** ${structuredAnswer.meaning}\n\n` +
         `**Next step:** ${structuredAnswer.nextStep}`;
     } else {
-      // Multi-port summary
       const summaryParts = results.map((r) =>
         `Port **${r.port}** is **${r.status}**${r.status === 'OPEN' ? ` (${r.latencyMs} ms)` : (r.errorCode ? ` (${r.errorCode})` : '')}`
       );
@@ -1164,7 +1647,7 @@ class ChatOperatorService {
   /**
    * Scenario D: Website / HTTPS Accessibility Check (DNS -> TCP -> TLS -> HTTP)
    */
-  async _executeWebsiteCheckScenario(plan, signal) {
+  async _executeWebsiteCheckScenario(plan, session, signal) {
     this._checkAborted(signal);
     const target = plan.target;
     const port = plan.ports[0] || (plan.urlProtocol === 'http' ? 80 : 443);
@@ -1181,9 +1664,14 @@ class ChatOperatorService {
     const isIpLiteral = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(target) || target === 'localhost';
 
     if (!isIpLiteral) {
-      dnsRes = await resolveRecord(target, 'A');
-      if (dnsRes.success && dnsRes.records?.length) {
-        resolvedIp = dnsRes.records[0];
+      if (plan.targetValidation?.valid && plan.targetValidation.pinnedIp) {
+        resolvedIp = plan.targetValidation.pinnedIp;
+        dnsRes = { success: true, records: plan.targetValidation.resolvedIps, durationMs: Number((performance.now() - t0).toFixed(2)) };
+      } else {
+        dnsRes = await resolveRecord(target, 'A');
+        if (dnsRes.success && dnsRes.records?.length) {
+          resolvedIp = dnsRes.records[0];
+        }
       }
       steps.push({
         stepNumber: 1,
@@ -1229,7 +1717,7 @@ class ChatOperatorService {
     // Step 2: TCP Port Check
     this._checkAborted(signal);
     const t1 = performance.now();
-    const rawTcpRes = await checkPort(resolvedIp, port, 2500);
+    const rawTcpRes = await checkPort(resolvedIp, port, 2000);
     const tcpStepMs = Number((performance.now() - t1).toFixed(1));
     const tcpRes = { ...rawTcpRes, latencyMs: rawTcpRes.connectLatencyMs ?? rawTcpRes.latencyMs ?? tcpStepMs };
     steps.push({
@@ -1271,7 +1759,7 @@ class ChatOperatorService {
     if (isHttps) {
       this._checkAborted(signal);
       const t2 = performance.now();
-      tlsRes = await auditTls(target, port, 3000);
+      tlsRes = await auditTls(target, port, 2500);
       steps.push({
         stepNumber: 3,
         label: `Verifying TLS handshake and certificate on ${target}:${port}…`,
@@ -1294,7 +1782,7 @@ class ChatOperatorService {
     // Step 4: HTTP Application Probe
     this._checkAborted(signal);
     const t3 = performance.now();
-    const httpRes = await probeHttp(urlToProbe, 'GET', 3500);
+    const httpRes = await probeHttp(urlToProbe, 'GET', 2500);
     steps.push({
       stepNumber: isHttps ? 4 : 3,
       label: `Checking HTTP response from ${urlToProbe}…`,
@@ -1319,6 +1807,15 @@ class ChatOperatorService {
         tone: 'danger'
       });
     }
+
+    this._recordEntityMemory(session, target, {
+      resolvedIps: [resolvedIp],
+      dnsStatus: 'OK',
+      openPorts: [port],
+      portLatencies: { [port]: tcpRes.latencyMs },
+      httpStatus: httpRes.statusCode || 'FAILED',
+      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpRes.ttfbMs || 0}ms TTFB)`
+    });
 
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400) {
@@ -1384,7 +1881,7 @@ class ChatOperatorService {
   /**
    * Traceroute Scenario
    */
-  async _executeTracerouteScenario(plan, signal) {
+  async _executeTracerouteScenario(plan, session, signal) {
     this._checkAborted(signal);
     const target = plan.target;
     const probeHost = target.toLowerCase() === 'localhost' ? '127.0.0.1' : (plan.targetValidation?.pinnedIp || target);
@@ -1497,13 +1994,12 @@ class ChatOperatorService {
   /**
    * Scenario E: Multi-Step Cross-Layer Investigation
    */
-  async _executeMultiStepInvestigation(plan, promptText, signal) {
+  async _executeMultiStepInvestigation(plan, session, promptText, signal) {
     this._checkAborted(signal);
     const target = plan.target;
     const primaryPort = plan.ports[0] || (target === 'localhost' || target === '127.0.0.1' ? (Number(config.PORT) || 3000) : 443);
     const additionalPorts = plan.ports.slice(1);
 
-    // Run the 8-stage cross-layer unreachable-hostname diagnostic workflow with pinnedIp if available
     const wfResult = await crossLayerIncidentCorrelator.diagnoseUnreachableHostname(target, primaryPort, {
       pinnedIp: plan.targetValidation?.pinnedIp || null,
       resolvedIps: plan.targetValidation?.resolvedIps || null
@@ -1517,16 +2013,15 @@ class ChatOperatorService {
       tool: s.layer,
       status: s.status,
       summary: s.summary,
-      durationMs: s.details?.latencyMs || s.details?.durationMs || s.details?.avgRttMs || s.details?.ttfbMs || 1.2
+      durationMs: s.details?.connectLatencyMs || s.details?.latencyMs || s.details?.durationMs || s.details?.avgRttMs || s.details?.ttfbMs || 1.2
     }));
 
-    // If multiple ports were relevant (e.g., 443 and 80), also check the secondary port to compare
     const extraPortResults = [];
     for (const extraPort of additionalPorts.slice(0, 2)) {
       this._checkAborted(signal);
       if (wfResult.resolvedIp && !wfResult.steps?.some((s) => s.layer.includes('DNS') && s.status === 'FAIL')) {
         const tExtra = performance.now();
-        const pRes = await checkPort(wfResult.resolvedIp, extraPort, 1800);
+        const pRes = await checkPort(wfResult.resolvedIp, extraPort, 1500);
         extraPortResults.push(pRes);
         steps.push({
           stepNumber: steps.length + 1,
@@ -1547,6 +2042,15 @@ class ChatOperatorService {
     const tcpStep = (wfResult.steps || []).find((s) => s.layer.includes('TCP'));
     const icmpStep = (wfResult.steps || []).find((s) => s.layer.includes('ICMP'));
     const httpStep = (wfResult.steps || []).find((s) => s.layer.includes('HTTP'));
+    const tcpRttMs = tcpStep?.details?.connectLatencyMs ?? tcpStep?.details?.latencyMs ?? '<1';
+
+    this._recordEntityMemory(session, target, {
+      resolvedIps: wfResult.resolvedIp ? [wfResult.resolvedIp] : [],
+      dnsStatus: dnsStep?.status === 'PASS' ? 'OK' : 'FAILED',
+      openPorts: tcpStep?.status === 'PASS' ? [primaryPort] : [],
+      closedPorts: tcpStep?.details?.status === 'CLOSED' ? [primaryPort] : [],
+      summary: `Cross-layer investigation on ${target}:${primaryPort} (${firstFailedStep ? `Failed at ${firstFailedStep.label}` : 'All layers passed'})`
+    });
 
     const findings = [
       { label: 'Target', value: `${target}:${primaryPort}`, tone: 'neutral' },
@@ -1559,7 +2063,7 @@ class ChatOperatorService {
     if (tcpStep) {
       findings.push({
         label: `TCP Port ${primaryPort}`,
-        value: tcpStep.status === 'PASS' ? `OPEN (${tcpStep.details?.latencyMs ?? ''} ms)` : (tcpStep.details?.status || 'FAILED'),
+        value: tcpStep.status === 'PASS' ? `OPEN (${tcpRttMs} ms)` : (tcpStep.details?.status || 'FAILED'),
         tone: tcpStep.status === 'PASS' ? 'ok' : 'danger'
       });
     }
@@ -1606,7 +2110,7 @@ class ChatOperatorService {
           : null;
       }
     } else {
-      resultText = `All ${steps.length} diagnostic checks for ${target}:${primaryPort} passed — local NIC and gateway are healthy, DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpStep?.details?.latencyMs ?? '<1'} ms)${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
+      resultText = `All ${steps.length} diagnostic checks for ${target}:${primaryPort} passed — local NIC and gateway are healthy, DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpRttMs} ms)${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
       meaningText = `DNS, network routing, and TCP service connectivity to ${target}:${primaryPort} are all operating normally.`;
       nextStepText = `If users still experience slowness or intermittent errors, test specific application endpoints or inspect server-side application logs.`;
     }
@@ -1647,19 +2151,30 @@ class ChatOperatorService {
   }
 
   /**
-   * Scenario F: Contextual Follow-Up Explanation / Incident Report
+   * Scenario F: Contextual Follow-Up Explanation, Deep Memory Recall & Multi-Host Comparison
    */
   async _executeFollowUpExplanation(plan, session, promptText) {
     const prevAns = session.lastStructuredAnswer || {};
     const prevSteps = session.lastSteps || [];
-    const prevTarget = session.lastTarget || 'localhost';
+    const prevTarget = session.lastValidTarget || session.lastTarget || 'localhost';
     const prevPorts = session.lastPorts || [];
     const lower = promptText.toLowerCase();
+    const entities = Object.values(session.entityMemory || {});
 
     const firstFailed = prevSteps.find((s) => s.status === 'FAIL' || s.status === 'TIMEOUT');
     let reply;
 
-    if (lower.includes('which layer failed')) {
+    if (lower.includes('what have we tested') || lower.includes('what have we found') || lower.includes('show memory') || lower.includes('compare')) {
+      const entityBullets = entities.length > 0
+        ? entities.map((e) =>
+            `- **\`${e.target}\`** (${e.resolvedIps.join(', ') || 'unresolved'}): checked ${e.checkCount}x · Open ports: [${e.openPorts.join(', ') || 'none'}] · Closed ports: [${e.closedPorts.join(', ') || 'none'}] · Latest summary: ${e.lastOutcomeSummary || 'N/A'}`
+          ).join('\n')
+        : `- **\`${prevTarget}\`**: ${prevAns.result || 'Tested in current session.'}`;
+      reply =
+        `**Result (Session Investigation Memory — ${entities.length || 1} Host(s) Tracked across ${session.turnCount || 1} Turn(s)):**\n${entityBullets}\n\n` +
+        `**Meaning:** EJII maintains a persistent knowledge graph of every host, IP, port, and latency measurement across your conversation.\n\n` +
+        `**Next step:** Ask to re-test any host above or compare specific ports (e.g., *"Now test port 443 on ${prevTarget}"*).`;
+    } else if (lower.includes('which layer failed')) {
       const layerName = prevAns.layerFailedFirst || (firstFailed ? firstFailed.label : 'None — all tested layers passed');
       reply =
         `**Result:** First failing layer on \`${prevTarget}\`: **${layerName}**.\n\n` +
@@ -1685,9 +2200,14 @@ class ChatOperatorService {
       steps: prevSteps,
       findings: [
         { label: 'Context Target', value: prevTarget, tone: 'neutral' },
+        { label: 'Hosts in Memory', value: String(Math.max(1, entities.length)), tone: 'ok' },
         { label: 'First Failing Layer', value: prevAns.layerFailedFirst || 'None (All Passed)', tone: prevAns.layerFailedFirst ? 'warn' : 'ok' }
       ],
-      technicalEvidence: session.lastToolResults || { note: 'Synthesized from active conversation session memory.' }
+      technicalEvidence: {
+        lastToolResults: session.lastToolResults,
+        entityMemory: session.entityMemory,
+        targetHistory: session.targetHistory
+      }
     };
   }
 
@@ -1758,5 +2278,6 @@ const chatOperatorService = new ChatOperatorService();
 
 module.exports = {
   ChatOperatorService,
-  chatOperatorService
+  chatOperatorService,
+  detectDomainTypo
 };

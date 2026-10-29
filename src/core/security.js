@@ -585,22 +585,38 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
     };
   }
 
-  // Resolve hostname via DNS
+  // Resolve hostname via DNS with strict sub-second timeout guard to prevent multi-second OS getaddrinfo stalls
   const dnsPromises = dns.promises;
   const resolvedIps = [];
+  const raceTimeout = (promise, ms, fallbackVal = []) => {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(fallbackVal), ms);
+      })
+    ]).finally(() => clearTimeout(timer));
+  };
 
   if (unbracketed.toLowerCase() === 'localhost') {
     resolvedIps.push('127.0.0.1', '::1');
   } else {
     try {
-      const v4 = await dnsPromises.resolve4(unbracketed).catch(() => []);
-      const v6 = await dnsPromises.resolve6(unbracketed).catch(() => []);
+      const fastResolver = new dnsPromises.Resolver({ timeout: 750, tries: 1 });
+      const [v4, v6] = await Promise.all([
+        raceTimeout(fastResolver.resolve4(unbracketed).catch(() => []), 850, []),
+        raceTimeout(fastResolver.resolve6(unbracketed).catch(() => []), 850, [])
+      ]);
       resolvedIps.push(...v4, ...v6);
     } catch (_) {}
 
     if (resolvedIps.length === 0) {
       try {
-        const lookups = await dnsPromises.lookup(unbracketed, { all: true }).catch(() => []);
+        const lookups = await raceTimeout(
+          dnsPromises.lookup(unbracketed, { all: true }).catch(() => []),
+          850,
+          []
+        );
         if (Array.isArray(lookups)) {
           for (const l of lookups) {
             if (l && l.address && !resolvedIps.includes(l.address)) {

@@ -52,7 +52,10 @@
     const raw = String(text || '');
     const paragraphs = raw.split(/\n\n+/).filter(Boolean);
     return paragraphs.map((p) => {
-      let safe = esc(p);
+      const trimmed = p.trim();
+      const isCallout = trimmed.startsWith('> ');
+      const contentText = isCallout ? trimmed.slice(2) : trimmed;
+      let safe = esc(contentText);
       // Format **bold**
       safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       // Format *italic*
@@ -61,6 +64,9 @@
       safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
       // Format newline inside paragraph
       safe = safe.replace(/\n/g, '<br>');
+      if (isCallout) {
+        return `<div class="ejii-answer-section" style="border-left: 3px solid #D97706; background: rgba(217, 119, 6, 0.08); padding: 8px 12px; border-radius: 6px; font-size: 13.5px; margin-bottom: 12px;">${safe}</div>`;
+      }
       return `<p class="ejii-answer-section">${safe}</p>`;
     }).join('');
   }
