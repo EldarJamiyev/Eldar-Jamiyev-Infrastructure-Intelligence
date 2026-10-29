@@ -14,6 +14,8 @@
 
 const crypto = require('node:crypto');
 const os = require('node:os');
+const net = require('node:net');
+const { execFileSync } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
 const config = require('../../config');
 const { db } = require('../../db/database');
@@ -27,7 +29,6 @@ const { crossLayerIncidentCorrelator } = require('../correlation/incident-correl
 const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../operator/autonomous-infrastructure-operator');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
 const { aiModelOrchestrator } = require('../ai-model-orchestrator');
-const { getPhysicalNetworkInfo } = require('../../network/routing/physical-network-detector');
 const { ProcessSocketCorrelatorEngine } = require('../../diagnostics/process-socket-correlator');
 
 // Common TLD typo map (.ocm -> .com, .con -> .com, etc.)
@@ -90,6 +91,57 @@ function detectDomainTypo(hostname) {
   // substitution could redirect an internal or customer domain to a different host.
   const clean = hostname.trim().toLowerCase().replace(/\.$/, '');
   return KNOWN_HOST_TYPO_MAP[clean] || null;
+}
+
+/** Read the actual OS IPv4 default route; never infer a gateway from the local subnet. */
+function getObservedDefaultGateway() {
+  const start = performance.now();
+  try {
+    let output = '';
+    let method = '';
+    if (process.platform === 'win32') {
+      const script = "$r = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1; if ($r -and $r.NextHop -and $r.NextHop -ne '0.0.0.0') { Write-Output $r.NextHop }";
+      output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        encoding: 'utf8', timeout: 1800, windowsHide: true
+      });
+      method = 'Get-NetRoute';
+    } else if (process.platform === 'linux') {
+      output = execFileSync('ip', ['-4', 'route', 'show', 'default'], {
+        encoding: 'utf8', timeout: 1200, stdio: ['ignore', 'pipe', 'ignore']
+      });
+      method = 'ip -4 route show default';
+    } else if (process.platform === 'darwin') {
+      output = execFileSync('route', ['-n', 'get', 'default'], {
+        encoding: 'utf8', timeout: 1200, stdio: ['ignore', 'pipe', 'ignore']
+      });
+      method = 'route -n get default';
+    } else {
+      return { gatewayIp: null, method: null, durationMs: Number((performance.now() - start).toFixed(2)), error: 'UNSUPPORTED_PLATFORM' };
+    }
+
+    let candidate = null;
+    if (process.platform === 'win32') {
+      candidate = output.trim().split(/\r?\n/).filter(Boolean).pop() || null;
+    } else if (process.platform === 'linux') {
+      const match = output.match(/(?:^|\n)\s*default\s+via\s+(\d{1,3}(?:\.\d{1,3}){3})\b/);
+      candidate = match ? match[1] : null;
+    } else {
+      const match = output.match(/^\s*gateway:\s*(\S+)/m);
+      candidate = match ? match[1] : null;
+    }
+
+    if (candidate && net.isIP(candidate) === 4 && candidate !== '0.0.0.0') {
+      return { gatewayIp: candidate, method, durationMs: Number((performance.now() - start).toFixed(2)), error: null };
+    }
+    return { gatewayIp: null, method, durationMs: Number((performance.now() - start).toFixed(2)), error: 'NO_VERIFIED_IPV4_DEFAULT_ROUTE' };
+  } catch (err) {
+    return {
+      gatewayIp: null,
+      method: process.platform === 'win32' ? 'Get-NetRoute' : process.platform === 'linux' ? 'ip -4 route show default' : 'route -n get default',
+      durationMs: Number((performance.now() - start).toFixed(2)),
+      error: err && (err.code || err.message) ? String(err.code || err.message) : 'ROUTE_READ_FAILED'
+    };
+  }
 }
 
 class ChatOperatorService {
@@ -2189,53 +2241,49 @@ class ChatOperatorService {
         });
       }
     }
-    let physical = null;
-    try { physical = getPhysicalNetworkInfo(); } catch (_) {}
-    const gateway = physical && physical.isDetected === true && physical.gatewayIp
-      ? String(physical.gatewayIp) : null;
+    const gatewayObservation = getObservedDefaultGateway();
+    const gateway = gatewayObservation.gatewayIp;
     const usableIpv4 = addresses.filter((a) => a.family === 'IPv4' && a.address && !a.address.startsWith('169.254.'));
     const unambiguousLocalIp = usableIpv4.length === 1 ? usableIpv4[0].address : null;
     const addressSummary = addresses.length
       ? addresses.map((a) => `${a.interface} ${a.family}: ${a.address}${a.netmask ? ` (netmask ${a.netmask})` : ''}`).join('; ')
       : 'No non-loopback interface addresses were returned by the operating system.';
-    const reply = `**Result:** ${addressSummary}${gateway ? `; detected default gateway: ${gateway}` : '; default gateway was not verified by the network detector'}.\n\n**Meaning:** These are local interface addresses observed on the EJII host, not your public internet IP. EJII did not query an external IP-discovery service.\n\n**Next step:** Ask “Ping the default gateway” to test the detected gateway, or “Show active TCP connections” to inspect current remote endpoints.`;
+    const reply = `**Result:** ${addressSummary}${gateway ? `; OS default route points to gateway ${gateway}` : '; no IPv4 default gateway was verified'}.\n\n**Meaning:** These are local interface addresses observed on the EJII host, not your public internet IP. The gateway is shown only when read from the OS routing table; EJII did not infer a gateway from the subnet or query an external IP-discovery service.\n\n**Next step:** Ask “Ping the default gateway” to test the observed route, or “Show active TCP connections” to inspect current remote endpoints.`;
     return {
       reply,
       structuredAnswer: {
         result: addressSummary,
         meaning: 'Local interface addresses are OS-observed. A public IP has not been queried.',
         nextStep: gateway ? `Test gateway ${gateway} with “Ping the default gateway”.` : 'The default gateway could not be verified. Check the OS routing table or network adapter state.',
-        layerFailedFirst: null, uncertainty: gateway ? null : 'Gateway telemetry was not verified.'
+        layerFailedFirst: null, uncertainty: gateway ? null : `Gateway lookup was not verified (${gatewayObservation.error || 'unknown reason'}).`
       },
       steps: [{
-        stepNumber: 1, label: 'Read local network interfaces from the operating system', tool: 'os.networkInterfaces',
+        stepNumber: 1, label: 'Read local interface addresses and the OS default route', tool: 'os.networkInterfaces + OS route table',
         status: addresses.length ? 'PASS' : 'WARN',
-        summary: addresses.length ? `Observed ${addresses.length} non-loopback interface address(es)` : 'No non-loopback interface addresses observed',
-        durationMs: 0
+        summary: `${addresses.length} non-loopback interface address(es); gateway ${gateway || 'not verified'}`,
+        durationMs: gatewayObservation.durationMs
       }],
       findings: [
         { label: 'Local addresses', value: String(addresses.length), tone: addresses.length ? 'ok' : 'warn' },
         { label: 'Default gateway', value: gateway || 'Not verified', tone: gateway ? 'ok' : 'warn' }
       ],
-      technicalEvidence: { tool: 'os.networkInterfaces + physical-network-detector', addresses, gateway, gatewayVerified: Boolean(gateway), observedAt: new Date().toISOString() },
+      technicalEvidence: { tool: 'os.networkInterfaces + OS route table', addresses, gateway, gatewayVerified: Boolean(gateway), gatewayObservation, observedAt: new Date().toISOString() },
       ...(unambiguousLocalIp ? { contextTarget: unambiguousLocalIp } : { clearTargetContext: true })
     };
   }
 
   async _executeGatewayPingScenario(signal) {
     this._checkAborted(signal);
-    let physical = null;
-    try { physical = getPhysicalNetworkInfo(); } catch (_) {}
-    const gateway = physical && physical.isDetected === true && physical.gatewayIp
-      ? String(physical.gatewayIp) : null;
+    const gatewayObservation = getObservedDefaultGateway();
+    const gateway = gatewayObservation.gatewayIp;
     if (!gateway || !isSafeNetworkTarget(gateway)) {
-      const reply = '**Result:** EJII could not verify a default gateway from the current OS network configuration. No ping was sent.\n\n**Meaning:** The detector did not provide a verified gateway address, so using a remembered target would be incorrect.\n\n**Next step:** Check the active adapter and default route, then retry.';
+      const reply = `**Result:** EJII could not verify a default IPv4 gateway from the OS route table. No ping was sent.\n\n**Meaning:** The OS route lookup failed or returned no IPv4 next hop (${gatewayObservation.error || 'unknown reason'}). EJII did not substitute a previously tested host or guess an address from the subnet.\n\n**Next step:** Check the active adapter and default route, then retry.`;
       return {
         reply,
         structuredAnswer: { result: 'Default gateway not verified; no probe executed.', meaning: 'No target IP was established from current host telemetry.', nextStep: 'Inspect the active adapter and default route.' },
-        steps: [{ stepNumber: 1, label: 'Resolve the current default gateway', tool: 'physical-network-detector', status: 'WARN', summary: 'No verified gateway address available', durationMs: 0 }],
+        steps: [{ stepNumber: 1, label: 'Read the OS IPv4 default route', tool: gatewayObservation.method || 'OS route table', status: 'WARN', summary: 'No verified IPv4 gateway address available', durationMs: gatewayObservation.durationMs }],
         findings: [{ label: 'Gateway', value: 'Not verified', tone: 'warn' }],
-        technicalEvidence: { tool: 'getPhysicalNetworkInfo', gatewayVerified: false, observedAt: new Date().toISOString() }
+        technicalEvidence: { tool: 'getObservedDefaultGateway', gatewayVerified: false, gatewayObservation, observedAt: new Date().toISOString() }
       };
     }
 
@@ -2267,7 +2315,7 @@ class ChatOperatorService {
         { label: 'ICMP replies', value: `${result?.packetsReceived ?? 0}/${result?.packetsSent ?? 0}`, tone: gotReply ? 'ok' : 'warn' },
         { label: 'Packet loss', value: `${result?.packetLossPct ?? 'unknown'}%`, tone: gotReply && result.packetLossPct === 0 ? 'ok' : 'warn' }
       ],
-      technicalEvidence: { tool: 'realPing', target: gateway, result, observedAt: new Date().toISOString() },
+      technicalEvidence: { tool: 'realPing', target: gateway, result, gatewayObservation, observedAt: new Date().toISOString() },
       contextTarget: gateway
     };
   }
