@@ -105,7 +105,7 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(followUp.success, true);
     assert.equal(followUp.data.intent, 'follow_up_explanation');
     assert.match(followUp.data.reply, /127\.0\.0\.1/);
-    assert.match(followUp.data.reply, /TCP port 3000/i);
+    assert.ok(followUp.data.steps.some((step) => String(step.summary || step.label).includes('3000')), 'The previous diagnostic steps should survive a greeting');
   });
 
   it('Scenario A: Real DNS check returns actual records, latency, and Result/Meaning/Next step', async () => {
