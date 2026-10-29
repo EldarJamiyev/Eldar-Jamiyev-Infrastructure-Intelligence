@@ -378,7 +378,7 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(activeConnectionsPlan.intent, 'active_connections');
     assert.equal(activeConnectionsPlan.target, null);
 
-    const vaguePlan = chatOperatorService.parseIntentAndEntities('what is happening?', session);
+    const vaguePlan = chatOperatorService.parseIntentAndEntities('please do something', session);
     assert.equal(vaguePlan.intent, 'clarification');
   });
 
