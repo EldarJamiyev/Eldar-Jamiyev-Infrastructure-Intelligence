@@ -1452,11 +1452,12 @@ const emptyTargetPlan = (intent) => ({
 
     const durationMs = Number((performance.now() - stepStart).toFixed(1));
     const recordsList = Array.isArray(dnsRes.records) ? dnsRes.records : [];
+    const durationLabel = `${durationMs} ms`;
     const ev = evidenceFabric.recordEvidence({
       type: 'dns_resolution',
       subject: `dns:${target}`,
       claim: dnsRes.success
-        ? `DNS ${recordType} lookup for ${target} returned [${recordsList.join(', ')}] in ${dnsRes.durationMs}ms`
+        ? `DNS ${recordType} lookup for ${target} returned [${recordsList.join(', ')}] in ${durationMs} ms`
         : `DNS ${recordType} lookup for ${target} failed (${dnsRes.errorCode || dnsRes.error || 'ENOTFOUND'})`,
       rawValue: dnsRes,
       normalizedValue: dnsRes.success ? `RESOLVED:${recordsList[0] || 'OK'}` : `DNS_FAILED:${dnsRes.errorCode || 'ERROR'}`,
@@ -1471,7 +1472,7 @@ const emptyTargetPlan = (intent) => ({
         tool: 'resolveRecord',
         status: dnsRes.success ? 'PASS' : 'FAIL',
         summary: dnsRes.success
-          ? `Resolved ${target} → ${recordsList.join(', ')} (${dnsRes.durationMs}ms)`
+          ? `Resolved ${target} → ${recordsList.join(', ')} (${durationMs} ms)`
           : `Failed to resolve ${target}: ${dnsRes.errorCode || dnsRes.error || 'No records found'}`,
         durationMs
       }
@@ -1485,32 +1486,32 @@ const emptyTargetPlan = (intent) => ({
       this._recordEntityMemory(session, target, {
         resolvedIps: recordsList,
         dnsStatus: 'OK',
-        dnsLatencyMs: dnsRes.durationMs,
-        summary: `DNS ${recordType} resolved to ${recordsList.join(', ')} in ${dnsRes.durationMs}ms`
+        dnsLatencyMs: durationMs,
+        summary: `DNS ${recordType} resolved to ${recordsList.join(', ')} in ${durationMs} ms`
       });
 
       structuredAnswer = {
-        result: `DNS ${recordType} resolution for ${target} succeeded in ${dnsRes.durationMs}ms, returning ${recordsList.join(', ')}.`,
+        result: `DNS ${recordType} resolution for ${target} succeeded in ${durationMs} ms, returning ${recordsList.join(', ')}.`,
         meaning: `The domain name ${target} is properly configured in DNS and translates to a routable address (${recordsList[0]}). Name resolution is not blocking connectivity.`,
         nextStep: `If you are troubleshooting a service on ${target}, test TCP port reachability next (for example: "Check port 443 on ${target}").`,
         layerFailedFirst: null,
         uncertainty: null
       };
       reply =
-        `**Result:** DNS ${recordType} lookup for \`${target}\` succeeded in **${dnsRes.durationMs} ms** → \`${recordsList.join(', ')}\`.\n\n` +
+        `**Result:** DNS ${recordType} lookup for \`${target}\` succeeded in **${durationMs} ms** → \`${recordsList.join(', ')}\`.\n\n` +
         `**Meaning:** The domain name resolves cleanly to ${recordsList.length === 1 ? 'an IP address' : `${recordsList.length} IP addresses`}, so DNS is working normally for \`${target}\`.\n\n` +
         `**Next step:** Test whether the target service port is reachable — for example, ask *"Now test port 443 on the same host"*.`;
       findings = [
         { label: 'Target', value: target, tone: 'neutral' },
         { label: 'Record Type', value: recordType, tone: 'neutral' },
         { label: 'Resolved Address', value: recordsList.join(', '), tone: 'ok' },
-        { label: 'Lookup Latency', value: `${dnsRes.durationMs} ms`, tone: 'ok' }
+        { label: 'Lookup Latency', value: `${durationMs} ms`, tone: 'ok' }
       ];
     } else {
       const errCode = dnsRes.errorCode || dnsRes.error || 'ENOTFOUND';
       const suggested = detectDomainTypo(target);
       structuredAnswer = {
-        result: `DNS ${recordType} resolution for ${target} failed (${errCode}) in ${dnsRes.durationMs}ms.`,
+        result: `DNS ${recordType} resolution for ${target} failed (${errCode}) in ${durationMs} ms.`,
         meaning: errCode.includes('ENOTFOUND') || errCode.includes('NXDOMAIN')
           ? `The configured DNS resolver reported that the domain "${target}" does not exist (NXDOMAIN), or has no ${recordType} records published.`
           : `The DNS query for "${target}" failed with ${errCode}, indicating an unreachable recursive DNS server or upstream SERVFAIL.`,
@@ -1521,13 +1522,13 @@ const emptyTargetPlan = (intent) => ({
         uncertainty: null
       };
       reply =
-        `**Result:** DNS ${recordType} lookup for \`${target}\` failed with **${errCode}** (${dnsRes.durationMs} ms).\n\n` +
+        `**Result:** DNS ${recordType} lookup for \`${target}\` failed with **${errCode}** (${durationMs} ms).\n\n` +
         `**Meaning:** ${structuredAnswer.meaning}\n\n` +
         `**Next step:** ${structuredAnswer.nextStep}`;
       findings = [
         { label: 'Target', value: target, tone: 'neutral' },
         { label: 'DNS Status', value: `FAILED (${errCode})`, tone: 'danger' },
-        { label: 'Duration', value: `${dnsRes.durationMs} ms`, tone: 'neutral' }
+        { label: 'Duration', value: `${durationMs} ms`, tone: 'neutral' }
       ];
     }
 
@@ -1560,7 +1561,7 @@ const emptyTargetPlan = (intent) => ({
     // instead of claiming "100% ICMP packet loss — firewall might be blocking ICMP"!
     const isIpLiteral = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(target) || target.toLowerCase() === 'localhost';
     if (!isIpLiteral && plan.targetValidation && !plan.targetValidation.valid) {
-      const durationMs = Number((performance.now() - stepStart).toFixed(1));
+      const durationMs = Number.isFinite(plan.targetValidation?.resolutionDurationMs) ? plan.targetValidation.resolutionDurationMs : null;
       const suggested = detectDomainTypo(target);
       const steps = [
         {
@@ -1992,7 +1993,7 @@ const emptyTargetPlan = (intent) => ({
         tool: 'resolveRecord',
         status: dnsRes.success ? 'PASS' : 'FAIL',
         summary: dnsRes.success
-          ? (Number.isFinite(dnsRes.durationMs) ? `Resolved ${target} → ${resolvedIp} (${dnsRes.durationMs} ms validation elapsed)` : `Resolved ${target} → ${resolvedIp}; timing not recorded`)
+          ? (Number.isFinite(dnsRes.durationMs) ? `Resolved ${target} → ${resolvedIp} (${durationMs} ms validation elapsed)` : `Resolved ${target} → ${resolvedIp}; timing not recorded`)
           : `DNS resolution failed: ${dnsRes.errorCode || dnsRes.error || 'ENOTFOUND'}`,
         durationMs: Number((performance.now() - t0).toFixed(1))
       });
@@ -2027,7 +2028,7 @@ const emptyTargetPlan = (intent) => ({
     }
     findings.push(isIpLiteral
       ? { label: 'Target Address', value: `${resolvedIp} (direct; DNS skipped)`, tone: 'neutral' }
-      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${dnsRes.durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
+      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
 
     // Step 2: TCP Port Check
     this._checkAborted(signal);
@@ -2139,7 +2140,7 @@ const emptyTargetPlan = (intent) => ({
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400 && (!isHttps || (tlsRes?.success && tlsRes.validation?.authorized === true))) {
       structuredAnswer = {
-        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpTtfbMs} ms TTFB.`,
+        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpTtfbMs} ms TTFB.`,
         meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
         nextStep: `No infrastructure fault detected. If specific users still report issues, check browser caching or client-side network DNS settings.`,
         layerFailedFirst: null,
@@ -2348,7 +2349,8 @@ const emptyTargetPlan = (intent) => ({
       this._checkAborted(signal);
       if (wfResult.resolvedIp && !wfResult.steps?.some((s) => s.layer.includes('DNS') && s.status === 'FAIL')) {
         const tExtra = performance.now();
-        const pRes = await checkPort(wfResult.resolvedIp, extraPort, 1500);
+        const rawPRes = await checkPort(wfResult.resolvedIp, extraPort, 1500);
+        const pRes = { ...rawPRes, latencyMs: rawPRes.connectLatencyMs ?? rawPRes.latencyMs ?? null };
         extraPortResults.push(pRes);
         steps.push({
           stepNumber: steps.length + 1,
@@ -2356,7 +2358,7 @@ const emptyTargetPlan = (intent) => ({
           tool: 'checkPort',
           status: pRes.status === 'OPEN' ? 'PASS' : 'FAIL',
           summary: pRes.status === 'OPEN'
-            ? `TCP port ${extraPort} is OPEN (${pRes.latencyMs} ms)`
+            ? `TCP port ${extraPort} is OPEN (${Number.isFinite(pRes.latencyMs) ? `${pRes.latencyMs} ms` : 'latency not reported'})`
             : `TCP port ${extraPort} is ${pRes.status} (${pRes.errorCode || 'Unreachable'})`,
           durationMs: Number((performance.now() - tExtra).toFixed(1))
         });
@@ -2405,7 +2407,7 @@ const emptyTargetPlan = (intent) => ({
     for (const ep of extraPortResults) {
       findings.push({
         label: `TCP Port ${ep.port}`,
-        value: ep.status === 'OPEN' ? `OPEN (${ep.latencyMs} ms)` : ep.status,
+        value: ep.status === 'OPEN' ? `OPEN (${Number.isFinite(ep.latencyMs) ? `${ep.latencyMs} ms` : 'latency not reported'})` : ep.status,
         tone: ep.status === 'OPEN' ? 'ok' : 'warn'
       });
     }
