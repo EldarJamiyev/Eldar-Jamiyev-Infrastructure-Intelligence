@@ -13,6 +13,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const os = require('node:os');
 const { performance } = require('node:perf_hooks');
 const config = require('../../config');
 const { db } = require('../../db/database');
@@ -25,6 +26,8 @@ const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../security')
 const { crossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
 const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../operator/autonomous-infrastructure-operator');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
+const { getPhysicalNetworkInfo } = require('../../network/routing/physical-network-detector');
+const { ProcessSocketCorrelatorEngine } = require('../../diagnostics/process-socket-correlator');
 
 // Common TLD typo map (.ocm -> .com, .con -> .com, etc.)
 const TLD_TYPO_MAP = Object.freeze({
@@ -82,20 +85,10 @@ const KNOWN_HOST_TYPO_MAP = Object.freeze({
  */
 function detectDomainTypo(hostname) {
   if (!hostname || typeof hostname !== 'string') return null;
-  const clean = hostname.trim().toLowerCase();
-  if (KNOWN_HOST_TYPO_MAP[clean]) {
-    return KNOWN_HOST_TYPO_MAP[clean];
-  }
-  const parts = clean.split('.');
-  if (parts.length >= 2) {
-    const tld = parts[parts.length - 1];
-    if (TLD_TYPO_MAP[tld]) {
-      const correctedParts = [...parts.slice(0, -1), TLD_TYPO_MAP[tld]];
-      const candidate = correctedParts.join('.');
-      return KNOWN_HOST_TYPO_MAP[candidate] || candidate;
-    }
-  }
-  return null;
+  // Automatically correct only explicitly known hostname typos. Generic TLD
+  // substitution could redirect an internal or customer domain to a different host.
+  const clean = hostname.trim().toLowerCase().replace(/\.$/, '');
+  return KNOWN_HOST_TYPO_MAP[clean] || null;
 }
 
 class ChatOperatorService {
@@ -363,6 +356,14 @@ class ChatOperatorService {
     const raw = String(promptText || '').trim();
     const lower = raw.toLowerCase();
 
+    // Greetings and capability questions must never trigger a network investigation.
+    if (/^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you|thx|what can you do|help|how do i use ejii)[!.?\s]*$/i.test(raw)) {
+      return {
+        intent: 'conversation', target: null, explicitTarget: null, ports: [], url: null,
+        recordType: 'A', usedFollowUpTarget: false, isSystemDnsHealthCheck: false
+      };
+    }
+
     // 1. Check if the user is asking for an explanation, summary, memory recall, or comparison of previous findings
     const isExplanationFollowUp =
       /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
@@ -485,8 +486,8 @@ class ChatOperatorService {
 
     if (!resolvedTarget) {
       if (isGenericDnsHealthPrompt) {
-        // Prefer lastValidTarget if it exists and is not a broken typo, otherwise test canonical google.com + system DNS
-        resolvedTarget = session?.lastValidTarget || 'google.com';
+        // A general DNS-health request is independent of the previous diagnostic target.
+        resolvedTarget = 'google.com';
       } else if (refersToFirstTarget && session?.targetHistory?.length > 0) {
         resolvedTarget = session.targetHistory[0];
         usedFollowUpTarget = true;
@@ -501,7 +502,12 @@ class ChatOperatorService {
       usedFollowUpTarget = true;
     }
 
-    // 7. Determine primary intent
+    // 7. Determine primary intent. Local-host queries are distinct from remote-host diagnostics.
+    const isGatewayPingPrompt = /\b(ping|check|test|reachability of)\b.{0,35}\b(default )?gateway\b|\b(default )?gateway\b.{0,35}\b(ping|check|test|reachable)\b/i.test(lower);
+    const isLocalNetworkInfoPrompt = /\b(check my ip|what is my ip|show (?:me )?(?:my )?(?:local )?ip|local ip address|my network (?:configuration|interfaces)|network interface addresses)\b/i.test(lower);
+    const isActiveConnectionsPrompt = /\b(active (?:tcp )?(?:connections|sockets)|current(?:ly)? (?:open )?connections|destination ip|dest ip|destination ports?|dest ports?|remote ips?|remote ports?|netstat|which apps? (?:are )?(?:connected|connecting)|what .*apps?.*(?:ip|port)|apps?.{0,45}(?:destination|dest|remote).{0,20}(?:ip|port))\b/i.test(lower);
+    const isHostHealthPrompt = /\b(local host health|system health|host diagnostics|cpu and memory|local system|workstation health)\b/i.test(lower);
+    const isLikelyDiagnosticRequest = /\b(check|test|ping|diagnos(?:e|is)|investigat(?:e|ion)|trace|resolve|scan|port|dns|website|web site|network|connection|slow|unreachable|not responding|not working|can't access|cannot access|timeout|gateway|socket|printer|ip address)\b/i.test(lower);
     let intent = 'multi_step_investigation';
 
     const isRemediation =
@@ -513,6 +519,12 @@ class ChatOperatorService {
 
     if (isRemediation) {
       intent = 'remediation';
+    } else if (isGatewayPingPrompt) {
+      intent = 'gateway_ping';
+    } else if (isLocalNetworkInfoPrompt) {
+      intent = 'local_network_info';
+    } else if (isActiveConnectionsPrompt) {
+      intent = 'active_connections';
     } else if (isRepeatLast && session && session.lastIntent) {
       intent = session.lastIntent;
       if (extractedPorts.length === 0 && session.lastPorts?.length) {
@@ -546,13 +558,23 @@ class ChatOperatorService {
         !lower.includes('investigate why'))
     ) {
       intent = 'website_check';
-    } else if (
-      /\b(local host health|system health|active sockets|host diagnostics|cpu and memory|local system)\b/i.test(lower) &&
-      !explicitTarget
-    ) {
+    } else if (isHostHealthPrompt && !explicitTarget) {
       intent = 'host_health';
-    } else {
+    } else if (isLikelyDiagnosticRequest) {
       intent = 'multi_step_investigation';
+    } else {
+      intent = 'clarification';
+    }
+
+    // If a generic investigation has no explicit or remembered target, ask for the target
+    // rather than silently probing localhost or the previous unrelated host.
+    if (intent === 'multi_step_investigation' && !explicitTarget && !session?.lastValidTarget && !session?.lastTarget) {
+      intent = 'clarification';
+    }
+
+    if (['conversation', 'clarification', 'local_network_info', 'gateway_ping', 'active_connections', 'host_health'].includes(intent)) {
+      resolvedTarget = null;
+      usedFollowUpTarget = false;
     }
 
     // Default ports based on intent
@@ -774,7 +796,7 @@ class ChatOperatorService {
       }
 
       // SSRF & Command Injection Target Validation + Automatic Typo Recovery
-      if (plan.intent !== 'follow_up_explanation' && plan.intent !== 'host_health') {
+      if (!['follow_up_explanation', 'host_health', 'conversation', 'clarification', 'local_network_info', 'gateway_ping', 'active_connections'].includes(plan.intent)) {
         if (!isSafeNetworkTarget(plan.target)) {
           return {
             success: false,
@@ -839,6 +861,21 @@ class ChatOperatorService {
           break;
         case 'host_health':
           executionOutcome = await this._executeHostHealthScenario(plan, abortController.signal);
+          break;
+        case 'local_network_info':
+          executionOutcome = await this._executeLocalNetworkInfoScenario(abortController.signal);
+          break;
+        case 'gateway_ping':
+          executionOutcome = await this._executeGatewayPingScenario(abortController.signal);
+          break;
+        case 'active_connections':
+          executionOutcome = await this._executeActiveConnectionsScenario(abortController.signal);
+          break;
+        case 'conversation':
+          executionOutcome = this._executeConversationResponse(cleanPrompt);
+          break;
+        case 'clarification':
+          executionOutcome = this._executeClarificationResponse(cleanPrompt);
           break;
         case 'follow_up_explanation':
           executionOutcome = await this._executeFollowUpExplanation(plan, session, cleanPrompt);
@@ -1104,18 +1141,6 @@ class ChatOperatorService {
     let dnsRes;
     if (target.toLowerCase() === 'localhost') {
       dnsRes = await resolveRecord('localhost', recordType);
-      if (!dnsRes.success) {
-        dnsRes = {
-          domain: 'localhost',
-          recordType,
-          success: true,
-          records: recordType === 'AAAA' ? ['::1'] : ['127.0.0.1'],
-          durationMs: Number((performance.now() - stepStart).toFixed(2)),
-          error: null,
-          errorCode: null,
-          resolverNote: 'Resolved via local hosts table (127.0.0.1)'
-        };
-      }
     } else if (plan.targetValidation?.valid && recordType === 'A' && plan.targetValidation.resolvedIps?.length > 0) {
       // Reuse already-validated DNS resolution to respond in < 5ms without redundant network round-trip
       const v4Records = plan.targetValidation.resolvedIps.filter((ip) => ip.includes('.'));
@@ -1940,6 +1965,174 @@ class ChatOperatorService {
   /**
    * Local Host / System Health Scenario
    */
+  _executeConversationResponse(promptText) {
+    const reply = /\b(what can you do|help|how do i use ejii)\b/i.test(promptText)
+      ? 'I can run the available DNS, ping, TCP-port, website/TLS, traceroute, local IP/gateway, and active TCP connection checks. Describe the task and include a hostname or IP when the target is remote.'
+      : 'Hello. What would you like me to check? I can run a network diagnostic, inspect this workstation’s local network details, or list active TCP connections.';
+    return {
+      reply,
+      structuredAnswer: { result: 'No diagnostic was run.', meaning: 'This was a conversational request, not a network test.', nextStep: 'Describe the operation or problem you want EJII to investigate.' },
+      steps: [], findings: [], technicalEvidence: null
+    };
+  }
+
+  _executeClarificationResponse(promptText) {
+    const reply = 'I have not run a diagnostic because I could not identify a specific operation or target. Try “Check DNS for example.com”, “Ping the default gateway”, “Check my local IP”, or “Show active TCP connections”.';
+    return {
+      reply,
+      structuredAnswer: { result: 'No diagnostic was run.', meaning: 'The request did not map safely to a specific diagnostic.', nextStep: 'Specify the operation and target, if applicable.' },
+      steps: [], findings: [], technicalEvidence: { request: promptText, executed: false }
+    };
+  }
+
+  async _executeLocalNetworkInfoScenario(signal) {
+    this._checkAborted(signal);
+    const interfaces = os.networkInterfaces();
+    const addresses = [];
+    for (const [name, entries] of Object.entries(interfaces || {})) {
+      for (const entry of entries || []) {
+        if (!entry || entry.internal) continue;
+        const family = entry.family === 4 || entry.family === 'IPv4' ? 'IPv4'
+          : entry.family === 6 || entry.family === 'IPv6' ? 'IPv6' : String(entry.family);
+        addresses.push({
+          interface: name,
+          family,
+          address: entry.address,
+          netmask: entry.netmask || null,
+          mac: entry.mac || null,
+          internal: false
+        });
+      }
+    }
+    let physical = null;
+    try { physical = getPhysicalNetworkInfo(); } catch (_) {}
+    const gateway = physical && physical.isDetected === true && physical.gatewayIp
+      ? String(physical.gatewayIp) : null;
+    const addressSummary = addresses.length
+      ? addresses.map((a) => `${a.interface} ${a.family}: ${a.address}${a.netmask ? `/${a.netmask}` : ''}`).join('; ')
+      : 'No non-loopback interface addresses were returned by the operating system.';
+    const reply = `**Result:** ${addressSummary}${gateway ? `; detected default gateway: ${gateway}` : '; default gateway was not verified by the network detector'}.\n\n**Meaning:** These are local interface addresses observed on the EJII host, not your public internet IP. EJII did not query an external IP-discovery service.\n\n**Next step:** Ask “Ping the default gateway” to test the detected gateway, or “Show active TCP connections” to inspect current remote endpoints.`;
+    return {
+      reply,
+      structuredAnswer: {
+        result: addressSummary,
+        meaning: 'Local interface addresses are OS-observed. A public IP has not been queried.',
+        nextStep: gateway ? `Test gateway ${gateway} with “Ping the default gateway”.` : 'The default gateway could not be verified. Check the OS routing table or network adapter state.',
+        layerFailedFirst: null, uncertainty: gateway ? null : 'Gateway telemetry was not verified.'
+      },
+      steps: [{
+        stepNumber: 1, label: 'Read local network interfaces from the operating system', tool: 'os.networkInterfaces',
+        status: addresses.length ? 'PASS' : 'WARN',
+        summary: addresses.length ? `Observed ${addresses.length} non-loopback interface address(es)` : 'No non-loopback interface addresses observed',
+        durationMs: 0
+      }],
+      findings: [
+        { label: 'Local addresses', value: String(addresses.length), tone: addresses.length ? 'ok' : 'warn' },
+        { label: 'Default gateway', value: gateway || 'Not verified', tone: gateway ? 'ok' : 'warn' }
+      ],
+      technicalEvidence: { tool: 'os.networkInterfaces + physical-network-detector', addresses, gateway, gatewayVerified: Boolean(gateway), observedAt: new Date().toISOString() }
+    };
+  }
+
+  async _executeGatewayPingScenario(signal) {
+    this._checkAborted(signal);
+    let physical = null;
+    try { physical = getPhysicalNetworkInfo(); } catch (_) {}
+    const gateway = physical && physical.isDetected === true && physical.gatewayIp
+      ? String(physical.gatewayIp) : null;
+    if (!gateway || !isSafeNetworkTarget(gateway)) {
+      const reply = '**Result:** EJII could not verify a default gateway from the current OS network configuration. No ping was sent.\n\n**Meaning:** The detector did not provide a verified gateway address, so using a remembered target would be incorrect.\n\n**Next step:** Check the active adapter and default route, then retry.';
+      return {
+        reply,
+        structuredAnswer: { result: 'Default gateway not verified; no probe executed.', meaning: 'No target IP was established from current host telemetry.', nextStep: 'Inspect the active adapter and default route.' },
+        steps: [{ stepNumber: 1, label: 'Resolve the current default gateway', tool: 'physical-network-detector', status: 'WARN', summary: 'No verified gateway address available', durationMs: 0 }],
+        findings: [{ label: 'Gateway', value: 'Not verified', tone: 'warn' }],
+        technicalEvidence: { tool: 'getPhysicalNetworkInfo', gatewayVerified: false, observedAt: new Date().toISOString() }
+      };
+    }
+
+    const t0 = performance.now();
+    const result = await realPing(gateway, 2, 800);
+    this._checkAborted(signal);
+    const durationMs = Number((performance.now() - t0).toFixed(1));
+    const gotReply = Boolean(result && result.success && (result.packetsReceived || 0) > 0);
+    const reply = gotReply
+      ? `**Result:** Default gateway ${gateway} replied to ICMP ping: ${result.packetsReceived}/${result.packetsSent} replies, ${result.packetLossPct}% packet loss, average RTT ${result.avgRttMs ?? 'not measured'} ms.\n\n**Meaning:** The gateway responded to ICMP from the EJII host.\n\n**Next step:** If users still have connectivity issues, test the remote host or service separately.`
+      : `**Result:** The default gateway ${gateway} did not return a usable ICMP echo reply (${result?.packetLossPct ?? 'unknown'}% reported packet loss).\n\n**Meaning:** This does not prove the gateway is down; ICMP may be filtered or rate-limited.\n\n**Next step:** Verify the local route and ARP/neighbor state, or test another protocol if available.`;
+    return {
+      reply,
+      structuredAnswer: {
+        result: gotReply ? `Gateway ${gateway} responded to ICMP.` : `No ICMP echo reply from gateway ${gateway}.`,
+        meaning: gotReply ? 'The gateway answered the ICMP probe.' : 'No reply does not distinguish a failed gateway from ICMP filtering.',
+        nextStep: gotReply ? 'Continue testing the remote destination if needed.' : 'Check route/neighbor state; do not conclude the gateway is offline from ICMP alone.',
+        layerFailedFirst: gotReply ? null : 'ICMP echo (cause unconfirmed)',
+        uncertainty: gotReply ? null : 'ICMP silence can be caused by filtering or rate limiting.'
+      },
+      steps: [{
+        stepNumber: 1, label: `Ping current default gateway ${gateway}`, tool: 'realPing',
+        status: gotReply ? 'PASS' : 'WARN',
+        summary: gotReply ? `${result.packetsReceived}/${result.packetsSent} replies, average RTT ${result.avgRttMs ?? 'n/a'} ms` : 'No ICMP reply; gateway reachability remains unconfirmed',
+        durationMs
+      }],
+      findings: [
+        { label: 'Gateway', value: gateway, tone: 'neutral' },
+        { label: 'ICMP replies', value: `${result?.packetsReceived ?? 0}/${result?.packetsSent ?? 0}`, tone: gotReply ? 'ok' : 'warn' },
+        { label: 'Packet loss', value: `${result?.packetLossPct ?? 'unknown'}%`, tone: gotReply && result.packetLossPct === 0 ? 'ok' : 'warn' }
+      ],
+      technicalEvidence: { tool: 'realPing', target: gateway, result, observedAt: new Date().toISOString() }
+    };
+  }
+
+  async _executeActiveConnectionsScenario(signal) {
+    this._checkAborted(signal);
+    const matrix = ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix();
+    this._checkAborted(signal);
+    if (!matrix || matrix.collectionStatus !== 'LIVE_OS_TELEMETRY') {
+      const details = matrix?.collectionErrors?.length ? matrix.collectionErrors.join('; ') : 'No supported OS socket collector completed successfully.';
+      const reply = `**Result:** EJII could not read the active socket table from this host.\n\n**Meaning:** The OS collector was unavailable or blocked; this is not evidence that no applications are connected.\n\n**Next step:** Verify that netstat (Windows) or ss (Linux) is available and permitted, then retry. Details: ${details}`;
+      return {
+        reply,
+        structuredAnswer: { result: 'Active socket collection unavailable.', meaning: 'Collection failed; no zero-connection conclusion was made.', nextStep: 'Check OS command availability and permissions.' },
+        steps: [{ stepNumber: 1, label: 'Collect active OS sockets', tool: 'ProcessSocketCorrelatorEngine', status: 'FAIL', summary: 'OS socket collector unavailable', durationMs: 0 }],
+        findings: [{ label: 'Collection', value: 'Unavailable', tone: 'danger' }],
+        technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix?.collectionStatus || 'UNAVAILABLE', errors: matrix?.collectionErrors || [], observedAt: new Date().toISOString() }
+      };
+    }
+
+    const sockets = Array.isArray(matrix.sockets) ? matrix.sockets : [];
+    const established = sockets.filter((s) => String(s.state || '').toUpperCase() === 'ESTABLISHED'
+      && s.remoteAddress && !['0.0.0.0', '::', '::0', '*'].includes(String(s.remoteAddress))
+      && Number(s.remotePort) > 0);
+    const sorted = established.sort((a, b) => String(a.processName || '').localeCompare(String(b.processName || ''))
+      || String(a.remoteAddress).localeCompare(String(b.remoteAddress)) || Number(a.remotePort) - Number(b.remotePort));
+    const maxRows = 40;
+    const visible = sorted.slice(0, maxRows);
+    const lines = visible.map((s) => `- ${s.processName || 'Unknown process'} (PID ${s.pid ?? 'n/a'}): ${s.remoteAddress}:${s.remotePort} [local ${s.localAddress}:${s.localPort}]`);
+    const resultText = established.length
+      ? `Observed ${established.length} established TCP connection(s) at ${new Date().toISOString()}.\n${lines.join('\n')}${established.length > maxRows ? `\n...and ${established.length - maxRows} more connection(s).` : ''}`
+      : 'The OS collector completed successfully, but no established remote TCP connections were present in the collected snapshot.';
+    const reply = `**Result:** ${resultText}\n\n**Meaning:** These are current OS-visible TCP endpoints. The destination IP and destination port are the remote address and remote port; connections can change while applications run. Process names may be unavailable when the OS restricts attribution.\n\n**Next step:** Ask EJII to filter by application name, destination IP, or port.`;
+    return {
+      reply,
+      structuredAnswer: {
+        result: `${established.length} established TCP connection(s) observed.`,
+        meaning: 'Remote endpoints were taken from the host OS socket table, not inferred from recent website checks.',
+        nextStep: 'Filter the live list by an application, remote address, or port if needed.',
+        layerFailedFirst: null,
+        uncertainty: matrix.collectionNote || null
+      },
+      steps: [{
+        stepNumber: 1, label: 'Read the current TCP socket table', tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix',
+        status: 'PASS', summary: `${established.length} established remote TCP connection(s) observed`, durationMs: 0
+      }],
+      findings: [
+        { label: 'Established TCP', value: String(established.length), tone: 'neutral' },
+        { label: 'OS collector', value: matrix.collectionMethod || 'unknown', tone: 'ok' }
+      ],
+      technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix.collectionStatus, collectionMethod: matrix.collectionMethod, collectionNote: matrix.collectionNote, sockets: visible, totalEstablished: established.length, observedAt: new Date().toISOString() }
+    };
+  }
+
   async _executeHostHealthScenario(plan, signal) {
     this._checkAborted(signal);
     const t0 = performance.now();
