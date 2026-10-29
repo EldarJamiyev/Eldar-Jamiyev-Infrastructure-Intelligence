@@ -1850,9 +1850,9 @@ class ChatOperatorService {
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400) {
       structuredAnswer = {
-        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpRes.ttfbMs} ms TTFB.`,
-        meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
-        nextStep: `No infrastructure fault detected. If specific users still report issues, check browser caching or client-side network DNS settings.`,
+        result: `${urlToProbe} returned HTTP ${httpRes.statusCode}; DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${isHttps ? `, TLS ${tlsRes?.protocol || 'result unavailable'}${tlsAuthorized === true ? ' with certificate validation' : ' without verified certificate trust'}` : ''}, and TTFB was ${httpRes.waterfall?.ttfbMs ?? 'not measured'} ms.`,
+        meaning: `DNS, TCP, and HTTP responded. ${isHttps ? (tlsAuthorized === true ? 'TLS certificate validation succeeded.' : 'The TLS handshake completed, but certificate trust was not verified.') : ''} An HTTP response below 400 does not by itself prove that every application function is healthy.`,
+        nextStep: `The tested endpoint returned an HTTP response below 400. If users still report issues, check the specific application path, browser error, authentication, and server logs.`,
         layerFailedFirst: null,
         uncertainty: null
       };
