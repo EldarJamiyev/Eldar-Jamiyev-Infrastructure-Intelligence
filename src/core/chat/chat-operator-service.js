@@ -456,6 +456,10 @@ const emptyTargetPlan = (intent) => ({
     if (/^(hi|hello|hey|good morning|good afternoon|good evening|how are you|thanks|thank you|thx)[.!\s]*$/i.test(lower)) {
       return emptyTargetPlan('conversation');
     }
+    if (/(?:\b(?:check|test|verify)\s+(?:the\s+)?(?:system\s+)?dns(?:\s+(?:connection|connectivity|status|health|server))?|\bis dns working\b|\bdns connection\b|\bdns connectivity\b|\bdns health\b)/i.test(lower) &&
+        !/\b(?:for|of|on)\s+(?:(?:[a-z0-9-]+\.)+[a-z]{2,}|(?:\d{1,3}\.){3}\d{1,3})\b|\b(?:same host|same domain|that host|that domain|for it|on it)\b/i.test(lower)) {
+      return { ...emptyTargetPlan('dns'), target: 'google.com', isSystemDnsHealthCheck: true };
+    }
     if (/(?:\b(?:destination|dest)\s+(?:ip|address|port|ports)\b|\bactive\s+(?:tcp\s+)?connections\b|\bremote\s+(?:ip|address|ports?)\b|\bapps?\b.*\b(?:currently|using|connections|destination|dest|ports?)\b)/i.test(lower)) {
       return emptyTargetPlan('active_connections');
     }
