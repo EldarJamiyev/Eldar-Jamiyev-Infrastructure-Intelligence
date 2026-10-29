@@ -264,7 +264,7 @@ class ProcessSocketCorrelatorEngine {
                         if (!trimmed || trimmed.startsWith('Netid') || trimmed.startsWith('State'))
                             continue;
                         const parts = trimmed.split(/\s+/);
-                        if (parts.length >= 6) {
+                        if (parts.length >= 5) {
                             const hasNetid = /^(tcp|tcp6|udp|udp6)$/i.test(parts[0]);
                             const netid = hasNetid ? parts[0].toUpperCase() : 'TCP';
                             const protocol = netid.startsWith('UDP') ? 'UDP' : 'TCP';
