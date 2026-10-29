@@ -2334,13 +2334,17 @@ const emptyTargetPlan = (intent) => ({
       }
     }
 
-    const firstFailedStep = steps.find((s) => s.status === 'FAIL');
+    const normalizedStatus = (step) => String(step?.status || '').toUpperCase();
+    const firstFailedStep = steps.find((s) => ['FAIL', 'TIMEOUT', 'ERROR'].includes(normalizedStatus(s)));
+    const firstWarningStep = steps.find((s) => ['WARN', 'WARNING', 'DEGRADED', 'DEGRADED_FINDING', 'PARTIAL'].includes(normalizedStatus(s)));
+    const allChecksPassed = steps.length > 0 && steps.every((s) => ['PASS', 'OK', 'COMPLETED'].includes(normalizedStatus(s)));
     const topHyp = wfResult.correlation?.topHypothesis;
     const dnsStep = (wfResult.steps || []).find((s) => s.layer.includes('DNS'));
     const tcpStep = (wfResult.steps || []).find((s) => s.layer.includes('TCP'));
     const icmpStep = (wfResult.steps || []).find((s) => s.layer.includes('ICMP'));
     const httpStep = (wfResult.steps || []).find((s) => s.layer.includes('HTTP'));
-    const tcpRttMs = tcpStep?.details?.connectLatencyMs ?? tcpStep?.details?.latencyMs ?? '<1';
+    const tcpRttMs = tcpStep?.details?.connectLatencyMs ?? tcpStep?.details?.latencyMs ?? null;
+    const tcpRttLabel = Number.isFinite(tcpRttMs) ? `${tcpRttMs} ms` : 'latency not reported';
 
     this._recordEntityMemory(session, target, {
       resolvedIps: wfResult.resolvedIp ? [wfResult.resolvedIp] : [],
@@ -2361,7 +2365,7 @@ const emptyTargetPlan = (intent) => ({
     if (tcpStep) {
       findings.push({
         label: `TCP Port ${primaryPort}`,
-        value: tcpStep.status === 'PASS' ? `OPEN (${tcpRttMs} ms)` : (tcpStep.details?.status || 'FAILED'),
+        value: tcpStep.status === 'PASS' ? `OPEN (${tcpRttLabel})` : (tcpStep.details?.status || 'FAILED'),
         tone: tcpStep.status === 'PASS' ? 'ok' : 'danger'
       });
     }
@@ -2407,14 +2411,26 @@ const emptyTargetPlan = (intent) => ({
           ? 'When both ICMP and TCP time out silently without a TCP RST, remote firewall filtering and an offline host produce identical wire symptoms.'
           : null;
       }
+    } else if (firstWarningStep || !allChecksPassed) {
+      const warningSummary = steps
+        .filter((s) => !['PASS', 'OK', 'COMPLETED'].includes(normalizedStatus(s)))
+        .map((s) => `${s.label.replace(/…$/, '')}: ${s.status}`)
+        .slice(0, 4)
+        .join('; ');
+      resultText = firstFailedStep
+        ? `The investigation of ${target}:${primaryPort} found a failed check: ${firstFailedStep.label.replace(/…$/, '')} (${firstFailedStep.status}).`
+        : `The investigation of ${target}:${primaryPort} completed with warning(s): ${warningSummary || 'one or more checks were not confirmed PASS'}.`;
+      meaningText = 'Not every diagnostic check passed. A warning or failure means the corresponding layer was not fully verified; it is not sufficient by itself to prove that the host or service is offline.';
+      nextStepText = firstFailedStep
+        ? `Investigate ${firstFailedStep.label.replace(/…$/, '')} first, then repeat the affected check.`
+        : 'Review the warning(s), especially ICMP filtering and TLS certificate validation, and run a targeted check for the affected layer.';
+      layerFailedFirst = firstFailedStep ? firstFailedStep.label.replace(/…$/, '') : (firstWarningStep ? firstWarningStep.label.replace(/…$/, '') : layerFailedFirst);
+      uncertaintyText = 'A warning means a check was inconclusive or had a validation issue; do not treat it as a confirmed outage without supporting evidence.';
     } else {
-      resultText = `All ${steps.length} diagnostic checks for ${target}:${primaryPort} passed — local NIC and gateway are healthy, DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpRttMs} ms)${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
-      meaningText = `DNS, network routing, and TCP service connectivity to ${target}:${primaryPort} are all operating normally.`;
-      nextStepText = `If users still experience slowness or intermittent errors, test specific application endpoints or inspect server-side application logs.`;
+      resultText = `All ${steps.length} executed diagnostic checks for ${target}:${primaryPort} returned PASS — DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpRttLabel})${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
+      meaningText = 'All executed checks returned PASS. This supports normal connectivity for the tested layers, but does not guarantee that every application feature is healthy.';
+      nextStepText = 'If users still experience slowness or intermittent errors, test the affected application endpoint or inspect its server-side logs.';
     }
-
-    const structuredAnswer = {
-      result: resultText,
       meaning: meaningText,
       nextStep: nextStepText,
       layerFailedFirst,
