@@ -1872,13 +1872,14 @@ class ChatOperatorService {
 
     // Step 3: TLS Audit (if HTTPS)
     let tlsRes = null;
+    let tlsAuthorized = null;
     if (isHttps) {
       this._checkAborted(signal);
       const t2 = performance.now();
       tlsRes = await auditTls(target, port, 2500);
       const tlsCipherName = tlsRes.cipher && typeof tlsRes.cipher === 'object' ? tlsRes.cipher.name : null;
       const tlsDaysRemaining = tlsRes.certificate && typeof tlsRes.certificate.daysRemaining === 'number' ? tlsRes.certificate.daysRemaining : null;
-      const tlsAuthorized = tlsRes.validation && typeof tlsRes.validation.authorized === 'boolean' ? tlsRes.validation.authorized : null;
+      tlsAuthorized = tlsRes.validation && typeof tlsRes.validation.authorized === 'boolean' ? tlsRes.validation.authorized : null;
       steps.push({
         stepNumber: 3,
         label: `Verifying TLS handshake and certificate on ${target}:${port}…`,
@@ -2103,7 +2104,7 @@ class ChatOperatorService {
     const gateway = physical && physical.isDetected === true && physical.gatewayIp
       ? String(physical.gatewayIp) : null;
     const addressSummary = addresses.length
-      ? addresses.map((a) => `${a.interface} ${a.family}: ${a.address}${a.netmask ? `/${a.netmask}` : ''}`).join('; ')
+      ? addresses.map((a) => `${a.interface} ${a.family}: ${a.address}${a.netmask ? ` (netmask ${a.netmask})` : ''}`).join('; ')
       : 'No non-loopback interface addresses were returned by the operating system.';
     const reply = `**Result:** ${addressSummary}${gateway ? `; detected default gateway: ${gateway}` : '; default gateway was not verified by the network detector'}.\n\n**Meaning:** These are local interface addresses observed on the EJII host, not your public internet IP. EJII did not query an external IP-discovery service.\n\n**Next step:** Ask “Ping the default gateway” to test the detected gateway, or “Show active TCP connections” to inspect current remote endpoints.`;
     return {
