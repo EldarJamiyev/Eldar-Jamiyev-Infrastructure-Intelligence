@@ -345,6 +345,10 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     const session = chatOperatorService.getOrCreateSession(sessionId, user);
     session.lastTarget = 'google.com';
     session.lastValidTarget = 'google.com';
+    session.lastIntent = 'ping';
+    session.lastToolResults = { target: 'google.com', status: 'previous-real-result' };
+    session.lastSteps = [{ summary: 'previous real probe' }];
+    session.lastStructuredAnswer = { result: 'previous real result' };
 
     const hello = await chatOperatorService.processMessage({
       sessionId,
@@ -355,6 +359,9 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(hello.data.intent, 'conversation');
     assert.equal(hello.data.target, null);
     assert.equal(hello.data.steps.length, 0, 'A greeting must not execute network probes');
+    assert.equal(session.lastTarget, 'google.com', 'Greeting must not erase the previous target');
+    assert.equal(session.lastIntent, 'ping', 'Greeting must not overwrite the last diagnostic intent');
+    assert.equal(session.lastToolResults.status, 'previous-real-result', 'Greeting must preserve previous diagnostic evidence');
 
     const gatewayPlan = chatOperatorService.parseIntentAndEntities('Can you ping the default gateway?', session);
     assert.equal(gatewayPlan.intent, 'gateway_ping');
