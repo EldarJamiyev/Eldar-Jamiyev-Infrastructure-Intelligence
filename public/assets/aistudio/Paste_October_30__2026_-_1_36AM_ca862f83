@@ -1,0 +1,1032 @@
+The new transcript exposes a deeper problem than missing keywords. EJII is sometimes choosing the wrong task, sometimes losing the conversation, and sometimes presenting an internally inconsistent diagnostic as a confident conclusion. These are separate failures and need to be fixed together.
+
+## What is going wrong
+
+1\. Entity extraction is mistaking a question for a person's name
+
+`my name is what` → “Nice to meet you, What!”
+
+The likely cause is an overly permissive introduction pattern that captures the final word without first understanding the sentence. EJII should recognize `what` as a question word in this context, not store it as a name. It must also distinguish asking for a name from providing one.
+
+2\. Incomplete messages and topic-only messages fall through to a generic response
+
+`what can you`, `network`, and `gateway` receive essentially the same reply.
+
+These messages have different meanings. One is probably an incomplete question, one introduces a topic, and one may refer to the previous network investigation. EJII should answer what is reasonably implied or ask a relevant follow-up—not discard the meaning and return a canned help message.
+
+3\. The word `dns` unexpectedly triggers a full network investigation
+
+The output shows interface and gateway checks, DNS resolution for `google.com`, ICMP, TCP 443, TLS, HTTP, and a supplementary port 80 test. This strongly suggests a misrouted intent or a broad diagnostic workflow being selected without enough evidence of the user's goal.
+
+A bare topic such as `dns` is not permission to investigate Google. EJII should ask whether you want an explanation, a DNS health check, or a lookup—unless prior context makes the intended operation unambiguous.
+
+4\. The assistant loses context around the default gateway
+
+After explaining what a default gateway is, EJII fails to understand `okay what ip` and `what ip is default gateway in my network`. Yet the earlier diagnostic reported a gateway of `169.254.8.254`.
+
+A context-aware assistant should recognize the likely reference and explain that the address was observed in the EJII runtime. It must not misrepresent it as the user's own computer's gateway unless that environment is actually being inspected.
+
+5\. The diagnostic conclusions contradict the evidence
+
+The output reports successful DNS resolution, ICMP, TCP, TLS, and HTTP, then claims that all nine checks passed. However, the workflow lists eight numbered steps plus a separate port 80 result. Meanwhile, its top hypothesis assigns local socket/NIC/resource exhaustion a posterior probability of 55.51%, despite having zero correlation groups, no supporting evidence IDs, and missing kernel/socket telemetry.
+
+Successful connectivity does not prove the host is healthy in every respect. But absent supporting evidence does not justify presenting a highly specific local-resource diagnosis either. EJII needs evidence-based hypothesis scoring and consistent aggregate statuses.
+
+6\. The investigation is too broad for the request
+
+Testing port 80 may be useful in a deliberately requested cross-layer investigation, but it should not silently become part of a bare DNS request. Tool selection needs to honor the user's scope and report supplementary checks separately.
+
+One important distinction: the successful checks against Google are useful evidence that those particular connections worked from the observed EJII environment at that time. They do not establish that the user's personal computer is healthy, that all DNS is working, or that local socket exhaustion is occurring. The next prompt makes these distinctions mandatory.
+
+## Unified super mega prompt — EJII Phase 4/5
+
+This incorporates the previous real-brain integration and verification directive, adds every new failure above, and requires Gemini to work against the actual current workspace rather than produce another reassuring action-history summary.
+
+# EJII — PHASE 4/5
+
+# THE REAL CONVERSATIONAL BRAIN, CONTEXT REPAIR, INTELLIGENT TOOL CONTROL, AND EVIDENCE-TRUTH ENGINEERING
+
+**Product:** EJII — Eldar Jamiyev's Infrastructure Intelligence\
+**Repository:** [https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
+
+**Mission:** Finish the integration and reliability work in the existing EJII application so that the assistant understands natural conversation, interprets incomplete messages intelligently, preserves contextual meaning, chooses the right diagnostic capabilities, and produces conclusions supported by actual evidence.
+
+This directive extends the previous Phase 3 and Phase 4 tasks. It incorporates the newly observed conversation and diagnostic failures. It is not a request to restart the project, create a new application, add more decorative UI, or extend the phrase dictionary indefinitely.
+
+**The goal is one coherent assistant—not a keyword router surrounded by diagnostic scripts.**
+
+---
+
+# PART 1 — INSPECT REALITY BEFORE MAKING CHANGES
+
+Begin by inspecting the current workspace, repository, and actual changed files.
+
+Do not rely on previous Gemini completion summaries as proof that a feature exists.
+
+Determine:
+
+- Current branch and HEAD commit.
+- Whether the working tree contains modified, staged, or untracked files.
+- Which earlier Phase 3/4 changes are present in the local workspace.
+- Whether those changes exist on the published GitHub branch.
+- Whether `src/core/chat/semantic-ai-interpreter.js` exists and is functional.
+- Whether the interpreter is registered during real server initialization.
+- Whether the real chat request path invokes the registered interpreter.
+- Whether model output is validated and passed to the correct capability executor.
+- Whether the final response is generated from actual context and actual diagnostic results.
+- Whether the latest chat UI changes are present in the actual running frontend.
+
+A previous inspection of the published `main` branch found that the reported semantic interpreter file was not present there, the chat operator still exposed an optional `llmInterpreter = null` hook, the inspected server startup did not show the claimed registration, and the chat UI still contained a fallback resembling `s.status || 'PASS'`.
+
+These findings may reflect an outdated published branch rather than the current AI Studio workspace. **Reconcile the two; do not assume either one is current without checking.**
+
+If available, inspect `git status --short`, `git diff`, `git diff --cached`, `git log -1`, and `git diff --check`.
+
+Preserve all legitimate work. Never reset, overwrite, revert, or delete valid changes just to simplify the implementation. Do not delete real product assets, working modules, configuration, or valuable tests.
+
+After the initial inspection, proceed directly to the required implementation and verification. Do not stop at a plan or audit report.
+
+---
+
+# PART 2 — ROOT CAUSES TO INVESTIGATE
+
+The latest real conversation transcript exposes multiple defects. Investigate each against the actual code and prove the underlying cause before fixing it.
+
+## 2.1 Incorrect name extraction
+
+Observed:
+
+User: `my name is what`
+
+Assistant: `Nice to meet you, What! What can I help you investigate or explain today?`
+
+The assistant appears to be extracting the final token after a phrase interpreted as an introduction. It does not reliably distinguish the question word `what` from a genuine personal name or understand whether the user is asking a question.
+
+Investigate:
+
+- Introduction-phrase recognition.
+- Name/entity extraction.
+- Named-entity validation.
+- Intent classification order.
+- Interaction between deterministic extraction and LLM interpretation.
+- User profile and session context.
+- How a detected name is persisted and subsequently used.
+
+Do not fix only the literal word `what`. Implement a robust semantic contract.
+
+Examples of required behavior:
+
+`my name is Eldar`\
+Recognize an introduction and use `Eldar` as the supplied name.
+
+`I am Eldar`\
+Recognize an introduction and respond naturally.
+
+`my name is what`\
+Do not store `What` as the user's name. Interpret the actual intent, use prior context if it provides a reliable answer, or ask a natural clarification.
+
+`what is my name?`\
+Answer from a known name only when reliable session/profile context exists. If the name is unknown, say so honestly.
+
+`who am I?`\
+Interpret the actual question using available context. Do not infer private identity details or fabricate a name.
+
+`my name is Eldar, call me Eldar`\
+Use the supplied preferred form of address within the authorized session context.
+
+`I'm not Eldar; I'm Elvin`\
+Recognize the correction and update the relevant contextual value rather than preserving the earlier name.
+
+Name extraction must be contextual and semantically validated. Question words, pronouns, incomplete phrases, negations, corrections, and quoted text must not blindly become names.
+
+Do not treat a quoted or hypothetical phrase such as `the sentence "my name is Eldar"` as a genuine introduction without considering the actual sentence intent.
+
+Do not persist an uncertain name as fact. Retain the source and confidence of the value, and respect session separation.
+
+Avoid repeatedly addressing the user by name just because a name is stored.
+
+## 2.2 Incomplete utterances
+
+Observed:
+
+User: `what can you`
+
+Assistant: generic networking help message.
+
+This message is incomplete, but the likely intended question is reasonably apparent. A useful assistant should not abandon conversational understanding simply because the sentence lacks a final word.
+
+It can respond with a brief capability overview or ask:
+
+"Were you asking what I can do? I can explain technical topics, help investigate problems, and run supported diagnostics when you ask."
+
+The response must feel natural, not like a router error.
+
+Generalize beyond this phrase. Support unfinished messages and fragments such as:
+
+- `what can you`
+- `can you check`
+- `why is`
+- `how do I`
+- `could you tell me`
+- `and what about`
+- `okay, so`
+- `what next`
+
+The assistant should use context to infer what is clear and ask a concise clarification for what is not.
+
+Do not execute an operation based solely on an unfinished fragment when the target or intended action is unclear.
+
+Do not build an exhaustive dictionary of incomplete phrases. The semantic model must interpret them in context.
+
+## 2.3 Bare topic words receive an inappropriate generic response
+
+Observed:
+
+`network` → generic networking-help prompt.
+
+`gateway` → the same generic prompt.
+
+Bare topics are not necessarily commands. They may introduce a discussion, continue a topic, signal confusion, or begin an investigation.
+
+The assistant must consider the current conversation and distinguish these possibilities.
+
+Examples:
+
+`network` with no relevant prior context\
+Ask what aspect the user wants to discuss or investigate.
+
+`network` after the user has reported that a website cannot open\
+Continue the existing network troubleshooting discussion and ask for the smallest useful missing detail, unless the existing context already identifies the issue.
+
+`gateway` after a default-gateway explanation\
+Understand that the user may be asking about the gateway just discussed. If a relevant observed gateway exists, use it and clearly identify its scope.
+
+`gateway` with no useful context\
+Ask whether the user wants an explanation, to inspect the detected default gateway, or to test reachability.
+
+`what is a gateway?`\
+Give an explanation without launching network diagnostics.
+
+`default gateway check`\
+Recognize an operational request and use the existing gateway-inspection capability.
+
+The model must distinguish a subject from an explicit instruction to act on that subject.
+
+## 2.4 Bare `dns` triggers a full cross-layer diagnostic
+
+Observed:
+
+User: `dns`
+
+EJII automatically executes a large workflow involving:
+
+- Local interface inspection.
+- Default gateway and default-route inspection.
+- DNS resolution of `google.com`.
+- ICMP ping.
+- TCP connection to port 443.
+- TLS handshake.
+- HTTP request and response.
+- A supplementary TCP test on port 80.
+- A causal hypothesis and recommended additional probes.
+
+This is a critical intent-selection error.
+
+The message `dns` does not identify a target, specify a desired operation, or authorize an investigation of Google. The observed output strongly suggests that an existing broad-diagnostic workflow is being selected from insufficient intent information, or that a missing target is being silently replaced by a default target.
+
+Trace the actual route from incoming message to selected intent, workflow selection, target resolution, and capability invocation.
+
+Find and fix the real fallback or dispatch defect. Do not simply add a special-case regex for the word `dns`.
+
+Expected behavior:
+
+`dns`\
+No probes. Respond naturally and clarify whether the user wants a DNS explanation, a general DNS health check, or a hostname lookup—unless context resolves the intended task.
+
+`what is DNS?`\
+Explain DNS. Zero probes.
+
+`DNS test`\
+Run the existing general DNS health check if available and appropriate. Do not require a hostname when the requested general health capability does not require one.
+
+`check DNS for example.com`\
+Perform the intended hostname lookup and report the actual records, resolver/method where observable, and measured timing only when actually measured.
+
+`any problem in DNS?`\
+Use relevant context. When the intent is clearly a DNS-health request, run the appropriate general DNS health capability if supported. Report what the checks do and do not establish.
+
+`DNS is failing for our mail domain`\
+Use context, request the domain if it is missing, and select an investigation focused on name resolution for the mail domain. Do not silently substitute Google.
+
+`analyze Google layer by layer`\
+If the intended target is unambiguous and the user is explicitly asking for layered analysis, execute a suitable authorized investigation of Google. Explain which layers were tested and which were not.
+
+A topic-only message must never silently turn into a comprehensive network scan.
+
+---
+
+# PART 3 — MAKE THE REAL LLM RESPONSIBLE FOR NATURAL UNDERSTANDING
+
+Inspect the actual configured provider, `src/core/ai-model-orchestrator.js`, the reported `src/core/chat/semantic-ai-interpreter.js`, the chat operator, and `src/server.js`.
+
+Wire the configured AI model into the real request lifecycle where required, preserving EJII's current local-first and provider security settings.
+
+Do not create another isolated interpreter class or optional callback that is never called. Do not claim that the assistant uses a real model merely because a provider configuration exists.
+
+Prove the path:
+
+`User message → actual chat API → relevant session context → semantic model when required → validated decision → authorized capability when required → actual evidence → final natural response`
+
+The model should handle unfamiliar wording and implicit contextual references. Deterministic code should remain responsible for strict validation, authorization, explicit protocol parsing, target safety, execution policy, and result integrity.
+
+The model must distinguish:
+
+- Ordinary conversation.
+- A general question.
+- An explanation request.
+- An explicitly requested operation.
+- A problem description.
+- A contextual follow-up.
+- An incomplete utterance.
+- An ambiguous topic.
+- A request requiring clarification.
+- An explicit instruction not to execute diagnostics.
+
+Use a structured internal decision schema, but do not render the raw schema or model planning output to the user.
+
+The schema and final response path should preserve enough information to track:
+
+- Understood intent.
+- Relevant context.
+- Target and parameters.
+- Whether they were explicit or resolved from context.
+- Whether clarification is required.
+- Whether the user prohibited live execution.
+- Which capability, if any, was authorized and dispatched.
+- Whether the final answer was model-generated, deterministic, or a safe fallback.
+- Whether evidence came from a current measurement, a prior observation, a user statement, or an inference.
+
+A deterministic fast path is acceptable for obvious, unambiguous requests. It must not turn into an unlimited phrase dictionary or override a more accurate interpretation of the full utterance.
+
+If the configured model is unavailable, do not pretend it understood an unfamiliar request. If a safe interpretation cannot be established, ask the user a natural clarification. Never launch an unrelated tool as a fallback.
+
+---
+
+# PART 4 — REPAIR CONTEXT AND FOLLOW-UP UNDERSTANDING
+
+The latest transcript shows that EJII can explain a concept but then loses its context in the user's next message.
+
+Observed:
+
+User: `what is default gateway`
+
+Assistant: gives an explanation of the default gateway.
+
+User: `okay what ip`
+
+Assistant: generic networking-help message.
+
+User: `what ip is default gateway in my network`
+
+Assistant: generic networking-help message.
+
+This is a failure of contextual follow-up handling.
+
+The assistant must maintain a bounded, relevant representation of:
+
+- Current topic.
+- The last assistant explanation.
+- The user's last question.
+- Relevant targets and diagnostic results.
+- Existing unresolved questions.
+- Explicit constraints.
+- Important values supplied by the user.
+- Recent observations and their timestamps.
+- The current execution scope.
+
+Do not reuse the most recent diagnostic target blindly. Use context to resolve the user's actual reference.
+
+## Required contextual behavior
+
+If the assistant has just explained a default gateway and the user says `okay what ip`, interpret the phrase as likely referring to the gateway's IP.
+
+If a recent, verified result identified the EJII runtime gateway as `169.254.8.254`, the answer can be:
+
+"The last EJII runtime check reported `169.254.8.254` as the default gateway. This is the gateway visible to the EJII execution environment; it may not be the router address of your personal computer."
+
+If that value is from a stale observation, identify it as the last observed value rather than claiming it is current.
+
+If no gateway information exists, ask whether the user wants EJII to inspect its own runtime or whether they need help finding the gateway on their workstation.
+
+If more than one possible reference exists, ask a focused clarification.
+
+If the user says `why?`, `okay`, `what about that?`, `try the other one`, or `explain this`, resolve the actual reference from session context.
+
+When the previous assistant response was wrong or unhelpful and the user replies `wtf`, do not respond with generic networking assistance.
+
+Acknowledge the failure briefly, repair the context, and give the useful answer if the intended question can be determined.
+
+For this transcript, a reasonable repair would be:
+
+"You're right—I lost the context. You were asking for the default gateway's IP. The latest EJII runtime result showed `169.254.8.254`, but that may not be the gateway of your personal computer. I should have explained that instead of repeating a generic message."
+
+Use the actual available evidence for the final answer. Do not use this text as a hardcoded reply for every `wtf`.
+
+Do not make the user repeat information EJII already has. Do not invent missing history. Do not confuse historical evidence with fresh measurements.
+
+Keep conversation context separate between sessions and users. Do not expose another user's details or retain unverified identity information as a fact.
+
+---
+
+# PART 5 — INTELLIGENT TOOL SELECTION AND STRICT EXECUTION SCOPE
+
+The assistant must select the smallest set of existing capabilities that genuinely answers the user's request.
+
+Inspect the real capability registry, cross-layer incident correlator, DNS engine, network interface and routing capabilities, ICMP implementation, TCP checks, TLS inspection, HTTP checks, socket collectors, and diagnostic response aggregation.
+
+Do not recreate engines that already work. Fix the integration, selection, schemas, evidence use, and status aggregation.
+
+## Intended behavior table
+
+| User message                                   | Expected behavior                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `my name is what`                              | Do not identify the user as What; interpret or clarify the question                               |
+| `i am eldar`                                   | Natural acknowledgement and appropriate session context                                           |
+| `what can you`                                 | Answer the likely question or clarify the incomplete utterance                                    |
+| `network`                                      | Recognize the topic; clarify or continue the current discussion                                   |
+| `dns`                                          | Topic response or clarification; zero probes by default                                           |
+| `what is DNS?`                                 | Explain; zero probes                                                                              |
+| `DNS test`                                     | Use the existing general DNS-health capability when appropriate                                   |
+| `any problem in DNS?`                          | Use relevant context and appropriate DNS health evidence                                          |
+| `IP of Google`                                 | DNS lookup of the intended hostname                                                               |
+| `ping Google`                                  | ICMP ping against the intended target                                                             |
+| `check gateway`                                | Clarify or inspect the current gateway depending on the context and exact intent                  |
+| `default gateway check`                        | Perform the dedicated route/gateway inspection                                                    |
+| `what is default gateway`                      | Explanation; zero probes                                                                          |
+| `okay what ip` after a gateway explanation     | Contextual gateway-IP follow-up                                                                   |
+| `what IP is the default gateway in my network` | Use verified appropriate data or clarify the available execution scope                            |
+| `check mail server`                            | Use a verified server if configured; otherwise ask for the domain or hostname                     |
+| `check DHCP server connection`                 | Use a genuine DHCP-capable method if available; otherwise explain what information is unavailable |
+| `layer by layer analyze`                       | Use the current topic and target or ask a targeted clarification                                  |
+| `explain that without running anything`        | Explanation only; zero probes                                                                     |
+| `check port 3000 on localhost`                 | Perform the explicit, validated localhost port test                                               |
+
+This table is a behavioral contract, not an implementation strategy. Do not solve the problem by hardcoding every row as an independent phrase.
+
+## Respect the requested scope
+
+If the user requests a DNS lookup, do not automatically run an entire ICMP/TCP/TLS/HTTP workflow.
+
+If the user requests a TCP-port check, do not silently trigger host forensics or a broad hardware audit.
+
+If the user explicitly requests a layered diagnosis of a named target, the existing cross-layer incident correlator may be appropriate. Execute only checks justified by the request and the relevant diagnostic policy.
+
+If a supplemental test is needed to investigate an observed failure, explain the reason. Do not silently add unrelated destinations or ports.
+
+Do not automatically investigate Google, localhost, or another familiar target when the user has not supplied a target and context does not establish one unambiguously.
+
+A default target must never be invented as a workaround for semantic uncertainty.
+
+If a diagnostic engine supports only a narrower operation than the user's requested task, explain that limitation and ask for the necessary information.
+
+---
+
+# PART 6 — CORRECT THE CROSS-LAYER WORKFLOW AND SUMMARY AGGREGATION
+
+The latest result shows the workflow `crossLayerIncidentCorrelator.diagnoseUnreachableHostname` ran in response to a bare `dns` message and produced an extensive diagnostic report for `google.com:443`.
+
+The report included:
+
+- Eight numbered workflow steps.
+- One additional result for port 80.
+- A claim that all nine diagnostic checks for `google.com:443` passed.
+- A separate unresolved hypothesis of local host socket exhaustion, NIC ring drops, or resource saturation.
+- A reported posterior probability of 55.51%.
+- No supporting evidence IDs.
+- Zero correlation groups.
+- Missing hardware/kernel network-drop and TCP socket-state telemetry.
+- A recommendation to run more host diagnostics.
+
+Investigate how the broad workflow was selected and how the summary and hypotheses were generated.
+
+## 6.1 Count actual checks consistently
+
+Never count checks based on estimates, expected output, or a fixed number embedded in a template.
+
+Derive counts from the actual executed steps and clearly identify supplementary tests.
+
+If the report contains eight numbered workflow steps and one separate port 80 test, either:
+
+- Report eight workflow steps plus one supplemental port test, or
+- Include the ninth test as an explicit numbered step if it genuinely belongs to the workflow.
+
+Do not claim nine checks for `google.com:443` while one of them is actually a separate check for port 80 without explaining the distinction.
+
+The final report must list only the checks actually executed. Skipped, unavailable, and unmeasured checks must not count as passed.
+
+## 6.2 Derive aggregate status from the actual results
+
+Do not claim that all checks passed if any required step failed, remains unknown, was not run, or did not collect the evidence needed to establish its status.
+
+Use clear, consistent statuses:
+
+- `PASS`: the intended check was executed and succeeded.
+- `FAIL`: the intended check was executed and failed.
+- `WARN`: partial success or meaningful concern.
+- `NOT_RUN`: the check was not executed.
+- `UNKNOWN`: the available evidence does not establish the result.
+
+A broad diagnostic's overall status must be derived from the actual step statuses and the user's intended scope.
+
+Do not force all checks into one binary success/failure summary when the result is genuinely partial.
+
+Separate:
+
+- Individual check outcomes.
+- Overall connectivity result.
+- Hypotheses about underlying causes.
+- Missing evidence.
+- Any recommended follow-up tests.
+
+A successful DNS lookup and successful TCP handshake should not be overridden by an unrelated unresolved hypothesis. Equally, those successes do not justify claiming the entire host and network are healthy in every respect.
+
+## 6.3 Fix evidence-free causal confidence
+
+The supplied report's top hypothesis is:
+
+`HYP-LOCAL-HOST-SOCKET-OR-KERNEL-CONTENTION`
+
+It reports:
+
+- Prior probability: `0.16`.
+- Posterior probability: `0.5551`.
+- Confidence band: `0.3951–0.7151`.
+- Status: `unresolved`.
+- Correlation groups: `0`.
+- Supporting evidence IDs: `[]`.
+- Contradicting evidence IDs: `[]`.
+- Missing evidence: kernel/NIC-drop counters and TCP socket state inspection.
+
+The report therefore elevates a specific local-resource exhaustion hypothesis without listing supporting evidence or actual local host pressure measurements.
+
+Determine whether the probability comes from a real calculation, a configured prior, an invented score, a deterministic placeholder, an incorrectly updated Bayesian belief, or a misconnected evidence pipeline.
+
+Trace the calculation in code. Do not accept a precise posterior merely because a numeric field is present.
+
+Required behavior:
+
+- Hypothesis scores must be derived from identified, relevant evidence.
+- Prior probability and observed evidence must remain distinguishable.
+- Evidence IDs must actually refer to evidence that supports or contradicts the hypothesis.
+- Correlation counts must reflect real correlations.
+- Missing telemetry must remain missing.
+- Assumptions must not be presented as observations.
+- A model-generated hypothesis must be labeled as an inference, not a measurement.
+- The system must not imply that a high posterior is validated when its underlying evidence pipeline is empty or disconnected.
+
+If an estimate is not statistically calibrated, do not present a precise probability or confidence interval as though it were.
+
+When no hypothesis has adequate evidence, say that the underlying cause is undetermined. Provide the relevant observed facts and identify the single most useful follow-up check when appropriate.
+
+Do not fabricate evidence merely to populate the panel.
+
+## 6.4 Do not diagnose an absent problem
+
+The supplied Google check shows successful DNS resolution, an ICMP reply, an open TCP port 443, a negotiated TLS 1.3 session, and an HTTP 301 response.
+
+Those observations support the conclusion that the tested target was reachable from the observed EJII runtime using those methods at that time.
+
+The evidence does not establish local socket exhaustion or NIC ring drops. The report explicitly says telemetry required to evaluate those conditions is missing.
+
+Do not promote local-resource exhaustion as a likely root cause without real evidence that discriminates it from alternatives.
+
+If no user-reported symptom or failed test exists, do not manufacture an incident merely because an incident-diagnosis engine exists.
+
+The HTTP 301 response can be normal. Explain the redirect to `www.google.com` without confusing it with an HTTP transport failure.
+
+A successful ping is evidence of ICMP reachability; it does not independently prove all services are healthy. A successful TCP connection is not evidence that every application layer works. Each finding must be scoped to the check that actually produced it.
+
+---
+
+# PART 7 — DNS, ROUTING, AND EXECUTION-SCOPE TRUTHFULNESS
+
+## 7.1 DNS measurements
+
+The diagnostic records contain actual DNS records for `google.com`, but both `latencyMs` and `durationMs` in the DNS step are `null`.
+
+Report the observed lookup result and the actually observable resolver/method. State that DNS timing was not recorded when it is absent.
+
+Do not invent a timing for a null field, use a DNS cache time from a separate field as the lookup duration without proving the semantics, or convert `null` to a zero measurement.
+
+Keep DNS lookup distinct from:
+
+- DNS server configuration inspection.
+- General DNS health.
+- Resolver reachability.
+- ICMP ping.
+- TCP port reachability.
+- HTTPS application response.
+
+A successful lookup of Google is not proof that DNS is healthy for every organizational domain or resolver.
+
+Do not silently substitute a different target for a DNS request.
+
+## 7.2 Gateway and link-local addresses
+
+The diagnostic output reports:
+
+- Interface address `169.254.8.1/32`.
+- Gateway `169.254.8.254`.
+- Active IPv4 default route `0.0.0.0/0` through `169.254.8.254`.
+
+These are observations from the inspected EJII execution environment. Addresses in `169.254.0.0/16` are IPv4 link-local addresses. They must not be automatically presented as the user's workstation router or public internet address.
+
+A `/32` interface address and an explicitly observed next hop can exist in specialized runtime or overlay networking. Inspect the actual route representation and platform output rather than automatically declaring the result impossible or silently trusting every parsed summary.
+
+If the kernel reports a default route through the gateway, preserve the actual routing-table evidence, route flags, interface association, and route-discovery method where available.
+
+Distinguish:
+
+- Gateway candidate detected.
+- Gateway confirmed as the active next hop.
+- Gateway ping attempted.
+- Gateway ping succeeded or failed.
+- Gateway information unavailable.
+
+Route existence does not prove gateway reachability. Gateway ICMP failure does not always prove routing failure because ICMP may be filtered.
+
+Never invent `.1` addresses or assume the container's interface is the user's own LAN interface.
+
+If the user asks about their own workstation, make the host/runtime scope explicit. Use a genuine supported client-side or local-agent feature when available. Otherwise, state the limitation clearly.
+
+## 7.3 Timing labels
+
+The output shows an overall workflow duration of `109.8 ms`, an ICMP RTT of `1.144 ms`, an ICMP process/duration field of `10 ms`, a TCP handshake RTT of `2.06 ms`, a TLS handshake timing of `13.71 ms`, and HTTP TTFB of `19.65 ms`.
+
+These fields can legitimately represent different measurements. Do not treat different timing types as interchangeable.
+
+Audit the API and UI rendering so that:
+
+- Overall execution duration is labeled as total workflow time.
+- ICMP round-trip time is labeled as RTT.
+- Diagnostic process/runtime duration is labeled as operation duration where appropriate.
+- TCP connect time is labeled as connection or handshake timing according to the actual collector.
+- TLS handshake time is displayed separately from TCP time.
+- HTTP TTFB is displayed separately from total request time.
+- DNS time is shown only when genuinely measured.
+
+No missing or unknown duration may become a plausible-looking synthetic value.
+
+Preserve valid zero measurements.
+
+Never display `undefinedms`, `NaNms`, `nullms`, or a fabricated timing.
+
+---
+
+# PART 8 — BUILD A BETTER CONVERSATIONAL RESPONSE PATH
+
+The assistant must answer the actual user, not merely return the nearest string from the knowledge base.
+
+Avoid generic fallbacks such as:
+
+"I'm here to help with network troubleshooting, diagnostics, or technical questions. Tell me what issue you're seeing or what host you'd like to check."
+
+That response may be relevant in some circumstances, but it must not be the universal fallback for:
+
+- `network`
+- `dns`
+- `gateway`
+- `what can you`
+- A follow-up question.
+- A user's expression of confusion or frustration.
+- A conceptual question.
+- An introduction.
+
+The model should generate a response based on the actual intent and current context.
+
+Example response standards:
+
+**User:** `my name is what`
+
+Do not reply "Nice to meet you, What!" Determine whether the user is asking for a remembered name, speaking jokingly, or providing an ambiguous introduction. Do not manufacture an identity.
+
+**User:** `i am eldar`
+
+Acknowledge the introduction naturally. Preserve the name in the appropriate session context.
+
+**User:** `what can you`
+
+Understand the likely incomplete question. Answer what EJII can do in a short, useful way or ask a natural clarification.
+
+**User:** `network`
+
+Acknowledge the topic and use context. Without relevant context, ask what aspect the user wants to discuss or investigate. Do not automatically begin network checks.
+
+**User:** `dns`
+
+Discuss DNS or ask what the user means to do with it. Do not investigate Google.
+
+**User:** `default gateway check`
+
+Inspect actual route information and report the result. Do not ask for a hostname as if the user requested a domain check.
+
+**User:** `what is default gateway`
+
+Give a conceptual explanation without probes.
+
+**User:** `okay what ip`
+
+After a default-gateway explanation, resolve the follow-up against that explanation and recent available diagnostic evidence.
+
+**User:** `wtf`
+
+Recognize dissatisfaction. Repair the misunderstood context and give a direct correction where possible. Do not answer with unrelated generic assistance.
+
+**User:** `what is google`
+
+Answer the actual general-knowledge question, not a lecture about DNS, ICMP, TCP, TLS, and HTTP.
+
+**User:** `any problem in dns?`
+
+Use the actual relevant evidence, explain the limits of past observations, and run a general DNS health check if that is the clear requested operation and the capability is available.
+
+The assistant may occasionally ask a clarification. It must not endlessly ask unnecessary questions for clearly stated operations.
+
+Do not force diagnostic summaries into `Result / Meaning / Next step` headings for every kind of response.
+
+For a diagnostic result, provide a clear conclusion and actual evidence. For conversation, provide natural conversation. For a conceptual question, explain the concept. For complex findings, keep the main response concise and technical detail in the existing expandable evidence area.
+
+Do not expose raw internal JSON, router plans, hidden model reasoning, or unnecessary execution traces as the standard user-facing response.
+
+---
+
+# PART 9 — TOOL DISPATCH, AUTHORIZATION, AND FAILURE SAFETY
+
+The LLM interprets the user. Trusted backend code decides which operation is permitted and executes it.
+
+Use the existing capability registry and actual diagnostic modules. Do not permit the model to execute arbitrary commands or invent a capability ID.
+
+Before any tool runs, validate:
+
+- Intended operation.
+- Required target and parameters.
+- Whether the target was explicit or contextually resolved.
+- User's execution constraints.
+- Authorization and current RBAC.
+- Existing SSRF protection and URL/IP validation.
+- Timeouts and cancellation.
+- The capability's actual supported scope.
+
+A bare topic is not sufficient authorization to launch a workflow.
+
+A vague problem description should not launch every available diagnostic. Ask the smallest useful clarification unless context resolves the problem.
+
+Explicit read-only requests can execute under existing permissions and policy.
+
+The model must respect instructions such as:
+
+- `Don't run anything yet.`
+- `Just explain.`
+- `Explain what the previous result means without making new checks.`
+
+State-changing operations must remain subject to existing safeguards and confirmation requirements.
+
+When the AI provider is unavailable:
+
+- Do not claim live semantic interpretation succeeded.
+- Do not automatically launch a broad diagnostic.
+- Do not invent a target.
+- Use an established safe fast path only when it genuinely determines the requested operation.
+- Otherwise ask for clarification or honestly report that semantic interpretation is currently unavailable.
+
+Maintain session ownership, cross-user isolation, bounded memory, history provenance, cancellation safety, and provider privacy policies.
+
+---
+
+# PART 10 — FRONTEND CORRECTNESS AND MINIMALIST UX
+
+Keep EJII's existing application and specialist functionality. Do not rewrite the frontend.
+
+Make the main chat experience natural and quiet:
+
+- Ordinary conversations render as normal messages.
+- Topic-only messages do not display diagnostic output.
+- Clarifying questions do not create diagnostic cards.
+- Diagnostic results show only relevant executed steps.
+- Supplemental tests are distinguished from the primary requested operation.
+- Unknown step status does not display a green success check.
+- Missing timings remain absent or visibly unmeasured.
+- The summary must not contradict the underlying evidence.
+- The user can access detailed evidence through the existing expandable results section.
+
+Inspect whether any current UI logic replaces a meaningful assistant reply with a generic help message, shows an automatic result panel when no tool was requested, or marks unknown status as PASS.
+
+Reuse the existing interface conventions and stylesheet. Do not add new navigation sections, buttons, panels, or feature clutter to compensate for semantic problems.
+
+The intended improvement is not extra UI. It is better understanding, correct execution, and truthful output in the existing UI.
+
+---
+
+# PART 11 — REQUIRED END-TO-END TEST MATRIX
+
+Update the actual project tests and exercise the running application path where possible.
+
+Do not test only a regex helper or isolated parser.
+
+Test semantic interpretation, contextual resolution, capability dispatch, actual step results, final response generation, and frontend status rendering.
+
+## 11.1 Name and identity
+
+Test:
+
+- `my name is what`
+- `what is my name?`
+- `I am Eldar`
+- `my name is Eldar`
+- `my name is Elvin; please correct that`
+- `who am I?`
+- A quoted sentence containing `my name is Eldar`
+- A different session with no known name
+
+Acceptance:
+
+- `What` is not saved as a personal name merely because it follows `my name is`.
+- Genuine introductions are acknowledged naturally.
+- A correction updates the proper context.
+- Unknown identity information is not fabricated.
+- Context remains isolated between users and sessions.
+- All pure identity/conversation tests invoke zero network probes.
+
+## 11.2 Natural conversation and incomplete utterances
+
+Test:
+
+- `hi`
+- `how are you`
+- `what can you`
+- `network`
+- `dns`
+- `gateway`
+- `wtf`
+- `that makes sense`
+- `why did you say that?`
+- `explain that more simply`
+- A new, unseen conversational formulation not in the phrase dictionary.
+
+Acceptance:
+
+- The assistant addresses the actual meaning.
+- It answers or clarifies naturally.
+- It does not use the generic help response for every unfamiliar or incomplete sentence.
+- No irrelevant tool execution occurs.
+- The real model path is exercised for appropriate unfamiliar messages when the provider is available.
+
+## 11.3 DNS intent and execution
+
+Test:
+
+- `dns`
+- `what is DNS?`
+- `dns test`
+- `check DNS for example.com`
+- `any problem in DNS?`
+- `DNS problems`
+- `IP of Google`
+- `what is Google?`
+- A domain-specific DNS failure explanation.
+- An explicit `layer by layer analyze google.com` request.
+
+Acceptance:
+
+- `dns` alone triggers zero probes and no target selection.
+- A DNS explanation triggers zero probes.
+- A general DNS test selects only the appropriate general DNS-health capability.
+- A hostname lookup uses the intended hostname.
+- "What is Google?" is not treated as a DNS diagnostic.
+- "IP of Google" is a DNS lookup, not a broad diagnostic.
+- A cross-layer investigation occurs only when the user clearly asks for it and the target is resolved.
+- No silent default to Google or localhost occurs.
+
+Test both the intended tool dispatch and the rendered answer. A correct-looking response with incorrect tool execution is a test failure.
+
+## 11.4 Default-gateway follow-ups
+
+Test this exact conversation:
+
+1. `what is default gateway`
+2. `okay what ip`
+3. `what ip is default gateway in my network`
+4. `default gateway check`
+5. `wtf`
+
+Acceptance:
+
+- The conceptual explanation causes zero probes.
+- The follow-up refers to the gateway context.
+- If the earlier observed gateway is available, it is correctly attributed to the EJII runtime and its observation time.
+- The assistant does not claim that this is necessarily the user's personal workstation gateway.
+- The explicit check invokes the correct route/gateway capability.
+- A frustrated reply triggers context repair, not a generic response.
+- Missing route data is reported honestly and never replaced with a guessed address.
+
+Also test a conversation where no gateway has previously been observed and a conversation where two possible gateways or targets exist. The assistant must clarify ambiguous references.
+
+## 11.5 Cross-layer diagnostic evidence
+
+Feed a genuine result matching the provided Google trace through the actual aggregation and response pipeline. Use a controlled fixture for repeatable tests; label it as test data and do not present it as live telemetry.
+
+It should cover:
+
+- Eight numbered workflow steps.
+- A separate port 80 result.
+- DNS timing fields that are null.
+- Successful ICMP, TCP, TLS, and HTTP 301 observations.
+- A top hypothesis with no supporting evidence IDs and zero correlation groups.
+- Missing kernel/socket telemetry.
+- An unresolved status.
+
+Acceptance:
+
+- The system counts actual steps accurately and distinguishes supplemental checks.
+- It cannot claim every check passed if any required check is unknown or missing.
+- It does not fabricate DNS timing.
+- It explains that HTTP 301 is a redirect, not automatically a transport failure.
+- It does not present local resource exhaustion as an established or evidence-supported diagnosis when the supporting evidence is absent.
+- It explicitly distinguishes observed facts, inference, and unknowns.
+- It cannot create fake supporting evidence IDs to make the hypothesis appear validated.
+- It does not produce contradictory headline conclusions.
+
+## 11.6 Timing and UI status
+
+Test:
+
+- Missing status.
+- `UNKNOWN`.
+- `NOT_RUN`.
+- `WARN`.
+- `FAIL`.
+- Explicit `PASS`.
+- A genuine numeric timing of zero.
+- A missing timing.
+- Null DNS duration.
+- A result where the overall duration differs from RTT.
+
+Acceptance:
+
+- Missing status never becomes PASS.
+- Unknown status does not become a red failure by default or a green success.
+- Missing timings never display `undefinedms`, `NaNms`, `nullms`, or fabricated numbers.
+- Different timing fields retain their meaning and label.
+- The UI's overall summary reflects the actual diagnostic evidence.
+
+## 11.7 Real model integration
+
+Use three clearly separated layers:
+
+**Unit tests:** Schemas, intent constraints, identity handling, context selection, and evidence aggregation.
+
+**Integration tests with test doubles:** Correct handoff of message/context, validation of model decisions, tool dispatch, and result-dependent response generation.
+
+**Real-provider integration tests:** When possible, call the configured provider using a newly phrased user request not already represented by a hardcoded rule. Verify that a genuine provider call happened and that its output was validated and used.
+
+Never describe a mocked call as real AI integration. Do not let a failed real-provider test silently fall back to a mock and still count as a live-model pass.
+
+Use deterministic assertions for safety behavior, not probabilistic model output alone.
+
+---
+
+# PART 12 — BUILD, TEST, RUN, AND INSPECT THE FINAL DIFF
+
+Inspect the current root `package.json` and use the actual project scripts.
+
+The previously inspected published version defined:
+
+- `npm run build` as `tsc`.
+- `npm test` as `node tests/run-all-tests.js`.
+- A `pretest` step that runs `tsc`.
+
+Verify that these scripts still apply and execute them in the real workspace.
+
+Run:
+
+1. The actual TypeScript build.
+2. Core chat operator tests.
+3. The full repository test suite.
+4. Relevant route, capability, diagnostic, security, and UI tests.
+5. Actual chat API smoke tests.
+6. Real-provider integration tests if the configured model is accessible.
+7. The specific transcript scenarios above.
+8. A final diff and working-tree audit.
+
+If the application can be launched, exercise the real chat path. If the environment cannot reach a required provider, report that fact precisely and do not claim live-model verification.
+
+Do not delete failing tests, weaken critical assertions, skip existing safety tests, or change test expectations solely to make the suite green.
+
+Do not treat successful compilation as proof of correct behavior. Do not treat unit tests as proof of the UI or the live provider. Do not treat model configuration as proof that the model was called.
+
+Keep all existing authentication, authorization, SSRF defenses, session isolation, cancellation, persistence, and remediation safeguards.
+
+---
+
+# PART 13 — REQUIRED ACCEPTANCE CRITERIA
+
+This phase is complete only when all of the following are true:
+
+1. The current workspace and published branch have been reconciled.
+2. The real configured AI model is integrated into the actual chat lifecycle when configuration allows it.
+3. Natural language is interpreted in context rather than principally through phrase matching.
+4. `my name is what` cannot create a false personal identity.
+5. The assistant handles `what can you`, `network`, `dns`, and `gateway` according to their conversational meaning and context.
+6. A bare `dns` message does not launch a Google cross-layer investigation.
+7. Follow-up phrases such as `okay what ip` resolve to the appropriate recent subject when unambiguous.
+8. Gateway values are attributed to the environment that actually produced them.
+9. Explicit operational requests invoke the appropriate existing capabilities.
+10. A topic or explanation request does not accidentally execute tools.
+11. The cross-layer summary accurately reports its executed and supplemental checks.
+12. Unsupported hypothesis confidence cannot masquerade as a measured diagnosis.
+13. Missing values remain missing rather than becoming synthetic measurements or successful statuses.
+14. The final natural-language response is consistent with the underlying evidence.
+15. Root build and regression tests have actually been executed and their results recorded.
+16. Live model integration is distinguished from mock-based integration testing.
+17. Existing product modules, security controls, and working functionality remain intact.
+18. The final report is honest about every unverified item.
+
+---
+
+# PART 14 — FINAL REPORT
+
+Give me a concise but specific report containing:
+
+**1. Actual root causes:** The code paths responsible for name misclassification, generic fallback replies, context loss, unintended cross-layer invocation, and inconsistent hypothesis/status aggregation.
+
+**2. Changes made:** Exact files changed and the defect addressed in each.
+
+**3. Real LLM lifecycle:** Actual registration location, the request path that invokes the configured model, and how its output reaches a validated decision and response.
+
+**4. Conversation results:** Test outcomes for `my name is what`, `what can you`, `network`, `dns`, `gateway`, `okay what ip`, and `wtf`.
+
+**5. Diagnostic integrity:** Evidence supporting the step counts, gateway attribution, DNS timing, aggregate summary, and hypothesis handling.
+
+**6. Actual tests:** Exact commands, exit codes, pass/fail counts, and tests skipped.
+
+**7. Live versus mocked:** Which scenarios actually used the configured model and which used deterministic test doubles.
+
+**8. Remaining limitations:** Provider availability, execution scope, unsupported DHCP/client-device visibility, or any other unresolved problem.
+
+**9. Final verdict:** Clearly distinguish implemented, verified, simulated-for-testing, and unverified functionality.
+
+# FINAL DIRECTIVE
+
+Do not patch each phrase separately. Do not add another large regex dictionary. Do not make the output sound more intelligent while the underlying tool behavior remains wrong.
+
+Build one coherent conversational and diagnostic decision pipeline.
+
+It must recognize what the user means, interpret incomplete messages intelligently, preserve relevant context, select only the appropriate authorized capability, produce evidence-grounded conclusions, and explain those conclusions naturally.
+
+**If I say `dns`, don't investigate Google without asking. If I ask for the default gateway's IP, use the conversation and verified data to answer. If I ask `what is my name`, do not call me What. If a diagnostic has no evidence for a root cause, do not invent confidence. If the tool says something succeeded, the actual tool result must support that claim.**
+
+Implement the fixes in the existing EJII application, run the real acceptance tests, inspect the final changes, and report exactly what has been verified.
+
+What is this?
+
+The key acceptance test is now broader than “does the LLM respond?” It is does EJII choose the right interpretation before it does anything—and remain truthful about what it actually learned afterward? That is what will prevent both the unwanted Google diagnostic and the evidence-free root-cause claim from recurring.

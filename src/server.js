@@ -139,6 +139,13 @@ app.locals.multipathQosAuditor = MultipathQosAuditor;
 app.locals.hardwareKernelInspector = HardwareKernelInspector;
 app.locals.telemetryDvrTimeMachine = new TelemetryDvrTimeMachine();
 app.locals.autonomousWarRoom = new AutonomousWarRoomOrchestrator(vaultHmacSecret);
+
+// Phase 3 & Mega Directive: Wire Production Semantic AI Interpreter into ChatOperatorService
+const { chatOperatorService } = require('./core/chat/chat-operator-service');
+const { semanticAiInterpreter } = require('./core/chat/semantic-ai-interpreter');
+chatOperatorService.setLlmInterpreter(semanticAiInterpreter);
+app.locals.chatOperatorService = chatOperatorService;
+
 const server = http.createServer(app);
 
 // Prevent abrupt keep-alive socket resets on Windows loopback (errno -4077 ECONNRESET)
@@ -269,6 +276,7 @@ app.get('/api/system/bootstrap', authenticate, async (req, res) => {
         stlReport: liveBrainState.stlReport || null,
         dsrlVault: liveBrainState.dsrlVault || null
       },
+      chatBrain: typeof chatOperatorService.getBrainStatus === 'function' ? chatOperatorService.getBrainStatus() : null,
       auditAnchor
     });
   } catch (err) {

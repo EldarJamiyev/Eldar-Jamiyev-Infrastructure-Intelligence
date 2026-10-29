@@ -501,6 +501,10 @@ body.ejii-chat-first-active #mainContent {
   color: var(--chat-danger);
 }
 
+.ejii-step-status-unknown {
+  color: var(--chat-text-muted);
+}
+
 .ejii-step-duration {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;

@@ -656,4 +656,213 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     assert.equal(otherHostTurn.data.target, 'localhost', 'Must switch to the prior distinct host (localhost)');
     assert.deepEqual(otherHostTurn.data.ports, [testTargetPort]);
   });
+
+  it('Phase 3: The Real Conversational Brain & Mega Development Directive Verification', async () => {
+    const user = { id: 'u-brain-tester', username: 'brain_analyst', role: 'ANALYST' };
+    const { semanticAiInterpreter } = require('../chat/semantic-ai-interpreter');
+    const { classifyConversationalTurn } = require('../chat/technical-knowledge-base');
+
+    // 1. Production Wiring: ChatOperatorService has real semantic interpreter wired
+    chatOperatorService.setLlmInterpreter(semanticAiInterpreter);
+    assert.ok(chatOperatorService.llmInterpreter !== null, 'llmInterpreter must be wired and not null');
+    const brainStatus = chatOperatorService.getBrainStatus();
+    assert.equal(brainStatus.llmInterpreterConfigured, true, 'getBrainStatus must report llmInterpreterConfigured: true');
+
+    // 2. Contract Alignment: classifyConversationalTurn returns both type and subtype
+    const convTurn = classifyConversationalTurn('How are you?');
+    assert.ok(convTurn.matched, 'Must match conversational turn');
+    assert.equal(convTurn.type, 'how_are_you', 'Must populate type property');
+    assert.equal(convTurn.subtype, 'how_are_you', 'Must populate subtype property');
+
+    // 3. Introductions ("I\'m Eldar"): 0 probes, natural greeting
+    const introTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-INTRO',
+      message: "I'm Eldar",
+      user
+    });
+    assert.equal(introTurn.success, true);
+    assert.equal(introTurn.data.intent, 'greeting');
+    assert.equal(introTurn.data.steps.length, 0, 'Introductions must execute 0 probes');
+    assert.ok(introTurn.data.reply.includes('Eldar'), 'Must welcome the user by name');
+
+    // 4. Identity ("Who are you?"): 0 probes, natural explanation
+    const idTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-IDENTITY',
+      message: 'Who are you?',
+      user
+    });
+    assert.equal(idTurn.success, true);
+    assert.equal(idTurn.data.intent, 'greeting');
+    assert.equal(idTurn.data.steps.length, 0, 'Identity must execute 0 probes');
+    assert.ok(idTurn.data.reply.includes('EJII'), 'Must explain EJII identity');
+
+    // 5. Open-ended Query ("What is Google?"): 0 probes, conceptual overview
+    const googleOverview = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-WHAT-IS-GOOGLE',
+      message: 'What is Google?',
+      user
+    });
+    assert.equal(googleOverview.success, true);
+    assert.equal(googleOverview.data.intent, 'informational_question');
+    assert.equal(googleOverview.data.steps.length, 0, 'What is Google must execute 0 network probes');
+    assert.ok(googleOverview.data.reply.toLowerCase().includes('google'), 'Must provide Google overview');
+
+    // 6. Bare "DNS" without prior target: asks for clarification and never probes localhost
+    const bareDnsTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-BARE-DNS',
+      message: 'DNS',
+      user
+    });
+    assert.equal(bareDnsTurn.success, true);
+    assert.equal(bareDnsTurn.data.intent, 'clarification_needed');
+    assert.equal(bareDnsTurn.data.steps.length, 0, 'Bare DNS must execute 0 probes');
+    assert.equal(bareDnsTurn.data.target, null, 'Bare DNS must not set target to localhost');
+
+    // 7. "DNS test": runs general DNS health check without requiring a specific host
+    const dnsTestTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-DNS-TEST',
+      message: 'DNS test',
+      user
+    });
+    assert.equal(dnsTestTurn.success, true);
+    assert.equal(dnsTestTurn.data.intent, 'dns');
+    assert.equal(dnsTestTurn.data.technicalEvidence.isSystemDnsHealthCheck, true);
+
+    // 8. "Check mail server": requests domain/server hostname instead of pinging localhost
+    const mailServerTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-MAIL-SERVER',
+      message: 'Check mail server',
+      user
+    });
+    assert.equal(mailServerTurn.success, true);
+    assert.equal(mailServerTurn.data.intent, 'clarification_needed');
+    assert.equal(mailServerTurn.data.steps.length, 0, 'Check mail server without domain must execute 0 probes');
+    assert.equal(mailServerTurn.data.target, null, 'Check mail server without domain must never target localhost');
+
+    // 9. "Check DHCP server connection": inspects DHCP and reports truthful environment status
+    const dhcpTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-DHCP',
+      message: 'Check DHCP server connection',
+      user
+    });
+    assert.equal(dhcpTurn.success, true);
+    assert.equal(dhcpTurn.data.intent, 'dhcp_check');
+    assert.ok(dhcpTurn.data.steps.length >= 1, 'Must execute truthful DHCP inspection step');
+    assert.ok(dhcpTurn.data.technicalEvidence.dhcpStatus, 'Must report dhcpStatus');
+  });
+
+  it('Phase 4/5: The Real Conversational Brain, Truthful Attribution & Healthy Hypothesis Verification', async () => {
+    const user = { id: 'u-brain-tester', username: 'brain_analyst', role: 'ANALYST' };
+    // 1. Name extraction & query: "my name is what" must NEVER name user "What"
+    const nameQueryTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-NAME-QUERY',
+      message: 'my name is what',
+      user
+    });
+    assert.equal(nameQueryTurn.success, true);
+    assert.equal(nameQueryTurn.data.intent, 'greeting');
+    assert.equal(nameQueryTurn.data.steps.length, 0);
+    assert.ok(!nameQueryTurn.data.reply.toLowerCase().includes('nice to meet you, what'), 'Must never name user "What"');
+
+    // 2. Name introduction and correction
+    const nameIntroTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-NAME-CORRECT',
+      message: 'I am Elvin',
+      user
+    });
+    assert.equal(nameIntroTurn.success, true);
+    assert.ok(nameIntroTurn.data.reply.includes('Elvin'), 'Must acknowledge Elvin');
+
+    const nameFollowUp = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-NAME-CORRECT',
+      message: 'what is my name?',
+      user
+    });
+    assert.equal(nameFollowUp.success, true);
+    assert.ok(nameFollowUp.data.reply.includes('Elvin'), 'Must remember name Elvin');
+
+    // 3. Incomplete utterances: "what can you", "can you check", "why is", "how do I"
+    const incTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-INCOMPLETE',
+      message: 'what can you',
+      user
+    });
+    assert.equal(incTurn.success, true);
+    assert.equal(incTurn.data.steps.length, 0, 'Incomplete utterance runs 0 probes');
+    assert.ok(incTurn.data.reply.toLowerCase().includes('troubleshoot') || incTurn.data.reply.toLowerCase().includes('help') || incTurn.data.reply.toLowerCase().includes('dns'), 'Must describe capabilities');
+
+    // 4. Bare topic "network": 0 probes, asks for clarification
+    const bareNetworkTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-BARE-NET',
+      message: 'network',
+      user
+    });
+    assert.equal(bareNetworkTurn.success, true);
+    assert.equal(bareNetworkTurn.data.intent, 'clarification_needed');
+    assert.equal(bareNetworkTurn.data.steps.length, 0);
+
+    // 5. Bare "dns" after testing a target must NEVER launch full multi-step investigation on prior target
+    const primeSession = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-BARE-DNS-CONTEXT',
+      message: 'resolve google.com',
+      user
+    });
+    assert.equal(primeSession.success, true);
+    assert.equal(primeSession.data.intent, 'dns');
+
+    const bareDnsWithContext = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-BARE-DNS-CONTEXT',
+      message: 'dns',
+      user
+    });
+    assert.equal(bareDnsWithContext.success, true);
+    assert.equal(bareDnsWithContext.data.intent, 'clarification_needed');
+    assert.equal(bareDnsWithContext.data.steps.length, 0, 'Bare DNS must not launch multi-step investigation on prior target');
+
+    // 6. Gateway discussion followed by "okay what ip" -> gateway_ip_query with truthful attribution
+    const gwExplainTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-GW-CONTEXT',
+      message: 'explain default gateway',
+      user
+    });
+    assert.equal(gwExplainTurn.success, true);
+    assert.equal(gwExplainTurn.data.intent, 'informational_question');
+
+    const gwIpTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-GW-CONTEXT',
+      message: 'okay what ip',
+      user
+    });
+    assert.equal(gwIpTurn.success, true);
+    assert.equal(gwIpTurn.data.intent, 'gateway_ip_query');
+    assert.equal(gwIpTurn.data.steps.length, 1);
+    assert.ok(gwIpTurn.data.reply.includes('169.254.') || gwIpTurn.data.reply.includes('container') || gwIpTurn.data.reply.includes('Default Gateway IP'), 'Must explain server vs client gateway');
+
+    // 7. Frustration context repair: "wtf" recovers gateway context
+    const frustrationTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-BRAIN-GW-CONTEXT',
+      message: 'wtf',
+      user
+    });
+    assert.equal(frustrationTurn.success, true);
+    assert.equal(frustrationTurn.data.intent, 'greeting');
+    assert.ok(frustrationTurn.data.reply.toLowerCase().includes('gateway') || frustrationTurn.data.reply.toLowerCase().includes('apologize'), 'Must repair gateway context');
+
+    // 8. Correlator healthy hypothesis: when all checks pass, HYP-TARGET-HEALTHY-AND-REACHABLE is confirmed
+    const { crossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
+    const healthyReport = crossLayerIncidentCorrelator.correlateSignals({
+      incidentId: 'INC-HEALTHY-TEST',
+      target: 'google.com:443',
+      signals: [
+        { domain: 'dns', subject: 'dns:google.com', claim: 'DNS resolved google.com to 142.250.190.46', normalizedValue: 'RESOLVED:142.250.190.46', anomaly: false },
+        { domain: 'tcp', subject: 'socket:142.250.190.46:443', claim: 'TCP port is OPEN', normalizedValue: 'TCP_OPEN_NONE', anomaly: false },
+        { domain: 'icmp_pmtu', subject: 'ip:142.250.190.46', claim: 'ICMP Echo reply received', normalizedValue: 'ICMP_ALIVE', anomaly: false }
+      ]
+    });
+    assert.ok(healthyReport.topHypothesis, 'Must have topHypothesis');
+    assert.equal(healthyReport.topHypothesis.id, 'HYP-TARGET-HEALTHY-AND-REACHABLE', 'Top hypothesis must be healthy when all checks pass');
+    assert.equal(healthyReport.topHypothesis.status, 'confirmed');
+    const hostContentionHyp = healthyReport.hypotheses.find(h => h.id === 'HYP-LOCAL-HOST-SOCKET-OR-KERNEL-CONTENTION');
+    assert.ok(hostContentionHyp.posteriorProbability < 0.10, 'Host contention hypothesis must not be inflated on healthy checks');
+  });
 });

@@ -150,8 +150,23 @@ class CrossLayerIncidentCorrelator {
     const hasIcmpSuccess = evidenceList.some((e) => e.domain === 'icmp_pmtu' && !e.anomaly);
     const hasQosBleach = evidenceList.some((e) => e.domain === 'qos_dscp' && e.anomaly);
     const hasHostExhaustion = evidenceList.some((e) => e.domain === 'host_kernel_hardware' && e.anomaly);
+    const allChecksPassed = hasDnsSuccess && hasTcpOpen && !hasDnsFailure && !hasTcpRst && !hasTcpTimeout && !hasGatewayFailure && !hasHostExhaustion;
 
     const templates = [
+      {
+        id: 'HYP-TARGET-HEALTHY-AND-REACHABLE',
+        title: 'Target Host, Path Routing, and Application Listener Fully Operational',
+        causalMechanism: 'DNS resolution, Layer 3 path routing, and Layer 4 TCP listener handshake completed successfully with zero observed faults.',
+        priorProbability: 0.35,
+        matchSupporting: (e) => (e.domain === 'dns' || e.domain === 'tcp' || e.domain === 'icmp_pmtu') && !e.anomaly,
+        matchContradicting: (e) => Boolean(e.anomaly),
+        deterministicConfirm: allChecksPassed,
+        missingEvidenceNeeded: [],
+        assumptions: ['Network path remains stable during runtime'],
+        disconfirmingConditions: ['Packet loss > 0% or connection timeout observed'],
+        recommendedNextProbes: [],
+        counterfactualAnalysis: 'Because DNS resolution succeeded and the TCP 3-way handshake opened cleanly, network transport to this service is healthy.'
+      },
       {
         id: 'HYP-DNS-RESOLUTION-FAILURE',
         title: 'Authoritative or Recursive DNS Resolution Failure (NXDOMAIN / Resolver Timeout)',
@@ -222,7 +237,7 @@ class CrossLayerIncidentCorrelator {
         causalMechanism: 'Local workstation or container suffers from CLOSE_WAIT socket exhaustion, NIC RX/TX ring drops, or CPU/RAM saturation delaying local network I/O.',
         priorProbability: 0.16,
         matchSupporting: (e) => e.domain === 'host_kernel_hardware' && e.anomaly,
-        matchContradicting: (e) => e.domain === 'host_kernel_hardware' && !e.anomaly,
+        matchContradicting: (e) => (e.domain === 'host_kernel_hardware' && !e.anomaly) || (!e.anomaly && (e.domain === 'tcp' || e.domain === 'dns')),
         deterministicConfirm: hasHostExhaustion && !hasDnsFailure && !hasTcpRst,
         missingEvidenceNeeded: ['Hardware/Kernel NIC ring drop counter & TCP socket state inspection'],
         assumptions: ['Local OS kernel telemetry is accessible'],
@@ -258,6 +273,10 @@ class CrossLayerIncidentCorrelator {
         logLikelihood -= 1.85 * qualityWeight;
       }
 
+      if (allChecksPassed && tpl.id !== 'HYP-TARGET-HEALTHY-AND-REACHABLE' && supporting.length === 0) {
+        logLikelihood -= 2.5;
+      }
+
       const unnormalizedScore = Math.exp(logLikelihood);
       return {
         ...tpl,
@@ -289,6 +308,8 @@ class CrossLayerIncidentCorrelator {
       let status = 'proposed';
       if (h.deterministicConfirm && h.contradicting.length === 0 && h.supporting.length > 0) {
         status = 'confirmed';
+      } else if (allChecksPassed && h.id !== 'HYP-TARGET-HEALTHY-AND-REACHABLE') {
+        status = 'rejected';
       } else if (h.contradicting.length > 0 && h.supporting.length === 0 && posterior < 0.12) {
         status = 'rejected';
       } else if (h.contradicting.length > h.supporting.length) {

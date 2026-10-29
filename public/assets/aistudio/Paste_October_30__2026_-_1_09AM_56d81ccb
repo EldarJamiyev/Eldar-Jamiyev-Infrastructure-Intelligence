@@ -1,0 +1,1010 @@
+Here is the single unified megaprompt combining the real AI-brain integration, natural conversation, intelligent tool selection, memory and context, all the network-reporting fixes, and the failures in your latest EJII transcript. You can send this as one task to Gemini 4 Argon.
+
+# EJII — THE UNIFIED MEGA DEVELOPMENT DIRECTIVE
+
+## Build a Genuine Conversational AI Brain, Unify the Existing Infrastructure Intelligence, and Make Every Interaction Natural, Context-Aware, and Evidence-Driven
+
+**Product:** EJII — Eldar Jamiyev's Infrastructure Intelligence\
+**Repository:** [https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)\
+**Environment:** The existing Google AI Studio workspace, current repository checkout, and currently configured AI model infrastructure.
+
+**Scope:** A major architectural evolution of the existing product—not another incremental list of keyword fixes.
+
+---
+
+# 0. THE MISSION
+
+I want EJII to feel like talking to an intelligent AI assistant, not using a network diagnostic command interpreter.
+
+I should be able to talk naturally, ask ordinary questions, introduce myself, explain a problem, change subjects, make mistakes, use shorthand, ask follow-up questions, and describe what I need without memorizing exact commands.
+
+EJII should understand what I am trying to communicate, use the conversation to understand references, decide whether a tool is necessary, carry out the appropriate work, and explain the outcome naturally.
+
+I do not want every response forced into a predefined structure.
+
+I do not want every user message matched against a growing list of regular expressions.
+
+I do not want a system where every unrecognized phrase launches a generic investigation against localhost.
+
+I do not want an assistant that has numerous diagnostic scripts but cannot hold an ordinary conversation.
+
+I do not want an unused LLM integration that exists in the source code but never participates in the real application.
+
+I do not want another frontend-only redesign, another static knowledge base, or another collection of hardcoded replies presented as intelligence.
+
+**I want one coherent brain that understands, remembers, reasons, decides, uses tools, learns from actual evidence, and communicates naturally. The existing diagnostic engines should become its abilities—not its entire personality.**
+
+This phase must combine all of the following into one integrated engineering effort:
+
+1. Genuine LLM-powered semantic understanding and natural response generation.
+2. Natural conversation and general-purpose question handling.
+3. Context-aware memory and intelligent follow-up resolution.
+4. Correct, dynamic selection of existing diagnostic capabilities.
+5. Evidence-grounded analysis and explanations.
+6. Truthful DNS, IP, gateway, TCP, HTTP, TLS, and socket reporting.
+7. A minimalist conversational UI with no diagnostic noise during ordinary conversation.
+8. End-to-end tests of the actual running application.
+9. Preservation of existing EJII features, security, and architecture.
+10. Honest verification of the build, tests, model integration, and remaining limitations.
+
+**Do not stop at an audit, plan, list of edits, or architectural proposal. Inspect the actual code, implement the changes, integrate them into the running application, and verify the complete path.**
+
+---
+
+# PART I — UNDERSTAND THE CURRENT PRODUCT BEFORE CHANGING IT
+
+EJII already contains substantial functionality. The task is to connect and improve it, not discard it.
+
+Inspect the current repository and identify the real implementation of:
+
+- `src/core/chat/chat-operator-service.js`
+- `src/core/chat/technical-knowledge-base.js`
+- `src/core/ai-model-orchestrator.js`, or the actual configured model-orchestrator module if its path differs
+- `src/core/capability-registry.js`
+- `src/core/correlation/incident-correlator.js`
+- `src/core/security.js`
+- `src/api/routes-v6-fabric.js`
+- `src/api/routes-network.js`
+- `src/protocols/dns-diag.js`
+- `src/protocols/host-metrics.js`
+- `src/protocols/icmp-ping.js`
+- `src/protocols/http-probe.js`
+- `src/protocols/tls-audit.js`
+- `src/network/process-socket-correlator.js`
+- `public/js/views/chat-workspace-view.js`
+- `public/css/chat-minimal.css`
+- `src/core/__tests__/chat-operator.test.js`
+- Existing AI, integration, UI, security, and end-to-end tests
+- The root `package.json`, configuration, and application startup code.
+
+Some paths may have changed. Find the real current files instead of assuming that the names above are still correct.
+
+Inspect the latest code and reconcile it with the observed application behavior.
+
+The current implementation appears to have an optional `llmInterpreter` hook initialized to `null`, with no obvious registration in the application startup path. The conversational knowledge base also returns fields such as `matched` and `subtype`, while the chat operator appears to inspect fields such as `type`.
+
+**Verify and fix these actual integration contracts. Do not merely add more logic on top of incompatible or disconnected components.**
+
+Preserve all useful existing modules, APIs, capabilities, authentication and authorization, session ownership checks, cancellation handling, database persistence, and specialist views.
+
+Do not replace the existing frontend or backend with a separate application. Do not delete genuine product assets or existing functionality to simplify this task.
+
+---
+
+# PART II — CONNECT THE REAL AI BRAIN TO THE RUNNING APPLICATION
+
+## 1. Make the configured model participate in actual conversation
+
+Inspect the existing provider integration and determine how EJII currently invokes its configured AI model.
+
+Use the existing provider orchestration, model configuration, supported local inference setup, timeouts, error handling, and security policies.
+
+Do not invent provider APIs, assume a model is running, or hardcode credentials.
+
+Wire the actual configured model into the production chat lifecycle through the existing application startup and dependency-registration path.
+
+The integration must be active when the application starts. Creating a semantic interpreter class is not enough. Adding a `setLlmInterpreter()` method is not enough. Passing tests with a fake interpreter while the real service remains disconnected is not enough.
+
+Verify that a user message arriving through the actual chat API reaches the configured semantic interpreter.
+
+The application should use the configured local model where supported and preserve existing provider choices and policies. Never silently send private conversations to an unconfigured external AI service.
+
+If the provider is unavailable, times out, or returns invalid output, handle the failure safely. Do not pretend the model successfully interpreted the request, and do not trigger a generic network investigation as a fallback.
+
+Distinguish accurately between:
+
+- AI provider configured and responding.
+- AI provider configured but unavailable.
+- AI provider not configured.
+- Model request timed out.
+- Model returned invalid or unusable output.
+- Deterministic safe fallback handling.
+
+A running web application is not evidence that the AI brain is connected.
+
+## 2. Stop treating regex classification as the main intelligence
+
+Keep deterministic logic where it is useful for security, explicit protocol parsing, validation, simple unambiguous requests, and safe fallbacks.
+
+However, natural-language understanding must not depend primarily on a growing list of phrases in `technical-knowledge-base.js`.
+
+The actual model must be able to interpret messages that have never been included in the source code or test examples.
+
+It should understand meaning, context, conversational intent, ambiguity, implicit references, user constraints, and the practical goal behind the message.
+
+For example, these messages have related meaning despite different wording:
+
+- "What's Google's IP?"
+- "IP of google."
+- "Can you find the address Google resolves to?"
+- "Resolve Google for me."
+- "What IP addresses does Google use?"
+
+They should lead to the appropriate DNS-address lookup, not require a separate script for each phrase.
+
+Likewise, "How are you?", "Are you following me?", and "Do you understand what I'm asking?" belong to ordinary conversation, not networking.
+
+The examples throughout this prompt define expected behavior. They must not become a new exhaustive phrase dictionary.
+
+## 3. Use a validated internal decision
+
+Let the model produce a structured interpretation suitable for the existing backend. Reuse existing plan structures where possible.
+
+The internal decision should identify:
+
+- What the user means.
+- The intended conversational or operational mode.
+- Whether the user is asking a question, making a statement, reporting a problem, or requesting an action.
+- Whether a real tool is needed.
+- Which existing capability best serves the goal.
+- Which target and parameters are required.
+- Whether a target is explicit, unambiguously resolved from context, or missing.
+- Relevant context needed to interpret the turn.
+- Whether clarification is required.
+- Whether the user explicitly prohibited execution.
+- What kind of answer is needed.
+
+Validate the model's output against a strict schema. Unsupported capabilities, invalid arguments, unsafe targets, malformed decisions, and unauthorized operations must be rejected by trusted application code.
+
+The model must never directly bypass the capability registry, authorization system, SSRF protection, execution policy, or remediation safeguards.
+
+The internal structure is for application orchestration. Do not expose the raw JSON, router output, or internal decision metadata as the assistant's user-facing answer.
+
+The model understands what to do. The trusted backend decides whether it is permitted and executes the real work.
+
+---
+
+# PART III — MAKE NATURAL CONVERSATION A FIRST-CLASS CAPABILITY
+
+The user should be able to talk to EJII without accidentally launching network checks.
+
+Conversation should not be limited to predefined greetings. The model should recognize a wide variety of ordinary interactions.
+
+Examples include:
+
+- "Hello."
+- "How are you?"
+- "I'm Eldar."
+- "Who are you?"
+- "Do you understand me?"
+- "What do you think?"
+- "Can you explain that more simply?"
+- "That makes sense."
+- "Why did you say that?"
+- "Are you sure?"
+- "What is Google?"
+- "Tell me something interesting."
+- "Let's talk about something else."
+- "I don't understand your last answer."
+- An unfamiliar everyday question or conversational remark.
+
+These are illustrative tests, not a complete list of phrases to hardcode.
+
+## Required behavior
+
+If I say "How are you?", answer the question naturally. Do not respond with the same greeting used for "hello" merely because the implementation cannot identify the conversational subtype.
+
+If I say "I'm Eldar.", acknowledge the introduction naturally. Do not immediately send a generic networking help prompt.
+
+If I ask "Who are you?", explain what EJII is and what it can actually do. Correct minor punctuation and formatting mistakes. Do not misunderstand `who are you>` as an unknown command.
+
+If I ask "What is Google?", answer the actual general-knowledge question. Do not give me a generic explanation of the DNS, ICMP, TCP, TLS, and HTTP protocol layers.
+
+If I ask "Why did you say that?", refer to the actual previous assistant message and explain it.
+
+If I change the topic, follow the new topic rather than forcing the conversation back to the last network diagnostic.
+
+Normal conversational turns must not execute DNS, ICMP, TCP, HTTP, TLS, gateway, socket, or other diagnostic probes unless the user has separately requested a relevant operation.
+
+A previously tested target must not be inserted into every greeting, acknowledgement, or general question.
+
+For ordinary conversation, return an ordinary, natural assistant message. Do not display irrelevant diagnostic cards, raw evidence, execution traces, progress steps, or repetitive next-step suggestions.
+
+**The system must understand the difference between talking about a technical topic and requesting a technical operation.**
+
+---
+
+# PART IV — UNDERSTAND THE USER'S INTENT BEFORE SELECTING A TOOL
+
+The brain must interpret each message in context before choosing an existing capability.
+
+Do not allow unknown input to become a generic multi-step diagnostic just because a pattern did not match.
+
+Do not require exact command syntax. Do not launch every available tool merely because a user mentions networking.
+
+## 1. Ambiguous technical terms
+
+If I say:
+
+"DNS"
+
+The assistant should understand that I have introduced a topic but have not necessarily specified a task. If the conversation does not make the goal clear, ask naturally whether I want an explanation, a lookup, or a DNS health check.
+
+Do not return the generic text:
+
+"I'm here to help with network troubleshooting, diagnostics, or technical questions. Tell me what issue you're seeing or what host you'd like to check."
+
+That response ignores the user's actual message and provides little conversational value.
+
+If I say:
+
+"What is DNS?"
+
+Explain DNS.
+
+If I say:
+
+"DNS test."
+
+Recognize that I am requesting a DNS test. Because EJII already has a general DNS-connectivity-health capability, a hostname should not automatically be required for that operation. Run the existing general health check if it is available, or explain a genuine capability limitation.
+
+If I say:
+
+"Check DNS for example.com."
+
+Run the specific hostname lookup and report the observed records.
+
+These are three different intentions.
+
+## 2. General DNS-health questions
+
+The latest transcript contains these messages:
+
+- "Any problem in DNS?"
+- "DNS problems."
+- "Layer by layer analyze."
+
+The assistant must reason about them as related conversational turns, not treat each one as an unrelated invalid command.
+
+There was an earlier successful A-record lookup for `example.com`, and a later successful ping to `google.com`. These are actual, distinct observations from the displayed transcript.
+
+If I ask whether there is a DNS problem, the assistant should use relevant recent evidence. For instance, it can explain that the last `example.com` lookup succeeded but that one successful lookup does not establish that all DNS services and domains are healthy.
+
+Because I am asking whether a DNS problem exists, the assistant may perform the available general DNS-connectivity-health check when the intent is clear and the existing execution policy permits it. It should not require a specific domain if a general resolver health check is supported.
+
+A request such as "DNS problems" should be interpreted using the current discussion. If it is clear that I want troubleshooting, investigate the relevant DNS condition when sufficient information is available. If the request is ambiguous, ask a targeted question.
+
+"Layer by layer analyze" should be interpreted in relation to the ongoing conversation. If I am asking for a layered analysis of a DNS problem, do not respond with the generic help prompt. Use the existing evidence, determine which layers can be checked meaningfully, and perform the relevant analysis if the intent and target are clear. Otherwise, ask one concise, relevant clarification.
+
+Do not fabricate a DNS failure when the latest observed lookup succeeded. Do not overstate a successful lookup as proof that DNS is universally healthy.
+
+## 3. Requests for a hostname's IP
+
+If I ask:
+
+- "What's Google's IP?"
+- "IP of google."
+- "What address does Google resolve to?"
+- "Resolve google.com."
+- "Show me Google's IP addresses."
+
+Use the existing DNS capability and actual returned records.
+
+Do not launch a full network investigation unless I request one.
+
+Distinguish DNS record lookup from ICMP ping and TCP reachability. A successful ping does not replace an explicit DNS record lookup, and a literal IP target does not require DNS resolution.
+
+Preserve actual resolver information and the lookup method. Do not hardcode IP addresses or assume that a result from a previous query represents a fresh observation.
+
+## 4. "What is Google?" versus "What is Google's IP?"
+
+The semantic distinction is essential.
+
+"What is Google?" is normally a general-knowledge question about Google.
+
+"What is Google's IP?" is a DNS/address question.
+
+"Can you ping Google?" is an ICMP request.
+
+"Check whether Google is accessible on port 443" is a TCP-port request.
+
+"Investigate why Google is unreachable" may be a broader diagnostic request.
+
+Do not map all these messages to the same intent simply because they contain the word "Google".
+
+## 5. Problem descriptions
+
+I might say:
+
+- "The internet is not working."
+- "The site won't open."
+- "I'm getting connection errors."
+- "The server is not responding."
+- "It works on my laptop but not on the other computer."
+- "The application has become really slow."
+
+These are descriptions of problems. They do not always supply a target or specify the scope of investigation.
+
+The brain should consider relevant conversation context and ask the smallest useful follow-up when needed.
+
+For example:
+
+"I can help narrow that down. Is every website failing, or is one particular service affected?"
+
+If the problem and target are already clear from the recent discussion, the assistant should not ask the user to repeat everything. It should use the relevant context and select a focused diagnostic.
+
+Do not execute every diagnostic merely because the user described a problem. Do not automatically choose localhost when the target is missing.
+
+---
+
+# PART V — INTELLIGENT TOOL SELECTION AND EXECUTION
+
+The existing capabilities must be available to the brain through a reliable internal interface.
+
+Use the actual registered capability definitions, schemas, timeouts, security constraints, and real result shapes.
+
+The AI should not need to know the implementation details of every module, but it must know which operations the application can genuinely perform.
+
+Examples include:
+
+- DNS record lookup.
+- General DNS connectivity health.
+- ICMP ping.
+- TCP-port checks.
+- HTTP, HTTPS, and TLS inspection.
+- Local network interface inspection.
+- Default-route and gateway discovery.
+- Active connection and destination-endpoint inventory.
+- Historical observation comparison.
+- Incident-report generation.
+
+These examples are not a demand to duplicate existing capabilities or add new tool engines for the sake of this task.
+
+## Correct intent-to-tool behavior
+
+| User request                                   | Appropriate action                                                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "How are you?"                                 | Natural conversation; no probes                                                                                                                                |
+| "What is DNS?"                                 | Explain; no probes                                                                                                                                             |
+| "DNS"                                          | Ask what the user wants to do with DNS if context is insufficient                                                                                              |
+| "DNS test"                                     | Use the existing general DNS health check if available                                                                                                         |
+| "Any problem in DNS?"                          | Use relevant history and, when appropriate, run general DNS health                                                                                             |
+| "What's Google's IP?"                          | DNS lookup for the intended hostname                                                                                                                           |
+| "Ping Google"                                  | Real ICMP ping to the intended Google target                                                                                                                   |
+| "What is my IP?"                               | Determine what local/public information is actually available; clearly identify scope                                                                          |
+| "Check my gateway"                             | Inspect the real default route and separately test reachability if possible                                                                                    |
+| "Check mail server"                            | Use a verified configured mail server if available; otherwise request the domain or hostname                                                                   |
+| "Check DHCP server connection"                 | Discover actual DHCP information through an existing appropriate capability if available; otherwise explain the limitation and request the missing information |
+| "Layer by layer analyze"                       | Understand the current topic and relevant context; analyze the appropriate scope or clarify                                                                    |
+| "Check whether port 3000 is open on localhost" | Perform the explicit localhost TCP check                                                                                                                       |
+
+Do not simply reproduce this table as the main implementation. Implement general semantic understanding that produces these behaviors and generalizes to unseen wording.
+
+## Mail-server requests
+
+If I say "Check mail server" and EJII has no verified configured mail-server address or domain, do not invent a hostname and do not ping localhost.
+
+Ask for the organization or domain, or the mail-server hostname/IP, depending on what information is missing.
+
+When a domain is supplied, use existing DNS capabilities to identify relevant MX records if appropriate. Do not assume the web domain is also the mail server.
+
+## DHCP requests
+
+If I say "Check DHCP server connection", determine whether the actual environment exposes relevant DHCP configuration or whether an existing capability can identify the DHCP server.
+
+DHCP uses DHCP-specific protocol behavior. A successful ICMP ping or arbitrary TCP test is not proof that DHCP service is working.
+
+Do not invent a DHCP server address or claim the user's workstation configuration was inspected if only the EJII runtime is visible.
+
+If the current application lacks the capability or information required to test the user's DHCP server, state that honestly and ask for the DHCP server address or the relevant network details.
+
+If a suitable diagnostic capability can be implemented safely and coherently using the existing architecture, extend the existing capability system rather than adding a disconnected standalone script.
+
+## Gateway requests
+
+The latest transcript reported:
+
+"No verified 0.0.0.0/0 default route exposed in routing table."
+
+EJII must investigate why the existing environment cannot expose the expected route and improve its route-discovery logic where possible.
+
+Use existing verified OS-specific methods and correctly parse their actual outputs. Support the platforms EJII claims to support.
+
+Distinguish:
+
+- Route discovered.
+- Gateway IP identified.
+- Gateway ping attempted.
+- Gateway ping succeeded.
+- Gateway ping failed or timed out.
+- Route information unavailable.
+
+A missing gateway result is not proof that the network is broken. It is also not permission to guess `192.168.1.1`, `.1`, or any other default gateway.
+
+The successful DNS lookup through `169.254.169.254` and the unavailable default-route result must be described as separate observations. DNS resolving successfully does not prove that EJII can read the same runtime's routing table.
+
+If route information cannot be obtained, explain that the current EJII execution environment does not expose a verifiable route. Do not repeat the same limitation in several redundant paragraphs.
+
+---
+
+# PART VI — BUILD A CONTEXTUAL BRAIN, NOT A BLIND MEMORY SYSTEM
+
+Use the existing chat session system, SQLite persistence, and historical observations.
+
+The brain should understand the current topic and relevant prior turns. It should not merely reuse the most recent target whenever it cannot interpret a message.
+
+It must recognize references such as:
+
+- "That."
+- "The previous result."
+- "The same host."
+- "What about the other one?"
+- "Try it again."
+- "Why?"
+- "What changed?"
+- "Check that server too."
+- "Explain what you found."
+- "Layer by layer analyze."
+
+Resolve these references from context when one unambiguous interpretation exists.
+
+If multiple targets are possible, ask which one. If no relevant target exists, ask for it. Never use localhost as a substitute for missing context.
+
+Preserve relevant information:
+
+- Recent conversation.
+- Current topic.
+- User instructions and constraints.
+- Previous diagnostic targets and capabilities.
+- Actual observed results.
+- Relevant result timestamps.
+- Known uncertainties and failed attempts.
+- Relevant historical comparisons.
+
+Do not inject the entire history into every request. Use a bounded, relevant context window and existing stored history.
+
+Do not treat an old observation as a current measurement. Preserve provenance: current tool result, historical observation, user statement, inference, or hypothesis.
+
+After a greeting, do not automatically mention a previous diagnostic target. After a new topic begins, do not let old network context override the user's new question.
+
+Remember useful context without making every answer about the past.
+
+Preserve session ownership, cross-user isolation, cancellation safety, bounded active memory, and SQLite-backed history.
+
+---
+
+# PART VII — THE ASSISTANT MUST SPEAK NATURALLY
+
+The assistant should not output the same template for every interaction.
+
+Do not force each answer into these headings:
+
+- Result
+- Meaning
+- Next step
+
+Those fields may remain part of an internal structured response when required by the existing API, but the user-facing message should be written for the current question.
+
+Use a conversational response for ordinary conversation.
+
+Use a concise explanation for a conceptual question.
+
+For diagnostic work, lead with the practical conclusion and explain the relevant evidence.
+
+For complicated investigations, provide a concise summary and make the technical details available through the existing expandable evidence area.
+
+Examples of the intended style:
+
+User: "How are you?"
+
+Assistant: "I'm doing well, thanks. What are we working on today?"
+
+User: "I'm Eldar."
+
+Assistant: "Nice to meet you, Eldar. What would you like to work on?"
+
+User: "Who are you?"
+
+Assistant: "I'm EJII, an AI assistant for infrastructure and network diagnostics. You can describe a problem naturally, ask technical questions, or ask me to run a relevant check."
+
+User: "What is Google?"
+
+Assistant: Answer the question directly in plain language. Do not launch network diagnostics or return a generic networking-layer explanation.
+
+User: "Any problem in DNS?"
+
+Assistant: Use the last relevant evidence. If the previous `example.com` DNS lookup succeeded, say that this lookup worked but doesn't prove all DNS services are healthy. Run a suitable general DNS health check when that is clearly the requested task and the capability is available.
+
+User: "Check the gateway."
+
+Assistant: Inspect the actual OS route information and report whether a gateway can be identified. If it can be identified, separately report the result of a real reachability test. If the environment hides route information, explain the limitation directly.
+
+User: "Why did you say the connection was healthy?"
+
+Assistant: Refer to the real previous result and explain which observations support the conclusion. If the previous wording overstated the evidence, correct it.
+
+The assistant must not sound robotic or repetitive. Do not repeat generic capability descriptions when the user has asked a specific question. Do not keep announcing that it can help with troubleshooting instead of actually addressing the message.
+
+The model should generate natural responses using the actual conversation context, not just fill in predefined phrases.
+
+Do not reveal hidden model reasoning or raw internal orchestration data. Provide clear explanations of conclusions and supporting evidence instead.
+
+---
+
+# PART VIII — EVIDENCE MUST CONTROL THE CONCLUSION
+
+The brain and diagnostic layers must work together.
+
+Before execution, the brain selects the appropriate goal and capability.
+
+During execution, trusted backend code validates the operation and collects actual results.
+
+After execution, the response generator interprets the real results and explains them in natural language.
+
+The model must never invent evidence.
+
+The application must never turn a missing value into a plausible-looking success.
+
+## 1. DNS truthfulness
+
+The latest transcript reports a successful DNS A lookup for `example.com` through the resolver shown as `169.254.169.254`.
+
+Preserve actual DNS results, the observed resolver, the record type, the lookup method, and measured timing where available.
+
+Do not assume that a link-local resolver address is automatically faulty, malicious, public, or associated with a specific cloud provider. Explain only what the system has actually observed.
+
+If a hostname resolves, say that the hostname resolved using the observed method. Do not claim that every DNS path or domain has been verified.
+
+If the target is a literal IP, report that DNS was bypassed when no DNS lookup occurred.
+
+Maintain correct distinctions between `RESOLVED`, `BYPASSED`, `FAILED`, `NOT_RUN`, and `UNKNOWN`, using the existing schema or an equivalent consistent representation.
+
+Do not fabricate a public DNS resolver as the system's configured resolver.
+
+If resolver discovery fails, report that it is unavailable rather than selecting an assumed resolver and presenting it as observed configuration.
+
+## 2. Local IP and network scope
+
+The latest transcript reports:
+
+- `169.254.8.1/32`
+- `169.254.9.1/32`
+- `169.254.169.1/32`
+- DNS server `169.254.169.254`
+- An unavailable default route.
+
+These are observations from the current EJII runtime. They must not automatically be presented as the user's personal LAN or public IP configuration.
+
+Addresses in `169.254.0.0/16` are IPv4 link-local addresses. Explain their scope in plain language.
+
+Do not assume that the presence or absence of `/.dockerenv` conclusively establishes whether the process is running on the physical host or inside a restricted runtime. Improve execution-scope detection using the information actually available, and allow an honest `unknown` or `runtime_network_namespace` designation when the host-versus-container distinction cannot be proved.
+
+Do not claim access to the browser user's private network interfaces through server-side `os.networkInterfaces()`.
+
+For "What is my IP?", distinguish:
+
+- Observed EJII runtime interface addresses.
+- User workstation addresses, only when an actual supported client-side or local-agent capability provides them.
+- Public/WAN IP, only if a real supported external-IP observation was performed.
+
+If EJII can only inspect its own runtime, say so. Do not label its link-local address as the user's public IP.
+
+Do not replace an unavailable primary IPv4 with `127.0.0.1`. Keep loopback and non-loopback results separate.
+
+## 3. Real timing and HTTP/TLS reporting
+
+Audit the complete data path from each diagnostic engine to the API, the conversational response, and the frontend.
+
+Preserve the improvements in `extractObservedTimingMs()` and remove any remaining synthetic values such as fallback `1.2 ms`, `1.0 ms`, `<1 ms`, and other invented latency defaults.
+
+Use a real observed value when it exists, including zero. If it is missing, return `null`, omit it where appropriate, or render "Not measured".
+
+Fix the `TTFB: undefinedms` defect by inspecting the actual HTTP probe schema and aligning it throughout the response pipeline.
+
+Do not display `undefinedms`, `NaNms`, `[object Object]`, or a fabricated timing.
+
+A successful TCP connection is not proof that HTTP worked. An HTTP 200 response is not proof the whole application is healthy. A route entry is not proof the gateway responds. A literal-IP test is not a DNS test.
+
+## 4. The frontend must not invent successful status
+
+The current chat workspace has a fallback similar to `s.status || 'PASS'`. Fix it.
+
+An absent or unknown status must not render a green checkmark.
+
+Use explicit status semantics:
+
+- `PASS`: observed success for the intended test.
+- `FAIL`: observed failure.
+- `WARN`: partial or concerning evidence.
+- `NOT_RUN`: not executed.
+- `UNKNOWN`: outcome not established.
+
+Unknown or missing values must remain visibly unknown, without misleading the user.
+
+## 5. Socket collection must be honest
+
+Preserve actual collection method, collection scope, permission limitations, and process-attribution metadata.
+
+If collection fails, do not report zero active connections as though a successful inventory found none.
+
+Do not fabricate process rows or endpoint data.
+
+If EJII can see only its own container's network namespace, explain that. Do not claim full workstation visibility.
+
+---
+
+# PART IX — GENERATE DIAGNOSTIC SUMMARIES THAT REFLECT REAL EVIDENCE
+
+The system should explain what happened, not merely enumerate scripts.
+
+If all relevant requested checks succeed, provide a concise conclusion supported by those observations.
+
+If some checks were not run, say so. If some returned incomplete evidence, distinguish that from a failure. If there is enough information to identify a likely cause, explain why. If several explanations remain possible, state the uncertainty.
+
+Do not claim "All checks passed" when a required measurement is missing or when the summary incorrectly treats a skipped operation as successful.
+
+Do not say DNS is healthy because the target was a literal IP.
+
+Do not say the gateway is reachable because a default route exists.
+
+Do not say an application is completely healthy just because one endpoint returned HTTP 200.
+
+Do not recommend next steps mechanically. Recommend only what follows from the actual issue and evidence.
+
+Keep the default diagnostic summary compact. Put raw telemetry, detailed step outcomes, and technical metadata in the existing expandable evidence view when useful.
+
+The user should be able to ask "Why?" or "Can you explain that?" and receive a natural explanation connected to the actual findings.
+
+---
+
+# PART X — FIX THE OBSERVED CONVERSATION FAILURES END TO END
+
+Use the latest real interaction transcript as a regression scenario.
+
+The observed application already handles some operations, including a DNS lookup and a Google ping. Preserve those working capabilities.
+
+The following issues must be corrected.
+
+## A. Conversation subtype mismatch
+
+In the current code audit, `classifyConversationalTurn()` appears to return a structure containing `matched` and `subtype`, while the chat operator appears to inspect `type`.
+
+Verify this contract mismatch across all callers and result consumers. Standardize a single schema and update all use sites and tests.
+
+This may explain why "How are you?" falls into a generic greeting response instead of answering the actual question.
+
+Do not patch this one sentence only. Fix the shared conversational integration so all recognized subtypes work consistently.
+
+## B. Generic fallback replaces the user's question
+
+The latest transcript shows that:
+
+- "I'm Eldar" gets a generic networking support message.
+- "Who are you?" gets a generic networking support message.
+- "DNS" gets a generic networking support message.
+- "Any problem in DNS?" gets a generic networking support message.
+- "DNS problems" gets the same generic message.
+- "Layer by layer analyze" gets the same generic message.
+- "What is Google?" gets a general protocol-layer explanation rather than an answer to the question.
+
+These are not merely missing individual keywords. They indicate that the system is not interpreting the conversational meaning of the message reliably.
+
+Implement the real semantic brain and ensure that the response stage respects the actual selected conversational or operational mode.
+
+Do not address these cases by adding one handcrafted reply per sentence.
+
+## C. Clarification should be specific and intelligent
+
+The latest transcript asks for a hostname after "Check mail server" and "Check DHCP server connection".
+
+When genuinely missing information prevents a safe operation, clarification is appropriate. However, it should reflect the kind of service and what's actually needed.
+
+For a mail-server check, ask for the relevant domain or mail-server hostname if no verified server is available.
+
+For a DHCP-server check, determine whether actual DHCP information is available in the inspected runtime. If not, explain that the user's workstation or DHCP server is not observable through the current environment and ask for a useful missing detail.
+
+For "DNS test", a general DNS-health capability exists in EJII and may not require a target hostname. Use it when appropriate instead of always demanding a hostname.
+
+For "Layer by layer analyze", use the relevant current discussion and existing evidence. Ask a clarifying question only if the target or scope is genuinely ambiguous.
+
+Never substitute localhost or another previously tested target merely to avoid asking a question.
+
+## D. Keep working operations working
+
+Retain and verify:
+
+- `Check DNS for example.com`
+- `Ping Google`
+- `Check whether port 3000 is open on localhost`
+- `Show me the active connections`
+- `What is my IP`
+- `Check gateway`
+
+Where an operation is unsupported by the actual environment, explain the limitation honestly. Do not claim successful execution merely because the intent was recognized.
+
+---
+
+# PART XI — CONNECT THE BRAIN TO THE EXISTING CAPABILITY REGISTRY
+
+The LLM must use actual capabilities exposed by EJII, not generate fictitious operations.
+
+Inspect the current capability registry and provide the semantic interpreter with an accurate description of the available operations, schemas, authorization requirements, and limitations.
+
+The model may identify which capability is appropriate, but the trusted backend must validate it and perform the invocation.
+
+Do not allow model output to execute arbitrary shell commands or invent a capability ID.
+
+Avoid running redundant operations.
+
+Use the smallest set of checks capable of answering the user's request.
+
+Maintain clear separations:
+
+- Semantic interpretation.
+- Target resolution.
+- Capability selection.
+- Authorization and argument validation.
+- Tool execution.
+- Evidence collection.
+- Evidence interpretation.
+- Natural-language response generation.
+
+The user must not be required to understand this architecture or to choose tools manually.
+
+If the user requests both an operation and an explanation, use the appropriate existing capability and then explain its actual outcome.
+
+If the user asks for only an explanation, do not run tools.
+
+If the user asks a question with no requested operation, answer it directly whenever possible.
+
+---
+
+# PART XII — MAKE THE EXISTING UI FEEL LIKE AN AI CONVERSATION
+
+Keep the minimalist chat-first interface. Do not add unnecessary panels, buttons, forms, or decorative features.
+
+Make the smallest coherent frontend changes needed to reflect the real brain.
+
+Conversational turns should render as ordinary assistant messages without irrelevant diagnostic steps.
+
+Technical explanations should be clear and readable.
+
+Diagnostic turns should show a concise natural-language conclusion and the evidence necessary to understand it. The detailed technical output should remain accessible through the existing expandable evidence area.
+
+Fix mismatches between backend output and frontend rendering, including:
+
+- Incorrectly displayed conversational subtypes.
+- Diagnostic panels appearing on ordinary conversation.
+- Missing status defaulting to PASS.
+- Undefined timings.
+- Inconsistent result/status representations.
+- Repeated or duplicated explanations.
+- Generic assistant text overriding a more specific answer.
+- Diagnostic context forced into unrelated conversation.
+
+Do not hide failures to make the UI look better. Do not remove existing specialist features merely because they are not on the main chat screen.
+
+---
+
+# PART XIII — NATURAL UNDERSTANDING MUST GENERALIZE
+
+Test unseen wording, not just a handful of predefined phrases.
+
+Use the current transcript as one scenario, then test semantically equivalent alternatives and new formulations.
+
+Examples include:
+
+- "How are you doing?"
+- "I'm Eldar."
+- "Could you tell me who you are?"
+- "Can you understand what I'm saying?"
+- "What do you know about Google?"
+- "Can you find Google's current addresses?"
+- "I'm worried DNS isn't working."
+- "Could you check whether my DNS resolver is okay?"
+- "Is there anything wrong with name resolution?"
+- "I think the network is having trouble."
+- "Let's analyze what happens at each layer."
+- "Can you check our mail service?"
+- "How do I know if DHCP is working?"
+- "Why couldn't you detect my gateway?"
+- "Explain the result without running any new tests."
+- "Now try the other server."
+- "What did you find earlier?"
+- "Can you explain that in simpler words?"
+
+The application must not pass these tests solely because the sentences were hardcoded. The configured semantic model must participate in interpretation, and the resulting decision must cause the correct tool behavior or conversational response.
+
+Use deterministic test doubles to test the orchestrator and tool selection. Those tests must not pretend that a mock response came from a real live measurement.
+
+Test the real configured provider through an actual integration path when the environment permits. Distinguish real-provider integration tests from mocked-provider tests.
+
+If the configured model is unavailable, report that limitation and do not substitute a mock while claiming that live AI integration has been verified.
+
+---
+
+# PART XIV — REGRESSION TESTS FROM THE ACTUAL TRANSCRIPT
+
+Update the existing test suite rather than creating a disconnected replacement test system.
+
+## Conversational behavior
+
+- `hello` produces a greeting and zero probes.
+- `how are you` answers the question rather than returning the generic greeting.
+- `i am eldar` receives a natural response.
+- `who are you>` is interpreted as a question and receives a direct answer.
+- `what is google` is treated as a general-knowledge question, not as a generic networking-layer explanation.
+- `dns` receives a context-sensitive conversational response or an appropriate clarification.
+- Conversation after a diagnostic does not show a new diagnostic report or rerun the previous operation.
+
+## DNS behavior
+
+- `Check DNS for example.com` performs a real lookup and reports the observed records.
+- `dns test` uses the available general DNS-health operation when appropriate.
+- `any problem in dns?` uses relevant history and can run a general health check when the intent is clear.
+- `dns problems` is interpreted using context rather than falling into the generic help response.
+- `ip of google` uses DNS lookup.
+- `What's Google's IP?` and unseen equivalent phrasings reach the same capability.
+- A DNS-health check after an earlier failed domain does not inherit an unrelated stale target.
+- A literal IP is not reported as DNS-resolved when DNS was bypassed.
+
+## Network diagnostics
+
+- `ping google` tests Google, not localhost.
+- `check gateway` selects the dedicated gateway capability and never substitutes localhost.
+- Gateway route inspection and gateway reachability are reported separately.
+- An unavailable route is reported honestly without inventing `.1`.
+- Local IP results distinguish runtime interfaces from user workstation addresses and public IP.
+- Link-local addresses are labeled accurately.
+- `check mail server` asks for appropriate missing information if no verified mail server is available.
+- `check dhcp server connection` uses a real, relevant capability if available; otherwise it explains the limitation and clarifies the required information.
+- `layer by layer analyze` interprets the current topic and context, rather than returning a generic help message.
+- Explicit localhost port requests still work exactly as intended.
+- Active socket collector failure does not become a successful empty inventory.
+
+## Evidence and UI behavior
+
+- A missing step status never becomes PASS.
+- Missing timings never become fabricated numbers.
+- Zero milliseconds remains valid when genuinely measured.
+- The response never shows `undefinedms`, `NaNms`, or `[object Object]`.
+- Partial or missing evidence cannot produce an unconditional success conclusion.
+- A successful DNS lookup is not presented as proof of universal DNS health.
+- HTTP 200 is not presented as proof that the entire application is healthy.
+- A conceptual or conversational question executes zero live probes.
+- The final response is relevant to the user's actual question and is not overwritten by a generic template.
+
+Preserve the existing RBAC, SSRF, session ownership, cancellation, persistence, and remediation safety tests.
+
+Do not remove failing assertions or relax tests merely to obtain a green suite.
+
+Test the actual message-processing path and the API/user-facing response, not only isolated intent-parser output.
+
+---
+
+# PART XV — SECURITY, MEMORY, AND RELIABILITY
+
+A more capable brain must remain bounded, secure, and predictable in its execution.
+
+Preserve:
+
+- Authentication and authorization.
+- Existing session ownership and cross-user isolation.
+- SSRF and target validation.
+- Network operation timeouts.
+- Cancellation and concurrent-request safeguards.
+- Existing database persistence.
+- Bounded working memory.
+- History and observation provenance.
+- Remediation confirmation and role requirements.
+
+The model must not override a user's explicit instruction not to execute an operation.
+
+The model must not convert a harmless question into permission for a state-changing action.
+
+Read-only diagnostics may be executed when the intent, target, permissions, and existing policy make the action appropriate.
+
+Infrastructure modification, configuration changes, service restarts, or destructive remediation must remain subject to the existing security controls and appropriate confirmation.
+
+A model timeout must not cause arbitrary fallback execution.
+
+A model plan that fails validation must not reach a capability executor.
+
+A failed operation must not be reported as successful.
+
+A claim that an operation was completed must correspond to a genuine observed execution.
+
+Memory must remain bounded and relevant. The system should not send all historical records to the LLM on every turn, expose another user's session, or treat an old result as fresh evidence.
+
+---
+
+# PART XVI — REAL IMPLEMENTATION AND VERIFICATION
+
+Inspect the actual repository state before modifying files. Preserve legitimate current work and avoid deleting useful assets or uncommitted changes.
+
+Implement the complete brain integration and evidence fixes in the existing application.
+
+Do not stop at adding tests, writing documentation, producing mock output, editing a prompt, or creating an optional class without connecting it.
+
+After implementation:
+
+1. Verify that the configured AI model is wired into the actual chat startup and request lifecycle.
+2. Verify that natural-language interpretation uses the model on the intended path.
+3. Verify that trusted backend code still validates intent, authorization, target, parameters, and capabilities.
+4. Verify that the response is generated from the actual context and results.
+5. Run the project's real TypeScript build.
+6. Run the existing core regression tests.
+7. Run the actual complete repository test suite.
+8. Start the application and exercise the actual chat interface when the environment permits.
+9. Verify the exact transcript scenarios in this directive.
+10. Inspect asset deletions, generated artifacts, and unintended module changes.
+11. Fix discovered failures and rerun the relevant checks.
+
+Inspect the current `package.json` before deciding which commands to run. In the recently inspected repository, `npm run build` ran `tsc`, `pretest` was also `tsc`, and `npm test` ran `tests/run-all-tests.js`. Verify the scripts in the current checkout rather than assuming they have not changed.
+
+Instrument actual tool-selection behavior in tests. It must be possible to verify that a conversational turn invokes zero probes, that a DNS request invokes the appropriate DNS capability, and that a gateway request does not invoke an unrelated localhost investigation.
+
+Report the exact commands executed and the actual outcomes.
+
+If a provider integration test cannot run because the model endpoint is unavailable, mark it as not run and explain why.
+
+If the application cannot be launched in the current environment, report the specific limitation. Do not claim to have validated the live UI merely because isolated tests passed.
+
+Passing unit tests alone do not prove the actual configured model is connected. A "Built" status alone does not prove the application works naturally. A hardcoded test response is not evidence of general semantic understanding.
+
+---
+
+# PART XVII — REQUIRED FINAL REPORT
+
+At completion, provide a concise, factual report containing:
+
+1. Root causes identified in the actual running conversational flow.
+2. The specific architectural changes that connect the configured LLM to the application.
+3. The actual startup or dependency-registration path used to activate the brain.
+4. The relationship between the LLM, the existing capability registry, the diagnostic engines, and evidence-grounded response generation.
+5. The major source files changed and the purpose of each change.
+6. Any frontend or API contract fixes.
+7. The new regression tests and what behavior they establish.
+8. The exact build and test commands executed and their results.
+9. Whether the real configured AI provider integration was exercised or only a test double.
+10. Whether the actual UI interaction scenarios were exercised.
+11. Any unresolved limitations, including client-versus-runtime network visibility.
+12. Any product assets or files deleted and the reason they were safe to remove.
+
+Do not claim "perfect understanding", "unlimited memory", "all requirements implemented", "fully verified", or "all tests passed" unless the statement is supported by the work actually completed.
+
+Do not report an AI brain as connected unless the live request lifecycle invokes it.
+
+# FINAL ACCEPTANCE CRITERIA
+
+The task is complete only when EJII behaves as a coherent conversational AI infrastructure assistant.
+
+It must understand ordinary conversation, answer general questions appropriately, recognize technical intent, interpret follow-ups, request missing information naturally, select the right existing tools, use real evidence, and explain results in straightforward language.
+
+It must no longer rely primarily on exact phrase patterns to appear intelligent.
+
+It must not use generic fallbacks to replace meaningful answers.
+
+It must not trigger diagnostic operations merely because a message was not recognized.
+
+It must not invent targets, measurements, gateway addresses, DNS records, or success states.
+
+It must not claim that server-side interface information represents the user's personal computer when that cannot be established.
+
+The chat should feel natural. The diagnostics should remain technically rigorous. The AI brain should tie both together.
+
+**FINAL DIRECTIVE: Build the real brain into the existing EJII product. Let the configured AI model understand what I mean, let the trusted application execute only the appropriate authorized work, let actual evidence determine the conclusions, and let the assistant communicate naturally. Do not solve this by adding more scripts, more keyword lists, or a superficial chat redesign. Implement the integrated architecture, verify it through the real application path, and report honestly what works.**
+
+What is this?
+
+The main principle behind this combined prompt is that EJII must stop confusing recognizing a command with understanding a person. The LLM must become an active part of the real conversation, while the existing diagnostic engines do the measurable work safely and accurately.

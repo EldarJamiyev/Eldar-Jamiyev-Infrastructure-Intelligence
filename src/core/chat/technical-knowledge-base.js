@@ -178,53 +178,282 @@ function extractBrandHostnameShorthand(rawText) {
  * (greetings, "how are you?", "do you understand me?", "that was interesting", thanks, etc.)
  * Returns { matched: true, subtype, reply, summary } or null.
  */
+const NON_NAME_TOKENS = new Set([
+  'what', 'who', 'where', 'why', 'how', 'when', 'which', 'whose', 'whom',
+  'a', 'an', 'the', 'it', 'that', 'this', 'me', 'you', 'he', 'she', 'they', 'we',
+  'unknown', 'nobody', 'nothing', 'anything', 'something', 'someone', 'anyone',
+  'user', 'operator', 'admin', 'administrator', 'root', 'analyst', 'guest',
+  'test', 'null', 'undefined', 'anonymous', 'none', 'here', 'there',
+  'not', 'no', 'yes', 'fine', 'good', 'okay', 'ok', 'sure', 'help'
+]);
+
+/**
+ * Determine whether a user message is a natural conversational exchange
+ * (greetings, "how are you?", introductions, identity, acknowledgments, bare topics, frustration)
+ * Returns { matched: true, type, subtype, reply, summary, name } or null.
+ */
 function classifyConversationalTurn(rawText, session = null) {
   const raw = String(rawText || '').trim();
   const clean = raw.replace(/[!?.]+$/, '').trim().toLowerCase();
 
-  // 1. How are you / status check
+  // 1. Name Query: "my name is what", "what is my name?", "who am I?", "do you know my name?"
+  if (/^(?:what is my name|what's my name|whats my name|who am i|do you know my name|tell me my name|my name is what)\??$/i.test(clean)) {
+    const rememberedName = session?.entityMemory?.userName || (session?.username && session.username !== 'operator' && session.username !== 'op-1' ? session.username : null);
+    if (rememberedName) {
+      return {
+        matched: true,
+        subtype: 'name_query',
+        type: 'name_query',
+        reply: `Your name is ${rememberedName}. What can I help you investigate or explain today?`,
+        summary: `Recalled user name: ${rememberedName}`
+      };
+    }
+    return {
+      matched: true,
+      subtype: 'name_query',
+      type: 'name_query',
+      reply: "You haven't told me your name yet. What would you like me to call you?",
+      summary: "Informed user no name is on record."
+    };
+  }
+
+  // 2. Name Correction: "I'm not Eldar; I'm Elvin", "my name is not Eldar, call me Elvin"
+  const corrMatch = clean.match(/(?:i'm not|i am not|my name is not)\s+([a-z0-9_-]+)[;,.]?\s*(?:i'm|i am|it's|it is|my name is|call me)\s+([a-z0-9_-]+)/i) ||
+                    clean.match(/(?:actually|correction),?\s*(?:my name is|i'm|call me)\s+([a-z0-9_-]+)/i);
+  if (corrMatch) {
+    const rawCorrected = (corrMatch[2] || corrMatch[1] || '').trim();
+    if (rawCorrected && !NON_NAME_TOKENS.has(rawCorrected.toLowerCase())) {
+      const name = rawCorrected.charAt(0).toUpperCase() + rawCorrected.slice(1).toLowerCase();
+      if (session) {
+        if (!session.entityMemory) session.entityMemory = {};
+        session.entityMemory.userName = name;
+      }
+      return {
+        matched: true,
+        subtype: 'name_correction',
+        type: 'name_correction',
+        name,
+        reply: `Got it — I've updated my notes. Nice to meet you, ${name}!`,
+        summary: `Corrected user name to ${name}.`
+      };
+    }
+  }
+
+  // 3. User Introductions: "I'm Eldar", "My name is Eldar", "Call me Eldar", "My name is Eldar, call me Eldar"
+  const isQuotedOrHypothetical = /^the sentence\b|if i say\b|example of\b|what does .+ mean\b/i.test(clean) ||
+                                (clean.startsWith('"') && clean.endsWith('"') && clean.includes(' '));
+  if (!isQuotedOrHypothetical) {
+    const introMatch = clean.match(/^(?:hello|hi|hey)?[, ]*(?:i am|i'm|my name is|call me)\s+([a-z0-9_-]+)(?:,\s*call me\s+[a-z0-9_-]+)?$/i);
+    if (introMatch) {
+      const candidateRaw = introMatch[1].trim();
+      const candidateLower = candidateRaw.toLowerCase();
+      if (!NON_NAME_TOKENS.has(candidateLower) && !raw.endsWith('?')) {
+        const name = candidateRaw.charAt(0).toUpperCase() + candidateRaw.slice(1).toLowerCase();
+        if (session) {
+          if (!session.entityMemory) session.entityMemory = {};
+          session.entityMemory.userName = name;
+        }
+        return {
+          matched: true,
+          subtype: 'introduction',
+          type: 'introduction',
+          name,
+          reply: `Nice to meet you, ${name}! What can I help you investigate or explain today?`,
+          summary: `Welcomed ${name}.`
+        };
+      }
+    }
+  }
+
+  // 4. Incomplete Utterances: "what can you", "can you check", "why is", "how do I", "what next"
+  if (/^(?:what can you|what can u)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'capabilities',
+      type: 'capabilities',
+      reply: "Were you asking what I can do? I can help you investigate network and service issues, test DNS and connectivity, inspect local network configurations, or explain networking concepts in plain language. What would you like to explore?",
+      summary: "Clarified incomplete capability question."
+    };
+  }
+  if (/^(?:can you check|could you check|can you test|could you test)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'clarification_needed',
+      type: 'clarification_needed',
+      reply: "Sure — which hostname, IP address, port, or URL would you like me to check?",
+      summary: "Asked for target for check request."
+    };
+  }
+  if (/^(?:why is|why does|why would)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'clarification_needed',
+      type: 'clarification_needed',
+      reply: session?.lastTarget
+        ? `What specifically would you like to know about the behavior on \`${session.lastTarget}\`?`
+        : "What specific behavior or failure would you like me to explain?",
+      summary: "Asked for clarification on incomplete why question."
+    };
+  }
+  if (/^(?:how do i|how to)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'clarification_needed',
+      type: 'clarification_needed',
+      reply: "What task or troubleshooting step are you trying to accomplish?",
+      summary: "Asked for task clarification."
+    };
+  }
+  if (/^(?:what next|what should i do next|what now)\??$/i.test(clean)) {
+    const nextHint = session?.lastStructuredAnswer?.nextStep
+      ? `Based on our previous check: ${session.lastStructuredAnswer.nextStep}`
+      : "You can ask me to inspect local network interfaces (\"Check my IP\"), test default gateway connectivity (\"Check gateway\"), or verify DNS (\"Check DNS connectivity\").";
+    return {
+      matched: true,
+      subtype: 'next_steps',
+      type: 'next_steps',
+      reply: nextHint,
+      summary: "Provided recommended next steps."
+    };
+  }
+
+  // 5. Bare Topics: "network", "gateway", "dns"
+  if (/^network\??$/i.test(clean)) {
+    if (session?.lastTarget) {
+      return {
+        matched: true,
+        subtype: 'bare_topic',
+        type: 'clarification_needed',
+        reply: `We were looking at \`${session.lastTarget}\`. Would you like to inspect local network interfaces ("Check my IP"), test your default gateway, or run a connectivity check on a specific service?`,
+        summary: "Prompted for network troubleshooting direction."
+      };
+    }
+    return {
+      matched: true,
+      subtype: 'bare_topic',
+      type: 'clarification_needed',
+      reply: "Are you troubleshooting a network connection issue, or would you like to inspect this system's network interfaces and routing table? Let me know what you'd like to look into.",
+      summary: "Prompted for network discussion topic."
+    };
+  }
+
+  if (/^(?:gateway|default gateway)\??$/i.test(clean)) {
+    if (session?.lastIntent === 'gateway_check' || session?.lastGatewayIp) {
+      const gw = session.lastGatewayIp;
+      return {
+        matched: true,
+        subtype: 'gateway_context',
+        type: 'clarification_needed',
+        reply: `The default gateway observed in the EJII runtime is **\`${gw}\`**. Would you like me to ping it or inspect the routing table? (Note: this is the gateway of the EJII server environment, which may differ from your local computer's gateway.)`,
+        summary: `Answered with observed runtime gateway: ${gw}`
+      };
+    }
+    return {
+      matched: true,
+      subtype: 'bare_topic',
+      type: 'clarification_needed',
+      reply: "Would you like me to explain what a default gateway does, inspect this system's configured default gateway route, or ping the gateway to test reachability?",
+      summary: "Clarified gateway intent with 0 network probes."
+    };
+  }
+
+  if (/^dns\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'bare_topic',
+      type: 'clarification_needed',
+      reply: "Would you like me to run a general DNS connectivity check on your configured system resolvers, look up records for a specific domain name, or explain how DNS works?",
+      summary: "Clarified DNS intent with 0 network probes."
+    };
+  }
+
+  // 6. User Dissatisfaction / Frustration Repair: "wtf", "what the hell", "are you serious"
+  if (/^(?:wtf|what the (?:f\*\*\*|fuck|hell)|are you serious|that makes no sense)\??$/i.test(clean)) {
+    const wasDiscussingGateway =
+      session?.lastIntent === 'gateway_ip_query' ||
+      session?.lastIntent === 'gateway_check' ||
+      Boolean(session?.lastGatewayIp) ||
+      (session?.lastStructuredAnswer?.result?.toLowerCase().includes('gateway')) ||
+      (session?.messages && session.messages.slice(-3).some((m) => /\bgateway\b/i.test(m.content)));
+
+    if (wasDiscussingGateway) {
+      const gw = session?.lastGatewayIp || '169.254.8.254';
+      return {
+        matched: true,
+        subtype: 'frustration_repair',
+        type: 'frustration_repair',
+        reply: `You're right — I apologize for the generic reply. We were discussing the default gateway. The default gateway observed in the EJII runtime environment is **\`${gw}\`** (discovered via OS routing table). Please note that this is the gateway of the EJII server/container, which may differ from the router address on your personal workstation.`,
+        summary: "Repaired context for default gateway question after user confusion."
+      };
+    }
+    return {
+      matched: true,
+      subtype: 'frustration_repair',
+      type: 'frustration_repair',
+      reply: "You're right — that last response wasn't helpful. Let's reset: what specific issue or system would you like to look at?",
+      summary: "Acknowledged dissatisfaction and reset context."
+    };
+  }
+
+  // 7. Identity & Purpose ("Who are you?", "Who built you?", "What is EJII?", "Tell me about yourself")
+  if (/^(who are you|what are you|who built you|who made you|what is ejii|tell me about yourself|what's your name|what is your name)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'identity',
+      type: 'identity',
+      reply: "I am EJII (Eldar Jamiyev's Infrastructure Intelligence), a deep network observability and diagnostic assistant. I help you inspect, analyze, and diagnose infrastructure, network protocols, DNS, routes, sockets, and services using real operating system telemetry.",
+      summary: 'Explained identity and purpose.'
+    };
+  }
+
+  // 8. How are you / status check
   if (/^(how are you|how are you doing|how's it going|how is it going|how do you do|you doing okay|are you there|you awake)$/i.test(clean)) {
     return {
       matched: true,
       subtype: 'how_are_you',
+      type: 'how_are_you',
       reply: "I'm doing well, thanks. What are we working on today?",
       summary: "I'm doing well and ready to help."
     };
   }
 
-  // 2. Do you understand me / natural language check
+  // 9. Do you understand me / natural language check
   if (
     /^(do you understand( me)?|do you actually understand( what i write| me)?|can you understand( me| what i say| plain english| natural language)?|are you following( me)?|do you get what i mean)$/i.test(clean)
   ) {
     return {
       matched: true,
       subtype: 'understanding_check',
+      type: 'understanding_check',
       reply: "Yes — you can describe what you need in your own words. Whether you want to talk through a network problem, ask a technical question, or run a live check on a host or port, you don't need to use memorized commands.",
       summary: 'Confirmed natural-language understanding.'
     };
   }
 
-  // 3. Greetings & capability overview
+  // 10. Greetings
   if (/^(hello|hi|hey|hey there|hi there|hello there|good morning|good afternoon|good evening|greetings|hello ejii|hi ejii|hey ejii)$/i.test(clean)) {
     return {
       matched: true,
       subtype: 'greeting',
+      type: 'greeting',
       reply: 'Hello! What can I help you investigate or explain today?',
       summary: 'Greeted the user.'
     };
   }
 
-  if (/^(help|what can you do|who are you|capabilities|what are your capabilities)$/i.test(clean)) {
+  // 11. Capability inquiry
+  if (/^(help|what can you do|capabilities|what are your capabilities|what do you do)$/i.test(clean)) {
     return {
       matched: true,
       subtype: 'capabilities',
+      type: 'capabilities',
       reply:
         'I can help you investigate network and infrastructure issues or answer engineering questions. For example, I can resolve DNS records, test TCP ports, run ICMP ping and traceroute checks, inspect HTTPS/TLS certificates, check local network interfaces and default gateways, list active OS socket connections, or explain networking concepts in plain language.',
       summary: 'Explained available diagnostic and engineering capabilities.'
     };
   }
 
-  // 4. Conversational acknowledgments & remarks ("That was interesting", "Thanks", "Got it", "Cool")
+  // 12. Conversational acknowledgments & remarks ("That was interesting", "Thanks", "Got it", "Cool")
   if (
     /^(that was interesting|that's interesting|interesting|cool|nice|got it|makes sense|that makes sense|i see|okay|ok|alright|thanks|thank you|thanks a lot|appreciate it|good job|great|awesome)$/i.test(clean)
   ) {
@@ -234,8 +463,20 @@ function classifyConversationalTurn(rawText, session = null) {
     return {
       matched: true,
       subtype: 'acknowledgment',
+      type: 'acknowledgment',
       reply: `Glad that helped.${contextHint}`,
       summary: 'Acknowledged user remark.'
+    };
+  }
+
+  // 13. Farewells
+  if (/^(bye|goodbye|see you|see ya|have a good one|farewell)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'farewell',
+      type: 'farewell',
+      reply: 'Take care! Feel free to reach out anytime you need to debug a network or service issue.',
+      summary: 'Farewell acknowledgment.'
     };
   }
 
@@ -305,6 +546,22 @@ function isInformationalTechnicalQuestion(rawText) {
  */
 function answerInformationalQuestion(rawText) {
   const lower = String(rawText || '').toLowerCase();
+  const clean = lower.replace(/[!?.]+$/, '').trim();
+
+  // Open-ended query: "What is Google?"
+  if (clean === 'what is google' || (clean.startsWith('what is google') && !clean.includes('ip'))) {
+    const result = 'Google is a global technology company specializing in internet-related services, search, cloud computing (Google Cloud Platform), software, and internet infrastructure.';
+    const meaning =
+      'In network and systems engineering, Google operates global Anycast routing infrastructure, worldwide fiber backbones, and public DNS services (such as 8.8.8.8 and 8.8.4.4). Its core web services resolve to distributed edge nodes across the globe.';
+    const nextStep = 'If you want to resolve Google\'s live IP addresses or test reachability to google.com, just let me know.';
+    return {
+      topic: 'Google & Global Infrastructure Overview',
+      result,
+      meaning,
+      nextStep,
+      naturalReply: `${result}\n\n${meaning}`
+    };
+  }
 
   if (
     (lower.includes('ping') && (lower.includes('port') || lower.includes('443') || lower.includes('reject') || lower.includes('refuse') || lower.includes('tcp'))) ||

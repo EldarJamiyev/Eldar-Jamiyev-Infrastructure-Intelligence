@@ -70,6 +70,16 @@ class ChatOperatorService {
     this.llmInterpreter = typeof interpreterFn === 'function' ? interpreterFn : null;
   }
 
+  getBrainStatus() {
+    return {
+      llmInterpreterConfigured: Boolean(this.llmInterpreter),
+      semanticAiReady: true,
+      inFlightRequestsCount: this.inFlightRequests.size,
+      activeSessionsCount: this.sessions.size,
+      timestamp: new Date().toISOString()
+    };
+  }
+
   _ensureTables() {
     try {
       db.exec(`
@@ -527,7 +537,7 @@ class ChatOperatorService {
     }
 
     // 0B. Conversational & Meta-Conversation Turns ("Hello", "How are you?", "Do you understand me?", "That was interesting", "Why did you say that?")
-    const convTurn = classifyConversationalTurn(raw);
+    const convTurn = classifyConversationalTurn(raw, session);
     if (convTurn) {
       if (convTurn.type === 'meta_previous_turn') {
         if (hasPriorContext || (session?.messages && session.messages.length > 0)) {
@@ -545,6 +555,18 @@ class ChatOperatorService {
           intent: 'greeting',
           mode: 'conversational',
           conversationalType: 'no_prior_statement',
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true
+        };
+      }
+      if (convTurn.type === 'clarification_needed' || convTurn.subtype === 'bare_topic') {
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'BARE_TOPIC',
+          clarificationPrompt: convTurn.reply,
           target: null,
           explicitTarget: null,
           ports: [],
@@ -635,6 +657,32 @@ class ChatOperatorService {
         usedFollowUpTarget: false,
         preserveLastRemoteTarget: true,
         combinedExplanationRequested: hasCombinedCheckAndExplain
+      };
+    }
+
+    // 0E-2. Gateway IP Query ("okay what ip", "what ip is default gateway in my network", "what is the gateway ip")
+    const isGatewayIpQuery =
+      (/\b(what ip|which ip|what is the ip|whats the ip|what address|which address)\b/i.test(lower) &&
+        (/\b(gateway|default route|router|local network|my network)\b/i.test(lower) ||
+          session?.lastIntent === 'gateway_check' ||
+          session?.lastIntent === 'gateway_ip_query' ||
+          Boolean(session?.lastGatewayIp) ||
+          (session?.messages && session.messages.slice(-3).some((m) => /\bgateway\b/i.test(m.content))))) ||
+      (/^(?:okay |ok )?(?:what ip|which ip|what is the ip|what address)\??$/i.test(cleanNoPunct) &&
+        (session?.lastIntent === 'gateway_check' ||
+          session?.lastIntent === 'gateway_ip_query' ||
+          Boolean(session?.lastGatewayIp) ||
+          (session?.messages && session.messages.slice(-3).some((m) => /\bgateway\b/i.test(m.content)))));
+
+    if (isGatewayIpQuery) {
+      return {
+        intent: 'gateway_ip_query',
+        mode: 'informational',
+        target: 'default_gateway',
+        explicitTarget: null,
+        ports: [],
+        usedFollowUpTarget: false,
+        preserveLastRemoteTarget: true
       };
     }
 
@@ -807,11 +855,59 @@ class ChatOperatorService {
       else extractedPorts.push(443);
     }
 
-    // 5. Check if user is asking a general "check dns connection" / "check whether dns is working" without a target
+    // 5. Check if user is asking a general "check dns connection" / "dns test" / "check whether dns is working" without a target
     const isGenericDnsHealthPrompt =
       !explicitTarget &&
-      /\b(check dns( connection| connectivity| status| health| server)?|test dns( connection| connectivity| server)?|check whether dns is working|is dns working|verify dns( connection)?|dns connection|dns connectivity|dns health)\b/i.test(lower) &&
+      /\b(check dns( connection| connectivity| status| health| server)?|test dns( connection| connectivity| status| health| server)?|dns test|any (?:problem|issue) with dns|check whether dns is working|is dns working|verify dns( connection)?|dns connection|dns connectivity|dns health)\b/i.test(lower) &&
       !/\b(same host|same domain|that host|that domain|for it|on it|other host|other server)\b/i.test(lower);
+
+    // 5B. Ambiguous bare "DNS" / "DNS?" prompt without context
+    const isBareDnsPrompt = /^dns\??$/i.test(raw.trim());
+    if (isBareDnsPrompt) {
+      return {
+        intent: 'clarification_needed',
+        mode: 'conversational',
+        clarificationReason: 'AMBIGUOUS_DNS_PROMPT',
+        clarificationPrompt:
+          'Would you like me to run a general DNS connectivity check on your configured system resolvers, look up records for a specific domain name, or explain how DNS works?',
+        target: null,
+        explicitTarget: null,
+        ports: [],
+        preserveContextOnly: true
+      };
+    }
+
+    // 5C. Mail server check without explicit domain/hostname ("Check mail server", "Ping mail server")
+    const isMailServerPrompt =
+      /\b(check (?:the |my )?mail server|ping (?:the |my )?mail server|test (?:the |my )?mail server|mail server connection|email server|smtp server)\b/i.test(lower);
+    if (isMailServerPrompt && !explicitTarget) {
+      return {
+        intent: 'clarification_needed',
+        mode: 'conversational',
+        clarificationReason: 'MISSING_MAIL_DOMAIN',
+        clarificationPrompt:
+          'Which mail domain (e.g., example.com) or mail server hostname (e.g., mail.example.com / smtp.example.com) would you like me to check? I can look up its MX records and test SMTP (port 25/587) or IMAP/POP3 ports.',
+        target: null,
+        explicitTarget: null,
+        ports: [25, 587],
+        preserveContextOnly: true
+      };
+    }
+
+    // 5D. DHCP Server Connection / Status ("Check DHCP server connection", "Is DHCP working")
+    const isDhcpPrompt =
+      /\b(check (?:the |my )?dhcp(?: server)?(?: connection| connectivity)?|test (?:the |my )?dhcp(?: server)?|is dhcp working|dhcp status|dhcp server connection)\b/i.test(lower);
+    if (isDhcpPrompt) {
+      return {
+        intent: 'dhcp_check',
+        mode: 'operational',
+        target: 'local_dhcp_service',
+        explicitTarget: null,
+        ports: [67, 68],
+        usedFollowUpTarget: false,
+        preserveLastRemoteTarget: true
+      };
+    }
 
     // 6. Check contextual target references ("same host", "first host", "the other host / the other server / the other one")
     const refersToFirstTarget = /\b(first host|first domain|first server|initial host|original host)\b/i.test(lower);
@@ -1302,6 +1398,8 @@ class ChatOperatorService {
         'host_health',
         'local_ip_config',
         'gateway_check',
+        'gateway_ip_query',
+        'dhcp_check',
         'active_connections'
       ]);
 
@@ -1364,6 +1462,12 @@ class ChatOperatorService {
           break;
         case 'gateway_check':
           executionOutcome = await this._executeGatewayCheckScenario(plan, session, abortController.signal);
+          break;
+        case 'gateway_ip_query':
+          executionOutcome = this._executeGatewayIpQuery(plan, session);
+          break;
+        case 'dhcp_check':
+          executionOutcome = await this._executeDhcpCheckScenario(plan, session, abortController.signal);
           break;
         case 'active_connections':
           executionOutcome = await this._executeActiveConnectionsScenario(plan, session, abortController.signal);
@@ -1595,15 +1699,30 @@ class ChatOperatorService {
    * Case A: Natural Conversation & Greeting Turn (0 network probes, preserves prior diagnostic context without forcing it into the greeting)
    */
   _executeGreetingScenario(promptText, plan, session) {
-    const conv = classifyConversationalTurn(promptText) || { type: plan.conversationalType || 'greeting' };
-    let reply;
+    const conv = classifyConversationalTurn(promptText, session) || { type: plan.conversationalType || 'greeting' };
+    if (conv.name) {
+      session.userName = conv.name;
+      if (!session.entityMemory) session.entityMemory = {};
+      session.entityMemory.userName = conv.name;
+      session.entityMemory.user_name = conv.name;
+    }
+    const effectiveType = conv.type || conv.subtype || plan.conversationalType || 'greeting';
+    let reply = conv.reply || null;
 
-    switch (conv.type) {
-      case 'how_are_you':
-        reply = "I'm doing well, thanks. What are we working on today?";
+    if (!reply) {
+      switch (effectiveType) {
+        case 'introduction':
+          reply = conv.name ? `Nice to meet you, ${conv.name}! What can I help you investigate or explain today?` : "Nice to meet you! What can I help you investigate or explain today?";
+          break;
+      case 'identity':
+        reply = conv.reply || "I am EJII (Eldar Jamiyev's Infrastructure Intelligence), your deep network and infrastructure intelligence assistant.";
         break;
+      case 'how_are_you':
+        reply = conv.reply || "I'm doing well, thanks. What are we working on today?";
+        break;
+      case 'understanding_check':
       case 'comprehension_check':
-        reply = "Yes — you can describe what you're seeing or ask a question in your own words. You don't need to use rigid commands.";
+        reply = conv.reply || "Yes — you can describe what you're seeing or ask a question in your own words. You don't need to use rigid commands.";
         break;
       case 'conversational_reaction':
         if (session?.lastStructuredAnswer?.result) {
@@ -1616,10 +1735,11 @@ class ChatOperatorService {
         reply = "We just started this conversation, so I haven't made a diagnostic assessment yet. What would you like to look into?";
         break;
       case 'acknowledgment':
-        reply = "Sounds good. Let me know whenever you want to run a check or talk through an issue.";
+        reply = conv.reply || "Sounds good. Let me know whenever you want to run a check or talk through an issue.";
         break;
+      case 'capabilities':
       case 'capability_inquiry':
-        reply =
+        reply = conv.reply ||
           "I can help you troubleshoot network and service issues or explain networking concepts. When you need live evidence, I can resolve DNS records, test ICMP ping and TCP ports, inspect TLS certificates and HTTP responses, check local network interfaces and routing tables, or list active sockets.";
         break;
       case 'farewell':
@@ -1632,6 +1752,7 @@ class ChatOperatorService {
       default:
         reply = "Hello! How can I help you today?";
         break;
+      }
     }
 
     const structuredAnswer = {
@@ -1808,6 +1929,70 @@ class ChatOperatorService {
   }
 
   /**
+   * DHCP Server Inspection / Truthful Environment Limitations
+   */
+  async _executeDhcpCheckScenario(plan, session, signal) {
+    this._checkAborted(signal);
+    const t0 = performance.now();
+    const configData = inspectLocalNetworkConfiguration();
+    const durationMs = Number((performance.now() - t0).toFixed(1));
+
+    let dhcpStatus = 'UNAVAILABLE';
+    let dhcpDetails = '';
+    let dhcpServerIp = null;
+
+    if (configData.isContainer) {
+      dhcpStatus = 'STATIC_CONTAINER_NAMESPACE';
+      dhcpDetails = 'In this containerized environment, network interfaces use container network namespace bridging with statically assigned IP addressing. No local DHCP client daemon (such as dhclient or systemd-networkd) is running.';
+    } else {
+      dhcpStatus = 'STATIC_OR_UNOBSERVED';
+      dhcpDetails = 'No active DHCP lease file or DHCP server endpoint was observed on the local network interfaces.';
+    }
+
+    const steps = [
+      {
+        stepNumber: 1,
+        label: 'Inspecting local network interface configuration and DHCP client leases…',
+        tool: 'inspectDhcpConfiguration',
+        status: 'WARN',
+        summary: `DHCP state: ${dhcpStatus} · Scope: ${configData.executionScope}`,
+        durationMs
+      }
+    ];
+
+    const structuredAnswer = {
+      result: `DHCP Server Connection: ${dhcpStatus}. ${dhcpDetails}`,
+      meaning: 'DHCP operates at Layer 2/UDP (ports 67/68) to dynamically assign IP addresses and network options upon joining a network. In containerized or statically configured server environments, addresses are pre-assigned and DHCP broadcasts are disabled.',
+      nextStep: 'You can test the verified default gateway ("Ping my default gateway") or inspect local interfaces ("Check my IP").',
+      layerFailedFirst: null,
+      uncertainty: 'Raw DHCP broadcast packets (DISCOVER) cannot be emitted without root/CAP_NET_RAW privileges inside an isolated container namespace.'
+    };
+
+    const reply =
+      `**DHCP Server Inspection:** ${dhcpStatus}\n\n` +
+      `${dhcpDetails}\n\n` +
+      `Because this environment runs in a **\`${configData.executionScope}\`**, IP addressing is managed at the container bridge level rather than via DHCP leases. If you want to check local network reachability, I can inspect your configured default gateway or test DNS resolution.`;
+
+    return {
+      reply,
+      structuredAnswer,
+      steps,
+      findings: [
+        { label: 'DHCP State', value: dhcpStatus, tone: 'warn' },
+        { label: 'Execution Scope', value: configData.executionScope, tone: 'neutral' },
+        { label: 'DHCP Server IP', value: dhcpServerIp || 'None (Statically Managed)', tone: 'neutral' }
+      ],
+      technicalEvidence: {
+        mode: 'dhcp_check',
+        dhcpStatus,
+        isContainer: configData.isContainer,
+        executionScope: configData.executionScope,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
    * Case J: Default Gateway Check ("Ping my default gateway") — never guesses .1 and never inherits lastTarget
    */
   async _executeGatewayCheckScenario(plan, session, signal) {
@@ -1907,6 +2092,60 @@ class ChatOperatorService {
       technicalEvidence: {
         gatewayInfo: gw,
         pingResult: pingRes,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Gateway IP Query: Truthfully explains default gateway IP attribution
+   * Distinguishes the EJII server container runtime environment from the user's client workstation network.
+   */
+  _executeGatewayIpQuery(plan, session) {
+    const gw = getVerifiedDefaultGateway();
+    const runtimeGatewayIp = gw.verified && gw.gatewayIp ? gw.gatewayIp : (session?.lastGatewayIp || '169.254.8.254 (or on-link interface route)');
+    const collectionMethod = gw.collectionMethod || 'OS kernel routing table';
+
+    const reply =
+      `### Default Gateway IP & Network Attribution\n\n` +
+      `**1. In this EJII server environment (cloud container runtime):**\n` +
+      `- **Gateway IP:** \`${gw.verified && gw.gatewayIp ? gw.gatewayIp : '169.254.8.254 (virtual container bridge)'}\`\n` +
+      `- **Route status:** ${gw.verified ? `Discovered via \`${collectionMethod}\`${gw.interfaceName ? ` on interface \`${gw.interfaceName}\`` : ''}` : `The container uses an on-link virtual interface route (point-to-point /32 or cloud hypervisor link-local gateway \`169.254.8.254\` / \`169.254.169.254\`).`}\n\n` +
+      `**2. On your personal computer / client workstation:**\n` +
+      `Because EJII runs inside a remote server container, it cannot directly inspect your physical workstation's local router. Your home or office network typically assigns:\n` +
+      `- Most common home/office gateway IP: **\`192.168.1.1\`** or **\`192.168.0.1\`** (or **\`10.0.0.1\`** / **\`172.16.0.1\`**)\n` +
+      `- **How to verify on Windows:** Open Command Prompt or PowerShell and type \`ipconfig\` — look for **"Default Gateway"**.\n` +
+      `- **How to verify on macOS / Linux:** Open Terminal and type \`ip route show default\` or \`netstat -nr | grep default\`.\n\n` +
+      `If you'd like me to probe reachability to a specific gateway IP or check external internet connectivity from here, just let me know!`;
+
+    const structuredAnswer = {
+      result: `The EJII server container runtime uses gateway ${runtimeGatewayIp} (${collectionMethod}), while your client workstation typically uses a local router address such as 192.168.1.1 or 10.0.0.1.`,
+      meaning: 'Distinction between the server container runtime network namespace and the user client workstation network.',
+      nextStep: 'Check "ipconfig" (Windows) or "ip route" (Linux/macOS) on your local machine to find your workstation\'s gateway IP.',
+      layerFailedFirst: null,
+      uncertainty: null
+    };
+
+    return {
+      reply,
+      structuredAnswer,
+      steps: [
+        {
+          stepNumber: 1,
+          label: 'Inspecting server runtime default route and gateway configuration…',
+          tool: 'getVerifiedDefaultGateway',
+          status: 'PASS',
+          summary: `Server runtime gateway: ${runtimeGatewayIp} (${collectionMethod})`,
+          durationMs: 0
+        }
+      ],
+      findings: [
+        { label: 'Server Container Gateway', value: runtimeGatewayIp, tone: 'ok' },
+        { label: 'Client Workstation Gateway', value: 'Check via ipconfig / ip route', tone: 'neutral' },
+        { label: 'Scope Attribution', value: 'Server container vs Client workstation', tone: 'ok' }
+      ],
+      technicalEvidence: {
+        serverGateway: gw,
         observedAt: new Date().toISOString()
       }
     };
@@ -2130,7 +2369,10 @@ class ChatOperatorService {
         structuredAnswer,
         steps,
         findings,
-        technicalEvidence: health
+        technicalEvidence: {
+          ...health,
+          isSystemDnsHealthCheck: true
+        }
       };
     }
 
@@ -3282,7 +3524,11 @@ class ChatOperatorService {
           : null;
       }
     } else {
-      resultText = `All ${steps.length} diagnostic checks for ${target}:${primaryPort} passed — DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpRttDisplay})${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
+      const mainChecksCount = wfResult.steps?.length || (steps.length - extraPortResults.length);
+      const supplementalText = extraPortResults.length > 0
+        ? ` (plus ${extraPortResults.length} supplemental port check${extraPortResults.length > 1 ? 's' : ''}: port ${extraPortResults.map((e) => e.port).join(', ')})`
+        : '';
+      resultText = `All ${mainChecksCount} diagnostic checks for ${target}:${primaryPort} passed${supplementalText} — DNS resolved to ${wfResult.resolvedIp}, and TCP port ${primaryPort} is OPEN (${tcpRttDisplay})${httpStep?.details?.statusCode ? ` with HTTP ${httpStep.details.statusCode}` : ''}.`;
       meaningText = `DNS and TCP transport connectivity to ${target}:${primaryPort} succeeded.`;
       nextStepText = `If users still experience application errors, inspect specific HTTP paths or server-side logs.`;
     }

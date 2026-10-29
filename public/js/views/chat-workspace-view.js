@@ -92,11 +92,18 @@
     const stepsHtml = steps.length > 0 ? `
       <div class="ejii-step-list" aria-label="Executed diagnostic steps">
         ${steps.map((s) => {
-          const st = String(s.status || 'PASS').toUpperCase();
-          const isPass = st === 'PASS' || st === 'OK' || st === 'COMPLETED';
-          const isWarn = st === 'WARN' || st === 'DEGRADED';
-          const icon = isPass ? '✓' : (isWarn ? '!' : '✕');
-          const cls = isPass ? 'ejii-step-status-pass' : (isWarn ? 'ejii-step-status-warn' : 'ejii-step-status-fail');
+          const rawStatus = (s && s.status) ? String(s.status).toUpperCase() : null;
+          const isPass = rawStatus === 'PASS' || rawStatus === 'OK' || rawStatus === 'COMPLETED';
+          const isWarn = rawStatus === 'WARN' || rawStatus === 'DEGRADED';
+          const isFail = rawStatus === 'FAIL' || rawStatus === 'ERROR' || rawStatus === 'TIMEOUT';
+          const icon = isPass ? '✓' : (isWarn ? '!' : (isFail ? '✕' : '•'));
+          const cls = isPass
+            ? 'ejii-step-status-pass'
+            : (isWarn
+              ? 'ejii-step-status-warn'
+              : (isFail
+                ? 'ejii-step-status-fail'
+                : 'ejii-step-status-unknown'));
           const stepDur = typeof s.durationMs === 'number' && Number.isFinite(s.durationMs)
             ? `<span class="ejii-step-duration">${s.durationMs} ms</span>`
             : '';

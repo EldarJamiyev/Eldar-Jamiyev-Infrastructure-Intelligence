@@ -864,6 +864,20 @@ class AIModelOrchestrator {
     });
   }
 
+  getStatus() {
+    return {
+      preferredProvider: this.preferredProvider,
+      confidenceThreshold: this.confidenceThreshold,
+      localOnlyPolicy: this.localOnlyPolicy,
+      providerTelemetry: this.providerTelemetry,
+      providers: this.providers ? Object.keys(this.providers).reduce((acc, k) => {
+        const p = this.providers[k];
+        acc[k] = { name: p.name, model: p.model, available: Boolean(p.available) };
+        return acc;
+      }, {}) : {}
+    };
+  }
+
   /**
    * Independent Second-Opinion Verification for High-Impact Incidents:
    * Challenges the primary Bayesian hypothesis against observed wire/host evidence,
