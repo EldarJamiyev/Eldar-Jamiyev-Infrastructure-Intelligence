@@ -2431,6 +2431,8 @@ const emptyTargetPlan = (intent) => ({
       meaningText = 'All executed checks returned PASS. This supports normal connectivity for the tested layers, but does not guarantee that every application feature is healthy.';
       nextStepText = 'If users still experience slowness or intermittent errors, test the affected application endpoint or inspect its server-side logs.';
     }
+    const structuredAnswer = {
+      result: resultText,
       meaning: meaningText,
       nextStep: nextStepText,
       layerFailedFirst,
