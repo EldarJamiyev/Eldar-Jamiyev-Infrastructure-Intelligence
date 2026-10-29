@@ -429,20 +429,24 @@ class CrossLayerIncidentCorrelator {
     });
 
     // Step 3: Default gateway reachability and ARP resolution
-    const gwIp = netInfo.defaultGateway || '127.0.0.1';
+    const gwIp = netInfo.defaultGateway || null;
     steps.push({
       stepNumber: 2,
       layer: 'L2/L3 Default Gateway & ARP Resolution',
       status: gwIp ? 'PASS' : 'WARN',
-      summary: `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'Observed Gateway'})`,
-      details: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac, gatewayVendor: netInfo.gatewayVendor }
+      summary: gwIp
+        ? `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'Observed Gateway'})`
+        : 'Default gateway route (0.0.0.0/0) not exposed in local routing table',
+      details: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac || null, gatewayVendor: netInfo.gatewayVendor || null }
     });
     signals.push({
       domain: 'topology_blast_radius',
-      subject: `gateway:${gwIp}`,
-      claim: `Default gateway ${gwIp} present in active routing table`,
-      rawValue: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac },
-      normalizedValue: 'GATEWAY_OBSERVED',
+      subject: `gateway:${gwIp || 'unverified'}`,
+      claim: gwIp
+        ? `Default gateway ${gwIp} present in active routing table`
+        : 'Default gateway not exposed in active routing table',
+      rawValue: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac || null },
+      normalizedValue: gwIp ? 'GATEWAY_OBSERVED' : 'GATEWAY_UNVERIFIED',
       anomaly: false,
       collectionMethod: 'os_route_table',
       correlationGroup: 'gateway_l3'
@@ -462,8 +466,8 @@ class CrossLayerIncidentCorrelator {
       status: 'PASS',
       summary: lpmMatch && lpmMatch.matched
         ? `Longest-prefix match selected route ${lpmMatch.prefix}/${lpmMatch.prefixLen} via ${lpmMatch.nextHop}`
-        : `Default route 0.0.0.0/0 active via ${gwIp}`,
-      details: lpmMatch || { matched: true, prefix: '0.0.0.0', prefixLen: 0, nextHop: gwIp }
+        : (gwIp ? `Default route 0.0.0.0/0 active via ${gwIp}` : 'Local interface routing active'),
+      details: lpmMatch || { matched: Boolean(gwIp), prefix: '0.0.0.0', prefixLen: 0, nextHop: gwIp }
     });
 
     // Step 5: DNS Resolver reachability and RFC 1035 resolution (honoring pre-validated pinnedIp to prevent DNS rebinding)
@@ -472,7 +476,8 @@ class CrossLayerIncidentCorrelator {
     let dnsResult = null;
 
     if (pinnedIp && !isIpLiteral) {
-      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number' ? options.prevalidatedDnsLatencyMs : 1.0;
+      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number' ? options.prevalidatedDnsLatencyMs : null;
+      const latSuffix = latencyMs !== null ? `${latencyMs}ms, ` : '';
       dnsResult = {
         success: true,
         hostname,
@@ -486,16 +491,16 @@ class CrossLayerIncidentCorrelator {
         stepNumber: 4,
         layer: 'L7 DNS RFC 1035 Resolution',
         status: 'PASS',
-        summary: `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
+        summary: `Resolved & pinned ${hostname} -> ${targetIp} (${latSuffix}SSRF-validated)`,
         details: dnsResult
       });
       signals.push({
         domain: 'dns',
         subject: `dns:${hostname}`,
-        claim: `DNS resolved and pinned ${hostname} to ${targetIp} (${latencyMs}ms)`,
+        claim: `DNS resolved and pinned ${hostname} to ${targetIp}${latencyMs !== null ? ` (${latencyMs}ms)` : ''}`,
         rawValue: dnsResult,
         normalizedValue: `RESOLVED:${targetIp}`,
-        unit: 'ms',
+        unit: latencyMs !== null ? 'ms' : null,
         anomaly: false,
         collectionMethod: 'rfc1035_udp_dns_pinned',
         correlationGroup: 'dns_resolution'
@@ -513,13 +518,13 @@ class CrossLayerIncidentCorrelator {
           stepNumber: 4,
           layer: 'L7 DNS RFC 1035 Resolution',
           status: 'PASS',
-          summary: `Resolved ${hostname} -> ${targetIp} in ${dnsResult.latencyMs}ms`,
+          summary: `Resolved ${hostname} -> ${targetIp}${typeof dnsResult.latencyMs === 'number' ? ` in ${dnsResult.latencyMs}ms` : ''}`,
           details: dnsResult
         });
         signals.push({
           domain: 'dns',
           subject: `dns:${hostname}`,
-          claim: `DNS resolved ${hostname} to ${targetIp} (${dnsResult.latencyMs}ms)`,
+          claim: `DNS resolved ${hostname} to ${targetIp}${typeof dnsResult.latencyMs === 'number' ? ` (${dnsResult.latencyMs}ms)` : ''}`,
           rawValue: dnsResult,
           normalizedValue: `RESOLVED:${targetIp}`,
           unit: 'ms',
@@ -552,7 +557,7 @@ class CrossLayerIncidentCorrelator {
         layer: 'L7 DNS RFC 1035 Resolution',
         status: 'PASS',
         summary: `Target ${hostname} is a direct IP/loopback literal (${targetIp}); DNS lookup bypassed`,
-        details: { targetIp, bypassed: true }
+        details: { targetIp, bypassed: true, durationMs: null }
       });
       signals.push({
         domain: 'dns',
@@ -580,7 +585,7 @@ class CrossLayerIncidentCorrelator {
         layer: 'L3 ICMP Reachability Probe',
         status: icmpRes && icmpRes.alive ? 'PASS' : 'WARN',
         summary: icmpRes && icmpRes.alive
-          ? `ICMP Echo reply from ${targetIp} in ${icmpRes.avgRttMs}ms`
+          ? `ICMP Echo reply from ${targetIp}${typeof icmpRes.avgRttMs === 'number' ? ` in ${icmpRes.avgRttMs}ms` : ''}`
           : `ICMP Echo unanswered by ${targetIp} (may be filtered by host firewall)`,
         details: icmpRes
       });
@@ -588,7 +593,7 @@ class CrossLayerIncidentCorrelator {
         domain: 'icmp_pmtu',
         subject: `ip:${targetIp}`,
         claim: icmpRes && icmpRes.alive
-          ? `ICMP Echo reply received from ${targetIp} (${icmpRes.avgRttMs}ms)`
+          ? `ICMP Echo reply received from ${targetIp}${typeof icmpRes.avgRttMs === 'number' ? ` (${icmpRes.avgRttMs}ms)` : ''}`
           : `No ICMP Echo reply from ${targetIp}`,
         rawValue: icmpRes,
         normalizedValue: icmpRes && icmpRes.alive ? 'ICMP_ALIVE' : 'ICMP_UNANSWERED',
@@ -599,13 +604,15 @@ class CrossLayerIncidentCorrelator {
       });
 
       const tcpOpen = tcpRes && tcpRes.status === 'OPEN';
-      const tcpHandshakeRttMs = tcpRes?.connectLatencyMs ?? tcpRes?.latencyMs ?? 0;
+      const tcpHandshakeRttMs = typeof tcpRes?.connectLatencyMs === 'number'
+        ? tcpRes.connectLatencyMs
+        : (typeof tcpRes?.latencyMs === 'number' ? tcpRes.latencyMs : null);
       steps.push({
         stepNumber: 6,
         layer: 'L4 TCP 3-Way Handshake & Kernel Socket Audit',
         status: tcpOpen ? 'PASS' : 'FAIL',
         summary: tcpOpen
-          ? `TCP port ${targetIp}:${port} is OPEN (Handshake RTT: ${tcpHandshakeRttMs}ms)`
+          ? `TCP port ${targetIp}:${port} is OPEN${tcpHandshakeRttMs !== null ? ` (Handshake RTT: ${tcpHandshakeRttMs}ms)` : ''}`
           : `TCP port ${targetIp}:${port} is ${tcpRes?.status || 'UNREACHABLE'} (${tcpRes?.errorCode || tcpRes?.error || 'Connection failed'})`,
         details: tcpRes
       });
@@ -624,12 +631,13 @@ class CrossLayerIncidentCorrelator {
       // Step 8 & 9: TLS & HTTP inspection if TCP port is open
       if (tcpOpen && (port === 443 || port === 8443)) {
         const tlsRes = await inspectTls(hostname, port, 2500).catch((e) => ({ valid: false, error: e.message }));
+        const cipherStr = tlsRes?.cipher?.name || (typeof tlsRes?.cipher === 'string' ? tlsRes.cipher : 'TLS Cipher');
         steps.push({
           stepNumber: 7,
           layer: 'L6 TLS Handshake, SNI & X.509 Chain',
-          status: tlsRes && tlsRes.valid ? 'PASS' : 'WARN',
+          status: tlsRes && (tlsRes.valid || tlsRes.success) ? 'PASS' : 'WARN',
           summary: tlsRes && tlsRes.protocol
-            ? `TLS ${tlsRes.protocol} (${tlsRes.cipher}) negotiated`
+            ? `TLS ${tlsRes.protocol} (${cipherStr}) negotiated`
             : `TLS handshake warning: ${tlsRes?.error || 'Unverified'}`,
           details: tlsRes
         });
@@ -637,12 +645,15 @@ class CrossLayerIncidentCorrelator {
       if (tcpOpen && (port === 80 || port === 443 || port === 3000 || port === 8443)) {
         const proto = (port === 443 || port === 8443) ? 'https' : 'http';
         const httpRes = await probeHttp(`${proto}://${hostname}:${port}/`, 'GET', 2500).catch((e) => ({ success: false, error: e.message }));
+        const ttfbVal = typeof httpRes?.waterfall?.ttfbMs === 'number'
+          ? httpRes.waterfall.ttfbMs
+          : (typeof httpRes?.ttfbMs === 'number' ? httpRes.ttfbMs : null);
         steps.push({
           stepNumber: 8,
           layer: 'L7 HTTP Application Response & TTFB',
           status: httpRes && httpRes.statusCode ? 'PASS' : 'WARN',
           summary: httpRes && httpRes.statusCode
-            ? `HTTP ${httpRes.statusCode} received (TTFB: ${httpRes.ttfbMs}ms)`
+            ? `HTTP ${httpRes.statusCode} received${ttfbVal !== null ? ` (TTFB: ${ttfbVal}ms)` : ''}`
             : `HTTP probe note: ${httpRes?.error || 'No HTTP response'}`,
           details: httpRes
         });

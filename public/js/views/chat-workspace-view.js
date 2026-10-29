@@ -84,7 +84,10 @@
     const steps = Array.isArray(meta.steps) ? meta.steps : [];
     const findings = Array.isArray(meta.findings) ? meta.findings : [];
     const evidence = meta.technicalEvidence || null;
-    const durationLabel = typeof meta.totalDurationMs === 'number' ? `${meta.totalDurationMs} ms` : '';
+    const hasDiagnosticActivity = steps.length > 0 || Boolean(meta.connectionTable) || Boolean(meta.interfaceTable);
+    const durationLabel = hasDiagnosticActivity && typeof meta.totalDurationMs === 'number' && Number.isFinite(meta.totalDurationMs)
+      ? `${meta.totalDurationMs} ms`
+      : '';
 
     const stepsHtml = steps.length > 0 ? `
       <div class="ejii-step-list" aria-label="Executed diagnostic steps">
@@ -94,13 +97,16 @@
           const isWarn = st === 'WARN' || st === 'DEGRADED';
           const icon = isPass ? '✓' : (isWarn ? '!' : '✕');
           const cls = isPass ? 'ejii-step-status-pass' : (isWarn ? 'ejii-step-status-warn' : 'ejii-step-status-fail');
+          const stepDur = typeof s.durationMs === 'number' && Number.isFinite(s.durationMs)
+            ? `<span class="ejii-step-duration">${s.durationMs} ms</span>`
+            : '';
           return `
             <div class="ejii-step-item">
               <div class="ejii-step-left">
                 <span class="ejii-step-status-icon ${cls}" aria-hidden="true">${icon}</span>
                 <span>${esc(s.summary || s.label)}</span>
               </div>
-              ${typeof s.durationMs === 'number' ? `<span class="ejii-step-duration">${s.durationMs} ms</span>` : ''}
+              ${stepDur}
             </div>
           `;
         }).join('')}
@@ -160,7 +166,7 @@
       </div>
     ` : '';
 
-    const evidenceHtml = evidence ? `
+    const evidenceHtml = (evidence && (hasDiagnosticActivity || findings.length > 0)) ? `
       <details class="ejii-evidence-details">
         <summary>Technical details &amp; raw probe output</summary>
         <pre class="ejii-evidence-pre">${esc(JSON.stringify(evidence, null, 2))}</pre>

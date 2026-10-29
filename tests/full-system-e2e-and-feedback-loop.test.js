@@ -328,7 +328,8 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
       'routes-network.js',
       'routes-observability.js',
       'routes-rca.js',
-      'routes-tools.js'
+      'routes-tools.js',
+      'routes-v6-fabric.js'
     ];
 
     const apiDir = path.join(__dirname, '..', 'src', 'api');
@@ -366,6 +367,7 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
     assert.ok(serverCode.includes("require('./api/routes-rca')"), 'server.js must mount routes-rca');
     assert.ok(serverCode.includes("require('./api/routes-observability')"), 'server.js must mount routes-observability');
     assert.ok(serverCode.includes("require('./api/routes-learning')"), 'server.js must mount routes-learning');
+    assert.ok(serverCode.includes("require('./api/routes-v6-fabric')"), 'server.js must mount routes-v6-fabric');
 
     console.log('  ✓ API route hygiene and complete architectural mounting verified.');
 

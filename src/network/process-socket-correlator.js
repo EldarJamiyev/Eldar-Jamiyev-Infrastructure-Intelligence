@@ -487,7 +487,8 @@ class ProcessSocketCorrelator {
                 });
               }
             }
-            if (sockets.length > 0) {
+            if (sockets.length > 0 || (!err && stdout && stdout.includes('Netid'))) {
+              this.lastCollectionSucceeded = true;
               this.lastPermissionRestricted = typeof process.getuid === 'function' && process.getuid() !== 0 && !sockets.some(s => s.pid > 0 && s.pid !== process.pid);
               return resolve(sockets);
             }
@@ -495,21 +496,27 @@ class ProcessSocketCorrelator {
 
           // Fallback to direct Linux /proc/net/{tcp,tcp6,udp} kernel socket table parsing
           try {
-            const procSockets = this._parseLinuxProcNetSockets();
-            if (procSockets.length > 0) {
+            const procRes = this._parseLinuxProcNetSockets();
+            if (procRes.readable) {
+              this.lastCollectionSucceeded = true;
               this.lastCollectionMethod = '/proc/net/tcp+/proc/net/udp';
-              this.lastProcessAttributionAvailable = procSockets.some(s => s.pid > 0);
+              this.lastProcessAttributionAvailable = procRes.sockets.some(s => s.pid > 0);
               this.lastPermissionRestricted = typeof process.getuid === 'function' && process.getuid() !== 0;
-              return resolve(procSockets);
+              return resolve(procRes.sockets);
+            } else {
+              this.lastCollectionSucceeded = false;
+              this.lastCollectorError = procRes.error || (err && err.message) || 'OS socket tables (/proc/net/tcp and ss/netstat) are unavailable or unreadable';
             }
           } catch (procErr) {
+            this.lastCollectionSucceeded = false;
             this.lastCollectorError = procErr.message;
           }
 
-          if (err) {
+          if (err && !this.lastCollectorError) {
+            this.lastCollectionSucceeded = false;
             this.lastCollectorError = err.message || 'Unable to query OS socket table';
           }
-          this.lastCollectionMethod = this.lastCollectionMethod || '/proc/net/tcp';
+          this.lastCollectionMethod = this.lastCollectionMethod || 'unavailable';
           resolve(sockets);
         });
       }
@@ -524,6 +531,7 @@ class ProcessSocketCorrelator {
     const path = require('path');
     const results = [];
     const inodeToPid = new Map();
+    let readableFilesCount = 0;
 
     // Map socket:[inode] from /proc/<pid>/fd for accessible processes
     try {
@@ -581,6 +589,7 @@ class ProcessSocketCorrelator {
     const parseProcFile = (filePath, protocol) => {
       if (!fs.existsSync(filePath)) return;
       const content = fs.readFileSync(filePath, 'utf8');
+      readableFilesCount++;
       const lines = content.trim().split('\n').slice(1);
       for (const line of lines) {
         const cols = line.trim().split(/\s+/);
@@ -610,21 +619,115 @@ class ProcessSocketCorrelator {
 
     parseProcFile('/proc/net/tcp', 'TCP');
     parseProcFile('/proc/net/udp', 'UDP');
-    return results;
+    return {
+      readable: readableFilesCount > 0,
+      sockets: results,
+      error: readableFilesCount === 0 ? 'Neither /proc/net/tcp nor /proc/net/udp exists or is readable' : null
+    };
   }
 
   /**
-   * Collect a rich, truthful inventory of active connections and destination endpoints with full scope/permission metadata
+   * Collect a rich, truthful inventory of active connections and destination endpoints with full scope/permission metadata.
+   * Never fabricates sockets and never presents a socket collection failure as a verified empty inventory.
    */
-  async collectActiveConnectionsInventory(filter = {}) {
+  async collectActiveConnectionsInventory(filter = {}, options = {}) {
     const fs = require('fs');
-    await this.refresh();
-    const filtered = await this.getCorrelatedEndpoints(filter);
     const isContainer = Boolean(
       fs.existsSync('/.dockerenv') ||
       fs.existsSync('/run/.containerenv') ||
       (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
     );
+    const collectionScope = isContainer ? 'container_network_namespace' : 'host_network_namespace';
+    const scopeExplanation = isContainer
+      ? 'Collected from the EJII container network namespace. Only sockets and processes visible inside this container namespace are listed; EJII does not claim visibility into a remote client workstation or outside its container namespace.'
+      : 'Collected from the local host OS network stack.';
+
+    if (options.forceFailureReason) {
+      return {
+        success: false,
+        collectionStatus: 'collector_failed',
+        connections: [],
+        totalCount: null,
+        establishedCount: null,
+        listeningCount: null,
+        externalDestinations: [],
+        collectionMethod: 'unavailable',
+        processAttributionAvailable: false,
+        permissionRestricted: true,
+        isContainer,
+        collectionScope,
+        scopeExplanation,
+        collectorError: String(options.forceFailureReason),
+        observedAt: new Date().toISOString()
+      };
+    }
+
+    if (typeof options.collectorOverrideFn === 'function') {
+      try {
+        const customRes = await options.collectorOverrideFn(filter);
+        if (customRes && customRes.success === false) {
+          return {
+            success: false,
+            collectionStatus: 'collector_failed',
+            connections: [],
+            totalCount: null,
+            establishedCount: null,
+            listeningCount: null,
+            externalDestinations: [],
+            collectionMethod: customRes.collectionMethod || 'unavailable',
+            processAttributionAvailable: false,
+            permissionRestricted: true,
+            isContainer,
+            collectionScope,
+            scopeExplanation,
+            collectorError: customRes.collectorError || 'Socket collector failed',
+            observedAt: new Date().toISOString()
+          };
+        }
+      } catch (overrideErr) {
+        return {
+          success: false,
+          collectionStatus: 'collector_failed',
+          connections: [],
+          totalCount: null,
+          establishedCount: null,
+          listeningCount: null,
+          externalDestinations: [],
+          collectionMethod: 'unavailable',
+          processAttributionAvailable: false,
+          permissionRestricted: true,
+          isContainer,
+          collectionScope,
+          scopeExplanation,
+          collectorError: overrideErr.message || 'Socket collector threw an exception',
+          observedAt: new Date().toISOString()
+        };
+      }
+    }
+
+    await this.refresh();
+    const filtered = await this.getCorrelatedEndpoints(filter);
+    const collectionSucceeded = this.lastCollectionSucceeded !== false && !this.lastCollectorError;
+
+    if (!collectionSucceeded && filtered.length === 0) {
+      return {
+        success: false,
+        collectionStatus: 'collector_failed',
+        connections: [],
+        totalCount: null,
+        establishedCount: null,
+        listeningCount: null,
+        externalDestinations: [],
+        collectionMethod: this.lastCollectionMethod || 'unavailable',
+        processAttributionAvailable: false,
+        permissionRestricted: Boolean(this.lastPermissionRestricted),
+        isContainer,
+        collectionScope,
+        scopeExplanation,
+        collectorError: this.lastCollectorError || 'Socket table collection failed; unable to verify active connections.',
+        observedAt: new Date().toISOString()
+      };
+    }
 
     const rows = filtered.map((ep) => ({
       processName: ep.processName || (ep.pid > 0 ? `PID ${ep.pid}` : 'Unattributed (OS Permission Scope)'),
@@ -645,7 +748,8 @@ class ProcessSocketCorrelator {
     }));
 
     return {
-      success: !this.lastCollectorError || rows.length > 0,
+      success: true,
+      collectionStatus: 'verified',
       connections: rows,
       totalCount: rows.length,
       establishedCount: rows.filter((r) => r.state === 'ESTABLISHED').length,
@@ -661,10 +765,8 @@ class ProcessSocketCorrelator {
       processAttributionAvailable: Boolean(this.lastProcessAttributionAvailable),
       permissionRestricted: Boolean(this.lastPermissionRestricted),
       isContainer,
-      collectionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
-      scopeExplanation: isContainer
-        ? 'Collected from the EJII container network namespace. Only sockets and processes visible inside this container namespace are listed.'
-        : 'Collected from the local host OS network stack.',
+      collectionScope,
+      scopeExplanation,
       collectorError: this.lastCollectorError || null,
       observedAt: new Date().toISOString()
     };

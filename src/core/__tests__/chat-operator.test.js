@@ -82,9 +82,10 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     assert.equal(okOutcome.success, true);
     assert.equal(okOutcome.data.intent, 'dns');
     assert.equal(okOutcome.data.target, 'localhost');
-    assert.ok(okOutcome.data.reply.includes('**Result:**'));
-    assert.ok(okOutcome.data.reply.includes('**Meaning:**'));
-    assert.ok(okOutcome.data.reply.includes('**Next step:**'));
+    assert.ok(okOutcome.data.structuredAnswer.result, 'Must populate structuredAnswer.result');
+    assert.ok(okOutcome.data.structuredAnswer.meaning, 'Must populate structuredAnswer.meaning');
+    assert.ok(okOutcome.data.structuredAnswer.nextStep, 'Must populate structuredAnswer.nextStep');
+    assert.ok(!okOutcome.data.reply.includes('**Result:**'), 'Natural reply must not force rigid **Result:** template headers');
     assert.ok(okOutcome.data.technicalEvidence.resolutionMethod, 'Must report resolutionMethod');
 
     const t0 = performance.now();
@@ -186,6 +187,7 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     assert.ok(okWeb.data.reply.includes('200'));
     assert.ok(!okWeb.data.reply.includes('undefined'), 'Must never contain undefined in user-facing output');
     assert.ok(!okWeb.data.reply.includes('[object Object]'), 'Must never contain [object Object] in user-facing output');
+    assert.equal(okWeb.data.technicalEvidence.dns.resolutionMethod, 'ip_literal_bypass', 'Literal IP website check must not claim a DNS query was performed');
 
     const redirectWeb = await chatOperatorService.processMessage({
       sessionId: 'TEST-CASE-H-WEB-2',
@@ -270,7 +272,7 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     assert.equal(noContextTurn.success, true);
     assert.equal(noContextTurn.data.intent, 'clarification_needed');
     assert.equal(noContextTurn.data.steps.length, 0, 'Must not run a probe on localhost when context is missing');
-    assert.ok(noContextTurn.data.reply.includes('Clarification Needed'));
+    assert.equal(noContextTurn.data.technicalEvidence.clarificationReason, 'MISSING_TARGET_CONTEXT');
 
     // Case O: Multi-Target Follow-up Ambiguity after Active Connections
     const multiSessionId = 'TEST-CASE-O-MULTI';
@@ -408,7 +410,6 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     const fullPersisted = chatOperatorService.getPersistedMessages(memorySessionId, 100, 0);
     assert.equal(fullPersisted.length, 44, 'SQLite must retain all 44 persisted messages');
 
-
     // RBAC & SSRF checks
     const remRes = await fetch(`${baseUrl}/api/v6/chat/message`, {
       method: 'POST',
@@ -475,5 +476,184 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     assert.equal(validBrRes.status, 200);
     const validBrBody = await validBrRes.json();
     assert.equal(validBrBody.data.modelFidelity, 'MATHEMATICAL_MODEL');
+  });
+
+  it('Evidence-Integrity Audit Items 1, 2, 4, 5: No 8.8.8.8 system DNS fallback, no 1.2ms fabricated timing, truthful loopback-only local IP, and truthful socket collector failure', async () => {
+    const { discoverSystemDnsConfiguration, getRealSystemDns } = require('../../protocols/dns-diag');
+    const { extractObservedTimingMs } = require('../chat/chat-operator-service');
+    const { inspectLocalNetworkConfiguration } = require('../../protocols/host-metrics');
+    const { processSocketCorrelator } = require('../../network/process-socket-correlator');
+
+    // Item 1: DNS resolver discovery when no resolver is found must return unavailable and never 8.8.8.8
+    const unavailableDns = discoverSystemDnsConfiguration({
+      resolvConfContent: '# empty resolv.conf\n',
+      resolvectlOutput: '',
+      nodeServers: []
+    });
+    assert.equal(unavailableDns.status, 'unavailable');
+    assert.equal(unavailableDns.verified, false);
+    assert.deepEqual(unavailableDns.configuredServers, []);
+    assert.ok(!unavailableDns.configuredServers.includes('8.8.8.8'), 'Must never invent 8.8.8.8');
+    assert.equal(getRealSystemDns({
+      resolvConfContent: '# empty\n',
+      resolvectlOutput: '',
+      nodeServers: []
+    }), null);
+
+    // Stub resolver with upstream discovery via resolvectl
+    const stubDns = discoverSystemDnsConfiguration({
+      resolvConfContent: 'nameserver 127.0.0.53\n',
+      resolvectlOutput: 'Global\n       DNS Servers: 9.9.9.9 149.112.112.112\n'
+    });
+    assert.equal(stubDns.status, 'local_stub_resolver');
+    assert.equal(stubDns.isLocalStub, true);
+    assert.deepEqual(stubDns.localStubServers, ['127.0.0.53']);
+    assert.deepEqual(stubDns.upstreamServers, ['9.9.9.9', '149.112.112.112']);
+
+    // Item 2: Timing extraction preserves 0 and returns null when absent (never 1.2)
+    assert.equal(extractObservedTimingMs({ latencyMs: 0 }), 0, 'Must preserve legitimate 0ms measurement');
+    assert.equal(extractObservedTimingMs({ durationMs: 0 }), 0, 'Must preserve legitimate 0ms duration');
+    assert.equal(extractObservedTimingMs({}), null, 'Must return null when timing is absent');
+    assert.equal(extractObservedTimingMs(null), null, 'Must return null for null input');
+    assert.notEqual(extractObservedTimingMs({}), 1.2, 'Must never fabricate 1.2ms');
+
+    // Item 4: Loopback-only local IP configuration must never report 127.0.0.1 as primary non-loopback IPv4
+    const loopbackOnlyNet = inspectLocalNetworkConfiguration({
+      networkInterfaces: {
+        lo: [
+          { address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' },
+          { address: '::1', netmask: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', family: 'IPv6', mac: '00:00:00:00:00:00', internal: true, cidr: '::1/128' }
+        ]
+      }
+    });
+    assert.equal(loopbackOnlyNet.primaryIpv4, null, 'Must not fall back primaryIpv4 to 127.0.0.1');
+    assert.equal(loopbackOnlyNet.primaryIpv4Status, 'loopback_only');
+    assert.equal(loopbackOnlyNet.loopbackIpv4, '127.0.0.1');
+
+    // Item 5: Socket collector failure must return success: false and collectionStatus: collector_failed
+    const failedSockets = await processSocketCorrelator.collectActiveConnectionsInventory({}, {
+      forceFailureReason: 'Simulated ss/lsof/proc collector failure in restricted container'
+    });
+    assert.equal(failedSockets.success, false);
+    assert.equal(failedSockets.collectionStatus, 'collector_failed');
+    assert.equal(failedSockets.totalCount, null, 'Must not report 0 active sockets when collector failed');
+  });
+
+  it('Brain-First Intelligence Revolution: Semantic goal generalization, conversational restraint, and multi-target context switching', async () => {
+    const user = { id: 'u1', username: 'analyst', role: 'ANALYST' };
+
+    // 1. Conversational & meta questions execute 0 probes and do not probe localhost
+    for (const msg of [
+      'How are you?',
+      'Do you understand me?',
+      'That was interesting',
+      'What can you help me with?',
+      'Why did you say that?'
+    ]) {
+      const turn = await chatOperatorService.processMessage({
+        sessionId: 'TEST-BRAIN-CONV',
+        message: msg,
+        user
+      });
+      assert.equal(turn.success, true);
+      assert.equal(turn.data.steps.length, 0, `"${msg}" must execute 0 network probes`);
+      assert.notEqual(turn.data.target, 'localhost', `"${msg}" must never target localhost`);
+    }
+
+    // 2. Conceptual questions and negative execution constraints execute 0 probes
+    for (const msg of [
+      'What exactly is a default gateway?',
+      'Why can a server respond to ping but reject port 443?',
+      'Can you explain what DNS actually does?',
+      'Is a timeout the same thing as connection refused?',
+      "Don't run anything; just explain what DNS resolution is"
+    ]) {
+      const turn = await chatOperatorService.processMessage({
+        sessionId: 'TEST-BRAIN-CONCEPT',
+        message: msg,
+        user
+      });
+      assert.equal(turn.success, true);
+      assert.equal(turn.data.intent, 'informational_question');
+      assert.equal(turn.data.steps.length, 0, `"${msg}" must execute 0 network probes`);
+    }
+
+    // 3. Semantic goal generalization: IP/DNS lookup paraphrases for well-known brand shorthand
+    for (const msg of [
+      "What's Google's IP?",
+      'IP of google',
+      'What address does Google resolve to?',
+      "Can you find Google's IP address?",
+      'Resolve google.com',
+      'Show me the IPs for Google',
+      'Resolve Google for me'
+    ]) {
+      const parsed = chatOperatorService.parseIntentAndEntities(msg, null);
+      assert.equal(parsed.intent, 'dns', `"${msg}" should map to dns intent`);
+      assert.equal(parsed.target, 'google.com', `"${msg}" should generalize target to google.com`);
+    }
+
+    // 4. Problem descriptions without a target ask a clarifying question and never probe localhost
+    for (const msg of [
+      'The internet is not working',
+      "I can't open the website",
+      "The site won't open",
+      "I'm getting connection errors",
+      'Could you check whether this endpoint responds?',
+      'It works on my laptop but not on the other computer',
+      'The application has become really slow'
+    ]) {
+      const turn = await chatOperatorService.processMessage({
+        sessionId: `TEST-BRAIN-PROBLEM-${Buffer.from(msg).toString('hex').slice(0, 8)}`,
+        message: msg,
+        user
+      });
+      assert.equal(turn.success, true);
+      assert.equal(turn.data.intent, 'clarification_needed', `"${msg}" must ask for clarification`);
+      assert.equal(turn.data.steps.length, 0, `"${msg}" must execute 0 probes`);
+      assert.equal(turn.data.target, null, `"${msg}" must not default target to localhost`);
+    }
+
+    // 5. Contextual reasoning & switching to "the other host"
+    const ctxSession = 'TEST-BRAIN-CONTEXT-SWITCH';
+    await chatOperatorService.processMessage({
+      sessionId: ctxSession,
+      message: 'Check DNS for localhost',
+      user
+    });
+    await chatOperatorService.processMessage({
+      sessionId: ctxSession,
+      message: `Check port ${testTargetPort} on 127.0.0.1`,
+      user
+    });
+
+    const whyHealthy = await chatOperatorService.processMessage({
+      sessionId: ctxSession,
+      message: 'Why did you say the connection was healthy?',
+      user
+    });
+    assert.equal(whyHealthy.success, true);
+    assert.equal(whyHealthy.data.intent, 'follow_up_explanation');
+    assert.equal(whyHealthy.data.steps.length, 0);
+    assert.ok(whyHealthy.data.reply.includes('127.0.0.1'));
+
+    const summaryTurn = await chatOperatorService.processMessage({
+      sessionId: ctxSession,
+      message: 'Can you summarize what we have found so far?',
+      user
+    });
+    assert.equal(summaryTurn.success, true);
+    assert.equal(summaryTurn.data.intent, 'follow_up_explanation');
+    assert.ok(summaryTurn.data.reply.includes('Session Summary'));
+
+    const otherHostTurn = await chatOperatorService.processMessage({
+      sessionId: ctxSession,
+      message: 'Try the same thing against the other host',
+      user
+    });
+    assert.equal(otherHostTurn.success, true);
+    assert.equal(otherHostTurn.data.intent, 'port_check');
+    assert.equal(otherHostTurn.data.target, 'localhost', 'Must switch to the prior distinct host (localhost)');
+    assert.deepEqual(otherHostTurn.data.ports, [testTargetPort]);
   });
 });

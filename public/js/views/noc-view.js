@@ -660,7 +660,7 @@ window.escapeAttr = escapeAttr;
 
       const latencyStr = n.last_latency_ms !== null && n.last_latency_ms !== undefined
         ? `${n.last_latency_ms} ms RTT`
-        : '<1 ms RTT';
+        : 'Unmeasured RTT';
 
       const clickHandler = isCluster
         ? 'window.onClusterNodeClick()'
@@ -703,7 +703,7 @@ window.escapeAttr = escapeAttr;
     }
 
     return `
-      <svg id="nocTopologySvg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" style="width: 100%; min-width: 980px; height: 100%; min-height: 300px; display: block;" oncontextmenu="window.handleSvgContextMenu(event)">
+      <svg id="nocTopologySvg" viewBox="0 0 ${canvasWidth} ${canvasHeight}" style="width: 100%; min-width: 980px; height: 100%; min-height: 480px; display: block;" oncontextmenu="window.handleSvgContextMenu(event)">
         <defs>
           <linearGradient id="linkGradWan" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stop-color="#5B45B0"/>
@@ -769,7 +769,7 @@ window.escapeAttr = escapeAttr;
           <td><span style="font-size: 9px; font-family: var(--font-mono); font-weight: 700; padding: 2px 5px; border-radius: 3px; background: ${badge.bg}; color: ${badge.color};">[${badge.text}]</span></td>
           <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); white-space: nowrap;">${n.mac_address || '—'}</td>
           <td style="font-size: 11px;">${n.vendor || 'Standard Network'}</td>
-          <td style="font-family: var(--font-mono); white-space: nowrap;">${n.last_latency_ms !== null ? n.last_latency_ms + ' ms' : '<1 ms'}</td>
+          <td style="font-family: var(--font-mono); white-space: nowrap;">${n.last_latency_ms !== null && n.last_latency_ms !== undefined ? n.last_latency_ms + ' ms' : '—'}</td>
           <td>
             <span class="status-dot" style="background: ${isHealthy ? 'var(--success)' : 'var(--danger)'};"></span>
             <span style="font-size: 11px; text-transform: capitalize;">${n.status}</span>
@@ -808,9 +808,9 @@ window.escapeAttr = escapeAttr;
 
     const isHealthy = node.status === 'healthy';
     const roleBadge = node.id.includes('GW') ? 'GATEWAY' : (node.id.includes('CORE') ? 'CORE' : (node.type === 'service' ? 'SERVICE' : 'HOST'));
-    const fiedler = typeof node.fiedlerCoord === 'number' ? node.fiedlerCoord.toFixed(4) : (0.1820).toFixed(4);
-    const gcn = node.gcnEmbedding || [0.182, 0.412, 0.891];
-    const rttStr = node.last_latency_ms !== null && node.last_latency_ms !== undefined ? `${node.last_latency_ms} ms` : '1.2 ms';
+    const fiedler = typeof node.fiedlerCoord === 'number' ? node.fiedlerCoord.toFixed(4) : 'N/A';
+    const gcn = Array.isArray(node.gcnEmbedding) ? node.gcnEmbedding : [];
+    const rttStr = node.last_latency_ms !== null && node.last_latency_ms !== undefined ? `${node.last_latency_ms} ms` : 'Unmeasured';
 
     drawer.innerHTML = `
       <div style="padding: 14px 18px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; background: #F8FAFC;">
@@ -827,9 +827,9 @@ window.escapeAttr = escapeAttr;
         <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
           <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 8px;">Network Identity &amp; Physical Hardware</div>
           <div style="display: flex; flex-direction: column; gap: 6px;">
-            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">IPv4:</span><strong style="color: #0284C7;">${escapeHtml(node.hostname_or_ip || '0.0.0.0')}</strong></div>
-            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">MAC:</span><span>${escapeHtml(node.mac_address || '50:64:2B:1A:E8:42')}</span></div>
-            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">Hardware Vendor:</span><span style="text-align: right; max-width: 190px; color: #0F172A;">${escapeHtml(node.vendor || 'Xiaomi Communications Co Ltd')}</span></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">IPv4:</span><strong style="color: #0284C7;">${escapeHtml(node.hostname_or_ip || '—')}</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">MAC:</span><span>${escapeHtml(node.mac_address || '—')}</span></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: #64748B;">Hardware Vendor:</span><span style="text-align: right; max-width: 190px; color: #0F172A;">${escapeHtml(node.vendor || 'Unresolved')}</span></div>
           </div>
         </div>
 

@@ -350,11 +350,17 @@ async function runVisualRuntimeTruthAndSignalHygieneTests() {
   assert.ok(launcherBat.includes('netstat -ano') && launcherBat.includes(':8443'), 'setup-launcher.bat must check port 8443');
 
   // Verify dynamic gateway automation scripts
-  const pingBatMount = fs.readFileSync(path.join(__dirname, '../data/scripts_mount/Scripts/Ping Default Gateway & Cloudflare DNS.bat'), 'utf8');
+  const pingBatPath = fs.existsSync(path.join(__dirname, '../data/scripts_mount/Scripts/Ping Default Gateway & Cloudflare DNS.bat'))
+    ? path.join(__dirname, '../data/scripts_mount/Scripts/Ping Default Gateway & Cloudflare DNS.bat')
+    : path.join(__dirname, '../scripts/Ping Default Gateway & Cloudflare DNS.bat');
+  const pingBatMount = fs.readFileSync(pingBatPath, 'utf8');
   assert.ok(!pingBatMount.includes('10.168.195.1'), 'Ping Default Gateway & Cloudflare DNS.bat must not hardcode 10.168.195.1');
   assert.ok(pingBatMount.includes('route print 0.0.0.0') || pingBatMount.includes('ipconfig'), 'Ping bat must dynamically resolve default gateway');
 
-  const testPortPs1Mount = fs.readFileSync(path.join(__dirname, '../data/scripts_mount/Scripts/Test Port Connectivity to Default Gateway.ps1'), 'utf8');
+  const testPortPs1Path = fs.existsSync(path.join(__dirname, '../data/scripts_mount/Scripts/Test Port Connectivity to Default Gateway.ps1'))
+    ? path.join(__dirname, '../data/scripts_mount/Scripts/Test Port Connectivity to Default Gateway.ps1')
+    : path.join(__dirname, '../scripts/Test Port Connectivity to Default Gateway.ps1');
+  const testPortPs1Mount = fs.readFileSync(testPortPs1Path, 'utf8');
   assert.ok(!testPortPs1Mount.includes('10.168.195.1'), 'Test Port Connectivity script must not hardcode 10.168.195.1');
   assert.ok(testPortPs1Mount.includes('Get-NetRoute') || testPortPs1Mount.includes('Get-CimInstance'), 'Test Port Connectivity script must dynamically resolve default gateway');
 

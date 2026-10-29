@@ -66,9 +66,10 @@ async function runFullRepositoryCohesionAndProductionTruthTests() {
   console.log('[50.4] Verifying 100% reachability of all .js files in src/...');
   function collectJsFiles(dir, out = []) {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.name === '__tests__') continue;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) collectJsFiles(full, out);
-      else if (ent.isFile() && full.endsWith('.js')) out.push(path.relative(rootDir, full).replace(/\\/g, '/'));
+      else if (ent.isFile() && full.endsWith('.js') && !full.endsWith('.test.js')) out.push(path.relative(rootDir, full).replace(/\\/g, '/'));
     }
     return out;
   }

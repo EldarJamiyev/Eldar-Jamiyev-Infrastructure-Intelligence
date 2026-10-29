@@ -33,7 +33,43 @@ function runPowerShellJson(cmd) {
  */
 async function getProcessTree() {
   if (!IS_WINDOWS) {
-    return { error: 'Process tree forensic inspection requires Windows NT.' };
+    try {
+      const { execSync } = require('child_process');
+      const out = execSync('ps -eo pid,ppid,rss,comm --no-headers 2>/dev/null || true', { encoding: 'utf8', timeout: 3000 });
+      const lines = out.trim().split('\n').filter(Boolean);
+      const procMap = new Map();
+      const roots = [];
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parseInt(parts[0], 10);
+        const ppid = parseInt(parts[1], 10);
+        const rssKb = parseInt(parts[2], 10) || 0;
+        const name = parts.slice(3).join(' ') || `pid-${pid}`;
+        if (!isNaN(pid)) {
+          procMap.set(pid, {
+            pid,
+            ppid: isNaN(ppid) ? 0 : ppid,
+            name,
+            ramMb: parseFloat((rssKb / 1024).toFixed(1)),
+            children: []
+          });
+        }
+      }
+      for (const p of procMap.values()) {
+        if (p.ppid && procMap.has(p.ppid) && p.ppid !== p.pid) {
+          procMap.get(p.ppid).children.push(p);
+        } else {
+          roots.push(p);
+        }
+      }
+      return {
+        totalProcesses: procMap.size,
+        rootCount: roots.length,
+        tree: roots.slice(0, 100)
+      };
+    } catch (e) {
+      return { totalProcesses: 0, rootCount: 0, tree: [], error: e.message };
+    }
   }
 
   const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, WorkingSetSize';
@@ -76,7 +112,20 @@ async function getProcessTree() {
  */
 async function getTcpViewConnections() {
   if (!IS_WINDOWS) {
-    return { error: 'TCPView socket mapping requires Windows NT.' };
+    const { processSocketCorrelator } = require('../network/process-socket-correlator');
+    const inv = await processSocketCorrelator.collectActiveConnectionsInventory({});
+    const connections = (inv.connections || []).map((c) => ({
+      proto: c.protocol || 'TCP',
+      local: `${c.localAddress}:${c.localPort}`,
+      remote: c.remoteAddress && c.remotePort > 0 ? `${c.remoteAddress}:${c.remotePort}` : '*:*',
+      state: c.state || 'ESTABLISHED',
+      pid: c.pid || 0,
+      proc: c.processName || 'Unknown'
+    }));
+    return {
+      count: connections.length,
+      connections
+    };
   }
 
   const tcpScript = 'Get-NetTCPConnection -ErrorAction SilentlyContinue | Select-Object -First 100 LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess';

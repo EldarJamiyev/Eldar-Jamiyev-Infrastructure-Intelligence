@@ -242,7 +242,7 @@
             hostname: e.ip,
             macAddress: e.mac,
             vendor: e.vendor || 'Discovered Host',
-            latencyMs: 0.4,
+            latencyMs: typeof e.latencyMs === 'number' ? e.latencyMs : null,
             openServices: [],
             category: e.ip.endsWith('.1') ? 'Gateway / Router' : 'Network Host'
           }));
@@ -255,9 +255,9 @@
               ip: n.hostname_or_ip || '127.0.0.1',
               status: 'ONLINE',
               hostname: n.name || n.hostname_or_ip,
-              macAddress: n.mac_address || '50:64:2B:1A:E8:42',
+              macAddress: n.mac_address || null,
               vendor: n.vendor || 'Discovered Host',
-              latencyMs: n.last_latency_ms || 1.2,
+              latencyMs: typeof n.last_latency_ms === 'number' ? n.last_latency_ms : null,
               openServices: n.type === 'service'
                 ? [{ name: 'HTTP', port: 80 }, { name: 'HTTPS', port: 443 }]
                 : (n.metadata?.port ? [{ name: 'TCP', port: n.metadata.port }] : []),

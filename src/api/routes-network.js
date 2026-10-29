@@ -316,7 +316,7 @@ router.get('/topology/node-telemetry/:nodeId', async (req, res) => {
       }
     }
 
-    const latencyMs = probeRes.latencyMs !== undefined ? probeRes.latencyMs : (node.last_latency_ms || 1.2);
+    const latencyMs = probeRes.latencyMs !== undefined ? probeRes.latencyMs : (node.last_latency_ms ?? null);
     const packetLossPercent = probeRes.packetLossPct !== undefined ? probeRes.packetLossPct : (probeRes.success ? 0 : 100);
     const reachabilityStatus = (probeRes.success && packetLossPercent === 0) ? 'REACHABLE' : (packetLossPercent < 100 ? 'DEGRADED' : 'UNREACHABLE');
 

@@ -15,7 +15,53 @@ function getRoutingTable() {
   return new Promise((resolve) => {
     if (!IS_WINDOWS) {
       exec('ip route show', { timeout: 4000 }, (err, stdout) => {
-        resolve([]);
+        const routes = [];
+        if (!err && stdout && stdout.trim()) {
+          for (const line of stdout.trim().split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const isDefault = trimmed.startsWith('default ');
+            const prefix = isDefault ? '0.0.0.0/0' : trimmed.split(/\s+/)[0];
+            const viaMatch = trimmed.match(/\bvia\s+([0-9.]+)/);
+            const devMatch = trimmed.match(/\bdev\s+([^\s]+)/);
+            const metricMatch = trimmed.match(/\bmetric\s+(\d+)/);
+            routes.push({
+              prefix,
+              nextHop: viaMatch ? viaMatch[1] : '0.0.0.0',
+              metric: metricMatch ? parseInt(metricMatch[1], 10) : 1,
+              interface: devMatch ? devMatch[1] : 'eth0'
+            });
+          }
+        }
+        if (routes.length === 0) {
+          try {
+            const fs = require('fs');
+            if (fs.existsSync('/proc/net/route')) {
+              const lines = fs.readFileSync('/proc/net/route', 'utf8').trim().split('\n').slice(1);
+              for (const line of lines) {
+                const cols = line.trim().split(/\s+/);
+                if (cols.length >= 8) {
+                  const iface = cols[0];
+                  const destHex = cols[1];
+                  const gwHex = cols[2];
+                  const hexToIp = (h) => [
+                    parseInt(h.slice(6, 8), 16),
+                    parseInt(h.slice(4, 6), 16),
+                    parseInt(h.slice(2, 4), 16),
+                    parseInt(h.slice(0, 2), 16)
+                  ].join('.');
+                  routes.push({
+                    prefix: destHex === '00000000' ? '0.0.0.0/0' : `${hexToIp(destHex)}/24`,
+                    nextHop: gwHex === '00000000' ? '0.0.0.0' : hexToIp(gwHex),
+                    metric: parseInt(cols[6], 10) || 1,
+                    interface: iface
+                  });
+                }
+              }
+            }
+          } catch (_) {}
+        }
+        resolve(routes);
       });
       return;
     }

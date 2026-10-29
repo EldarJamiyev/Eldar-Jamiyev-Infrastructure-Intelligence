@@ -32,7 +32,35 @@ function runPowerShellJson(cmd) {
  */
 async function getHardwareTelemetry() {
   if (!IS_WINDOWS) {
-    return { error: 'Bare-metal hardware CIM collection requires Windows NT.' };
+    const os = require('os');
+    const cpus = os.cpus() || [];
+    const totalRamGb = parseFloat((os.totalmem() / (1024 ** 3)).toFixed(1));
+    return {
+      timestamp: new Date().toISOString(),
+      motherboard: {
+        motherboardVendor: 'POSIX / Linux Host',
+        motherboardModel: os.release(),
+        biosVersion: os.version ? os.version() : 'Linux Kernel',
+        biosReleaseDate: 'N/A'
+      },
+      cpu: {
+        name: cpus[0]?.model || 'POSIX Processor',
+        physicalCores: Math.max(1, cpus.length),
+        logicalThreads: Math.max(1, cpus.length),
+        maxClockSpeedMHz: cpus[0]?.speed || 0,
+        l2CacheKB: 0,
+        l3CacheKB: 0
+      },
+      memory: {
+        totalCapacityGB: totalRamGb,
+        modulesCount: 1,
+        modules: [{ slot: 'DIMM-0', capacityGB: totalRamGb, speedMHz: 0, partNumber: 'OS-RAM', manufacturer: 'System' }]
+      },
+      storage: {
+        drivesCount: 1,
+        drives: []
+      }
+    };
   }
 
   // Motherboard & BIOS

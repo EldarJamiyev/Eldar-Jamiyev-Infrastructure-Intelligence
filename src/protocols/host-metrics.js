@@ -493,15 +493,24 @@ function getVerifiedDefaultGateway() {
 
 /**
  * Inspect local host network configuration (`os.networkInterfaces()`, DNS servers, and verified OS default gateway).
- * Clearly distinguishes EJII host/container interface addresses from public IPs and client workstation IPs.
+ * Clearly distinguishes EJII host/container interface addresses from loopback addresses, public IPs, and client workstation IPs.
+ * Never presents 127.0.0.1 as a discovered non-loopback primary interface address.
  */
-function inspectLocalNetworkConfiguration() {
+function inspectLocalNetworkConfiguration(options = {}) {
   const fs = require('fs');
-  const dns = require('dns');
-  const rawIfaces = os.networkInterfaces() || {};
+  const { discoverSystemDnsConfiguration } = require('./dns-diag');
+  const rawIfaces = (
+    typeof options.networkInterfacesFn === 'function'
+      ? options.networkInterfacesFn()
+      : (options.networkInterfaces && typeof options.networkInterfaces === 'object'
+          ? options.networkInterfaces
+          : os.networkInterfaces())
+  ) || {};
   const interfaces = [];
   const primaryIpv4List = [];
   const primaryIpv6List = [];
+  const loopbackIpv4List = [];
+  const loopbackIpv6List = [];
 
   for (const [ifaceName, addrs] of Object.entries(rawIfaces)) {
     if (!Array.isArray(addrs)) continue;
@@ -514,26 +523,39 @@ function inspectLocalNetworkConfiguration() {
       if (addr.mac && addr.mac !== '00:00:00:00:00:00' && !mac) {
         mac = addr.mac;
       }
-      if (addr.internal) internal = true;
+      const isLoopback = Boolean(addr.internal || String(addr.address || '').startsWith('127.') || addr.address === '::1');
+      if (isLoopback) internal = true;
       const isV4 = addr.family === 'IPv4' || addr.family === 4;
       const isV6 = addr.family === 'IPv6' || addr.family === 6;
       if (isV4) {
-        ipv4.push({
+        const entry = {
+          interfaceName: ifaceName,
           address: addr.address,
           netmask: addr.netmask || null,
           cidr: addr.cidr || null,
-          internal: Boolean(addr.internal)
-        });
-        if (!addr.internal) primaryIpv4List.push({ interfaceName: ifaceName, address: addr.address, cidr: addr.cidr || null, netmask: addr.netmask || null });
+          internal: isLoopback
+        };
+        ipv4.push(entry);
+        if (!isLoopback) {
+          primaryIpv4List.push(entry);
+        } else {
+          loopbackIpv4List.push(entry);
+        }
       } else if (isV6) {
-        ipv6.push({
+        const entry = {
+          interfaceName: ifaceName,
           address: addr.address,
           netmask: addr.netmask || null,
           cidr: addr.cidr || null,
           scopeid: addr.scopeid,
-          internal: Boolean(addr.internal)
-        });
-        if (!addr.internal) primaryIpv6List.push({ interfaceName: ifaceName, address: addr.address, cidr: addr.cidr || null });
+          internal: isLoopback
+        };
+        ipv6.push(entry);
+        if (!isLoopback) {
+          primaryIpv6List.push(entry);
+        } else {
+          loopbackIpv6List.push(entry);
+        }
       }
     }
 
@@ -547,13 +569,35 @@ function inspectLocalNetworkConfiguration() {
     });
   }
 
-  const gatewayInfo = getVerifiedDefaultGateway();
-  const dnsServers = dns.getServers();
+  const gatewayInfo = typeof options.gatewayFn === 'function' ? options.gatewayFn() : getVerifiedDefaultGateway();
+  const dnsConfig = typeof options.dnsDiscoveryFn === 'function'
+    ? options.dnsDiscoveryFn()
+    : discoverSystemDnsConfiguration();
+  const dnsServers = dnsConfig.observedServers || [];
+
   const isContainer = Boolean(
     fs.existsSync('/.dockerenv') ||
     fs.existsSync('/run/.containerenv') ||
     (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
   );
+
+  const hasNonLoopbackV4 = primaryIpv4List.length > 0;
+  const hasLoopbackV4 = loopbackIpv4List.length > 0;
+  const primaryIpv4 = hasNonLoopbackV4 ? primaryIpv4List[0].address : null;
+  const primaryIpv4Status = hasNonLoopbackV4
+    ? 'observed_non_loopback'
+    : (hasLoopbackV4 ? 'loopback_only' : 'unavailable');
+  const primaryIpv4Label = hasNonLoopbackV4
+    ? `${primaryIpv4List[0].address} (${primaryIpv4List[0].interfaceName})`
+    : (hasLoopbackV4
+        ? `Unavailable (loopback only: ${loopbackIpv4List.map((l) => l.address).join(', ')})`
+        : 'Unavailable (no IPv4 interface addresses observed)');
+
+  const limitationReason = !hasNonLoopbackV4
+    ? (hasLoopbackV4
+        ? `No non-loopback IPv4 interface address was observed via os.networkInterfaces(); only loopback address(es) (${loopbackIpv4List.map((l) => l.address).join(', ')}) are present.`
+        : 'No IPv4 addresses were observed on any local network interface via os.networkInterfaces().')
+    : null;
 
   return {
     hostname: os.hostname(),
@@ -561,15 +605,23 @@ function inspectLocalNetworkConfiguration() {
     isContainer,
     executionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
     scopeDistinctionNote: isContainer
-      ? 'These network interfaces belong to the EJII server/container environment. If you are accessing EJII from a remote browser, your personal device may have a different local LAN IP, and external websites see your NAT/public egress IP.'
+      ? 'These network interfaces belong to the EJII server/container environment. EJII can observe its own container network namespace, not a remote browser client workstation or external NAT public egress IP.'
       : 'These network interfaces belong to the local EJII host machine. External internet services see your router/NAT public IP rather than private RFC1918 interface addresses.',
-    primaryIpv4: primaryIpv4List[0]?.address || '127.0.0.1',
+    primaryIpv4,
+    primaryIpv4Status,
+    primaryIpv4Label,
     nonLoopbackIpv4: primaryIpv4List,
     nonLoopbackIpv6: primaryIpv6List,
+    loopbackIpv4: loopbackIpv4List[0]?.address || null,
+    loopbackIpv4Addresses: loopbackIpv4List,
+    loopbackIpv6: loopbackIpv6List[0]?.address || null,
+    loopbackIpv6Addresses: loopbackIpv6List,
     interfaces,
     dnsServers,
+    dnsConfiguration: dnsConfig,
     defaultGateway: gatewayInfo,
-    collectionMethod: 'os.networkInterfaces + ' + gatewayInfo.collectionMethod,
+    collectionMethod: 'os.networkInterfaces + ' + gatewayInfo.collectionMethod + ' + ' + dnsConfig.collectionMethod,
+    limitationReason,
     observedAt: new Date().toISOString()
   };
 }

@@ -698,7 +698,7 @@ window.escapeAttr = escapeAttr;
           packetsCount: 4 + idx * 2,
           totalPacketsSize: f.wireLength * (4 + idx * 2),
           dataSpeed: Number(((f.wireLength * 4) / 1024).toFixed(1)),
-          latency: f.tcpAnalysis?.rttMs || 1.2,
+          latency: typeof f.tcpAnalysis?.rttMs === 'number' ? f.tcpAnalysis.rttMs : null,
           plainLanguageGuide: `Live kernel socket session between ${f.srcIp}:${f.srcPort} and ${f.dstIp}:${f.dstPort} (${f.sniHostName || f.protocol}).`
         }));
       if (typeof window.setNocLiveFlows === 'function') {

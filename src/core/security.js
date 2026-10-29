@@ -554,6 +554,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
     };
   }
 
+  const { performance } = require('perf_hooks');
   const v4Int = parseAnyIPv4EncodingToUint32(unbracketed);
   if (v4Int !== null) {
     const canonical = uint32ToCanonicalIPv4(v4Int);
@@ -565,6 +566,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       addressFamily: 4,
       resolvedIps: [canonical],
       isIpLiteral: true,
+      dnsLatencyMs: null,
+      resolutionMethod: 'ip_literal_bypass',
       lookup: createPinnedLookup(canonical, 4),
       error: null
     };
@@ -580,6 +583,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       addressFamily: ipVersion,
       resolvedIps: [unbracketed],
       isIpLiteral: true,
+      dnsLatencyMs: null,
+      resolutionMethod: 'ip_literal_bypass',
       lookup: createPinnedLookup(unbracketed, ipVersion),
       error: null
     };
@@ -588,6 +593,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
   // Resolve hostname via DNS with strict sub-second timeout guard to prevent multi-second OS getaddrinfo stalls
   const dnsPromises = dns.promises;
   const resolvedIps = [];
+  let resolutionMethod = 'dns_protocol';
+  const dnsStart = performance.now();
   const raceTimeout = (promise, ms, fallbackVal = []) => {
     let timer;
     return Promise.race([
@@ -600,6 +607,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
 
   if (unbracketed.toLowerCase() === 'localhost') {
     resolvedIps.push('127.0.0.1', '::1');
+    resolutionMethod = 'local_hosts_table';
   } else {
     try {
       const fastResolver = new dnsPromises.Resolver({ timeout: 750, tries: 1 });
@@ -623,10 +631,14 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
               resolvedIps.push(l.address);
             }
           }
+          if (resolvedIps.length > 0) {
+            resolutionMethod = 'os_getaddrinfo';
+          }
         }
       } catch (_) {}
     }
   }
+  const dnsLatencyMs = Number((performance.now() - dnsStart).toFixed(2));
 
   if (resolvedIps.length === 0) {
     return {
@@ -637,6 +649,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       addressFamily: null,
       resolvedIps: [],
       isIpLiteral: false,
+      dnsLatencyMs,
+      resolutionMethod,
       lookup: null,
       error: 'DNS_RESOLUTION_FAILED: Hostname does not resolve to any IPv4 or IPv6 address.'
     };
@@ -653,6 +667,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
         addressFamily: null,
         resolvedIps,
         isIpLiteral: false,
+        dnsLatencyMs,
+        resolutionMethod,
         lookup: null,
         error: `SECURITY_VIOLATION: Hostname "${unbracketed}" resolved to forbidden address "${ip}" (DNS Rebinding SSRF blocked).`
       };
@@ -671,6 +687,8 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
     addressFamily: family,
     resolvedIps,
     isIpLiteral: false,
+    dnsLatencyMs,
+    resolutionMethod,
     lookup: createPinnedLookup(preferredIp, family),
     error: null
   };
