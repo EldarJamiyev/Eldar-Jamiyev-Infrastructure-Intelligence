@@ -998,13 +998,15 @@ class ChatOperatorService {
 
       // If a domain typo was auto-corrected (e.g. google.ocm -> google.com), prepend the auto-correction step and note
       if (plan.originalTypoTarget && executionOutcome) {
+        const correctionDurationMs = typeof plan.targetValidation?.validationDurationMs === 'number'
+          ? plan.targetValidation.validationDurationMs : null;
         const typoStep = {
           stepNumber: 1,
           label: `Detected domain typo "${plan.originalTypoTarget}" (NXDOMAIN) → auto-corrected to "${plan.target}"…`,
           tool: 'typo_intelligence',
           status: 'PASS',
           summary: `"${plan.originalTypoTarget}" does not exist in DNS (ENOTFOUND); automatically switched to "${plan.target}"`,
-          durationMs: 1.2
+          ...(correctionDurationMs !== null ? { durationMs: correctionDurationMs } : {})
         };
         executionOutcome.steps = [
           typoStep,
