@@ -414,15 +414,19 @@ class CrossLayerIncidentCorrelator {
       stepNumber: 1,
       layer: 'L1/L2 Local NIC & Subnet State',
       status: netInfo.localIp ? 'PASS' : 'FAIL',
-      summary: `Interface ${netInfo.adapterName || 'eth0'} bound to ${netInfo.localIp} (${netInfo.subnetCidr})`,
-      details: { adapter: netInfo.adapterName, localIp: netInfo.localIp, subnetCidr: netInfo.subnetCidr, isApipa }
+      summary: netInfo.localIp
+        ? `Interface ${netInfo.adapterName || 'interface name unavailable'} bound to ${netInfo.localIp} (${netInfo.subnetCidr || 'subnet not reported'})`
+        : 'No active local IPv4 interface was confirmed from the OS',
+      details: { adapter: netInfo.adapterName || null, localIp: netInfo.localIp || null, subnetCidr: netInfo.subnetCidr || null, isApipa }
     });
     signals.push({
       domain: 'dhcp_apipa_arp',
-      subject: `nic:${netInfo.adapterName || 'eth0'}`,
-      claim: `Local interface ${netInfo.adapterName || 'eth0'} configured with IP ${netInfo.localIp} (${netInfo.subnetCidr})`,
-      rawValue: { localIp: netInfo.localIp, subnetCidr: netInfo.subnetCidr },
-      normalizedValue: netInfo.localIp ? 'NIC_UP' : 'NIC_DOWN',
+      subject: `nic:${netInfo.adapterName || 'unknown-interface'}`,
+      claim: netInfo.localIp
+        ? `Local interface ${netInfo.adapterName || 'interface name unavailable'} is configured with IP ${netInfo.localIp}`
+        : 'The OS did not provide an active local IPv4 interface address',
+      rawValue: { localIp: netInfo.localIp || null, subnetCidr: netInfo.subnetCidr || null },
+      normalizedValue: netInfo.localIp ? 'NIC_UP' : 'NIC_NOT_CONFIRMED',
       anomaly: !netInfo.localIp,
       collectionMethod: 'os_route_table',
       correlationGroup: 'local_l2'
