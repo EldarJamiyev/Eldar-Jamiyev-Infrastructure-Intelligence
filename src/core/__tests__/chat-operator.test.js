@@ -70,6 +70,16 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
       assert.equal(plan.intent, expectedIntent, 'Intent should be correct for: ' + message);
       assert.equal(plan.target, null, 'Local or conversational request must not inherit google.com: ' + message);
     }
+
+    const dnsPlan = chatOperatorService.parseIntentAndEntities('check dns connection', {
+      ...previousContext,
+      lastTarget: 'google.ocm',
+      lastValidTarget: 'google.ocm'
+    });
+    assert.equal(dnsPlan.intent, 'dns');
+    assert.equal(dnsPlan.target, 'google.com');
+    assert.equal(dnsPlan.isSystemDnsHealthCheck, true);
+    assert.equal(dnsPlan.usedFollowUpTarget, false);
   });
 
   it('Scenario: A greeting does not launch an infrastructure probe after a previous target was checked', async () => {
