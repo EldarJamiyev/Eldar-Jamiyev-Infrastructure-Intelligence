@@ -26,6 +26,7 @@ const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../security')
 const { crossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
 const { ROLE_LEVELS, autonomousInfrastructureOperator } = require('../operator/autonomous-infrastructure-operator');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
+const { aiModelOrchestrator } = require('../ai-model-orchestrator');
 const { getPhysicalNetworkInfo } = require('../../network/routing/physical-network-detector');
 const { ProcessSocketCorrelatorEngine } = require('../../diagnostics/process-socket-correlator');
 
@@ -575,6 +576,8 @@ class ChatOperatorService {
     const isLocalNetworkInfoPrompt = /\b(check my ip|what is my ip|show (?:me )?(?:my )?(?:local )?ip|local ip address|my network (?:configuration|interfaces)|network interface addresses)\b/i.test(lower);
     const isActiveConnectionsPrompt = /\b(active (?:tcp )?(?:connections|sockets)|current(?:ly)? (?:open )?connections|destination ip|dest ip|destination ports?|dest ports?|remote ips?|remote ports?|netstat|which apps? (?:are )?(?:connected|connecting)|what .*apps?.*(?:ip|port)|apps?.{0,45}(?:destination|dest|remote).{0,20}(?:ip|port))\b/i.test(lower);
     const isHostHealthPrompt = /\b(local host health|system health|host diagnostics|cpu and memory|local system|workstation health)\b/i.test(lower);
+    const isConceptQuestion = /^(what is|what are|what does|what do|why does|why do|how does|how do|how can i|how do i|explain|tell me about|define)\b/i.test(lower);
+    const isDirectCommand = /^(?:please\s+)?(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|capture|inspect|verify|monitor|retry|open)\b|^can you\s+(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|inspect|verify|monitor)\b/i.test(lower);
     const isLikelyDiagnosticRequest = /\b(check|test|ping|diagnos(?:e|is)|investigat(?:e|ion)|trace|resolve|scan|port|dns|website|web site|network|connection|slow|unreachable|not responding|not working|can't access|cannot access|timeout|gateway|socket|printer|ip address)\b/i.test(lower);
     let intent = 'multi_step_investigation';
 
@@ -593,6 +596,8 @@ class ChatOperatorService {
       intent = 'local_network_info';
     } else if (isActiveConnectionsPrompt) {
       intent = 'active_connections';
+    } else if (isConceptQuestion && !isDirectCommand && !extractedUrl) {
+      intent = 'conversation';
     } else if (isRepeatLast && session && session.lastIntent) {
       intent = session.lastIntent;
       if (extractedPorts.length === 0 && session.lastPorts?.length) {
@@ -965,7 +970,7 @@ class ChatOperatorService {
           executionOutcome = await this._executeActiveConnectionsScenario(abortController.signal);
           break;
         case 'conversation':
-          executionOutcome = this._executeConversationResponse(cleanPrompt);
+          executionOutcome = await this._executeConversationResponse(cleanPrompt, abortController.signal);
           break;
         case 'clarification':
           executionOutcome = this._executeClarificationResponse(cleanPrompt);
@@ -2070,14 +2075,70 @@ class ChatOperatorService {
   /**
    * Local Host / System Health Scenario
    */
-  _executeConversationResponse(promptText) {
-    const reply = /\b(what can you do|help|how do i use ejii)\b/i.test(promptText)
-      ? 'I can run the available DNS, ping, TCP-port, website/TLS, traceroute, local IP/gateway, and active TCP connection checks. Describe the task and include a hostname or IP when the target is remote.'
-      : 'Hello. What would you like me to check? I can run a network diagnostic, inspect this workstation’s local network details, or list active TCP connections.';
+  async _executeConversationResponse(promptText, signal) {
+    this._checkAborted(signal);
+    const isHelp = /\b(what can you do|help|how do i use ejii)\b/i.test(promptText);
+    const isGreeting = /^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you|thx)[!.?\s]*$/i.test(promptText.trim());
+    let reply;
+    let modelUsed = false;
+    let modelUnavailableReason = null;
+
+    if (isHelp) {
+      reply = 'I can run the available DNS, ping, TCP-port, website/TLS, traceroute, local IP/gateway, and active TCP/UDP endpoint checks. Describe the task and include a hostname or IP when the target is remote.';
+    } else if (isGreeting) {
+      reply = 'Hello. What would you like me to check? I can run a network diagnostic, inspect this workstation’s local network details, or list active TCP/UDP endpoints.';
+    } else {
+      // Informational questions may use the configured local Ollama model. This path
+      // can explain concepts but cannot invoke tools or execute commands.
+      const modelPrompt = [
+        'You are EJII, a precise infrastructure and network support assistant.',
+        'Answer the user’s informational question in clear, concise English.',
+        'Do not claim that you ran a diagnostic, inspected a host, changed configuration, or verified any live state.',
+        'Do not provide model-generated commands as if they were executed. Never request secrets or credentials.',
+        'If you are uncertain, state the uncertainty. Prefer practical explanations and one relevant example.',
+        'User question:',
+        String(promptText).slice(0, 2000)
+      ].join('\n');
+      try {
+        const modelResult = await aiModelOrchestrator.invokeModelProvider('OLLAMA', modelPrompt, { timeoutMs: 2400 });
+        this._checkAborted(signal);
+        if (modelResult && modelResult.liveResponse && typeof modelResult.text === 'string' && modelResult.text.trim()) {
+          reply = modelResult.text.trim().slice(0, 12000);
+          modelUsed = true;
+        } else {
+          modelUnavailableReason = modelResult?.reason || modelResult?.status || 'LOCAL_MODEL_UNAVAILABLE';
+        }
+      } catch (err) {
+        if (signal && signal.aborted) this._checkAborted(signal);
+        modelUnavailableReason = err && err.message ? err.message : String(err);
+      }
+      if (!reply) {
+        reply = 'The configured local AI model is unavailable, so I could not generate a reliable explanation. No network diagnostic was run. You can still ask EJII to check DNS, ping a target, test a TCP port, inspect a website, or read local network information.';
+      }
+    }
+
     return {
       reply,
-      structuredAnswer: { result: 'No diagnostic was run.', meaning: 'This was a conversational request, not a network test.', nextStep: 'Describe the operation or problem you want EJII to investigate.' },
-      steps: [], findings: [], technicalEvidence: null
+      structuredAnswer: {
+        result: modelUsed ? 'Answered by the configured local model; no diagnostic was run.' : 'No diagnostic was run.',
+        meaning: isHelp || isGreeting
+          ? 'This was a conversational request, not a network test.'
+          : modelUsed
+            ? 'The response is a model-generated explanation, not live infrastructure evidence.'
+            : 'A live local model response was unavailable; no unsupported diagnostic claim was made.',
+        nextStep: isHelp || isGreeting
+          ? 'Describe the operation or problem you want EJII to investigate.'
+          : modelUsed
+            ? 'Ask EJII to run a specific diagnostic when you need live evidence.'
+            : 'Start or restore the configured local Ollama service, then retry the question.'
+      },
+      steps: [],
+      findings: [],
+      technicalEvidence: modelUsed
+        ? { provider: 'OLLAMA', mode: 'LOCAL_INFERENCE', diagnosticExecuted: false, observedAt: new Date().toISOString() }
+        : modelUnavailableReason
+          ? { provider: 'OLLAMA', status: 'UNAVAILABLE', reason: String(modelUnavailableReason).slice(0, 300), diagnosticExecuted: false, observedAt: new Date().toISOString() }
+          : null
     };
   }
 
