@@ -33,7 +33,9 @@ function getRealSystemDns() {
       }
     } catch (e) {}
   }
-  cachedSystemDns = '8.8.8.8';
+  // No configured resolver could be discovered. Let Node use the OS resolver
+  // rather than reporting a public resolver that may not actually be configured.
+  cachedSystemDns = null;
   return cachedSystemDns;
 }
 
@@ -87,6 +89,43 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       })
     ]).finally(() => clearTimeout(timer));
   };
+
+  // `dns.resolve*` queries DNS records directly and does not consult the OS hosts
+  // file. For localhost A/AAAA, use the real OS name service rather than a
+  // fabricated successful result when the DNS server has no localhost zone.
+  if (cleanDomain.toLowerCase() === 'localhost' && (typeUpper === 'A' || typeUpper === 'AAAA')) {
+    try {
+      const lookupRows = await withDnsTimeout(
+        dnsPromises.lookup(cleanDomain, { all: true, verbatim: true }),
+        900
+      );
+      const records = (Array.isArray(lookupRows) ? lookupRows : [])
+        .filter((row) => row.family === (typeUpper === 'A' ? 4 : 6))
+        .map((row) => row.address);
+      return {
+        success: records.length > 0,
+        domain: cleanDomain,
+        recordType: typeUpper,
+        nameserver: 'OS hosts resolver',
+        durationMs: parseFloat((performance.now() - startTime).toFixed(2)),
+        records,
+        error: records.length ? null : 'ENODATA',
+        errorCode: records.length ? null : 'ENODATA'
+      };
+    } catch (err) {
+      const errorCode = err.code || 'ENOTFOUND';
+      return {
+        success: false,
+        domain: cleanDomain,
+        recordType: typeUpper,
+        nameserver: 'OS hosts resolver',
+        durationMs: parseFloat((performance.now() - startTime).toFixed(2)),
+        records: [],
+        error: errorCode,
+        errorCode
+      };
+    }
+  }
 
   try {
     if (nameserver) {
@@ -177,20 +216,6 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           };
         }
       } catch (fallbackErr) {
-        if (cleanDomain === 'google.com' || cleanDomain === 'localhost') {
-          const fallbackIp = cleanDomain === 'localhost' ? '127.0.0.1' : '142.251.153.4';
-          const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
-          return {
-            success: true,
-            domain: cleanDomain,
-            recordType: typeUpper,
-            nameserver: activeNs || 'System Default',
-            durationMs,
-            records: [fallbackIp],
-            error: null,
-            errorCode: null
-          };
-        }
         const errCode = fallbackErr.code || err.code || 'ENOTFOUND';
         const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
         return {
@@ -205,20 +230,6 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
         };
       }
 
-      if (cleanDomain === 'google.com' || cleanDomain === 'localhost') {
-        const fallbackIp = cleanDomain === 'localhost' ? '127.0.0.1' : '142.251.153.4';
-        const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
-        return {
-          success: true,
-          domain: cleanDomain,
-          recordType: typeUpper,
-          nameserver: activeNs || 'System Default',
-          durationMs,
-          records: [fallbackIp],
-          error: null,
-          errorCode: null
-        };
-      }
     }
 
     const errCode = err.code || err.message || 'ENOTFOUND';
