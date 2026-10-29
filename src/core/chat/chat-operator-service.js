@@ -214,7 +214,10 @@ class ChatOperatorService {
         this.sessions.set(cleanId, restored);
         return restored;
       }
-    } catch (_) {}
+    } catch (err) {
+      if (err && err.code === 'CHAT_SESSION_ACCESS_DENIED') throw err;
+      // A non-authorization restore failure may fall back to a new in-memory session.
+    }
 
     const fresh = {
       sessionId: cleanId,
