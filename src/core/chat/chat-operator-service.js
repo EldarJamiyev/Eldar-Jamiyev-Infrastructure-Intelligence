@@ -1452,7 +1452,6 @@ const emptyTargetPlan = (intent) => ({
 
     const durationMs = Number((performance.now() - stepStart).toFixed(1));
     const recordsList = Array.isArray(dnsRes.records) ? dnsRes.records : [];
-    const durationLabel = `${durationMs} ms`;
     const ev = evidenceFabric.recordEvidence({
       type: 'dns_resolution',
       subject: `dns:${target}`,
@@ -1993,9 +1992,9 @@ const emptyTargetPlan = (intent) => ({
         tool: 'resolveRecord',
         status: dnsRes.success ? 'PASS' : 'FAIL',
         summary: dnsRes.success
-          ? (Number.isFinite(dnsRes.durationMs) ? `Resolved ${target} → ${resolvedIp} (${durationMs} ms validation elapsed)` : `Resolved ${target} → ${resolvedIp}; timing not recorded`)
+          ? (Number.isFinite(dnsRes.durationMs) ? `Resolved ${target} → ${resolvedIp} (${dnsRes.durationMs} ms validation elapsed)` : `Resolved ${target} → ${resolvedIp}; timing not recorded`)
           : `DNS resolution failed: ${dnsRes.errorCode || dnsRes.error || 'ENOTFOUND'}`,
-        durationMs: Number((performance.now() - t0).toFixed(1))
+        durationMs: Number.isFinite(dnsRes.durationMs) ? dnsRes.durationMs : null
       });
     } else {
       dnsRes = { success: true, records: [resolvedIp], durationMs: null, lookupSkipped: true };
@@ -2028,7 +2027,7 @@ const emptyTargetPlan = (intent) => ({
     }
     findings.push(isIpLiteral
       ? { label: 'Target Address', value: `${resolvedIp} (direct; DNS skipped)`, tone: 'neutral' }
-      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
+      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${dnsRes.durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
 
     // Step 2: TCP Port Check
     this._checkAborted(signal);
@@ -2140,7 +2139,7 @@ const emptyTargetPlan = (intent) => ({
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400 && (!isHttps || (tlsRes?.success && tlsRes.validation?.authorized === true))) {
       structuredAnswer = {
-        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpTtfbMs} ms TTFB.`,
+        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${Number.isFinite(dnsRes.durationMs) ? `${dnsRes.durationMs} ms validation elapsed` : 'timing not recorded'}), TCP port ${port} is OPEN (${Number.isFinite(tcpRes.latencyMs) ? `${tcpRes.latencyMs} ms` : 'latency not reported'})${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} (TTFB: ${httpTtfbLabel}).`,
         meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
         nextStep: `No infrastructure fault detected. If specific users still report issues, check browser caching or client-side network DNS settings.`,
         layerFailedFirst: null,
