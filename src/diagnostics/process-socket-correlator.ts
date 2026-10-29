@@ -63,6 +63,11 @@ export interface ProcessSocketMatrixReport {
   readonly processes: readonly ProcessSocketAttribution[];
   readonly totalSockets: number;
   readonly timestampIso: string;
+  readonly sockets?: readonly (SocketEntry & { readonly processName: string })[];
+  readonly collectionStatus?: 'LIVE_OS_TELEMETRY' | 'UNAVAILABLE';
+  readonly collectionMethod?: string | null;
+  readonly collectionErrors?: readonly string[];
+  readonly collectionNote?: string | null;
 }
 
 export class ProcessSocketCorrelatorEngine {
@@ -256,6 +261,15 @@ export class ProcessSocketCorrelatorEngine {
     const isWin = process.platform === 'win32';
     const sockets: SocketEntry[] = [];
     const processes: ProcessEntry[] = [];
+    const collectionErrors: string[] = [];
+    let socketCommandSucceeded = false;
+    let collectionMethod: string | null = null;
+    const splitEndpoint = (endpoint: string): [string, string] => {
+      const value = String(endpoint || '');
+      const separator = value.lastIndexOf(':');
+      if (separator < 0) return [value, '0'];
+      return [value.slice(0, separator).replace(/^\[|\]$/g, ''), value.slice(separator + 1)];
+    };
 
     try {
       if (isWin) {
@@ -285,6 +299,8 @@ export class ProcessSocketCorrelatorEngine {
         // 2. Collect sockets from netstat -ano
         try {
           const netstatOut = execSync('netstat -ano', { encoding: 'utf8', timeout: 4000 });
+          socketCommandSucceeded = true;
+          collectionMethod = 'netstat -ano';
           for (const line of netstatOut.split(/\r?\n/)) {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith('Active') || trimmed.startsWith('Proto')) continue;
@@ -305,8 +321,8 @@ export class ProcessSocketCorrelatorEngine {
                 pid = parseInt(parts[3] || '0', 10);
               }
 
-              const [locAddr, locPortStr] = local.split(':');
-              const [remAddr, remPortStr] = remote.split(':');
+              const [locAddr, locPortStr] = splitEndpoint(local);
+              const [remAddr, remPortStr] = splitEndpoint(remote);
               const localPort = parseInt(locPortStr || '0', 10);
               const remotePort = parseInt(remPortStr || '0', 10);
 
@@ -323,20 +339,36 @@ export class ProcessSocketCorrelatorEngine {
               }
             }
           }
-        } catch (_) {}
+        } catch (err) { collectionErrors.push(`netstat -ano: ${err.message}`); }
       } else {
         // Linux: ss -tupn or netstat
         try {
           const ssOut = execSync('ss -tupn', { encoding: 'utf8', timeout: 3500 });
+          socketCommandSucceeded = true;
+          collectionMethod = 'ss -tupn';
           for (const line of ssOut.split(/\r?\n/)) {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith('Netid') || trimmed.startsWith('State')) continue;
             const parts = trimmed.split(/\s+/);
-            if (parts.length >= 6) {
-              const state = parts[0];
-              const local = parts[4];
-              const remote = parts[5];
-              const procField = parts[6] || '';
+            if (parts.length >= 5) {
+              const hasNetid = /^(tcp|tcp6|udp|udp6)$/i.test(parts[0]);
+              const netid = hasNetid ? parts[0].toUpperCase() : 'TCP';
+              const protocol: 'TCP' | 'UDP' = netid.startsWith('UDP') ? 'UDP' : 'TCP';
+              const rawState = String(parts[hasNetid ? 1 : 0] || 'UNKNOWN').toUpperCase();
+              const stateMap: Record<string, string> = {
+                ESTAB: 'ESTABLISHED',
+                LISTEN: 'LISTENING',
+                'TIME-WAIT': 'TIME_WAIT',
+                'CLOSE-WAIT': 'CLOSE_WAIT',
+                'SYN-SENT': 'SYN_SENT',
+                'SYN-RECV': 'SYN_RECEIVED',
+                UNCONN: 'UDP_STATELESS'
+              };
+              const state = stateMap[rawState] || rawState;
+              const local = parts[hasNetid ? 4 : 3];
+              const remote = parts[hasNetid ? 5 : 4];
+              if (!local || !remote) continue;
+              const procField = parts[hasNetid ? 6 : 5] || '';
               const pidMatch = procField.match(/pid=(\d+)/);
               const nameMatch = procField.match(/users:\(\("([^"]+)"/);
               const pid = pidMatch ? parseInt(pidMatch[1], 10) : 0;
@@ -346,55 +378,42 @@ export class ProcessSocketCorrelatorEngine {
                 processes.push({ pid, name });
               }
 
-              const lastColonL = local.lastIndexOf(':');
-              const lastColonR = remote.lastIndexOf(':');
-              const locAddr = local.slice(0, lastColonL);
-              const locPort = parseInt(local.slice(lastColonL + 1), 10) || 0;
-              const remAddr = remote.slice(0, lastColonR);
-              const remPort = parseInt(remote.slice(lastColonR + 1), 10) || 0;
+              const [locAddr, locPortText] = splitEndpoint(local);
+              const [remAddr, remPortText] = splitEndpoint(remote);
+              const localPort = parseInt(locPortText || '0', 10) || 0;
+              const remotePort = parseInt(remPortText || '0', 10) || 0;
 
               sockets.push({
-                protocol: 'TCP',
+                protocol,
                 localAddress: locAddr,
-                localPort: locPort,
+                localPort,
                 remoteAddress: remAddr,
-                remotePort: remPort,
+                remotePort,
                 state,
                 pid,
               });
             }
           }
-        } catch (_) {}
+        } catch (err) { collectionErrors.push(`ss -tupn: ${err.message}`); }
       }
-    } catch (_) {}
+    } catch (err) { collectionErrors.push(`socket collector: ${err.message}`); }
 
-    // Fallback if OS commands blocked
-    if (sockets.length === 0) {
-      sockets.push({
-        protocol: 'TCP',
-        localAddress: '127.0.0.1',
-        localPort: 8443,
-        remoteAddress: '0.0.0.0',
-        remotePort: 0,
-        state: 'LISTENING',
-        pid: process.pid,
-      });
-      sockets.push({
-        protocol: 'TCP',
-        localAddress: '127.0.0.1',
-        localPort: 52100,
-        remoteAddress: '127.0.0.1',
-        remotePort: 8443,
-        state: 'ESTABLISHED',
-        pid: process.pid,
-      });
-      processes.push({
-        pid: process.pid,
-        name: 'node.exe',
-        memoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
-      });
-    }
-
-    return this.analyzeSocketProcessMatrix(sockets, processes);
+    // Never manufacture socket rows when the host collector is unavailable.
+    // A successful OS query returning zero rows is different from a failed collector.
+    const processNames = new Map(processes.map((p) => [p.pid, p.name]));
+    const matrix = this.analyzeSocketProcessMatrix(sockets, processes);
+    return {
+      ...matrix,
+      sockets: sockets.map((socket) => ({
+        ...socket,
+        processName: processNames.get(socket.pid) || 'Unknown / access restricted'
+      })),
+      collectionStatus: socketCommandSucceeded ? 'LIVE_OS_TELEMETRY' : 'UNAVAILABLE',
+      collectionMethod,
+      collectionErrors,
+      collectionNote: socketCommandSucceeded
+        ? (sockets.length === 0 ? 'The OS collector ran successfully but returned no socket rows.' : null)
+        : 'No supported OS socket collector completed successfully; socket count must not be interpreted as zero.'
+    };
   }
 }
