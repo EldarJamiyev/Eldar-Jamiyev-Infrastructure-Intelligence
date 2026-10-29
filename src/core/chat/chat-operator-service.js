@@ -1329,14 +1329,28 @@ const emptyTargetPlan = (intent) => ({
       const probePromises = targetsToTest.map(async (domain) => {
         const t0 = performance.now();
         if (domain === 'localhost') {
-          const r = await resolveRecord('localhost', 'A');
-          return {
-            domain: 'localhost',
-            success: true,
-            records: r.success && r.records?.length ? r.records : ['127.0.0.1'],
-            durationMs: Number((performance.now() - t0).toFixed(2)),
-            nameserver: r.nameserver || sysDnsIp
-          };
+          // localhost is resolved through the OS hosts/NSS path; it is not proof that the configured DNS server works.
+          try {
+            const local = await dns.promises.lookup('localhost', { family: 4, verbatim: true });
+            const localIp = local.address;
+            return {
+              domain: 'localhost',
+              success: localIp === '127.0.0.1',
+              records: localIp ? [localIp] : [],
+              durationMs: Number((performance.now() - t0).toFixed(2)),
+              nameserver: 'OS hosts/system resolver',
+              resolutionMode: 'local_lookup',
+              dnsQueryExecuted: false,
+              error: localIp === '127.0.0.1' ? null : 'localhost did not resolve to 127.0.0.1'
+            };
+          } catch (err) {
+            return {
+              domain: 'localhost', success: false, records: [],
+              durationMs: Number((performance.now() - t0).toFixed(2)),
+              nameserver: 'OS hosts/system resolver', resolutionMode: 'local_lookup', dnsQueryExecuted: false,
+              error: err.code || err.message || 'LOCALHOST_LOOKUP_FAILED'
+            };
+          }
         }
         const r = await resolveRecord(domain, 'A');
         return {
@@ -1354,12 +1368,12 @@ const emptyTargetPlan = (intent) => ({
       const allPassed = results.every((r) => r.success);
       const steps = results.map((r, idx) => ({
         stepNumber: idx + 1,
-        label: `Verifying DNS resolution for ${r.domain} via ${r.nameserver}…`,
-        tool: 'resolveRecord',
+        label: r.domain === 'localhost' ? 'Checking the local localhost mapping…' : `Querying DNS for ${r.domain} via resolver ${r.nameserver}…`,
+        tool: r.domain === 'localhost' ? 'dns.lookup (OS hosts/system resolver)' : 'resolveRecord',
         status: r.success ? 'PASS' : 'FAIL',
         summary: r.success
-          ? `Resolved ${r.domain} → ${r.records.join(', ')} (${r.durationMs} ms)`
-          : `Failed to resolve ${r.domain}: ${r.error || 'ENOTFOUND'} (${r.durationMs} ms)`,
+          ? (r.domain === 'localhost' ? `Local OS mapping: localhost → ${r.records.join(', ')} (${r.durationMs} ms; configured DNS server not queried)` : `Resolved ${r.domain} → ${r.records.join(', ')} (${r.durationMs} ms)`)
+          : `Failed to resolve ${r.domain}: ${r.error || 'ENOTFOUND'}${Number.isFinite(r.durationMs) ? ` (${r.durationMs} ms)` : ''}`,
         durationMs: r.durationMs
       }));
 
@@ -1367,9 +1381,10 @@ const emptyTargetPlan = (intent) => ({
         if (r.success) {
           this._recordEntityMemory(session, r.domain, {
             resolvedIps: r.records,
-            dnsStatus: 'OK',
-            dnsLatencyMs: r.durationMs,
-            summary: `DNS A resolved to ${r.records.join(', ')} in ${r.durationMs}ms`
+            ...(r.dnsQueryExecuted === false ? {} : { dnsStatus: 'OK', dnsLatencyMs: r.durationMs }),
+            summary: r.dnsQueryExecuted === false
+              ? `Local OS mapping resolved to ${r.records.join(', ')}`
+              : `DNS A resolved to ${r.records.join(', ')} in ${r.durationMs}ms`
           });
         }
       }
@@ -1379,16 +1394,16 @@ const emptyTargetPlan = (intent) => ({
         { label: 'Active Resolver', value: sysDnsIp, tone: 'neutral' },
         { label: 'DNS Connectivity', value: allPassed ? 'HEALTHY' : 'PARTIAL / DEGRADED', tone: allPassed ? 'ok' : 'warn' },
         ...results.map((r) => ({
-          label: `DNS (${r.domain})`,
-          value: r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`,
+          label: r.domain === 'localhost' ? 'Local Mapping (localhost)' : `DNS (${r.domain})`,
+          value: r.success ? (r.dnsQueryExecuted === false ? `${r.records[0]} (OS lookup)` : `${r.records[0]} (${r.durationMs} ms)`) : `FAILED (${r.error})`,
           tone: r.success ? 'ok' : 'danger'
         }))
       ];
 
       const structuredAnswer = {
-        result: `DNS connection check completed in ${totalMs} ms via resolver ${sysDnsIp}: ${results.map((r) => `${r.domain} → ${r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`}`).join('; ')}.`,
+        result: `DNS connection check completed in ${totalMs} ms via resolver ${sysDnsIp}: ${results.map((r) => `${r.domain} → ${r.success ? (r.dnsQueryExecuted === false ? `${r.records[0]} (OS lookup)` : `${r.records[0]} (${r.durationMs} ms)`) : `FAILED (${r.error})`}`).join('; ')}.`,
         meaning: allPassed
-          ? `Your active DNS resolver (${sysDnsIp}) is online, responsive, and resolving both local and external domain names cleanly.`
+          ? `The OS local-name lookup succeeded and the configured DNS resolver (${sysDnsIp}) resolved the external test name. The localhost result does not by itself verify DNS-server connectivity.`
           : `Local DNS resolution is partially degraded; check the failed domain name or upstream nameserver ${sysDnsIp}.`,
         nextStep: `Ask to test any specific hostname or port (e.g., "Ping ${primary.domain}" or "Check port 443 on ${primary.domain}").`,
         layerFailedFirst: allPassed ? null : 'L7 DNS Resolution',
