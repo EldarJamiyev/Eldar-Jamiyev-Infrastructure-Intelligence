@@ -428,22 +428,29 @@ class CrossLayerIncidentCorrelator {
       correlationGroup: 'local_l2'
     });
 
-    // Step 3: Default gateway reachability and ARP resolution
-    const gwIp = netInfo.defaultGateway || '127.0.0.1';
+    // Step 3: Report the gateway route only when the OS actually supplied one.
+    const gwIp = netInfo.defaultGateway && netInfo.defaultGateway !== '0.0.0.0'
+      ? netInfo.defaultGateway
+      : null;
+    const gatewayObserved = Boolean(gwIp);
     steps.push({
       stepNumber: 2,
-      layer: 'L2/L3 Default Gateway & ARP Resolution',
-      status: gwIp ? 'PASS' : 'WARN',
-      summary: `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'Observed Gateway'})`,
-      details: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac, gatewayVendor: netInfo.gatewayVendor }
+      layer: 'L2/L3 Default Gateway Route',
+      status: gatewayObserved ? 'PASS' : 'WARN',
+      summary: gatewayObserved
+        ? `Default gateway ${gwIp} observed in the OS route table (${netInfo.gatewayVendor || 'vendor unresolved'})`
+        : 'Default gateway not confirmed by the OS route table',
+      details: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac || null, gatewayVendor: netInfo.gatewayVendor || null }
     });
     signals.push({
       domain: 'topology_blast_radius',
-      subject: `gateway:${gwIp}`,
-      claim: `Default gateway ${gwIp} present in active routing table`,
-      rawValue: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac },
-      normalizedValue: 'GATEWAY_OBSERVED',
-      anomaly: false,
+      subject: gatewayObserved ? `gateway:${gwIp}` : 'gateway:unobserved',
+      claim: gatewayObserved
+        ? `Default gateway ${gwIp} was present in the OS route table`
+        : 'No valid IPv4 default gateway was confirmed from the OS route table',
+      rawValue: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac || null },
+      normalizedValue: gatewayObserved ? 'GATEWAY_OBSERVED' : 'GATEWAY_NOT_OBSERVED',
+      anomaly: !gatewayObserved,
       collectionMethod: 'os_route_table',
       correlationGroup: 'gateway_l3'
     });
@@ -459,11 +466,13 @@ class CrossLayerIncidentCorrelator {
     steps.push({
       stepNumber: 3,
       layer: 'L3 Binary Radix Longest-Prefix Match',
-      status: 'PASS',
+      status: lpmMatch && lpmMatch.matched ? 'PASS' : 'WARN',
       summary: lpmMatch && lpmMatch.matched
         ? `Longest-prefix match selected route ${lpmMatch.prefix}/${lpmMatch.prefixLen} via ${lpmMatch.nextHop}`
-        : `Default route 0.0.0.0/0 active via ${gwIp}`,
-      details: lpmMatch || { matched: true, prefix: '0.0.0.0', prefixLen: 0, nextHop: gwIp }
+        : (gatewayObserved
+          ? `Default gateway ${gwIp} was observed, but the detailed longest-prefix lookup returned no match`
+          : 'Neither a verified default gateway nor a detailed longest-prefix route match was available'),
+      details: lpmMatch || { matched: false, prefix: null, prefixLen: null, nextHop: gwIp }
     });
 
     // Step 5: DNS Resolver reachability and RFC 1035 resolution (honoring pre-validated pinnedIp to prevent DNS rebinding)
