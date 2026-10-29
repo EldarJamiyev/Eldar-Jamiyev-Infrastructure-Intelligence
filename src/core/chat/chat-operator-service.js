@@ -581,7 +581,7 @@ const emptyTargetPlan = (intent) => ({
     const isGenericDnsHealthPrompt =
       !explicitTarget &&
       /\b(check dns( connection| connectivity| status| health| server)?|test dns( connection| connectivity| server)?|is dns working|verify dns( connection)?|dns connection|dns connectivity|dns health)\b/i.test(lower) &&
-      !/\b(same host|same domain|that host|that domain|for it|on it)\b/i.test(lower);
+      !/\b(?:for|of|on)\s+(?:(?:[a-z0-9-]+\.)+[a-z]{2,}|(?:\d{1,3}\.){3}\d{1,3})\b|\b(same host|same domain|that host|that domain|for it|on it)\b/i.test(lower);
 
     // 6. Resolve target using contextual follow-up memory if not explicitly specified
     let usedFollowUpTarget = false;
