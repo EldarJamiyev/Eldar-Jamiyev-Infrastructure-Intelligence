@@ -898,6 +898,7 @@ class ChatOperatorService {
           };
         }
 
+        const targetValidationStartedAt = performance.now();
         let targetValidation = await resolveAndValidateTarget(plan.target);
         if (!targetValidation.valid && String(targetValidation.error || '').includes('SECURITY_VIOLATION')) {
           return {
@@ -926,7 +927,10 @@ class ChatOperatorService {
           session.lastValidTarget = plan.target;
         }
 
-        plan.targetValidation = targetValidation;
+        plan.targetValidation = {
+          ...targetValidation,
+          validationDurationMs: Number((performance.now() - targetValidationStartedAt).toFixed(2))
+        };
       }
 
       this._checkAborted(abortController.signal);
@@ -2198,22 +2202,31 @@ class ChatOperatorService {
     }
 
     const sockets = Array.isArray(matrix.sockets) ? matrix.sockets : [];
-    const established = sockets.filter((s) => String(s.state || '').toUpperCase() === 'ESTABLISHED'
-      && s.remoteAddress && !['0.0.0.0', '::', '::0', '*'].includes(String(s.remoteAddress))
-      && Number(s.remotePort) > 0);
+    const isUsableRemoteEndpoint = (s) => Boolean(
+      s.remoteAddress && !['0.0.0.0', '::', '::0', '*', '127.0.0.1', '::1'].includes(String(s.remoteAddress))
+      && Number(s.remotePort) > 0
+    );
+    const established = sockets.filter((s) => {
+      const protocol = String(s.protocol || 'TCP').toUpperCase();
+      const state = String(s.state || '').toUpperCase();
+      return isUsableRemoteEndpoint(s) && (
+        (protocol === 'TCP' && state === 'ESTABLISHED') ||
+        (protocol === 'UDP' && !['UDP_STATELESS', 'UNCONN', 'LISTENING'].includes(state))
+      );
+    });
     const sorted = established.sort((a, b) => String(a.processName || '').localeCompare(String(b.processName || ''))
       || String(a.remoteAddress).localeCompare(String(b.remoteAddress)) || Number(a.remotePort) - Number(b.remotePort));
     const maxRows = 40;
     const visible = sorted.slice(0, maxRows);
-    const lines = visible.map((s) => `- ${s.processName || 'Unknown process'} (PID ${s.pid ?? 'n/a'}): ${s.remoteAddress}:${s.remotePort} [local ${s.localAddress}:${s.localPort}]`);
+    const lines = visible.map((s) => `- ${s.processName || 'Unknown process'} (PID ${s.pid ?? 'n/a'}): ${(s.protocol || 'TCP').toUpperCase()} ${s.remoteAddress}:${s.remotePort} [local ${s.localAddress}:${s.localPort}]`);
     const resultText = established.length
-      ? `Observed ${established.length} established TCP connection(s) at ${new Date().toISOString()}.\n${lines.join('\n')}${established.length > maxRows ? `\n...and ${established.length - maxRows} more connection(s).` : ''}`
-      : 'The OS collector completed successfully, but no established remote TCP connections were present in the collected snapshot.';
-    const reply = `**Result:** ${resultText}\n\n**Meaning:** These are current OS-visible TCP endpoints. The destination IP and destination port are the remote address and remote port; connections can change while applications run. Process names may be unavailable when the OS restricts attribution.\n\n**Next step:** Ask EJII to filter by application name, destination IP, or port.`;
+      ? `Observed ${established.length} connected remote endpoint(s) at ${new Date().toISOString()}.\n${lines.join('\n')}${established.length > maxRows ? `\n...and ${established.length - maxRows} more endpoint(s).` : ''}`
+      : 'The OS collector completed successfully, but no connected remote TCP/UDP endpoints were present in this snapshot.';
+    const reply = `**Result:** ${resultText}\n\n**Meaning:** These are current OS-visible remote endpoints, including established TCP connections and connected UDP endpoints when the operating system exposes them. The destination IP and destination port are the remote address and remote port; connections can change while applications run. Process names may be unavailable when OS permissions restrict attribution.\n\n**Next step:** Ask EJII to filter by application name, destination IP, or port.`;
     return {
       reply,
       structuredAnswer: {
-        result: `${established.length} established TCP connection(s) observed.`,
+        result: `${established.length} connected remote TCP/UDP endpoint(s) observed.`,
         meaning: 'Remote endpoints were taken from the host OS socket table, not inferred from recent website checks.',
         nextStep: 'Filter the live list by an application, remote address, or port if needed.',
         layerFailedFirst: null,
@@ -2221,7 +2234,7 @@ class ChatOperatorService {
       },
       steps: [{
         stepNumber: 1, label: 'Read the current TCP socket table', tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix',
-        status: 'PASS', summary: `${established.length} established remote TCP connection(s) observed`, durationMs: 0
+        status: 'PASS', summary: `${established.length} connected remote endpoint(s) observed`, durationMs: 0
       }],
       findings: [
         { label: 'Established TCP', value: String(established.length), tone: 'neutral' },
@@ -2293,7 +2306,9 @@ class ChatOperatorService {
 
     const wfResult = await crossLayerIncidentCorrelator.diagnoseUnreachableHostname(target, primaryPort, {
       pinnedIp: plan.targetValidation?.pinnedIp || null,
-      resolvedIps: plan.targetValidation?.resolvedIps || null
+      resolvedIps: plan.targetValidation?.resolvedIps || null,
+      prevalidatedDnsLatencyMs: typeof plan.targetValidation?.validationDurationMs === 'number'
+        ? plan.targetValidation.validationDurationMs : null
     });
 
     this._checkAborted(signal);
@@ -2304,7 +2319,7 @@ class ChatOperatorService {
       tool: s.layer,
       status: s.status,
       summary: s.summary,
-      durationMs: s.details?.connectLatencyMs || s.details?.latencyMs || s.details?.durationMs || s.details?.avgRttMs || s.details?.ttfbMs || 1.2
+      durationMs: s.details?.connectLatencyMs ?? s.details?.latencyMs ?? s.details?.durationMs ?? s.details?.avgRttMs ?? s.details?.ttfbMs
     }));
 
     const extraPortResults = [];
