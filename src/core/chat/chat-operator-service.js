@@ -1217,6 +1217,11 @@ const emptyTargetPlan = (intent) => ({
     plan.explicitTarget = gatewayIp;
     plan.targetValidation = { valid: true, pinnedIp: gatewayIp, resolvedIps: [gatewayIp], isIpLiteral: true };
     const outcome = await this._executePingScenario(plan, session, signal);
+    const scopeNote = 'This checks the default gateway from the EJII backend host operating-system route table. If EJII runs remotely or in a cloud container, that gateway is not necessarily the browser user’s home or office router.';
+    if (outcome.structuredAnswer) {
+      outcome.structuredAnswer.meaning = `${scopeNote} ${outcome.structuredAnswer.meaning || ''}`.trim();
+      outcome.reply = `**Result:** ${outcome.structuredAnswer.result || outcome.reply}\n\n**Meaning:** ${outcome.structuredAnswer.meaning}\n\n**Next step:** ${outcome.structuredAnswer.nextStep || 'Retry the gateway check if the route changes.'}`;
+    }
     outcome.findings = [{ label: 'Target Role', value: 'Verified OS default gateway', tone: 'neutral' }].concat(outcome.findings || []);
     outcome.technicalEvidence = {
       ...(outcome.technicalEvidence || {}),
