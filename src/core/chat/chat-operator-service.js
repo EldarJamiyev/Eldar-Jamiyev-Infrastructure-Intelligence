@@ -2056,22 +2056,22 @@ const emptyTargetPlan = (intent) => ({
       this._checkAborted(signal);
       const t2 = performance.now();
       tlsRes = await auditTls(target, port, 2500);
+      const tlsDaysRemaining = Number.isFinite(tlsRes.certificate?.daysRemaining) ? tlsRes.certificate.daysRemaining : null;
+      const tlsAuthorized = tlsRes.validation?.authorized === true;
       steps.push({
         stepNumber: 3,
         label: `Verifying TLS handshake and certificate on ${target}:${port}…`,
         tool: 'auditTls',
-        status: tlsRes.success ? (tlsRes.validation?.authorized ? 'PASS' : 'WARN') : 'FAIL',
-        summary: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.cipher?.name || 'cipher not reported'}) · Cert valid (${tlsRes.certificate?.daysRemaining} days remaining)`
-          : `TLS handshake failed: ${tlsRes.error || 'Handshake error'}`,
+        status: !tlsRes.success ? 'FAIL' : (tlsAuthorized ? 'PASS' : 'WARN'),
+        summary: !tlsRes.success
+          ? `TLS handshake failed: ${tlsRes.error || 'Handshake error'}`
+          : `${tlsRes.protocol || 'TLS'} (${tlsRes.cipher?.name || 'cipher not reported'}); ${tlsAuthorized ? 'certificate validation passed' : 'certificate validation not trusted/verified'}${tlsDaysRemaining === null ? '' : `; ${tlsDaysRemaining} days until expiry`}`,
         durationMs: Number((performance.now() - t2).toFixed(1))
       });
       findings.push({
         label: 'TLS Security',
-        value: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.certificate?.daysRemaining}d left)`
-          : `FAILED (${tlsRes.error || 'Error'})`,
-        tone: tlsRes.success ? (tlsRes.validation?.authorized ? 'ok' : 'warn') : 'danger'
+        value: !tlsRes.success ? `FAILED (${tlsRes.error || 'Error'})` : `${tlsRes.protocol || 'TLS'} · ${tlsAuthorized ? 'trusted' : 'not trusted'}${tlsDaysRemaining === null ? '' : ` · ${tlsDaysRemaining}d remaining`}`,
+        tone: !tlsRes.success ? 'danger' : (tlsAuthorized ? 'ok' : 'warn')
       });
     }
 
@@ -2081,13 +2081,15 @@ const emptyTargetPlan = (intent) => ({
     const httpRes = await probeHttp(urlToProbe, 'GET', 2500);
     const httpTtfbMs = Number.isFinite(httpRes.waterfall?.ttfbMs) ? httpRes.waterfall.ttfbMs : null;
     const httpTotalMs = Number.isFinite(httpRes.waterfall?.totalMs) ? httpRes.waterfall.totalMs : null;
+    const httpTtfbLabel = httpTtfbMs === null ? 'not reported' : `${httpTtfbMs} ms`;
+    const httpTotalLabel = httpTotalMs === null ? 'not reported' : `${httpTotalMs} ms`;
     steps.push({
       stepNumber: isHttps ? 4 : 3,
       label: `Checking HTTP response from ${urlToProbe}…`,
       tool: 'probeHttp',
       status: httpRes.success ? 'PASS' : (httpRes.statusCode ? 'WARN' : 'FAIL'),
       summary: httpRes.statusCode
-        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpTtfbMs} ms, total: ${httpTotalMs} ms)`
+        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpTtfbLabel}, total: ${httpTotalLabel})`
         : `HTTP request failed: ${httpRes.error || 'No HTTP response'}`,
       durationMs: Number((performance.now() - t3).toFixed(1))
     });
@@ -2095,7 +2097,7 @@ const emptyTargetPlan = (intent) => ({
     if (httpRes.statusCode) {
       findings.push({
         label: 'HTTP Status',
-        value: `${httpRes.statusCode} (${httpTtfbMs} ms TTFB)`,
+        value: `${httpRes.statusCode} (${httpTtfbLabel} TTFB)`,
         tone: httpRes.statusCode < 400 ? 'ok' : (httpRes.statusCode < 500 ? 'warn' : 'danger')
       });
     } else {
@@ -2112,11 +2114,11 @@ const emptyTargetPlan = (intent) => ({
       openPorts: [port],
       portLatencies: { [port]: tcpRes.latencyMs },
       httpStatus: httpRes.statusCode || 'FAILED',
-      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpTtfbMs || 0}ms TTFB)`
+      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpTtfbLabel} TTFB)`
     });
 
     let structuredAnswer;
-    if (httpRes.statusCode && httpRes.statusCode < 400) {
+    if (httpRes.statusCode && httpRes.statusCode < 400 && (!isHttps || (tlsRes?.success && tlsRes.validation?.authorized === true))) {
       structuredAnswer = {
         result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpTtfbMs} ms TTFB.`,
         meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
@@ -2138,6 +2140,14 @@ const emptyTargetPlan = (intent) => ({
         meaning: `The server is reachable at the transport layer, but HTTPS encryption negotiation failed (certificate mismatch, expired certificate, or non-TLS listener on port ${port}).`,
         nextStep: `Inspect the TLS certificate and SNI configuration on ${target}:${port}.`,
         layerFailedFirst: 'L6 TLS Handshake',
+        uncertainty: null
+      };
+    } else if (isHttps && tlsRes?.success && tlsRes.validation?.authorized !== true) {
+      structuredAnswer = {
+        result: `DNS and TCP connectivity succeeded for ${target}:${port}, and HTTP returned ${httpRes.statusCode || 'no status'}, but TLS certificate validation was not confirmed as trusted.`,
+        meaning: `The TLS handshake completed, but the certificate chain or hostname validation did not pass. HTTP reachability alone does not make the HTTPS endpoint trustworthy.`,
+        nextStep: `Inspect the certificate issuer, subject names, validity dates, and trust-chain configuration for ${target}:${port}.`,
+        layerFailedFirst: 'L6 TLS Certificate Validation',
         uncertainty: null
       };
     } else {
