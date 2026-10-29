@@ -206,6 +206,22 @@ function isIpInSubnet(ip, subnetCidr) {
 /**
  * Subnet calculator for IPv4 CIDR ranges (/0 to /32)
  */
+function prefixLengthFromNetmask(netmask) {
+  if (!netmask || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(netmask))) return null;
+  const octets = String(netmask).split('.').map(Number);
+  if (octets.some((octet) => octet < 0 || octet > 255)) return null;
+  const bits = octets.map((octet) => octet.toString(2).padStart(8, '0')).join('');
+  const match = bits.match(/^(1*)(0*)$/);
+  return match ? match[1].length : null;
+}
+
+function prefixLengthFromCidr(cidr) {
+  const match = String(cidr || '').match(/\/(\d{1,2})$/);
+  if (!match) return null;
+  const prefix = Number(match[1]);
+  return Number.isInteger(prefix) && prefix >= 0 && prefix <= 32 ? prefix : null;
+}
+
 function calculateSubnet(ip, prefixLength = 24) {
   if (!ip || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(ip))) return null;
   const octets = String(ip).split('.').map(Number);
@@ -361,7 +377,7 @@ function getPhysicalNetworkInfo(options = {}) {
   const now = Date.now();
   const currentSig = getFastInterfaceSignature();
 
-  if (cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
+  if (!forceRefresh && cachedPhysicalInfo && (now - lastCacheTime < CACHE_TTL_MS)) {
     return cachedPhysicalInfo;
   }
   if (!forceRefresh && cachedPhysicalInfo && currentSig === lastInterfaceSignature && (now - lastCacheTime < 300000)) {
@@ -483,16 +499,17 @@ function getPhysicalNetworkInfo(options = {}) {
           if (/vEthernet|WSL|VirtualBox|VMware/i.test(name)) continue;
           for (const addr of ifaces[name]) {
             if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
-              const sub = calculateSubnet(addr.address, 24);
+              const prefix = prefixLengthFromCidr(addr.cidr) ?? prefixLengthFromNetmask(addr.netmask);
+              const sub = prefix === null ? null : calculateSubnet(addr.address, prefix);
               const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
               info.hostIp = addr.address;
               info.localIp = addr.address;
               // Interface detection does not prove which router is the default gateway.
               info.gatewayIp = null;
               info.defaultGateway = null;
-              info.subnetCidr = `${sub.networkAddress}/24`;
-              info.subnetMask = sub.subnetMask;
-              info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+              info.subnetCidr = sub ? `${sub.networkAddress}/${sub.prefixLength}` : (addr.cidr || null);
+              info.subnetMask = addr.netmask || sub?.subnetMask || null;
+              info.subnetPrefix = sub ? sub.networkAddress.split('.').slice(0, 3).join('.') : null;
               info.interfaceAlias = resolvedAlias;
               info.adapterName = resolvedAlias;
               info.adapter = resolvedAlias;
@@ -556,15 +573,16 @@ function getPhysicalNetworkInfo(options = {}) {
           if (!Array.isArray(addrs)) continue;
           for (const addr of addrs) {
             if (!addr.internal && addr.family === 'IPv4' && !addr.address.startsWith('169.254.')) {
-              const sub = calculateSubnet(addr.address, 24);
+              const prefix = prefixLengthFromCidr(addr.cidr) ?? prefixLengthFromNetmask(addr.netmask);
+              const sub = prefix === null ? null : calculateSubnet(addr.address, prefix);
               info.hostIp = addr.address;
               info.localIp = addr.address;
               // The interface address alone does not establish the OS default gateway.
               info.gatewayIp = null;
               info.defaultGateway = null;
-              info.subnetCidr = `${sub.networkAddress}/24`;
-              info.subnetMask = sub.subnetMask;
-              info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+              info.subnetCidr = sub ? `${sub.networkAddress}/${sub.prefixLength}` : (addr.cidr || null);
+              info.subnetMask = addr.netmask || sub?.subnetMask || null;
+              info.subnetPrefix = sub ? sub.networkAddress.split('.').slice(0, 3).join('.') : null;
               info.interfaceAlias = name;
               info.adapterName = name;
               info.adapter = name;
@@ -628,7 +646,7 @@ function getPhysicalNetworkInfo(options = {}) {
             address: addr.address,
             netmask: addr.netmask,
             mac: addr.mac ? addr.mac.toUpperCase() : null,
-            cidr: addr.cidr || `${addr.address}/24`,
+            cidr: addr.cidr || (() => { const prefix = prefixLengthFromNetmask(addr.netmask); return prefix === null ? null : `${addr.address}/${prefix}`; })(),
             type,
             isDefault: addr.address === info.localIp,
             isVirtual
@@ -646,12 +664,13 @@ function getPhysicalNetworkInfo(options = {}) {
 }
 
 let cachedWanHops = null;
-let lastWanHopsTime = Date.now();
+let lastWanHopsTime = 0;
+let lastWanHopsGateway = null;
 const WAN_HOPS_TTL_MS = 120000;
 
 function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
   const now = Date.now();
-  if (cachedWanHops && (now - lastWanHopsTime < WAN_HOPS_TTL_MS)) {
+  if (cachedWanHops && lastWanHopsGateway === (defaultGateway || null) && (now - lastWanHopsTime < WAN_HOPS_TTL_MS)) {
     return cachedWanHops;
   }
   const hops = [];
@@ -664,14 +683,17 @@ function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
         if (m) {
           const hopNum = parseInt(m[1], 10);
           const ip = m[3];
+          const samples = Array.from(m[2].matchAll(/(?:^|[^<\d])(\d+(?:\.\d+)?)\s*ms\b/gi), (match) => Number(match[1])).filter(Number.isFinite);
+          const rttMs = samples.length ? Number((samples.reduce((sum, value) => sum + value, 0) / samples.length).toFixed(2)) : null;
           if (ip !== defaultGateway && ip !== '8.8.8.8') {
-            hops.push({ hop: hopNum, ip, rttMs: 9.5 });
+            hops.push({ hop: hopNum, ip, rttMs });
           }
         }
       }
     }
   } catch (_) {}
   cachedWanHops = hops;
+  lastWanHopsGateway = defaultGateway || null;
   lastWanHopsTime = now;
   return cachedWanHops;
 }
