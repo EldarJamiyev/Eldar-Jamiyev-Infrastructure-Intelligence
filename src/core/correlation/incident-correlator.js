@@ -483,7 +483,12 @@ class CrossLayerIncidentCorrelator {
     let dnsResult = null;
 
     if (pinnedIp && !isIpLiteral) {
-      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number' ? options.prevalidatedDnsLatencyMs : 1.0;
+      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number'
+        ? options.prevalidatedDnsLatencyMs
+        : null;
+      const dnsTimingLabel = latencyMs === null
+        ? 'DNS resolution was validated by the security preflight; its duration was not isolated'
+        : `DNS resolved and was SSRF-validated in ${latencyMs}ms`;
       dnsResult = {
         success: true,
         hostname,
@@ -497,16 +502,18 @@ class CrossLayerIncidentCorrelator {
         stepNumber: 4,
         layer: 'L7 DNS RFC 1035 Resolution',
         status: 'PASS',
-        summary: `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
+        summary: latencyMs === null
+          ? `Resolved & pinned ${hostname} -> ${targetIp}; preflight latency not isolated`
+          : `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
         details: dnsResult
       });
       signals.push({
         domain: 'dns',
         subject: `dns:${hostname}`,
-        claim: `DNS resolved and pinned ${hostname} to ${targetIp} (${latencyMs}ms)`,
+        claim: `${dnsTimingLabel}: ${hostname} -> ${targetIp}`,
         rawValue: dnsResult,
         normalizedValue: `RESOLVED:${targetIp}`,
-        unit: 'ms',
+        unit: latencyMs === null ? null : 'ms',
         anomaly: false,
         collectionMethod: 'rfc1035_udp_dns_pinned',
         correlationGroup: 'dns_resolution'
