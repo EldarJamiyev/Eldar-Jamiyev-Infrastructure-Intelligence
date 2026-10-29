@@ -48,6 +48,56 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     }
   });
 
+  it('Routes greetings and local-network requests without inheriting a previous remote target', async () => {
+    const previousContext = {
+      lastTarget: 'google.com',
+      lastValidTarget: 'google.com',
+      lastIntent: 'website_check',
+      lastPorts: [443],
+      lastUrl: 'https://google.com/',
+      entityMemory: {}
+    };
+
+    const cases = [
+      ['hello', 'conversation'],
+      ['can you ping default gateway?', 'gateway_ping'],
+      ['check my ip', 'local_network_info'],
+      ['i want to know what is dest ip of my apps currently i am using and their dest ports', 'active_connections']
+    ];
+
+    for (const [message, expectedIntent] of cases) {
+      const plan = chatOperatorService.parseIntentAndEntities(message, previousContext);
+      assert.equal(plan.intent, expectedIntent, 'Intent should be correct for: ' + message);
+      assert.equal(plan.target, null, 'Local or conversational request must not inherit google.com: ' + message);
+    }
+  });
+
+  it('Scenario: A greeting does not launch an infrastructure probe after a previous target was checked', async () => {
+    const sessionId = 'TEST-GREETING-NO-UNSOLICITED-PROBE';
+    const user = { id: 'u1', username: 'analyst', role: 'ANALYST' };
+
+    const seeded = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'Check port 3000 on 127.0.0.1',
+      user
+    });
+    assert.equal(seeded.success, true);
+    assert.equal(seeded.data.target, '127.0.0.1');
+
+    const hello = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'hello',
+      user
+    });
+
+    assert.equal(hello.success, true);
+    assert.equal(hello.data.intent, 'conversation');
+    assert.equal(hello.data.target, null);
+    assert.equal(hello.data.steps.length, 0);
+    assert.equal(hello.data.technicalEvidence.executedDiagnostic, false);
+    assert.match(hello.data.reply, /no diagnostic was requested/i);
+  });
+
   it('Scenario A: Real DNS check returns actual records, latency, and Result/Meaning/Next step', async () => {
     const outcome = await chatOperatorService.processMessage({
       sessionId: 'TEST-SCENARIO-A',
