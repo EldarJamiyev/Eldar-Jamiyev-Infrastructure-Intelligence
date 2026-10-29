@@ -1073,16 +1073,19 @@ class ChatOperatorService {
     if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation') {
       session.lastPorts = plan.ports;
     }
-    if (plan.intent !== 'follow_up_explanation') {
+    const preservesDiagnosticContext = ['conversation', 'clarification'].includes(plan.intent);
+    if (plan.intent !== 'follow_up_explanation' && !preservesDiagnosticContext) {
       session.lastIntent = plan.intent;
     }
     if (plan.url) {
       session.lastUrl = plan.url;
     }
 
-    session.lastToolResults = technicalEvidence;
-    session.lastSteps = steps;
-    session.lastStructuredAnswer = structuredAnswer;
+    if (!preservesDiagnosticContext) {
+      session.lastToolResults = technicalEvidence;
+      session.lastSteps = steps;
+      session.lastStructuredAnswer = structuredAnswer;
+    }
     session.turnCount = (session.turnCount || 0) + 1;
 
     const assistantMsgRecord = {
