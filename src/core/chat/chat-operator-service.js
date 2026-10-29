@@ -2357,6 +2357,10 @@ const emptyTargetPlan = (intent) => ({
     const tcpStep = (wfResult.steps || []).find((s) => s.layer.includes('TCP'));
     const icmpStep = (wfResult.steps || []).find((s) => s.layer.includes('ICMP'));
     const httpStep = (wfResult.steps || []).find((s) => s.layer.includes('HTTP'));
+    const localNicStep = (wfResult.steps || []).find((s) => s.layer.includes('Local NIC'));
+    const gatewayStep = (wfResult.steps || []).find((s) => s.layer.includes('Default Gateway'));
+    const localNicConfirmed = localNicStep?.status === 'PASS';
+    const gatewayConfirmed = gatewayStep?.status === 'PASS' && Boolean(gatewayStep.details?.gatewayIp);
     const tcpRttMs = tcpStep?.details?.connectLatencyMs ?? tcpStep?.details?.latencyMs ?? null;
     const tcpRttLabel = Number.isFinite(tcpRttMs) ? `${tcpRttMs} ms` : 'latency not reported';
 
@@ -2405,9 +2409,9 @@ const emptyTargetPlan = (intent) => ({
     let uncertaintyText = null;
 
     if (dnsStep && dnsStep.status === 'FAIL') {
-      resultText = `Multi-step investigation of "${target}" stopped at Layer 7 DNS resolution: ${dnsStep.summary}. Local NIC and default gateway checks passed.`;
-      meaningText = `Your local network interface and default gateway are healthy, so the problem is isolated to DNS name resolution for "${target}". Without a resolved IP address, TCP and HTTP connections cannot start.`;
-      nextStepText = `Check whether "${target}" is spelled correctly, verify its DNS A/AAAA records, or test with the server's direct IP address.`;
+      resultText = `Multi-step investigation of "${target}" stopped at Layer 7 DNS resolution: ${dnsStep.summary}. ${localNicConfirmed ? 'A local interface IP was detected.' : 'The local interface IP was not confirmed.'} ${gatewayConfirmed ? 'The OS default route reported gateway ' + gatewayStep.details.gatewayIp + '.' : 'The OS default gateway route was not confirmed.'}`;
+      meaningText = `DNS resolution failed for "${target}". The local NIC and gateway are reported separately above; this evidence does not prove that both are healthy. Without a resolved target IP, the target-specific TCP and HTTP checks cannot start.`;
+      nextStepText = `Check whether "${target}" is spelled correctly, inspect the configured DNS resolver, verify its A/AAAA records, or test with the server's direct IP address.`;
     } else if (tcpStep && tcpStep.status === 'FAIL') {
       const tcpStatus = tcpStep.details?.status || 'UNREACHABLE';
       const anyExtraOpen = extraPortResults.find((e) => e.status === 'OPEN');
@@ -2416,14 +2420,14 @@ const emptyTargetPlan = (intent) => ({
         meaningText = `Network routing and DNS are working properly. The failure is isolated to Layer 4 on ${wfResult.resolvedIp}: no service process is listening on TCP port ${primaryPort}.`;
         nextStepText = `Start or restart the application daemon expected on port ${primaryPort} on ${target}${anyExtraOpen ? `, or connect via open port ${anyExtraOpen.port}` : ''}.`;
       } else {
-        resultText = `DNS resolved "${target}" to ${wfResult.resolvedIp}, local NIC/gateway checks passed, but TCP connection attempts to port ${primaryPort} timed out (${tcpStatus})${icmpStep?.status === 'PASS' ? ' even though ICMP ping succeeded' : ''}.`;
+        resultText = `DNS resolved "${target}" to ${wfResult.resolvedIp}; ${localNicConfirmed ? 'the local interface IP was detected' : 'the local interface IP was not confirmed'}; ${gatewayConfirmed ? 'an OS default route was observed via ' + gatewayStep.details.gatewayIp : 'the OS default gateway route was not confirmed'}; TCP port ${primaryPort} timed out (${tcpStatus})${icmpStep?.status === 'PASS' ? ' while ICMP replied' : ''}.`;
         meaningText = icmpStep?.status === 'PASS'
-          ? `Because ${wfResult.resolvedIp} replies to ICMP ping while TCP port ${primaryPort} times out, the host is online and a firewall or security group is silently dropping traffic to port ${primaryPort}.`
-          : `Neither ICMP ping nor TCP port ${primaryPort} received a response from ${wfResult.resolvedIp}. Either the target device is powered off/disconnected, or an intermediate firewall is filtering all traffic to it.`;
-        nextStepText = `Verify that ${target} (${wfResult.resolvedIp}) is powered on and inspect firewall rules permitting inbound TCP port ${primaryPort}.`;
-        uncertaintyText = icmpStep?.status !== 'PASS'
-          ? 'When both ICMP and TCP time out silently without a TCP RST, remote firewall filtering and an offline host produce identical wire symptoms.'
-          : null;
+          ? `The host at ${wfResult.resolvedIp} responded to ICMP, but the TCP connection timed out. This is consistent with filtering or a path/service policy issue, but it does not prove that a firewall is silently dropping traffic.`
+          : `Neither ICMP ping nor TCP port ${primaryPort} received a response from ${wfResult.resolvedIp}. The host may be offline, routing may be broken, or traffic may be filtered; these signals do not distinguish those causes conclusively.`;
+        nextStepText = `Verify reachability to ${target} (${wfResult.resolvedIp}) and inspect the route and network policies for TCP port ${primaryPort}.`;
+        uncertaintyText = icmpStep?.status === 'PASS'
+          ? 'A TCP timeout can result from filtering, routing/ACL policy, an asymmetric path, or endpoint problems; more evidence is needed to confirm a firewall drop.'
+          : 'When both ICMP and TCP time out silently without a TCP RST, an offline host, a routing issue, and remote filtering can produce similar symptoms.';
       }
     } else if (firstWarningStep || !allChecksPassed) {
       const warningSummary = steps
