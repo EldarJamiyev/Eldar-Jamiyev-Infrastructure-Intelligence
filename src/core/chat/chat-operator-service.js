@@ -31,12 +31,13 @@ function prefixLengthFromNetmask(netmask) {
 function readDefaultRoute() {
   try {
     if (process.platform === 'win32') {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-Command',
-        "Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1 -ExpandProperty NextHop"
-      ], { encoding: 'utf8', timeout: 1600, windowsHide: true });
-      const gatewayIp = String(output || '').trim().split(/\r?\n/).find(isIpv4Address) || null;
-      return { gatewayIp, interfaceName: null, sourceIp: null, source: gatewayIp ? 'OS default route' : null };
+      const command = "$r = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric,InterfaceMetric | Select-Object -First 1; if ($r) { $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $r.InterfaceIndex -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1; [pscustomobject]@{ gatewayIp = $r.NextHop; interfaceIndex = $r.InterfaceIndex; interfaceName = $r.InterfaceAlias; sourceIp = $ip.IPAddress } | ConvertTo-Json -Compress }";
+      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 1600, windowsHide: true });
+      let route = null;
+      try { route = JSON.parse(String(output || '').trim()); } catch (_) {}
+      const gatewayIp = isIpv4Address(route?.gatewayIp) ? route.gatewayIp : null;
+      const sourceIp = isIpv4Address(route?.sourceIp) ? route.sourceIp : null;
+      return { gatewayIp, interfaceName: route?.interfaceName || null, sourceIp, source: gatewayIp ? 'OS default route' : null };
     }
     if (process.platform === 'darwin') {
       const output = execFileSync('route', ['-n', 'get', 'default'], { encoding: 'utf8', timeout: 1600 });
@@ -452,7 +453,7 @@ const emptyTargetPlan = (intent) => ({
     });
 
     // Handle local-host questions before considering any previous remote target.
-    if (/^(hi|hello|hey|good morning|good afternoon|good evening|how are you|thanks|thank you|thx)[.!\\s]*$/i.test(lower)) {
+    if (/^(hi|hello|hey|good morning|good afternoon|good evening|how are you|thanks|thank you|thx)[.!\s]*$/i.test(lower)) {
       return emptyTargetPlan('conversation');
     }
     if (/(?:\b(?:destination|dest)\s+(?:ip|address|port|ports)\b|\bactive\s+(?:tcp\s+)?connections\b|\bremote\s+(?:ip|address|ports?)\b|\bapps?\b.*\b(?:currently|using|connections|destination|dest|ports?)\b)/i.test(lower)) {
