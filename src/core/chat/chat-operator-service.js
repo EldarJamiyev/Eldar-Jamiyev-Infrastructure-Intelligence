@@ -1060,6 +1060,7 @@ class ChatOperatorService {
     steps,
     findings,
     technicalEvidence,
+    contextTarget = null,
     startWall
   }) {
     const totalDurationMs = Number((performance.now() - startWall).toFixed(1));
@@ -1075,14 +1076,18 @@ class ChatOperatorService {
         session.lastValidTarget = plan.target;
       }
     }
-    if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation') {
+    if (contextTarget && isSafeNetworkTarget(contextTarget)) {
+      session.lastTarget = contextTarget;
+      session.lastValidTarget = contextTarget;
+    }
+    if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation' && !['conversation', 'clarification'].includes(plan.intent)) {
       session.lastPorts = plan.ports;
     }
     const preservesDiagnosticContext = ['conversation', 'clarification'].includes(plan.intent);
     if (plan.intent !== 'follow_up_explanation' && !preservesDiagnosticContext) {
       session.lastIntent = plan.intent;
     }
-    if (plan.url) {
+    if (plan.url && !['conversation', 'clarification'].includes(plan.intent)) {
       session.lastUrl = plan.url;
     }
 
@@ -2174,6 +2179,8 @@ class ChatOperatorService {
     try { physical = getPhysicalNetworkInfo(); } catch (_) {}
     const gateway = physical && physical.isDetected === true && physical.gatewayIp
       ? String(physical.gatewayIp) : null;
+    const usableIpv4 = addresses.filter((a) => a.family === 'IPv4' && a.address && !a.address.startsWith('169.254.'));
+    const unambiguousLocalIp = usableIpv4.length === 1 ? usableIpv4[0].address : null;
     const addressSummary = addresses.length
       ? addresses.map((a) => `${a.interface} ${a.family}: ${a.address}${a.netmask ? ` (netmask ${a.netmask})` : ''}`).join('; ')
       : 'No non-loopback interface addresses were returned by the operating system.';
@@ -2196,7 +2203,8 @@ class ChatOperatorService {
         { label: 'Local addresses', value: String(addresses.length), tone: addresses.length ? 'ok' : 'warn' },
         { label: 'Default gateway', value: gateway || 'Not verified', tone: gateway ? 'ok' : 'warn' }
       ],
-      technicalEvidence: { tool: 'os.networkInterfaces + physical-network-detector', addresses, gateway, gatewayVerified: Boolean(gateway), observedAt: new Date().toISOString() }
+      technicalEvidence: { tool: 'os.networkInterfaces + physical-network-detector', addresses, gateway, gatewayVerified: Boolean(gateway), observedAt: new Date().toISOString() },
+      ...(unambiguousLocalIp ? { contextTarget: unambiguousLocalIp } : {})
     };
   }
 
@@ -2245,7 +2253,8 @@ class ChatOperatorService {
         { label: 'ICMP replies', value: `${result?.packetsReceived ?? 0}/${result?.packetsSent ?? 0}`, tone: gotReply ? 'ok' : 'warn' },
         { label: 'Packet loss', value: `${result?.packetLossPct ?? 'unknown'}%`, tone: gotReply && result.packetLossPct === 0 ? 'ok' : 'warn' }
       ],
-      technicalEvidence: { tool: 'realPing', target: gateway, result, observedAt: new Date().toISOString() }
+      technicalEvidence: { tool: 'realPing', target: gateway, result, observedAt: new Date().toISOString() },
+      contextTarget: gateway
     };
   }
 
