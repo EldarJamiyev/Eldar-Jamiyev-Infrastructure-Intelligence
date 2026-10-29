@@ -265,10 +265,23 @@ class ProcessSocketCorrelatorEngine {
                             continue;
                         const parts = trimmed.split(/\s+/);
                         if (parts.length >= 6) {
-                            const state = parts[0];
-                            const local = parts[4];
-                            const remote = parts[5];
-                            const procField = parts[6] || '';
+                            const hasNetid = /^(tcp|tcp6|udp|udp6)$/i.test(parts[0]);
+                            const netid = hasNetid ? parts[0].toUpperCase() : 'TCP';
+                            const protocol = netid.startsWith('UDP') ? 'UDP' : 'TCP';
+                            const rawState = String(parts[hasNetid ? 1 : 0] || 'UNKNOWN').toUpperCase();
+                            const stateMap = {
+                                ESTAB: 'ESTABLISHED',
+                                LISTEN: 'LISTENING',
+                                'TIME-WAIT': 'TIME_WAIT',
+                                'CLOSE-WAIT': 'CLOSE_WAIT',
+                                'SYN-SENT': 'SYN_SENT',
+                                'SYN-RECV': 'SYN_RECEIVED',
+                                UNCONN: 'UDP_STATELESS'
+                            };
+                            const state = stateMap[rawState] || rawState;
+                            const local = parts[hasNetid ? 4 : 3];
+                            const remote = parts[hasNetid ? 5 : 4];
+                            const procField = parts[hasNetid ? 6 : 5] || '';
                             const pidMatch = procField.match(/pid=(\d+)/);
                             const nameMatch = procField.match(/users:\(\("([^"]+)"/);
                             const pid = pidMatch ? parseInt(pidMatch[1], 10) : 0;
@@ -276,14 +289,12 @@ class ProcessSocketCorrelatorEngine {
                             if (pid > 0 && !processes.some((p) => p.pid === pid)) {
                                 processes.push({ pid, name });
                             }
-                            const lastColonL = local.lastIndexOf(':');
-                            const lastColonR = remote.lastIndexOf(':');
-                            const locAddr = local.slice(0, lastColonL);
-                            const locPort = parseInt(local.slice(lastColonL + 1), 10) || 0;
-                            const remAddr = remote.slice(0, lastColonR);
-                            const remPort = parseInt(remote.slice(lastColonR + 1), 10) || 0;
+                            const [locAddr, locPortText] = splitEndpoint(local);
+                            const [remAddr, remPortText] = splitEndpoint(remote);
+                            const locPort = parseInt(locPortText || '0', 10) || 0;
+                            const remPort = parseInt(remPortText || '0', 10) || 0;
                             sockets.push({
-                                protocol: 'TCP',
+                                protocol,
                                 localAddress: locAddr,
                                 localPort: locPort,
                                 remoteAddress: remAddr,
