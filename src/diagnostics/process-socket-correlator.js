@@ -233,8 +233,8 @@ class ProcessSocketCorrelatorEngine {
                                 state = 'UDP_STATELESS';
                                 pid = parseInt(parts[3] || '0', 10);
                             }
-                            const [locAddr, locPortStr] = local.split(':');
-                            const [remAddr, remPortStr] = remote.split(':');
+                            const [locAddr, locPortStr] = splitEndpoint(local);
+                            const [remAddr, remPortStr] = splitEndpoint(remote);
                             const localPort = parseInt(locPortStr || '0', 10);
                             const remotePort = parseInt(remPortStr || '0', 10);
                             if (!isNaN(pid)) {
