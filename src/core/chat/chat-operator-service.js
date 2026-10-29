@@ -553,7 +553,10 @@ class ChatOperatorService {
     const refersToPreviousTarget =
       /\b(same host|same server|same target|same domain|that host|that server|it|again|retry)\b/i.test(lower);
 
-    if (!resolvedTarget) {
+    if (!resolvedTarget && refersToPreviousTarget && !isGenericDnsHealthPrompt && !(session?.lastValidTarget || session?.lastTarget)) {
+      // A follow-up with no known target must ask for one rather than silently probe localhost.
+      resolvedTarget = null;
+    } else if (!resolvedTarget) {
       if (isGenericDnsHealthPrompt) {
         // A general DNS-health request is independent of the previous diagnostic target.
         resolvedTarget = 'google.com';
@@ -642,6 +645,10 @@ class ChatOperatorService {
     // If a generic investigation has no explicit or remembered target, ask for the target
     // rather than silently probing localhost or the previous unrelated host.
     if (intent === 'multi_step_investigation' && !explicitTarget && !session?.lastValidTarget && !session?.lastTarget) {
+      intent = 'clarification';
+    }
+    if (refersToPreviousTarget && !explicitTarget && !isGenericDnsHealthPrompt && !session?.lastValidTarget && !session?.lastTarget &&
+        !['conversation', 'clarification', 'local_network_info', 'gateway_ping', 'active_connections', 'host_health'].includes(intent)) {
       intent = 'clarification';
     }
 
@@ -1061,6 +1068,7 @@ class ChatOperatorService {
     findings,
     technicalEvidence,
     contextTarget = null,
+    clearTargetContext = false,
     startWall
   }) {
     const totalDurationMs = Number((performance.now() - startWall).toFixed(1));
@@ -1076,11 +1084,15 @@ class ChatOperatorService {
         session.lastValidTarget = plan.target;
       }
     }
-    if (contextTarget && isSafeNetworkTarget(contextTarget)) {
+    if (clearTargetContext) {
+      session.lastTarget = null;
+      session.lastValidTarget = null;
+      session.lastPorts = [];
+    } else if (contextTarget && isSafeNetworkTarget(contextTarget)) {
       session.lastTarget = contextTarget;
       session.lastValidTarget = contextTarget;
     }
-    if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation' && !['conversation', 'clarification'].includes(plan.intent)) {
+    if (!clearTargetContext && Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation' && !['conversation', 'clarification'].includes(plan.intent)) {
       session.lastPorts = plan.ports;
     }
     const preservesDiagnosticContext = ['conversation', 'clarification'].includes(plan.intent);
@@ -2313,7 +2325,8 @@ class ChatOperatorService {
         { label: 'Established TCP', value: String(established.length), tone: 'neutral' },
         { label: 'OS collector', value: matrix.collectionMethod || 'unknown', tone: 'ok' }
       ],
-      technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix.collectionStatus, collectionMethod: matrix.collectionMethod, collectionNote: matrix.collectionNote, sockets: visible, totalEstablished: established.length, observedAt: new Date().toISOString() }
+      technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix.collectionStatus, collectionMethod: matrix.collectionMethod, collectionNote: matrix.collectionNote, sockets: visible, totalEstablished: established.length, observedAt: new Date().toISOString() },
+      clearTargetContext: true
     };
   }
 
