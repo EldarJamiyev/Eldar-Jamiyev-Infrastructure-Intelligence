@@ -656,7 +656,7 @@ class CrossLayerIncidentCorrelator {
       if (tcpOpen && (port === 80 || port === 443 || port === 3000 || port === 8443)) {
         const proto = (port === 443 || port === 8443) ? 'https' : 'http';
         const httpRes = await probeHttp(`${proto}://${hostname}:${port}/`, 'GET', 2500).catch((e) => ({ success: false, error: e.message }));
-        const httpStatus = Number(httpRes?.statusCode);
+        const httpStatus = httpRes?.statusCode === null || httpRes?.statusCode === undefined ? null : Number(httpRes.statusCode);
         const httpStepStatus = Number.isFinite(httpStatus) && httpStatus >= 200 && httpStatus < 400
           ? 'PASS'
           : (Number.isFinite(httpStatus) ? 'WARN' : 'FAIL');
