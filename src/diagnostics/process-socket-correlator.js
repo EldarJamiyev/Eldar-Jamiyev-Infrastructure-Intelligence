@@ -172,6 +172,15 @@ class ProcessSocketCorrelatorEngine {
         const isWin = process.platform === 'win32';
         const sockets = [];
         const processes = [];
+        const collectionErrors = [];
+        let socketCommandSucceeded = false;
+        let collectionMethod = null;
+        const splitEndpoint = (endpoint) => {
+            const value = String(endpoint || '');
+            const separator = value.lastIndexOf(':');
+            if (separator < 0) return [value, '0'];
+            return [value.slice(0, separator).replace(/^\[|\]$/g, ''), value.slice(separator + 1)];
+        };
         try {
             if (isWin) {
                 // 1. Collect process names from tasklist /FO CSV /NH
@@ -202,6 +211,8 @@ class ProcessSocketCorrelatorEngine {
                 // 2. Collect sockets from netstat -ano
                 try {
                     const netstatOut = (0, node_child_process_1.execSync)('netstat -ano', { encoding: 'utf8', timeout: 4000 });
+                    socketCommandSucceeded = true;
+                    collectionMethod = 'netstat -ano';
                     for (const line of netstatOut.split(/\r?\n/)) {
                         const trimmed = line.trim();
                         if (!trimmed || trimmed.startsWith('Active') || trimmed.startsWith('Proto'))
@@ -240,12 +251,14 @@ class ProcessSocketCorrelatorEngine {
                         }
                     }
                 }
-                catch (_) { }
+                catch (err) { collectionErrors.push(`netstat -ano: ${err.message}`); }
             }
             else {
                 // Linux: ss -tupn or netstat
                 try {
                     const ssOut = (0, node_child_process_1.execSync)('ss -tupn', { encoding: 'utf8', timeout: 3500 });
+                    socketCommandSucceeded = true;
+                    collectionMethod = 'ss -tupn';
                     for (const line of ssOut.split(/\r?\n/)) {
                         const trimmed = line.trim();
                         if (!trimmed || trimmed.startsWith('Netid') || trimmed.startsWith('State'))
@@ -281,37 +294,27 @@ class ProcessSocketCorrelatorEngine {
                         }
                     }
                 }
-                catch (_) { }
+                catch (err) { collectionErrors.push(`ss -tupn: ${err.message}`); }
             }
         }
-        catch (_) { }
-        // Fallback if OS commands blocked
-        if (sockets.length === 0) {
-            sockets.push({
-                protocol: 'TCP',
-                localAddress: '127.0.0.1',
-                localPort: 8443,
-                remoteAddress: '0.0.0.0',
-                remotePort: 0,
-                state: 'LISTENING',
-                pid: process.pid,
-            });
-            sockets.push({
-                protocol: 'TCP',
-                localAddress: '127.0.0.1',
-                localPort: 52100,
-                remoteAddress: '127.0.0.1',
-                remotePort: 8443,
-                state: 'ESTABLISHED',
-                pid: process.pid,
-            });
-            processes.push({
-                pid: process.pid,
-                name: 'node.exe',
-                memoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
-            });
-        }
-        return this.analyzeSocketProcessMatrix(sockets, processes);
+        catch (err) { collectionErrors.push(`socket collector: ${err.message}`); }
+        // Never manufacture socket rows when the host collector is unavailable.
+        // A successful OS query returning zero rows is different from a failed collector.
+        const processNames = new Map(processes.map((p) => [p.pid, p.name]));
+        const matrix = this.analyzeSocketProcessMatrix(sockets, processes);
+        return {
+            ...matrix,
+            sockets: sockets.map((socket) => ({
+                ...socket,
+                processName: processNames.get(socket.pid) || 'Unknown / access restricted'
+            })),
+            collectionStatus: socketCommandSucceeded ? 'LIVE_OS_TELEMETRY' : 'UNAVAILABLE',
+            collectionMethod,
+            collectionErrors,
+            collectionNote: socketCommandSucceeded
+                ? (sockets.length === 0 ? 'The OS collector ran successfully but returned no socket rows.' : null)
+                : 'No supported OS socket collector completed successfully; socket count must not be interpreted as zero.'
+        };
     }
 }
 exports.ProcessSocketCorrelatorEngine = ProcessSocketCorrelatorEngine;
