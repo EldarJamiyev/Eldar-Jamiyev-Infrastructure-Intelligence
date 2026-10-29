@@ -406,7 +406,9 @@ class ChatOperatorService {
     try {
       active.abortController.abort(new Error('CANCELLED_BY_USER'));
     } catch (_) {}
-    this.inFlightRequests.delete(sessionId);
+    // Keep the session lock until processMessage's finally block runs. The underlying
+    // OS/network operation may still be unwinding; releasing it here permits duplicate
+    // work and lets an older request erase a newer request's lock.
     return {
       cancelled: true,
       sessionId,
@@ -1036,7 +1038,8 @@ class ChatOperatorService {
         }
       };
     } finally {
-      this.inFlightRequests.delete(session.sessionId);
+      const active = this.inFlightRequests.get(session.sessionId);
+      if (active && active.requestId === reqId) this.inFlightRequests.delete(session.sessionId);
     }
   }
 
