@@ -2349,7 +2349,7 @@ const emptyTargetPlan = (intent) => ({
     }
 
     const normalizedStatus = (step) => String(step?.status || '').toUpperCase();
-    const firstFailedStep = steps.find((s) => ['FAIL', 'TIMEOUT', 'ERROR'].includes(normalizedStatus(s)));
+    const firstFailedStep = steps.find((s) => ['FAIL', 'FAILED', 'TIMEOUT', 'ERROR', 'BLOCKED', 'DENIED'].includes(normalizedStatus(s)));
     const firstWarningStep = steps.find((s) => ['WARN', 'WARNING', 'DEGRADED', 'DEGRADED_FINDING', 'PARTIAL'].includes(normalizedStatus(s)));
     const allChecksPassed = steps.length > 0 && steps.every((s) => ['PASS', 'OK', 'COMPLETED'].includes(normalizedStatus(s)));
     const topHyp = wfResult.correlation?.topHypothesis;
@@ -2366,18 +2366,18 @@ const emptyTargetPlan = (intent) => ({
 
     this._recordEntityMemory(session, target, {
       resolvedIps: wfResult.resolvedIp ? [wfResult.resolvedIp] : [],
-      dnsStatus: dnsStep?.status === 'PASS' ? 'OK' : 'FAILED',
+      dnsStatus: dnsStep?.status === 'PASS' ? 'OK' : (['FAIL', 'FAILED', 'ERROR', 'TIMEOUT'].includes(normalizedStatus(dnsStep)) ? 'FAILED' : 'UNKNOWN'),
       openPorts: tcpStep?.status === 'PASS' ? [primaryPort] : [],
       closedPorts: tcpStep?.details?.status === 'CLOSED' ? [primaryPort] : [],
-      summary: `Cross-layer investigation on ${target}:${primaryPort} (${firstFailedStep ? `Failed at ${firstFailedStep.label}` : 'All layers passed'})`
+      summary: `Cross-layer investigation on ${target}:${primaryPort} (${firstFailedStep ? `Failed at ${firstFailedStep.label}` : allChecksPassed ? 'All checks passed' : firstWarningStep ? `Warnings at ${firstWarningStep.label}` : 'Incomplete or unverified checks'})`
     });
 
     const findings = [
       { label: 'Target', value: `${target}:${primaryPort}`, tone: 'neutral' },
       {
         label: 'DNS Resolution',
-        value: dnsStep?.status === 'PASS' ? `OK (${wfResult.resolvedIp})` : 'FAILED',
-        tone: dnsStep?.status === 'PASS' ? 'ok' : 'danger'
+        value: dnsStep?.status === 'PASS' ? `OK (${wfResult.resolvedIp})` : (['FAIL', 'FAILED', 'ERROR', 'TIMEOUT'].includes(normalizedStatus(dnsStep)) ? 'FAILED' : 'NOT CONFIRMED'),
+        tone: dnsStep?.status === 'PASS' ? 'ok' : (['FAIL', 'FAILED', 'ERROR', 'TIMEOUT'].includes(normalizedStatus(dnsStep)) ? 'danger' : 'warn')
       }
     ];
     if (tcpStep) {
