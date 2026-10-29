@@ -339,5 +339,60 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.ok(memTurn.data.reply.includes('Session Investigation Memory'), 'Should return structured session entity memory');
     assert.ok(memTurn.data.reply.includes('google.com'), 'Memory should include google.com');
   });
+  it('Scenario K: greetings and local-machine requests never reuse the previous remote target', async () => {
+    const sessionId = 'TEST-INTENT-ISOLATION-K';
+    const user = { id: 'u-intent', username: 'intent_admin', role: 'ADMIN' };
+    const session = chatOperatorService.getOrCreateSession(sessionId, user);
+    session.lastTarget = 'google.com';
+    session.lastValidTarget = 'google.com';
+
+    const hello = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'hello',
+      user
+    });
+    assert.equal(hello.success, true);
+    assert.equal(hello.data.intent, 'conversation');
+    assert.equal(hello.data.target, null);
+    assert.equal(hello.data.steps.length, 0, 'A greeting must not execute network probes');
+
+    const gatewayPlan = chatOperatorService.parseIntentAndEntities('Can you ping the default gateway?', session);
+    assert.equal(gatewayPlan.intent, 'gateway_ping');
+    assert.equal(gatewayPlan.target, null, 'Gateway intent must resolve from current host telemetry, not session history');
+
+    const localIpPlan = chatOperatorService.parseIntentAndEntities('check my ip', session);
+    assert.equal(localIpPlan.intent, 'local_network_info');
+    assert.equal(localIpPlan.target, null);
+
+    const activeConnectionsPlan = chatOperatorService.parseIntentAndEntities(
+      'I want to know the dest IP of my apps currently in use and their dest ports',
+      session
+    );
+    assert.equal(activeConnectionsPlan.intent, 'active_connections');
+    assert.equal(activeConnectionsPlan.target, null);
+
+    const vaguePlan = chatOperatorService.parseIntentAndEntities('what is happening?', session);
+    assert.equal(vaguePlan.intent, 'clarification');
+  });
+
+  it('Scenario L: a different authenticated user cannot read or mutate another user’s chat session', async () => {
+    const sessionId = 'TEST-SESSION-OWNERSHIP-L';
+    const owner = { id: 'u-session-owner', username: 'session_owner', role: 'ADMIN' };
+    const stranger = { id: 'u-session-stranger', username: 'session_stranger', role: 'ADMIN' };
+
+    chatOperatorService.getOrCreateSession(sessionId, owner);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, owner).allowed, true);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, stranger).allowed, false);
+
+    const denied = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'hello',
+      user: stranger
+    });
+    assert.equal(denied.success, false);
+    assert.equal(denied.statusCode, 404);
+    assert.equal(denied.error.code, 'CHAT_SESSION_ACCESS_DENIED');
+  });
+
 });
 
