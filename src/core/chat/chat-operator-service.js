@@ -1056,10 +1056,11 @@ class ChatOperatorService {
           const r = await resolveRecord('localhost', 'A');
           return {
             domain: 'localhost',
-            success: true,
-            records: r.success && r.records?.length ? r.records : ['127.0.0.1'],
+            success: Boolean(r.success && Array.isArray(r.records) && r.records.length),
+            records: Array.isArray(r.records) ? r.records : [],
             durationMs: Number((performance.now() - t0).toFixed(2)),
-            nameserver: r.nameserver || sysDnsIp
+            nameserver: r.nameserver || sysDnsIp || 'OS hosts resolver',
+            error: r.errorCode || r.error || null
           };
         }
         const r = await resolveRecord(domain, 'A');
@@ -1099,8 +1100,9 @@ class ChatOperatorService {
       }
 
       const primary = results.find((r) => r.domain === target) || results[results.length - 1];
+      const resolverLabel = sysDnsIp || 'OS-configured resolver';
       const findings = [
-        { label: 'Active Resolver', value: sysDnsIp, tone: 'neutral' },
+        { label: 'Active Resolver', value: resolverLabel, tone: 'neutral' },
         { label: 'DNS Connectivity', value: allPassed ? 'HEALTHY' : 'PARTIAL / DEGRADED', tone: allPassed ? 'ok' : 'warn' },
         ...results.map((r) => ({
           label: `DNS (${r.domain})`,
@@ -1110,7 +1112,7 @@ class ChatOperatorService {
       ];
 
       const structuredAnswer = {
-        result: `DNS connection check completed in ${totalMs} ms via resolver ${sysDnsIp}: ${results.map((r) => `${r.domain} → ${r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`}`).join('; ')}.`,
+        result: `DNS connection check completed in ${totalMs} ms via resolver ${resolverLabel}: ${results.map((r) => `${r.domain} → ${r.success ? `${r.records[0]} (${r.durationMs} ms)` : `FAILED (${r.error})`}`).join('; ')}.`,
         meaning: allPassed
           ? `Your active DNS resolver (${sysDnsIp}) is online, responsive, and resolving both local and external domain names cleanly.`
           : `Local DNS resolution is partially degraded; check the failed domain name or upstream nameserver ${sysDnsIp}.`,
@@ -1131,7 +1133,7 @@ class ChatOperatorService {
         findings,
         technicalEvidence: {
           tool: 'resolveRecord (System DNS Connectivity Suite)',
-          activeResolver: sysDnsIp,
+          activeResolver: resolverLabel,
           results,
           observedAt: new Date().toISOString()
         }
@@ -1785,22 +1787,25 @@ class ChatOperatorService {
       this._checkAborted(signal);
       const t2 = performance.now();
       tlsRes = await auditTls(target, port, 2500);
+      const tlsCipherName = tlsRes.cipher && typeof tlsRes.cipher === 'object' ? tlsRes.cipher.name : null;
+      const tlsDaysRemaining = tlsRes.certificate && typeof tlsRes.certificate.daysRemaining === 'number' ? tlsRes.certificate.daysRemaining : null;
+      const tlsAuthorized = tlsRes.validation && typeof tlsRes.validation.authorized === 'boolean' ? tlsRes.validation.authorized : null;
       steps.push({
         stepNumber: 3,
         label: `Verifying TLS handshake and certificate on ${target}:${port}…`,
         tool: 'auditTls',
-        status: tlsRes.success ? (tlsRes.authorized ? 'PASS' : 'WARN') : 'FAIL',
+        status: tlsRes.success ? (tlsAuthorized === true ? 'PASS' : 'WARN') : 'FAIL',
         summary: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.cipherName}) · Cert valid (${tlsRes.daysRemaining} days remaining)`
+          ? `${tlsRes.protocol || 'TLS'} (${tlsCipherName || 'cipher unavailable'}) · ${tlsDaysRemaining === null ? 'certificate details unavailable' : `certificate expires in ${tlsDaysRemaining} days`}`
           : `TLS handshake failed: ${tlsRes.error || 'Handshake error'}`,
         durationMs: Number((performance.now() - t2).toFixed(1))
       });
       findings.push({
         label: 'TLS Security',
         value: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.daysRemaining}d left)`
+          ? `${tlsRes.protocol || 'TLS'} (${tlsDaysRemaining === null ? 'certificate date unavailable' : `${tlsDaysRemaining}d left`})`
           : `FAILED (${tlsRes.error || 'Error'})`,
-        tone: tlsRes.success ? (tlsRes.authorized ? 'ok' : 'warn') : 'danger'
+        tone: tlsRes.success ? (tlsAuthorized === true ? 'ok' : 'warn') : 'danger'
       });
     }
 
@@ -1814,7 +1819,7 @@ class ChatOperatorService {
       tool: 'probeHttp',
       status: httpRes.success ? 'PASS' : (httpRes.statusCode ? 'WARN' : 'FAIL'),
       summary: httpRes.statusCode
-        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpRes.ttfbMs} ms, total: ${httpRes.totalTimeMs} ms)`
+        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpRes.waterfall?.ttfbMs ?? 'n/a'} ms, total: ${httpRes.waterfall?.totalMs ?? 'n/a'} ms)`
         : `HTTP request failed: ${httpRes.error || 'No HTTP response'}`,
       durationMs: Number((performance.now() - t3).toFixed(1))
     });
@@ -1822,7 +1827,7 @@ class ChatOperatorService {
     if (httpRes.statusCode) {
       findings.push({
         label: 'HTTP Status',
-        value: `${httpRes.statusCode} (${httpRes.ttfbMs} ms TTFB)`,
+        value: `${httpRes.statusCode} (${httpRes.waterfall?.ttfbMs ?? 'n/a'} ms TTFB)`,
         tone: httpRes.statusCode < 400 ? 'ok' : (httpRes.statusCode < 500 ? 'warn' : 'danger')
       });
     } else {
@@ -1839,7 +1844,7 @@ class ChatOperatorService {
       openPorts: [port],
       portLatencies: { [port]: tcpRes.latencyMs },
       httpStatus: httpRes.statusCode || 'FAILED',
-      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpRes.ttfbMs || 0}ms TTFB)`
+      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpRes.waterfall?.ttfbMs ?? 'n/a'}ms TTFB)`
     });
 
     let structuredAnswer;
