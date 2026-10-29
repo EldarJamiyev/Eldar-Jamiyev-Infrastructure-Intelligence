@@ -378,6 +378,13 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(activeConnectionsPlan.intent, 'active_connections');
     assert.equal(activeConnectionsPlan.target, null);
 
+    const conceptPlan = chatOperatorService.parseIntentAndEntities('What is a default gateway?', session);
+    assert.equal(conceptPlan.intent, 'conversation');
+    assert.equal(conceptPlan.target, null, 'A concept question must not probe the last remote target');
+
+    const priorResultQuestion = chatOperatorService.parseIntentAndEntities('what is happening?', session);
+    assert.equal(priorResultQuestion.intent, 'follow_up_explanation', 'A contextual question should use prior evidence');
+
     const vaguePlan = chatOperatorService.parseIntentAndEntities('please do something', session);
     assert.equal(vaguePlan.intent, 'clarification');
   });
