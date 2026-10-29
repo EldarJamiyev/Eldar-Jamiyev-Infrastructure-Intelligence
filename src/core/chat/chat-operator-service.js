@@ -2025,9 +2025,10 @@ const emptyTargetPlan = (intent) => ({
         technicalEvidence: { url: urlToProbe, dns: dnsRes, observedAt: new Date().toISOString() }
       };
     }
-    findings.push(isIpLiteral
-      ? { label: 'Target Address', value: `${resolvedIp} (direct; DNS skipped)`, tone: 'neutral' }
-      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${dnsRes.durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
+    const targetResolutionDescription = isIpLiteral
+      ? `Direct target address ${resolvedIp} (DNS skipped)`
+      : `DNS for ${target} resolved to ${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${dnsRes.durationMs} ms validation elapsed)` : ' (timing not recorded)'}`;
+    findings.push({ label: isIpLiteral ? 'Target Address' : 'DNS', value: targetResolutionDescription, tone: isIpLiteral ? 'neutral' : 'ok' });
 
     // Step 2: TCP Port Check
     this._checkAborted(signal);
@@ -2049,10 +2050,10 @@ const emptyTargetPlan = (intent) => ({
     if (tcpRes.status !== 'OPEN') {
       findings.push({ label: `TCP :${port}`, value: `${tcpRes.status} (${tcpRes.errorCode || 'Failed'})`, tone: 'danger' });
       const structuredAnswer = {
-        result: `DNS for ${target} resolved to ${resolvedIp}, but TCP port ${port} is ${tcpRes.status} (${tcpRes.errorCode || tcpRes.error || 'no response'}).`,
+        result: `${targetResolutionDescription}, but TCP port ${port} is ${tcpRes.status} (${tcpRes.errorCode || tcpRes.error || 'no response'}).`,
         meaning: tcpRes.status === 'CLOSED'
           ? `The server at ${resolvedIp} is reachable on the network, but the web server process on port ${port} is stopped or refusing connections.`
-          : `Traffic to ${resolvedIp}:${port} timed out without a response, indicating a firewall block or outbound network restriction.`,
+          : `The TCP connection to ${resolvedIp}:${port} timed out without a response. Possible causes include filtering, routing problems, or an unresponsive service; this result alone does not prove a firewall block.`,
         nextStep: tcpRes.status === 'CLOSED'
           ? `Check whether the web server daemon (e.g., Nginx, Caddy, Node.js) is running and bound to port ${port}.`
           : `Verify firewall rules for port ${port} or test an alternate port such as ${port === 443 ? 80 : 3000}.`,
@@ -2129,7 +2130,7 @@ const emptyTargetPlan = (intent) => ({
 
     this._recordEntityMemory(session, target, {
       resolvedIps: [resolvedIp],
-      dnsStatus: 'OK',
+      dnsStatus: isIpLiteral ? 'SKIPPED_DIRECT_ADDRESS' : 'OK',
       openPorts: [port],
       portLatencies: { [port]: tcpRes.latencyMs },
       httpStatus: httpRes.statusCode || 'FAILED',
@@ -2139,8 +2140,8 @@ const emptyTargetPlan = (intent) => ({
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400 && (!isHttps || (tlsRes?.success && tlsRes.validation?.authorized === true))) {
       structuredAnswer = {
-        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${Number.isFinite(dnsRes.durationMs) ? `${dnsRes.durationMs} ms validation elapsed` : 'timing not recorded'}), TCP port ${port} is OPEN (${Number.isFinite(tcpRes.latencyMs) ? `${tcpRes.latencyMs} ms` : 'latency not reported'})${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} (TTFB: ${httpTtfbLabel}).`,
-        meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
+        result: `${urlToProbe} is reachable — ${targetResolutionDescription}, TCP port ${port} is OPEN (${Number.isFinite(tcpRes.latencyMs) ? `${tcpRes.latencyMs} ms` : 'latency not reported'})${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} (TTFB: ${httpTtfbLabel}).`,
+        meaning: `${isIpLiteral ? 'The direct address was used without a DNS lookup.' : 'Hostname resolution succeeded.'} TCP connectivity${isHttps ? ', TLS negotiation and certificate validation' : ''}, and the HTTP response were verified for this endpoint.`,
         nextStep: `No infrastructure fault detected. If specific users still report issues, check browser caching or client-side network DNS settings.`,
         layerFailedFirst: null,
         uncertainty: null
@@ -2155,7 +2156,7 @@ const emptyTargetPlan = (intent) => ({
       };
     } else if (tlsRes && !tlsRes.success) {
       structuredAnswer = {
-        result: `DNS (${resolvedIp}) and TCP port ${port} (${tcpRes.latencyMs} ms) succeeded, but the TLS handshake failed (${tlsRes.error}).`,
+        result: `${targetResolutionDescription}; TCP port ${port} (${Number.isFinite(tcpRes.latencyMs) ? `${tcpRes.latencyMs} ms` : 'latency not reported'}) succeeded, but the TLS handshake failed (${tlsRes.error || 'error not reported'}).`,
         meaning: `The server is reachable at the transport layer, but HTTPS encryption negotiation failed (certificate mismatch, expired certificate, or non-TLS listener on port ${port}).`,
         nextStep: `Inspect the TLS certificate and SNI configuration on ${target}:${port}.`,
         layerFailedFirst: 'L6 TLS Handshake',
@@ -2163,7 +2164,7 @@ const emptyTargetPlan = (intent) => ({
       };
     } else if (isHttps && tlsRes?.success && tlsRes.validation?.authorized !== true) {
       structuredAnswer = {
-        result: `DNS and TCP connectivity succeeded for ${target}:${port}, and HTTP returned ${httpRes.statusCode || 'no status'}, but TLS certificate validation was not confirmed as trusted.`,
+        result: `${targetResolutionDescription}; TCP connectivity succeeded for ${target}:${port}, and HTTP returned ${httpRes.statusCode || 'no status'}, but TLS certificate validation was not confirmed as trusted.`,
         meaning: `The TLS handshake completed, but the certificate chain or hostname validation did not pass. HTTP reachability alone does not make the HTTPS endpoint trustworthy.`,
         nextStep: `Inspect the certificate issuer, subject names, validity dates, and trust-chain configuration for ${target}:${port}.`,
         layerFailedFirst: 'L6 TLS Certificate Validation',
@@ -2171,7 +2172,7 @@ const emptyTargetPlan = (intent) => ({
       };
     } else {
       structuredAnswer = {
-        result: `DNS (${resolvedIp}) and TCP port ${port} (${tcpRes.latencyMs} ms) succeeded, but HTTP returned ${httpRes.statusCode || httpRes.error || 'an error'}.`,
+        result: `${targetResolutionDescription}; TCP port ${port} (${Number.isFinite(tcpRes.latencyMs) ? `${tcpRes.latencyMs} ms` : 'latency not reported'}) succeeded, but HTTP returned ${httpRes.statusCode || httpRes.error || 'an error'}.`,
         meaning: `Network transport is open, but the HTTP response did not complete cleanly.`,
         nextStep: `Verify the HTTP route and application listener configuration on ${target}:${port}.`,
         layerFailedFirst: 'L7 HTTP Application',
