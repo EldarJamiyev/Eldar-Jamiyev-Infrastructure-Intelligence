@@ -80,6 +80,16 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(dnsPlan.target, 'google.com');
     assert.equal(dnsPlan.isSystemDnsHealthCheck, true);
     assert.equal(dnsPlan.usedFollowUpTarget, false);
+
+    const explicitDnsPlan = chatOperatorService.parseIntentAndEntities('check DNS for example.com', {
+      ...previousContext,
+      lastTarget: 'google.ocm',
+      lastValidTarget: 'google.ocm'
+    });
+    assert.equal(explicitDnsPlan.intent, 'dns');
+    assert.equal(explicitDnsPlan.target, 'example.com');
+    assert.equal(explicitDnsPlan.isSystemDnsHealthCheck, false);
+    assert.equal(explicitDnsPlan.usedFollowUpTarget, false);
   });
 
   it('Scenario: A greeting does not launch an infrastructure probe after a previous target was checked', async () => {
