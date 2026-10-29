@@ -339,7 +339,7 @@ export class ProcessSocketCorrelatorEngine {
               }
             }
           }
-        } catch (err) { collectionErrors.push(`netstat -ano: ${err.message}`); }
+        } catch (err) { collectionErrors.push(`netstat -ano: ${err instanceof Error ? err.message : String(err)}`); }
       } else {
         // Linux: ss -tupn or netstat
         try {
@@ -394,13 +394,14 @@ export class ProcessSocketCorrelatorEngine {
               });
             }
           }
-        } catch (err) { collectionErrors.push(`ss -tupn: ${err.message}`); }
+        } catch (err) { collectionErrors.push(`ss -tupn: ${err instanceof Error ? err.message : String(err)}`); }
       }
-    } catch (err) { collectionErrors.push(`socket collector: ${err.message}`); }
+    } catch (err) { collectionErrors.push(`socket collector: ${err instanceof Error ? err.message : String(err)}`); }
 
     // Never manufacture socket rows when the host collector is unavailable.
     // A successful OS query returning zero rows is different from a failed collector.
-    const processNames = new Map(processes.map((p) => [p.pid, p.name]));
+    const processNames = new Map<number, string>();
+    for (const processEntry of processes) processNames.set(processEntry.pid, processEntry.name);
     const matrix = this.analyzeSocketProcessMatrix(sockets, processes);
     return {
       ...matrix,
