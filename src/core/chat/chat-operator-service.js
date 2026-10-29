@@ -6,7 +6,7 @@
  *   - Automatic domain & TLD typo detection + live auto-correction (e.g., google.ocm -> google.com)
  *   - Container-aware hybrid Ping (parallel ICMP Echo + TCP Handshake fallback when raw ICMP is filtered)
  *   - Instant target context capture (even if a running request is cancelled)
- *   - Unlimited persistent SQLite conversation history & per-entity knowledge graph memory
+ *   - SQLite-persisted conversation history with bounded in-memory context and per-entity memory
  *   - Strict RBAC and SSRF / DNS-rebinding defenses
  */
 
@@ -124,6 +124,39 @@ class ChatOperatorService {
     }
   }
 
+  checkSessionAccess(sessionId, user = {}) {
+    const cleanId = String(sessionId || '').trim();
+    if (!cleanId) return { allowed: true, exists: false };
+    const requestedId = user && user.id != null ? String(user.id) : null;
+    const requestedUsername = user && user.username ? String(user.username) : null;
+    const matchesOwner = (ownerId, ownerUsername) => {
+      if (requestedId && ownerId) return String(ownerId) === requestedId;
+      if (requestedUsername && ownerUsername) return String(ownerUsername) === requestedUsername;
+      return !ownerId && !ownerUsername;
+    };
+
+    const inMemory = this.sessions.get(cleanId);
+    if (inMemory) {
+      return {
+        allowed: matchesOwner(inMemory.userId, inMemory.username),
+        exists: true,
+        reason: 'Session belongs to a different authenticated user.'
+      };
+    }
+    try {
+      const row = db.prepare('SELECT user_id, username FROM ejii_chat_sessions WHERE session_id = ?').get(cleanId);
+      if (!row) return { allowed: true, exists: false };
+      return {
+        allowed: matchesOwner(row.user_id, row.username),
+        exists: true,
+        reason: 'Session belongs to a different authenticated user.'
+      };
+    } catch (err) {
+      // Fail closed: inability to verify ownership must not permit session access.
+      return { allowed: false, exists: true, reason: 'Session ownership could not be verified.' };
+    }
+  }
+
   getOrCreateSession(sessionId, user = {}) {
     const cleanId = (sessionId && typeof sessionId === 'string' && sessionId.trim())
       ? sessionId.trim()
@@ -131,7 +164,12 @@ class ChatOperatorService {
 
     if (this.sessions.has(cleanId)) {
       const existing = this.sessions.get(cleanId);
-      if (user && user.username) existing.username = user.username;
+      const access = this.checkSessionAccess(cleanId, user);
+      if (!access.allowed) {
+        const err = new Error(access.reason || 'Session access denied.');
+        err.code = 'CHAT_SESSION_ACCESS_DENIED';
+        throw err;
+      }
       if (user && user.role) existing.role = user.role;
       return existing;
     }
@@ -140,12 +178,19 @@ class ChatOperatorService {
     try {
       const row = db.prepare('SELECT * FROM ejii_chat_sessions WHERE session_id = ?').get(cleanId);
       if (row) {
+        const access = this.checkSessionAccess(cleanId, user);
+        if (!access.allowed) {
+          const err = new Error(access.reason || 'Session access denied.');
+          err.code = 'CHAT_SESSION_ACCESS_DENIED';
+          throw err;
+        }
         const ctx = row.context_json ? JSON.parse(row.context_json) : {};
-        const msgRows = db.prepare('SELECT * FROM ejii_chat_messages WHERE session_id = ? ORDER BY created_at ASC').all(cleanId);
+        // Keep only a bounded working window in RAM. The full message history remains in SQLite.
+        const msgRows = db.prepare('SELECT * FROM ejii_chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 120').all(cleanId).reverse();
         const restored = {
           sessionId: cleanId,
-          userId: user.id || row.user_id || 'op-1',
-          username: user.username || row.username || 'operator',
+          userId: row.user_id || user.id || 'op-1',
+          username: row.username || user.username || 'operator',
           role: (user.role || row.role || 'ANALYST').toUpperCase(),
           lastTarget: ctx.lastTarget || null,
           lastValidTarget: ctx.lastValidTarget || ctx.lastTarget || null,
@@ -201,6 +246,14 @@ class ChatOperatorService {
     const key = target.trim().toLowerCase();
     if (!key) return null;
     if (!session.entityMemory) session.entityMemory = {};
+    if (!session.entityMemory[key] && Object.keys(session.entityMemory).length >= 500) {
+      const oldestKey = Object.keys(session.entityMemory).sort((a, b) =>
+        String(session.entityMemory[a]?.lastSeenAt || session.entityMemory[a]?.firstSeenAt || '').localeCompare(
+          String(session.entityMemory[b]?.lastSeenAt || session.entityMemory[b]?.firstSeenAt || '')
+        )
+      )[0];
+      if (oldestKey) delete session.entityMemory[oldestKey];
+    }
 
     const existing = session.entityMemory[key] || {
       target: key,
@@ -259,11 +312,18 @@ class ChatOperatorService {
     if (patch.httpStatus) existing.lastHttpStatus = patch.httpStatus;
     if (patch.summary) existing.lastOutcomeSummary = patch.summary;
 
+    existing.resolvedIps = (existing.resolvedIps || []).slice(-32);
+    existing.openPorts = (existing.openPorts || []).slice(-64);
+    existing.closedPorts = (existing.closedPorts || []).slice(-64);
+    existing.filteredPorts = (existing.filteredPorts || []).slice(-64);
+    existing.rttHistoryMs = (existing.rttHistoryMs || []).slice(-100);
+    if (existing.portLatencies && Object.keys(existing.portLatencies).length > 64) {
+      existing.portLatencies = Object.fromEntries(Object.entries(existing.portLatencies).slice(-64));
+    }
     session.entityMemory[key] = existing;
     if (!Array.isArray(session.targetHistory)) session.targetHistory = [];
-    if (!session.targetHistory.includes(key)) {
-      session.targetHistory.push(key);
-    }
+    if (!session.targetHistory.includes(key)) session.targetHistory.push(key);
+    if (session.targetHistory.length > 500) session.targetHistory = session.targetHistory.slice(-500);
     return existing;
   }
 
@@ -315,7 +375,10 @@ class ChatOperatorService {
           msg.createdAt || nowIso
         );
       }
-    } catch (_) {}
+    } catch (err) {
+      // Do not silently pretend persistence succeeded. Keep the diagnostic result, but emit an actionable server log.
+      console.error('[EJII chat] Failed to persist conversation state:', err && err.message ? err.message : err);
+    }
   }
 
   clearSession(sessionId) {
@@ -664,7 +727,28 @@ class ChatOperatorService {
       };
     }
 
-    const session = this.getOrCreateSession(sessionId, user);
+    if (sessionId && String(sessionId).trim()) {
+      const access = this.checkSessionAccess(sessionId, user);
+      if (!access.allowed) {
+        return {
+          success: false,
+          status: 'denied',
+          statusCode: 404,
+          error: { code: 'CHAT_SESSION_ACCESS_DENIED', message: 'This conversation is unavailable for the authenticated user.' }
+        };
+      }
+    }
+    let session;
+    try {
+      session = this.getOrCreateSession(sessionId, user);
+    } catch (err) {
+      return {
+        success: false,
+        status: err.code === 'CHAT_SESSION_ACCESS_DENIED' ? 'denied' : 'failed',
+        statusCode: err.code === 'CHAT_SESSION_ACCESS_DENIED' ? 404 : 500,
+        error: { code: err.code || 'CHAT_SESSION_ERROR', message: err.code === 'CHAT_SESSION_ACCESS_DENIED' ? 'This conversation is unavailable for the authenticated user.' : 'Could not initialize the conversation session.' }
+      };
+    }
     const activeConflict = this.inFlightRequests.get(session.sessionId);
     if (activeConflict) {
       return {
@@ -1011,6 +1095,8 @@ class ChatOperatorService {
     };
 
     session.messages.push(userMsgRecord, assistantMsgRecord);
+    // The database keeps the complete history; the active conversation window stays bounded.
+    if (session.messages.length > 120) session.messages.splice(0, session.messages.length - 120);
     this._persistSession(session, [userMsgRecord, assistantMsgRecord]);
 
     return {
