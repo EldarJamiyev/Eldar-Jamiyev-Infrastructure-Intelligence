@@ -623,27 +623,34 @@ class CrossLayerIncidentCorrelator {
 
       // Step 8 & 9: TLS & HTTP inspection if TCP port is open
       if (tcpOpen && (port === 443 || port === 8443)) {
-        const tlsRes = await inspectTls(hostname, port, 2500).catch((e) => ({ valid: false, error: e.message }));
+        const tlsRes = await inspectTls(hostname, port, 2500).catch((e) => ({ success: false, error: e.message }));
+        const tlsStatus = !tlsRes?.success ? 'FAIL' : (tlsRes.validation?.authorized ? 'PASS' : 'WARN');
+        const tlsSummary = tlsRes?.success && tlsRes.protocol
+          ? `TLS ${tlsRes.protocol} (${tlsRes.cipher?.name || 'cipher not reported'}) negotiated; certificate validation ${tlsRes.validation?.authorized ? 'passed' : 'not trusted/verified'}`
+          : `TLS handshake failed: ${tlsRes?.error || 'Unverified'}`;
         steps.push({
           stepNumber: 7,
           layer: 'L6 TLS Handshake, SNI & X.509 Chain',
-          status: tlsRes && tlsRes.valid ? 'PASS' : 'WARN',
-          summary: tlsRes && tlsRes.protocol
-            ? `TLS ${tlsRes.protocol} (${tlsRes.cipher}) negotiated`
-            : `TLS handshake warning: ${tlsRes?.error || 'Unverified'}`,
+          status: tlsStatus,
+          summary: tlsSummary,
           details: tlsRes
         });
       }
       if (tcpOpen && (port === 80 || port === 443 || port === 3000 || port === 8443)) {
         const proto = (port === 443 || port === 8443) ? 'https' : 'http';
         const httpRes = await probeHttp(`${proto}://${hostname}:${port}/`, 'GET', 2500).catch((e) => ({ success: false, error: e.message }));
+        const httpStatus = Number(httpRes?.statusCode);
+        const httpStepStatus = Number.isFinite(httpStatus) && httpStatus >= 200 && httpStatus < 400
+          ? 'PASS'
+          : (Number.isFinite(httpStatus) ? 'WARN' : 'FAIL');
+        const httpTtfb = Number.isFinite(httpRes?.waterfall?.ttfbMs) ? `${httpRes.waterfall.ttfbMs}ms` : 'not reported';
         steps.push({
           stepNumber: 8,
           layer: 'L7 HTTP Application Response & TTFB',
-          status: httpRes && httpRes.statusCode ? 'PASS' : 'WARN',
-          summary: httpRes && httpRes.statusCode
-            ? `HTTP ${httpRes.statusCode} received (TTFB: ${httpRes.ttfbMs}ms)`
-            : `HTTP probe note: ${httpRes?.error || 'No HTTP response'}`,
+          status: httpStepStatus,
+          summary: Number.isFinite(httpStatus)
+            ? `HTTP ${httpStatus} received (TTFB: ${httpTtfb})`
+            : `HTTP probe failed: ${httpRes?.error || 'No HTTP response'}`,
           details: httpRes
         });
       }
