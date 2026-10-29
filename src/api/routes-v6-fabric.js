@@ -945,6 +945,15 @@ router.get('/chat/session/:sessionId', authenticate, (req, res) => {
       error: { code: 'AUTH_REQUIRED', message: authCheck.error }
     }));
   }
+  const access = chatOperatorService.checkSessionAccess(req.params.sessionId, authCheck.user);
+  if (!access.allowed) {
+    return res.status(404).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.session',
+      status: 'denied',
+      error: { code: 'CHAT_SESSION_ACCESS_DENIED', message: 'This conversation is unavailable for the authenticated user.' }
+    }));
+  }
   const session = chatOperatorService.getOrCreateSession(req.params.sessionId, authCheck.user);
   res.json(createEjiiResult({
     success: true,
@@ -974,6 +983,17 @@ router.post('/chat/cancel', authenticate, (req, res) => {
     }));
   }
   const body = req.body || {};
+  if (body.sessionId) {
+    const access = chatOperatorService.checkSessionAccess(body.sessionId, authCheck.user);
+    if (!access.allowed) {
+      return res.status(404).json(createEjiiResult({
+        success: false,
+        capabilityId: 'ejii.chat.cancel',
+        status: 'denied',
+        error: { code: 'CHAT_SESSION_ACCESS_DENIED', message: 'This conversation is unavailable for the authenticated user.' }
+      }));
+    }
+  }
   const result = chatOperatorService.cancelRequest(body.sessionId, body.requestId);
   res.json(createEjiiResult({
     success: true,
@@ -991,6 +1011,15 @@ router.delete('/chat/session/:sessionId', authenticate, (req, res) => {
       capabilityId: 'ejii.chat.clear_session',
       status: 'denied',
       error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+  const access = chatOperatorService.checkSessionAccess(req.params.sessionId, authCheck.user);
+  if (!access.allowed) {
+    return res.status(404).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.clear_session',
+      status: 'denied',
+      error: { code: 'CHAT_SESSION_ACCESS_DENIED', message: 'This conversation is unavailable for the authenticated user.' }
     }));
   }
   const cleared = chatOperatorService.clearSession(req.params.sessionId);

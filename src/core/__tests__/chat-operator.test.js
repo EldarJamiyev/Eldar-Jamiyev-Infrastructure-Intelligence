@@ -339,5 +339,79 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.ok(memTurn.data.reply.includes('Session Investigation Memory'), 'Should return structured session entity memory');
     assert.ok(memTurn.data.reply.includes('google.com'), 'Memory should include google.com');
   });
+  it('Scenario K: greetings and local-machine requests never reuse the previous remote target', async () => {
+    const sessionId = 'TEST-INTENT-ISOLATION-K';
+    const user = { id: 'u-intent', username: 'intent_admin', role: 'ADMIN' };
+    const session = chatOperatorService.getOrCreateSession(sessionId, user);
+    session.lastTarget = 'google.com';
+    session.lastValidTarget = 'google.com';
+    session.lastIntent = 'ping';
+    session.lastToolResults = { target: 'google.com', status: 'previous-real-result' };
+    session.lastSteps = [{ summary: 'previous real probe' }];
+    session.lastStructuredAnswer = { result: 'previous real result' };
+
+    const hello = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'hello',
+      user
+    });
+    assert.equal(hello.success, true);
+    assert.equal(hello.data.intent, 'conversation');
+    assert.equal(hello.data.target, null);
+    assert.equal(hello.data.steps.length, 0, 'A greeting must not execute network probes');
+    assert.equal(session.lastTarget, 'google.com', 'Greeting must not erase the previous target');
+    assert.equal(session.lastIntent, 'ping', 'Greeting must not overwrite the last diagnostic intent');
+    assert.equal(session.lastToolResults.status, 'previous-real-result', 'Greeting must preserve previous diagnostic evidence');
+
+    const gatewayPlan = chatOperatorService.parseIntentAndEntities('Can you ping the default gateway?', session);
+    assert.equal(gatewayPlan.intent, 'gateway_ping');
+    assert.equal(gatewayPlan.target, null, 'Gateway intent must resolve from current host telemetry, not session history');
+
+    const localIpPlan = chatOperatorService.parseIntentAndEntities('check my ip', session);
+    assert.equal(localIpPlan.intent, 'local_network_info');
+    assert.equal(localIpPlan.target, null);
+
+    const activeConnectionsPlan = chatOperatorService.parseIntentAndEntities(
+      'I want to know the dest IP of my apps currently in use and their dest ports',
+      session
+    );
+    assert.equal(activeConnectionsPlan.intent, 'active_connections');
+    assert.equal(activeConnectionsPlan.target, null);
+
+    const conceptPlan = chatOperatorService.parseIntentAndEntities('What is a default gateway?', session);
+    assert.equal(conceptPlan.intent, 'conversation');
+    assert.equal(conceptPlan.target, null, 'A concept question must not probe the last remote target');
+
+    const priorResultQuestion = chatOperatorService.parseIntentAndEntities('what is happening?', session);
+    assert.equal(priorResultQuestion.intent, 'follow_up_explanation', 'A contextual question should use prior evidence');
+
+    const noTargetSession = { ...session, lastTarget: null, lastValidTarget: null, lastIntent: 'active_connections' };
+    const unresolvedFollowUp = chatOperatorService.parseIntentAndEntities('Now test port 443 on the same host', noTargetSession);
+    assert.equal(unresolvedFollowUp.intent, 'clarification');
+    assert.equal(unresolvedFollowUp.target, null, 'An unresolved same-host reference must not default to localhost');
+
+    const vaguePlan = chatOperatorService.parseIntentAndEntities('please do something', session);
+    assert.equal(vaguePlan.intent, 'clarification');
+  });
+
+  it('Scenario L: a different authenticated user cannot read or mutate another user’s chat session', async () => {
+    const sessionId = 'TEST-SESSION-OWNERSHIP-L';
+    const owner = { id: 'u-session-owner', username: 'session_owner', role: 'ADMIN' };
+    const stranger = { id: 'u-session-stranger', username: 'session_stranger', role: 'ADMIN' };
+
+    chatOperatorService.getOrCreateSession(sessionId, owner);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, owner).allowed, true);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, stranger).allowed, false);
+
+    const denied = await chatOperatorService.processMessage({
+      sessionId,
+      message: 'hello',
+      user: stranger
+    });
+    assert.equal(denied.success, false);
+    assert.equal(denied.statusCode, 404);
+    assert.equal(denied.error.code, 'CHAT_SESSION_ACCESS_DENIED');
+  });
+
 });
 
