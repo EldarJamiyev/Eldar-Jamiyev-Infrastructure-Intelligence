@@ -33,9 +33,9 @@ function getRealSystemDns() {
       }
     } catch (e) {}
   }
-  // No configured resolver could be discovered. Let Node use the OS resolver
-  // rather than reporting a public resolver that may not actually be configured.
-  cachedSystemDns = null;
+  // If the OS uses a local DNS stub (for example 127.0.0.1), keep reporting that
+  // configured resolver rather than replacing it with an invented public DNS IP.
+  cachedSystemDns = servers.length > 0 ? servers[0] : null;
   return cachedSystemDns;
 }
 
