@@ -2218,7 +2218,7 @@ class ChatOperatorService {
         { label: 'Default gateway', value: gateway || 'Not verified', tone: gateway ? 'ok' : 'warn' }
       ],
       technicalEvidence: { tool: 'os.networkInterfaces + physical-network-detector', addresses, gateway, gatewayVerified: Boolean(gateway), observedAt: new Date().toISOString() },
-      ...(unambiguousLocalIp ? { contextTarget: unambiguousLocalIp } : {})
+      ...(unambiguousLocalIp ? { contextTarget: unambiguousLocalIp } : { clearTargetContext: true })
     };
   }
 
