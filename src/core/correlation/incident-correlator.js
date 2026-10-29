@@ -485,7 +485,7 @@ class CrossLayerIncidentCorrelator {
     let dnsResult = null;
 
     if (pinnedIp && !isIpLiteral) {
-      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number' ? options.prevalidatedDnsLatencyMs : 1.0;
+      const latencyMs = Number.isFinite(options.prevalidatedDnsLatencyMs) ? options.prevalidatedDnsLatencyMs : null;
       dnsResult = {
         success: true,
         hostname,
@@ -493,13 +493,16 @@ class CrossLayerIncidentCorrelator {
         addresses: options.resolvedIps || [pinnedIp],
         latencyMs,
         durationMs: latencyMs,
-        pinnedBySsrfGuard: true
+        pinnedBySsrfGuard: true,
+        dnsLatencyMeasured: latencyMs !== null
       };
       steps.push({
         stepNumber: 4,
         layer: 'L7 DNS RFC 1035 Resolution',
         status: 'PASS',
-        summary: `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
+        summary: latencyMs === null
+          ? `Resolved & pinned ${hostname} -> ${targetIp}; DNS latency not recorded (SSRF-validated)`
+          : `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
         details: dnsResult
       });
       signals.push({
@@ -612,13 +615,14 @@ class CrossLayerIncidentCorrelator {
       });
 
       const tcpOpen = tcpRes && tcpRes.status === 'OPEN';
-      const tcpHandshakeRttMs = tcpRes?.connectLatencyMs ?? tcpRes?.latencyMs ?? 0;
+      const tcpHandshakeRttMs = tcpRes?.connectLatencyMs ?? tcpRes?.latencyMs ?? null;
+      const tcpHandshakeRttLabel = Number.isFinite(tcpHandshakeRttMs) ? `${tcpHandshakeRttMs}ms` : 'latency not reported';
       steps.push({
         stepNumber: 6,
         layer: 'L4 TCP 3-Way Handshake & Kernel Socket Audit',
         status: tcpOpen ? 'PASS' : 'FAIL',
         summary: tcpOpen
-          ? `TCP port ${targetIp}:${port} is OPEN (Handshake RTT: ${tcpHandshakeRttMs}ms)`
+          ? `TCP port ${targetIp}:${port} is OPEN (Handshake RTT: ${tcpHandshakeRttLabel})`
           : `TCP port ${targetIp}:${port} is ${tcpRes?.status || 'UNREACHABLE'} (${tcpRes?.errorCode || tcpRes?.error || 'Connection failed'})`,
         details: tcpRes
       });
