@@ -435,7 +435,7 @@ class ChatOperatorService {
 
     // 1. Check if the user is asking for an explanation, summary, memory recall, or comparison of previous findings
     const isExplanationFollowUp =
-      /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
+      /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what happened|what is happening|what is going on|what is the problem|what is wrong|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
       ((lower.includes('summarize') || lower.includes('incident report') || lower.includes('which layer failed') || lower.includes('why did that fail') || lower.includes('explain the result') || lower.includes('what have we tested') || lower.includes('compare hosts')) &&
         !lower.includes('ping ') && !lower.includes('check port') && !lower.includes('test port'));
 
@@ -576,7 +576,7 @@ class ChatOperatorService {
     const isLocalNetworkInfoPrompt = /\b(check my ip|what is my ip|show (?:me )?(?:my )?(?:local )?ip|local ip address|my network (?:configuration|interfaces)|network interface addresses)\b/i.test(lower);
     const isActiveConnectionsPrompt = /\b(active (?:tcp )?(?:connections|sockets)|current(?:ly)? (?:open )?connections|destination ip|dest ip|destination ports?|dest ports?|remote ips?|remote ports?|netstat|which apps? (?:are )?(?:connected|connecting)|what .*apps?.*(?:ip|port)|apps?.{0,45}(?:destination|dest|remote).{0,20}(?:ip|port))\b/i.test(lower);
     const isHostHealthPrompt = /\b(local host health|system health|host diagnostics|cpu and memory|local system|workstation health)\b/i.test(lower);
-    const isConceptQuestion = /^(what is|what are|what does|what do|why does|why do|how does|how do|how can i|how do i|explain|tell me about|define)\b/i.test(lower);
+    const isConceptQuestion = /^(what is (?!happening\b|going on\b|wrong\b|the (?:problem|issue|failure)\b)|what are|what does|what do|why does|why do|how does|how do|how can i|how do i|explain|tell me about|define)\b/i.test(lower);
     const isDirectCommand = /^(?:please\s+)?(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|capture|inspect|verify|monitor|retry|open)\b|^can you\s+(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|inspect|verify|monitor)\b/i.test(lower);
     const isLikelyDiagnosticRequest = /\b(check|test|ping|diagnos(?:e|is)|investigat(?:e|ion)|trace|resolve|scan|port|dns|website|web site|network|connection|slow|unreachable|not responding|not working|can't access|cannot access|timeout|gateway|socket|printer|ip address)\b/i.test(lower);
     let intent = 'multi_step_investigation';
