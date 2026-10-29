@@ -989,7 +989,7 @@ const emptyTargetPlan = (intent) => ({
           tool: 'typo_intelligence',
           status: 'PASS',
           summary: `"${plan.originalTypoTarget}" does not exist in DNS (ENOTFOUND); automatically switched to "${plan.target}"`,
-          durationMs: 1.2
+          durationMs: null
         };
         executionOutcome.steps = [
           typoStep,
