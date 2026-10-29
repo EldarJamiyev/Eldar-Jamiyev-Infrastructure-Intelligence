@@ -207,8 +207,11 @@ function isIpInSubnet(ip, subnetCidr) {
  * Subnet calculator for IPv4 CIDR ranges (/0 to /32)
  */
 function calculateSubnet(ip, prefixLength = 24) {
+  if (!ip || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(ip))) return null;
+  const octets = String(ip).split('.').map(Number);
+  if (octets.some((octet) => octet < 0 || octet > 255)) return null;
   const prefix = Math.min(Math.max(0, parseInt(prefixLength, 10) || 24), 32);
-  const ipParts = (ip || '192.168.31.89').split('.').map(Number);
+  const ipParts = octets;
   const ipNum = ((ipParts[0] << 24) >>> 0) + ((ipParts[1] << 16) >>> 0) + ((ipParts[2] << 8) >>> 0) + (ipParts[3] >>> 0);
   
   const maskNum = prefix === 0 ? 0 : ((0xFFFFFFFF << (32 - prefix)) >>> 0);
@@ -281,15 +284,17 @@ function resolveNativeUtf8AdapterName(hostIp, fallbackName = 'Ethernet') {
 
 let cachedArpNeighbors = null;
 let lastArpCacheTime = 0;
+let lastArpCacheSubnet = null;
 const ARP_CACHE_TTL_MS = 30000;
 
 /**
  * Parse OS ARP table (arp -a on Windows, /proc/net/arp on Linux)
  * Returns a list of reachable unicast peers on the active subnet.
  */
-function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
+function parseLiveArpNeighbors(subnetCidr) {
+  if (!subnetCidr) return [];
   const now = Date.now();
-  if (cachedArpNeighbors && (now - lastArpCacheTime < ARP_CACHE_TTL_MS)) {
+  if (cachedArpNeighbors && lastArpCacheSubnet === subnetCidr && (now - lastArpCacheTime < ARP_CACHE_TTL_MS)) {
     return cachedArpNeighbors;
   }
   const neighbors = [];
@@ -343,6 +348,7 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
     }
   } catch (_) {}
   cachedArpNeighbors = neighbors;
+  lastArpCacheSubnet = subnetCidr;
   lastArpCacheTime = now;
   return neighbors;
 }
@@ -366,26 +372,27 @@ function getPhysicalNetworkInfo(options = {}) {
   }
 
   let info = {
-    hostIp: '192.168.31.89',
-    localIp: '192.168.31.89',
-    gatewayIp: '192.168.31.1',
-    defaultGateway: '192.168.31.1',
-    subnetCidr: '192.168.31.0/24',
-    subnetMask: '255.255.255.0',
-    subnetPrefix: '192.168.31',
-    interfaceAlias: 'Wi-Fi',
-    adapterName: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    adapter: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    hardwareDescription: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    mac: '70:15:FB:6B:F3:46',
-    macAddress: '70:15:FB:6B:F3:46',
-    interfaceIndex: 7,
-    dnsServers: ['192.168.31.1', '1.1.1.1'],
-    primaryDnsIp: '192.168.31.1',
-    secondaryDnsIp: '1.1.1.1',
-    dhcpServer: '192.168.31.1',
-    gatewayMac: 'Unknown',
-    gatewayVendor: 'Observed Default Gateway',
+    // Unknown host data stays unknown until read from a live OS source.
+    hostIp: null,
+    localIp: null,
+    gatewayIp: null,
+    defaultGateway: null,
+    subnetCidr: null,
+    subnetMask: null,
+    subnetPrefix: null,
+    interfaceAlias: null,
+    adapterName: null,
+    adapter: null,
+    hardwareDescription: null,
+    mac: null,
+    macAddress: null,
+    interfaceIndex: null,
+    dnsServers: [],
+    primaryDnsIp: null,
+    secondaryDnsIp: null,
+    dhcpServer: null,
+    gatewayMac: null,
+    gatewayVendor: 'Not detected',
     arpNeighbors: [],
     arpNeighborsCount: 0,
     activeArpNeighbors: [],
@@ -396,12 +403,11 @@ function getPhysicalNetworkInfo(options = {}) {
   try {
     const sysDns = dns.getServers();
     if (Array.isArray(sysDns) && sysDns.length > 0) {
-      const nonLoopback = sysDns.filter((d) => d && !d.startsWith('127.') && d !== '::1');
-      if (nonLoopback.length > 0) {
-        info.dnsServers = nonLoopback;
-        info.primaryDnsIp = nonLoopback[0];
-        info.secondaryDnsIp = nonLoopback[1] || nonLoopback[0];
-      }
+      // A loopback resolver (for example, a local DNS stub) is still the configured resolver;
+      // retain what the OS reports instead of substituting a guessed public DNS server.
+      info.dnsServers = sysDns.filter((d) => typeof d === 'string' && d.trim());
+      info.primaryDnsIp = info.dnsServers[0] || null;
+      info.secondaryDnsIp = info.dnsServers[1] || info.dnsServers[0] || null;
     }
   } catch (_) {}
 
@@ -438,17 +444,18 @@ function getPhysicalNetworkInfo(options = {}) {
       const out = (res.stdout || '').trim();
       if (out && out.startsWith('{')) {
         const parsed = JSON.parse(out);
-        if (parsed.Gateway && parsed.HostIp && !isVirtualHypervisorIp(parsed.HostIp)) {
+        if (parsed.HostIp && !isVirtualHypervisorIp(parsed.HostIp)) {
           const prefix = parsed.Prefix || 24;
           const sub = calculateSubnet(parsed.HostIp, prefix);
           const resolvedAlias = resolveNativeUtf8AdapterName(parsed.HostIp, parsed.IfAlias);
           const resolvedDns = Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : info.dnsServers);
-          const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : info.mac;
+          const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : null;
+          const actualGateway = parsed.Gateway && parsed.Gateway !== '0.0.0.0' ? parsed.Gateway : null;
 
           info.hostIp = parsed.HostIp;
           info.localIp = parsed.HostIp;
-          info.gatewayIp = parsed.Gateway;
-          info.defaultGateway = parsed.Gateway;
+          info.gatewayIp = actualGateway;
+          info.defaultGateway = actualGateway;
           info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
           info.subnetMask = sub.subnetMask;
           info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
@@ -458,10 +465,10 @@ function getPhysicalNetworkInfo(options = {}) {
           info.hardwareDescription = parsed.Description || resolvedAlias;
           info.mac = hostMac;
           info.macAddress = hostMac;
-          info.interfaceIndex = parsed.IfIndex || 7;
+          info.interfaceIndex = parsed.IfIndex || null;
           info.dnsServers = resolvedDns;
-          info.primaryDnsIp = resolvedDns[0] || parsed.Gateway;
-          info.secondaryDnsIp = resolvedDns[1] || resolvedDns[0] || parsed.Gateway;
+          info.primaryDnsIp = resolvedDns[0] || null;
+          info.secondaryDnsIp = resolvedDns[1] || resolvedDns[0] || null;
           info.dhcpServer = parsed.Dhcp || null;
           info.isDetected = true;
         }
@@ -480,10 +487,9 @@ function getPhysicalNetworkInfo(options = {}) {
               const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
               info.hostIp = addr.address;
               info.localIp = addr.address;
-              const ipParts = addr.address.split('.');
-              ipParts[3] = '1';
-              info.gatewayIp = ipParts.join('.');
-              info.defaultGateway = info.gatewayIp;
+              // Interface detection does not prove which router is the default gateway.
+              info.gatewayIp = null;
+              info.defaultGateway = null;
               info.subnetCidr = `${sub.networkAddress}/24`;
               info.subnetMask = sub.subnetMask;
               info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
@@ -528,11 +534,9 @@ function getPhysicalNetworkInfo(options = {}) {
           info.isLinkLocalApipa = isApipa;
           info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
 
-          if (!gw || gw === ip) {
-            const p = ip.split('.');
-            p[3] = p[3] === '1' ? '254' : '1';
-            info.gatewayIp = p.join('.');
-            info.defaultGateway = info.gatewayIp;
+          if (!gw || gw === ip || gw === '0.0.0.0') {
+            info.gatewayIp = null;
+            info.defaultGateway = null;
           }
           if (isApipa) {
             info.gatewayVendor = 'Container Runtime Virtual Interface (Cloud Sandbox)';
@@ -553,12 +557,11 @@ function getPhysicalNetworkInfo(options = {}) {
           for (const addr of addrs) {
             if (!addr.internal && addr.family === 'IPv4' && !addr.address.startsWith('169.254.')) {
               const sub = calculateSubnet(addr.address, 24);
-              const p = addr.address.split('.');
-              p[3] = p[3] === '1' ? '254' : '1';
               info.hostIp = addr.address;
               info.localIp = addr.address;
-              info.gatewayIp = p.join('.');
-              info.defaultGateway = info.gatewayIp;
+              // The interface address alone does not establish the OS default gateway.
+              info.gatewayIp = null;
+              info.defaultGateway = null;
               info.subnetCidr = `${sub.networkAddress}/24`;
               info.subnetMask = sub.subnetMask;
               info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
@@ -584,13 +587,13 @@ function getPhysicalNetworkInfo(options = {}) {
     info.activeArpNeighbors = liveArp;
     info.arpNeighborsCount = liveArp.length;
 
-    const gwArp = liveArp.find((e) => e.ip === info.defaultGateway);
+    const gwArp = info.defaultGateway ? liveArp.find((e) => e.ip === info.defaultGateway) : null;
     if (gwArp && gwArp.mac) {
       info.gatewayMac = gwArp.mac;
       info.gatewayVendor = resolveGatewayOuiVendor(gwArp.mac);
     } else {
-      info.gatewayMac = 'Unknown';
-      info.gatewayVendor = 'Observed Default Gateway';
+      info.gatewayMac = null;
+      info.gatewayVendor = info.defaultGateway ? 'Gateway vendor unresolved' : 'Not detected';
     }
   } catch (_) {}
 
@@ -642,7 +645,7 @@ function getPhysicalNetworkInfo(options = {}) {
   return info;
 }
 
-let cachedWanHops = [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }];
+let cachedWanHops = null;
 let lastWanHopsTime = Date.now();
 const WAN_HOPS_TTL_MS = 120000;
 
@@ -668,7 +671,7 @@ function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
       }
     }
   } catch (_) {}
-  cachedWanHops = hops.length > 0 ? hops : (cachedWanHops || [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }]);
+  cachedWanHops = hops;
   lastWanHopsTime = now;
   return cachedWanHops;
 }
