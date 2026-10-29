@@ -945,22 +945,39 @@ router.get('/chat/session/:sessionId', authenticate, (req, res) => {
       error: { code: 'AUTH_REQUIRED', message: authCheck.error }
     }));
   }
-  const session = chatOperatorService.getOrCreateSession(req.params.sessionId, authCheck.user);
-  res.json(createEjiiResult({
-    success: true,
-    capabilityId: 'ejii.chat.session',
-    status: 'ok',
-    data: {
-      sessionId: session.sessionId,
-      username: session.username,
-      role: session.role,
-      lastTarget: session.lastTarget,
-      lastPorts: session.lastPorts,
-      lastIntent: session.lastIntent,
-      turnCount: session.turnCount,
-      messages: session.messages
-    }
-  }));
+  try {
+    const session = chatOperatorService.getOrCreateSession(req.params.sessionId, authCheck.user);
+    const includeFullHistory = req.query.full === 'true';
+    const messages = includeFullHistory
+      ? chatOperatorService.getPersistedMessages(session.sessionId, Number(req.query.limit) || 200, Number(req.query.offset) || 0)
+      : session.messages;
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.chat.session',
+      status: 'ok',
+      data: {
+        sessionId: session.sessionId,
+        userId: session.userId,
+        username: session.username,
+        role: session.role,
+        lastTarget: session.lastTarget,
+        lastValidTarget: session.lastValidTarget,
+        lastPorts: session.lastPorts,
+        lastIntent: session.lastIntent,
+        turnCount: session.turnCount,
+        activeMemoryMessageCount: session.messages.length,
+        totalPersistedMessages: session.totalPersistedMessages || session.messages.length,
+        messages
+      }
+    }));
+  } catch (err) {
+    return res.status(err.statusCode || 403).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.session',
+      status: 'denied',
+      error: { code: err.code || 'SESSION_OWNERSHIP_VIOLATION', message: err.message }
+    }));
+  }
 });
 
 router.post('/chat/cancel', authenticate, (req, res) => {
@@ -974,13 +991,22 @@ router.post('/chat/cancel', authenticate, (req, res) => {
     }));
   }
   const body = req.body || {};
-  const result = chatOperatorService.cancelRequest(body.sessionId, body.requestId);
-  res.json(createEjiiResult({
-    success: true,
-    capabilityId: 'ejii.chat.cancel',
-    status: 'ok',
-    data: result
-  }));
+  try {
+    const result = chatOperatorService.cancelRequest(body.sessionId, body.requestId, authCheck.user);
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.chat.cancel',
+      status: 'ok',
+      data: result
+    }));
+  } catch (err) {
+    return res.status(err.statusCode || 403).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.cancel',
+      status: 'denied',
+      error: { code: err.code || 'SESSION_OWNERSHIP_VIOLATION', message: err.message }
+    }));
+  }
 });
 
 router.delete('/chat/session/:sessionId', authenticate, (req, res) => {
@@ -993,14 +1019,24 @@ router.delete('/chat/session/:sessionId', authenticate, (req, res) => {
       error: { code: 'AUTH_REQUIRED', message: authCheck.error }
     }));
   }
-  const cleared = chatOperatorService.clearSession(req.params.sessionId);
-  res.json(createEjiiResult({
-    success: true,
-    capabilityId: 'ejii.chat.clear_session',
-    status: 'ok',
-    data: { sessionId: req.params.sessionId, cleared }
-  }));
+  try {
+    const cleared = chatOperatorService.clearSession(req.params.sessionId, authCheck.user);
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.chat.clear_session',
+      status: 'ok',
+      data: { sessionId: req.params.sessionId, cleared }
+    }));
+  } catch (err) {
+    return res.status(err.statusCode || 403).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.clear_session',
+      status: 'denied',
+      error: { code: err.code || 'SESSION_OWNERSHIP_VIOLATION', message: err.message }
+    }));
+  }
 });
 
 module.exports = router;
+
 

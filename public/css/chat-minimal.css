@@ -764,3 +764,50 @@ body.ejii-chat-first-active #mainContent {
     max-width: 92%;
   }
 }
+
+/* Structured Telemetry Tables inside Chat Cards (Active Connections & Local IP) */
+.ejii-structured-table-wrapper {
+  margin: 0 0 14px 0;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  overflow-x: auto;
+  background: var(--chat-bg);
+}
+
+.ejii-structured-table-title {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chat-text-secondary);
+  background: var(--chat-surface-subtle);
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.ejii-structured-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.ejii-structured-table th {
+  padding: 7px 10px;
+  font-weight: 600;
+  color: var(--chat-text-secondary);
+  border-bottom: 1px solid var(--chat-border);
+  background: var(--chat-surface-subtle);
+  white-space: nowrap;
+}
+
+.ejii-structured-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--chat-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--chat-text);
+  white-space: nowrap;
+}
+
+.ejii-structured-table tr:last-child td {
+  border-bottom: none;
+}
+

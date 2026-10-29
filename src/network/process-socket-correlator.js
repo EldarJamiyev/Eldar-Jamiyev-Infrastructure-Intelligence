@@ -119,7 +119,8 @@ class ProcessSocketCorrelator {
 
     for (const sock of rawSockets) {
       const pid = sock.pid;
-      let procName = processCache.get(pid) || `PID ${pid}`;
+      let procName = sock.processNameFromSocket || processCache.get(pid) || `PID ${pid}`;
+
 
       // Normalize system/idle names
       if (pid === 0 || procName.toLowerCase().includes('idle')) {
@@ -358,14 +359,26 @@ class ProcessSocketCorrelator {
   }
 
   /**
-   * Query OS active network sockets
+   * Query OS active network sockets with truthful collection metadata
    */
   _queryActiveSockets() {
+    const fs = require('fs');
     return new Promise((resolve) => {
       const sockets = [];
+      this.lastCollectionMethod = null;
+      this.lastCollectorError = null;
+      this.lastProcessAttributionAvailable = false;
+      this.lastPermissionRestricted = false;
+
       if (IS_WINDOWS) {
         exec('netstat -ano', { timeout: 4000 }, (err, stdout) => {
-          if (!err && stdout) {
+          if (err && !stdout) {
+            this.lastCollectionMethod = 'netstat -ano';
+            this.lastCollectorError = err.message || 'netstat -ano execution failed';
+            return resolve([]);
+          }
+          this.lastCollectionMethod = 'netstat -ano';
+          if (stdout) {
             const lines = stdout.split('\n');
             for (const line of lines) {
               const tokens = line.trim().split(/\s+/);
@@ -374,10 +387,11 @@ class ProcessSocketCorrelator {
                 const localStr = tokens[1];
                 const remoteStr = tokens[2];
                 const isTcp = protocol === 'TCP';
-                const state = isTcp ? (tokens[3] || '').toUpperCase() : 'ACTIVE';
+                const state = isTcp ? (tokens[3] || '').toUpperCase() : 'UNCONNECTED';
                 const pid = parseInt(tokens[tokens.length - 1], 10);
 
                 if (localStr && remoteStr && !isNaN(pid)) {
+                  if (pid > 0) this.lastProcessAttributionAvailable = true;
                   const [localAddress, localPort] = this._parseHostPort(localStr);
                   const [remoteAddress, remotePort] = this._parseHostPort(remoteStr);
 
@@ -388,7 +402,9 @@ class ProcessSocketCorrelator {
                     remoteAddress,
                     remotePort,
                     state,
-                    pid
+                    pid,
+                    processNameFromSocket: null,
+                    collectionMethod: 'netstat -ano'
                   });
                 }
               }
@@ -397,19 +413,66 @@ class ProcessSocketCorrelator {
           resolve(sockets);
         });
       } else {
-        exec('ss -tunp || netstat -tunp', { timeout: 4000 }, (err, stdout) => {
-          if (!err && stdout) {
+        exec('ss -tunap 2>/dev/null || netstat -tunap 2>/dev/null', { timeout: 3500 }, (err, stdout) => {
+          if (!err && stdout && stdout.trim().split('\n').length > 1) {
+            const isSs = stdout.includes('Netid') || stdout.includes('ESTAB') || stdout.includes('UNCONN');
+            this.lastCollectionMethod = isSs ? 'ss -tunap' : 'netstat -tunap';
             const lines = stdout.split('\n');
             for (const line of lines) {
-              const tokens = line.trim().split(/\s+/);
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith('Netid') || trimmed.startsWith('Active') || trimmed.startsWith('Proto')) {
+                continue;
+              }
+              const tokens = trimmed.split(/\s+/);
               if (tokens.length >= 5) {
-                const proto = tokens[0].toUpperCase().includes('TCP') ? 'TCP' : 'UDP';
-                const localStr = tokens[3] || '';
-                const remoteStr = tokens[4] || '';
+                const protoToken = tokens[0].toUpperCase();
+                if (!protoToken.startsWith('TCP') && !protoToken.startsWith('UDP')) continue;
+                const proto = protoToken.startsWith('TCP') ? 'TCP' : 'UDP';
+                let rawState = tokens[1].toUpperCase();
+                let localStr = tokens[4] || '';
+                let remoteStr = tokens[5] || '';
+                if (!isSs) {
+                  // netstat -tunap layout: Proto(0) Recv-Q(1) Send-Q(2) Local(3) Foreign(4) State(5) PID/Program(6)
+                  localStr = tokens[3] || '';
+                  remoteStr = tokens[4] || '';
+                  rawState = proto === 'TCP' ? (tokens[5] || 'ESTABLISHED').toUpperCase() : 'UNCONNECTED';
+                }
+                const stateMap = {
+                  ESTAB: 'ESTABLISHED',
+                  ESTABLISHED: 'ESTABLISHED',
+                  LISTEN: 'LISTENING',
+                  LISTENING: 'LISTENING',
+                  'TIME-WAIT': 'TIME_WAIT',
+                  TIME_WAIT: 'TIME_WAIT',
+                  'CLOSE-WAIT': 'CLOSE_WAIT',
+                  CLOSE_WAIT: 'CLOSE_WAIT',
+                  'SYN-SENT': 'SYN_SENT',
+                  SYN_SENT: 'SYN_SENT',
+                  'SYN-RECV': 'SYN_RECV',
+                  'FIN-WAIT-1': 'FIN_WAIT_1',
+                  'FIN-WAIT-2': 'FIN_WAIT_2',
+                  'LAST-ACK': 'LAST_ACK',
+                  UNCONN: 'UNCONNECTED'
+                };
+                const normalizedState = stateMap[rawState] || rawState;
                 const [localAddress, localPort] = this._parseHostPort(localStr);
                 const [remoteAddress, remotePort] = this._parseHostPort(remoteStr);
-                const pidMatch = line.match(/pid=(\d+)/i) || line.match(/(\d+)\//);
-                const pid = pidMatch ? parseInt(pidMatch[1], 10) : 0;
+
+                // Extract process name & PID from users:(("node",pid=123,fd=20)) or 123/node
+                let pid = 0;
+                let procNameFromSock = null;
+                const ssUserMatch = trimmed.match(/users:\(\("([^"]+)",pid=(\d+)/i);
+                if (ssUserMatch) {
+                  procNameFromSock = ssUserMatch[1];
+                  pid = parseInt(ssUserMatch[2], 10) || 0;
+                } else {
+                  const pidMatch = trimmed.match(/pid=(\d+)/i) || trimmed.match(/\s(\d+)\/([^\s:]+)/);
+                  if (pidMatch) {
+                    pid = parseInt(pidMatch[1], 10) || 0;
+                    if (pidMatch[2]) procNameFromSock = pidMatch[2];
+                  }
+                }
+                if (pid > 0) this.lastProcessAttributionAvailable = true;
 
                 sockets.push({
                   protocol: proto,
@@ -417,16 +480,194 @@ class ProcessSocketCorrelator {
                   localPort,
                   remoteAddress,
                   remotePort,
-                  state: 'ESTABLISHED',
-                  pid
+                  state: normalizedState,
+                  pid,
+                  processNameFromSocket: procNameFromSock,
+                  collectionMethod: this.lastCollectionMethod
                 });
               }
             }
+            if (sockets.length > 0) {
+              this.lastPermissionRestricted = typeof process.getuid === 'function' && process.getuid() !== 0 && !sockets.some(s => s.pid > 0 && s.pid !== process.pid);
+              return resolve(sockets);
+            }
           }
+
+          // Fallback to direct Linux /proc/net/{tcp,tcp6,udp} kernel socket table parsing
+          try {
+            const procSockets = this._parseLinuxProcNetSockets();
+            if (procSockets.length > 0) {
+              this.lastCollectionMethod = '/proc/net/tcp+/proc/net/udp';
+              this.lastProcessAttributionAvailable = procSockets.some(s => s.pid > 0);
+              this.lastPermissionRestricted = typeof process.getuid === 'function' && process.getuid() !== 0;
+              return resolve(procSockets);
+            }
+          } catch (procErr) {
+            this.lastCollectorError = procErr.message;
+          }
+
+          if (err) {
+            this.lastCollectorError = err.message || 'Unable to query OS socket table';
+          }
+          this.lastCollectionMethod = this.lastCollectionMethod || '/proc/net/tcp';
           resolve(sockets);
         });
       }
     });
+  }
+
+  /**
+   * Parse Linux /proc/net/tcp and /proc/net/udp directly and map socket inodes to /proc/<pid>/fd when permitted
+   */
+  _parseLinuxProcNetSockets() {
+    const fs = require('fs');
+    const path = require('path');
+    const results = [];
+    const inodeToPid = new Map();
+
+    // Map socket:[inode] from /proc/<pid>/fd for accessible processes
+    try {
+      const procEntries = fs.readdirSync('/proc');
+      for (const entry of procEntries) {
+        if (!/^\d+$/.test(entry)) continue;
+        const pid = parseInt(entry, 10);
+        let comm = `PID ${pid}`;
+        try {
+          comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() || comm;
+        } catch (_) {}
+        try {
+          const fdDir = `/proc/${pid}/fd`;
+          const fds = fs.readdirSync(fdDir);
+          for (const fd of fds) {
+            try {
+              const link = fs.readlinkSync(path.join(fdDir, fd));
+              const m = link.match(/^socket:\[(\d+)\]$/);
+              if (m) {
+                inodeToPid.set(m[1], { pid, processName: comm });
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    const tcpStates = {
+      '01': 'ESTABLISHED',
+      '02': 'SYN_SENT',
+      '03': 'SYN_RECV',
+      '04': 'FIN_WAIT_1',
+      '05': 'FIN_WAIT_2',
+      '06': 'TIME_WAIT',
+      '07': 'CLOSED',
+      '08': 'CLOSE_WAIT',
+      '09': 'LAST_ACK',
+      '0A': 'LISTENING',
+      '0B': 'CLOSING'
+    };
+
+    const decodeHexIpV4 = (hexIpPort) => {
+      const [hexIp, hexPort] = String(hexIpPort || '').split(':');
+      if (!hexIp || hexIp.length !== 8) return ['0.0.0.0', 0];
+      const ip = [
+        parseInt(hexIp.slice(6, 8), 16),
+        parseInt(hexIp.slice(4, 6), 16),
+        parseInt(hexIp.slice(2, 4), 16),
+        parseInt(hexIp.slice(0, 2), 16)
+      ].join('.');
+      const port = parseInt(hexPort || '0', 16) || 0;
+      return [ip, port];
+    };
+
+    const parseProcFile = (filePath, protocol) => {
+      if (!fs.existsSync(filePath)) return;
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.trim().split('\n').slice(1);
+      for (const line of lines) {
+        const cols = line.trim().split(/\s+/);
+        if (cols.length < 10) continue;
+        const [localAddress, localPort] = decodeHexIpV4(cols[1]);
+        const [remoteAddress, remotePort] = decodeHexIpV4(cols[2]);
+        const stateHex = (cols[3] || '').toUpperCase();
+        const inode = cols[9];
+        const procOwner = inodeToPid.get(inode);
+        const state = protocol === 'UDP'
+          ? (remoteAddress !== '0.0.0.0' && remotePort > 0 ? 'ESTABLISHED' : 'UNCONNECTED')
+          : (tcpStates[stateHex] || 'UNKNOWN');
+
+        results.push({
+          protocol,
+          localAddress,
+          localPort,
+          remoteAddress,
+          remotePort,
+          state,
+          pid: procOwner ? procOwner.pid : 0,
+          processNameFromSocket: procOwner ? procOwner.processName : null,
+          collectionMethod: filePath
+        });
+      }
+    };
+
+    parseProcFile('/proc/net/tcp', 'TCP');
+    parseProcFile('/proc/net/udp', 'UDP');
+    return results;
+  }
+
+  /**
+   * Collect a rich, truthful inventory of active connections and destination endpoints with full scope/permission metadata
+   */
+  async collectActiveConnectionsInventory(filter = {}) {
+    const fs = require('fs');
+    await this.refresh();
+    const filtered = await this.getCorrelatedEndpoints(filter);
+    const isContainer = Boolean(
+      fs.existsSync('/.dockerenv') ||
+      fs.existsSync('/run/.containerenv') ||
+      (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
+    );
+
+    const rows = filtered.map((ep) => ({
+      processName: ep.processName || (ep.pid > 0 ? `PID ${ep.pid}` : 'Unattributed (OS Permission Scope)'),
+      pid: ep.pid || null,
+      protocol: ep.protocol || 'TCP',
+      localAddress: ep.localAddress || '0.0.0.0',
+      localPort: ep.localPort || 0,
+      remoteAddress: ep.remoteAddress || '0.0.0.0',
+      remotePort: ep.remotePort || 0,
+      state: ep.state || 'UNKNOWN',
+      isExternal: Boolean(ep.isExternal),
+      serviceHint: ep.serviceHint || null,
+      domain: ep.domain || null,
+      sni: ep.sni || null,
+      timestamp: new Date(ep.timestamp || Date.now()).toISOString(),
+      collectionMethod: this.lastCollectionMethod || 'os_socket_table',
+      processAttributionAvailable: Boolean(ep.pid && ep.pid > 0)
+    }));
+
+    return {
+      success: !this.lastCollectorError || rows.length > 0,
+      connections: rows,
+      totalCount: rows.length,
+      establishedCount: rows.filter((r) => r.state === 'ESTABLISHED').length,
+      listeningCount: rows.filter((r) => r.state === 'LISTENING').length,
+      externalDestinations: Array.from(
+        new Set(
+          rows
+            .filter((r) => r.remoteAddress && r.remoteAddress !== '0.0.0.0' && r.remoteAddress !== '*' && r.remoteAddress !== '::' && r.remotePort > 0)
+            .map((r) => `${r.remoteAddress}:${r.remotePort}`)
+        )
+      ),
+      collectionMethod: this.lastCollectionMethod || 'os_socket_table',
+      processAttributionAvailable: Boolean(this.lastProcessAttributionAvailable),
+      permissionRestricted: Boolean(this.lastPermissionRestricted),
+      isContainer,
+      collectionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
+      scopeExplanation: isContainer
+        ? 'Collected from the EJII container network namespace. Only sockets and processes visible inside this container namespace are listed.'
+        : 'Collected from the local host OS network stack.',
+      collectorError: this.lastCollectorError || null,
+      observedAt: new Date().toISOString()
+    };
   }
 
   /**
@@ -481,23 +722,24 @@ class ProcessSocketCorrelator {
       if (entry.ip && entry.domain) domainByIp.set(entry.ip, entry.domain);
     }
 
-    // Default Gateway resolution from routing table
-    let defaultGatewayIp = '192.168.31.1';
+    // Default Gateway resolution from routing table (only when verified)
+    let defaultGatewayIp = null;
     for (const route of (routingTable || [])) {
       if (route.destination === '0.0.0.0' || route.dest === '0.0.0.0') {
-        defaultGatewayIp = route.gateway || defaultGatewayIp;
+        defaultGatewayIp = route.gateway || null;
         break;
       }
     }
-    const gatewayMac = arpByIp.get(defaultGatewayIp) || '00:00:5E:00:01:01';
-    const gatewayNodeId = `NODE-GW-${defaultGatewayIp}`;
-    addNode(gatewayNodeId, `Default Gateway (${defaultGatewayIp})`, 'GATEWAY', {
+    const gatewayNodeId = defaultGatewayIp ? `NODE-GW-${defaultGatewayIp}` : 'NODE-GW-UNVERIFIED';
+    const gatewayMac = defaultGatewayIp ? (arpByIp.get(defaultGatewayIp) || null) : null;
+    addNode(gatewayNodeId, defaultGatewayIp ? `Default Gateway (${defaultGatewayIp})` : 'Default Gateway (Unverified)', 'GATEWAY', {
       ip: defaultGatewayIp,
       mac: gatewayMac,
       layer: 'L3_ROUTER'
     });
 
     const socketsToProcess = Array.isArray(activeSockets) && activeSockets.length > 0 ? activeSockets : this.endpoints;
+
 
     for (const sock of socketsToProcess) {
       const pid = sock.pid || 0;

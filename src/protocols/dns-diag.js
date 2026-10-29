@@ -150,6 +150,7 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       domain: cleanDomain,
       recordType: typeUpper,
       nameserver: activeNs || 'System Default',
+      resolutionMethod: 'dns_protocol',
       durationMs,
       records,
       error: null,
@@ -170,6 +171,7 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
             domain: cleanDomain,
             recordType: typeUpper,
             nameserver: activeNs || 'System Native (getaddrinfo)',
+            resolutionMethod: cleanDomain.toLowerCase() === 'localhost' ? 'local_hosts_table' : 'os_getaddrinfo',
             durationMs,
             records: filtered,
             error: null,
@@ -177,14 +179,15 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           };
         }
       } catch (fallbackErr) {
-        if (cleanDomain === 'google.com' || cleanDomain === 'localhost') {
-          const fallbackIp = cleanDomain === 'localhost' ? '127.0.0.1' : '142.251.153.4';
+        if (cleanDomain.toLowerCase() === 'localhost') {
+          const fallbackIp = typeUpper === 'AAAA' ? '::1' : '127.0.0.1';
           const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
           return {
             success: true,
             domain: cleanDomain,
             recordType: typeUpper,
-            nameserver: activeNs || 'System Default',
+            nameserver: 'local_hosts_table',
+            resolutionMethod: 'local_hosts_table',
             durationMs,
             records: [fallbackIp],
             error: null,
@@ -198,6 +201,7 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
           domain: cleanDomain,
           recordType: typeUpper,
           nameserver: activeNs || 'System Native (getaddrinfo)',
+          resolutionMethod: 'os_getaddrinfo',
           durationMs,
           records: [],
           error: errCode,
@@ -205,14 +209,15 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
         };
       }
 
-      if (cleanDomain === 'google.com' || cleanDomain === 'localhost') {
-        const fallbackIp = cleanDomain === 'localhost' ? '127.0.0.1' : '142.251.153.4';
+      if (cleanDomain.toLowerCase() === 'localhost') {
+        const fallbackIp = typeUpper === 'AAAA' ? '::1' : '127.0.0.1';
         const durationMs = parseFloat((performance.now() - startTime).toFixed(2));
         return {
           success: true,
           domain: cleanDomain,
           recordType: typeUpper,
-          nameserver: activeNs || 'System Default',
+          nameserver: 'local_hosts_table',
+          resolutionMethod: 'local_hosts_table',
           durationMs,
           records: [fallbackIp],
           error: null,
@@ -228,12 +233,56 @@ async function resolveRecord(domain, recordType = 'A', nameserver = null) {
       domain: cleanDomain,
       recordType: typeUpper,
       nameserver: activeNs || 'System Default',
+      resolutionMethod: 'dns_protocol',
       durationMs,
       records: [],
       error: errCode,
       errorCode: errCode
     };
   }
+}
+
+/**
+ * Inspect local DNS configuration and perform a real DNS connectivity health check
+ */
+async function checkDnsConnectivityHealth(probeDomain = 'example.com') {
+  const fs = require('fs');
+  const startTime = performance.now();
+  const configuredServers = dns.getServers();
+  const primaryResolver = getRealSystemDns();
+  let searchDomains = [];
+
+  if (process.platform !== 'win32') {
+    try {
+      if (fs.existsSync('/etc/resolv.conf')) {
+        const content = fs.readFileSync('/etc/resolv.conf', 'utf8');
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('search ') || trimmed.startsWith('domain ')) {
+            searchDomains.push(...trimmed.split(/\s+/).slice(1));
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const [localhostProbe, externalProbe] = await Promise.all([
+    resolveRecord('localhost', 'A'),
+    resolveRecord(probeDomain || 'example.com', 'A')
+  ]);
+
+  const totalDurationMs = parseFloat((performance.now() - startTime).toFixed(2));
+  return {
+    configuredServers,
+    primaryResolver,
+    searchDomains,
+    localhostProbe,
+    externalProbe,
+    healthy: Boolean(localhostProbe.success && externalProbe.success),
+    localOnlyHealthy: Boolean(localhostProbe.success && !externalProbe.success),
+    totalDurationMs,
+    observedAt: new Date().toISOString()
+  };
 }
 
 /**
@@ -276,6 +325,8 @@ module.exports = {
   resolveRecord,
   checkPropagation,
   getBenchmarkNameservers,
-  getRealSystemDns
+  getRealSystemDns,
+  checkDnsConnectivityHealth
 };
+
 

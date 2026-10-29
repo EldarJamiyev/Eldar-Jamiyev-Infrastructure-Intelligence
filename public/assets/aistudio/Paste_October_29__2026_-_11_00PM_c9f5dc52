@@ -1,0 +1,1457 @@
+EJII — SUPER MASTER DEVELOPMENT DIRECTIVE
+
+Additive Evolution of Eldar Jamiyev's Infrastructure Intelligence into an Advanced Autonomous AI Infrastructure Operations Platform
+
+Target repository: https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence
+
+Environment: Google AI Studio coding workspace
+
+Primary objective: Continue developing the existing EJII project into a highly capable, reliable, context-aware, AI-driven infrastructure operations platform while preserving all existing functionality and expanding it incrementally.
+
+PART I — THE MOST IMPORTANT INSTRUCTION
+
+1. EXTEND THE EXISTING PROJECT. DO NOT REPLACE IT.
+
+You are continuing work on an existing software product, not starting a new application.
+
+EJII already contains a substantial application architecture, frontend, backend, AI Operator components, diagnostic tools, API routes, authentication, authorization, session handling, networking utilities, infrastructure intelligence, and other specialist functionality.
+
+Your task is to develop what already exists, repair what is broken, connect what is disconnected, improve what is incomplete, and add genuinely valuable new capabilities.
+
+You must treat the current repository as the product's existing foundation and accumulated intellectual work.
+
+Do not rebuild EJII from scratch.
+
+Do not replace its backend merely because you prefer another framework.
+
+Do not replace the existing frontend with a different framework without a compelling, demonstrated technical necessity.
+
+Do not remove existing modules, tools, diagnostic engines, data models, endpoints, integrations, or specialist views just because they are not part of the minimalist home screen.
+
+Do not delete useful functionality to make the application appear simpler.
+
+Do not create a parallel application next to the existing application.
+
+Do not create a second diagnostic engine when an existing engine can be extended.
+
+Do not create a competing AI Operator, competing session store, competing authentication system, competing API layer, or competing database without first establishing that the existing implementation cannot meet the requirement.
+
+Do not replace real functionality with mock responses, static JSON, simulated results, hard-coded IP addresses, placeholder statistics, or decorative demonstrations.
+
+Do not stop after changing CSS, creating a chat component, adding a new endpoint, or producing an implementation plan.
+
+The objective is to evolve the existing EJII system into a more capable product, not to discard the existing product and create a visually similar substitute.
+
+Every addition must work with the existing architecture wherever possible.
+
+Required implementation approach
+
+Before making changes, inspect the current state of the repository and identify:
+
+Existing capabilities that already work.
+
+Existing capabilities that work partially.
+
+Existing capabilities that are disconnected from the main chat.
+
+Existing capabilities that need bug fixes.
+
+Existing capabilities that are inaccessible because of frontend navigation.
+
+Existing capabilities that have incorrect output formatting.
+
+Existing functionality that relies on inaccurate defaults, stale context, or invented fallback data.
+
+Existing code that should be extended rather than duplicated.
+
+Existing data and configuration that must be preserved.
+
+Existing security controls that must remain effective.
+
+Use this assessment to determine the smallest, safest set of changes that delivers the largest improvement.
+
+When a feature already exists, improve it.
+
+When a feature exists but is inaccessible, connect it.
+
+When a feature is incomplete, finish it.
+
+When a feature is unreliable, fix the underlying cause.
+
+When a capability is genuinely missing, implement it using the established architecture.
+
+When a capability cannot work in the current environment, expose the limitation clearly instead of pretending it works.
+
+PART II — THE PRODUCT VISION
+
+2. EJII SHOULD BE AN AI OPERATOR, NOT JUST AN AI CHATBOT
+
+I want EJII to become a practical AI infrastructure operator that helps me carry out real IT, systems, network, and infrastructure tasks.
+
+The experience should be conversational. I should not have to search through dozens of menus to find a diagnostic function.
+
+I should be able to write requests in ordinary language, such as:
+
+"Check whether this server is reachable."
+
+"Find the destination IP addresses and ports used by my running applications."
+
+"Check whether DNS is working."
+
+"Inspect my network configuration."
+
+"Ping my default gateway."
+
+"Explain why this website is not opening."
+
+"Compare the current network state with our previous investigation."
+
+"Investigate this problem and identify the first confirmed failure."
+
+"Run the relevant tests and recommend a fix."
+
+"Explain the result in simple English."
+
+"Prepare a technical incident report."
+
+"Show me what changed since the previous successful check."
+
+"Check whether the application is responding slowly."
+
+"Determine whether this is a client-side, network, TLS, or application problem."
+
+"Investigate the problem using the available tools and continue until you have enough evidence."
+
+"Tell me which additional information you need before you can diagnose this correctly."
+
+The AI should translate my request into the appropriate sequence of supported operations, validate its plan, execute the tools, inspect their results, and explain its findings.
+
+It should be proactive within the requested scope. It should not require me to select every test manually or understand the implementation details of each backend subsystem.
+
+However, the AI must remain technically honest. It must distinguish a real operation from a planned operation, a successful test from a failed one, and observed evidence from a hypothesis.
+
+The product should be simple to operate even when its internal architecture is sophisticated.
+
+3. DEVELOP THE EXISTING AI BRAIN INSTEAD OF INVENTING ANOTHER ONE
+
+Inspect and develop the current AI Operator, model orchestrator, capability registry, investigation engine, reasoning utilities, session context manager, evidence correlation engine, and existing model integrations.
+
+Build on these components to create a more capable central intelligence layer.
+
+The AI brain should be responsible for:
+
+Understanding the user's intent.
+
+Identifying the appropriate task category.
+
+Extracting hosts, IP addresses, ports, services, URLs, protocols, time ranges, and other relevant parameters.
+
+Resolving references to previous messages.
+
+Determining whether a request requires explanation, diagnostics, investigation, reporting, or an authorized change.
+
+Selecting appropriate tools from the existing registry.
+
+Preparing a bounded investigation plan.
+
+Validating all proposed actions.
+
+Executing supported operations through backend tools.
+
+Collecting and correlating the results.
+
+Detecting missing or contradictory evidence.
+
+Determining whether additional tests would materially improve the diagnosis.
+
+Explaining the result in the user's preferred level of detail.
+
+Preserving useful context for future messages.
+
+Verifying the result of any approved remediation.
+
+Recording the relevant history and outcome.
+
+Do not create an elaborate, multi-agent architecture simply to make the system appear more intelligent.
+
+Use specialist agents or multiple reasoning stages only when they provide a measurable benefit. Simple requests should execute through a short, efficient path.
+
+For example, "Check DNS for example.com" should not invoke every diagnostic module, scan a network, generate a topology map, and run a lengthy multi-agent investigation.
+
+A complex incident may justify multiple stages. A simple DNS lookup does not.
+
+PART III — PRESERVE THE EXISTING MINIMALIST EXPERIENCE
+
+4. KEEP THE CHAT-FIRST INTERFACE, BUT IMPROVE ITS CAPABILITY
+
+The main interface should remain minimalist, calm, and professional.
+
+The user should see a focused conversation area, a compact header, a single primary message composer, and a small number of genuinely useful controls.
+
+Do not reintroduce the overcrowded dashboard that motivated the chat-first redesign.
+
+Do not make every available feature visible at the same time.
+
+Do not create a separate button for every tool, protocol, operating-system function, model, or investigation type.
+
+Do not turn the main screen into a dashboard containing dozens of cards, graphs, counters, and status panels.
+
+Keep advanced functionality accessible through a small optional Tools menu or a contextual mechanism.
+
+The chat must remain the primary way to use EJII.
+
+Design requirements
+
+Retain the existing visual foundation wherever practical, while improving:
+
+Typography.
+
+Spacing.
+
+Content hierarchy.
+
+Message readability.
+
+Technical evidence formatting.
+
+Responsive behavior.
+
+Keyboard navigation.
+
+Loading and cancellation states.
+
+Error presentation.
+
+Accessible controls.
+
+Conversation history presentation.
+
+Make technical results easy to scan.
+
+Use compact result summaries with expandable evidence rather than displaying every low-level field immediately.
+
+The default view should not overwhelm a user who only wants to check a website, diagnose a connection, or inspect an IP address.
+
+Functional simplification
+
+Advanced tools should be available because they are useful, not because the interface must advertise every feature.
+
+When an existing advanced module can be invoked through a validated chat action, the user should not have to navigate to that module for routine work.
+
+Preserve specialized views that provide value for advanced investigation, manual exploration, visualization, configuration, or administration.
+
+The distinction is simple:
+
+The interface may be minimal, but the underlying product must remain powerful.
+
+PART IV — ADVANCED AI TOOL EXECUTION
+
+5. MAKE THE TOOL REGISTRY THE FOUNDATION OF AUTONOMOUS OPERATIONS
+
+Inspect the existing capability registry and expand it rather than duplicating it.
+
+Each registered capability should describe the actual operation, input schema, output schema, execution requirements, required permissions, applicable operating systems, timeout, cancellation behavior, and safety constraints.
+
+The AI should select a capability by its meaning and purpose, not only by matching exact words in the user's message.
+
+For instance, these requests should lead to the same underlying diagnostic when their parameters are equivalent:
+
+"Ping example.com."
+
+"Check ICMP reachability to example.com."
+
+"Does example.com reply to ping?"
+
+"Test whether example.com responds to an echo request."
+
+Similarly, requests concerning listening services, TCP connectivity, open ports, and connection refusal should be classified consistently.
+
+Use deterministic parsing for straightforward, unambiguous requests and model-assisted interpretation for more flexible language. The final execution decision must always be validated by the backend.
+
+Tool execution contract
+
+For every diagnostic, the platform should be able to determine:
+
+What the user requested.
+
+Which tool was selected.
+
+Why the tool is appropriate.
+
+Which validated parameters were supplied.
+
+Whether execution actually started.
+
+Whether execution completed.
+
+What the tool returned.
+
+Whether the response was complete.
+
+Whether the result is fresh or cached.
+
+How long the operation took, when measured.
+
+Whether a timeout, permission failure, or environmental limitation affected the result.
+
+Keep these details available for debugging, auditing, and expandable technical evidence.
+
+Do not expose unnecessary internal implementation detail in the primary chat response.
+
+Tool failures
+
+A failed tool must not be converted into a successful response merely to keep the conversation smooth.
+
+The AI should be able to say:
+
+"The DNS query timed out."
+
+"The host returned no ICMP echo reply."
+
+"The operating system did not provide access to the socket table."
+
+"The local model is unavailable."
+
+"The TCP connection was refused."
+
+"The request was blocked by the security policy."
+
+"The available evidence does not establish the root cause."
+
+A clear failure is better than a fabricated success.
+
+PART V — DEVELOP THE NETWORK DIAGNOSTICS
+
+6. STRENGTHEN THE EXISTING DNS ENGINE
+
+Improve the DNS implementation and connect it more intelligently to the AI Operator.
+
+The platform should support the available DNS operations through existing drivers, including appropriate A, AAAA, CNAME, MX, TXT, NS, and other implemented record queries.
+
+For each request, report actual results where available:
+
+Queried domain.
+
+Requested record type.
+
+Returned records.
+
+Resolver information.
+
+Measured query duration.
+
+Error code and error details.
+
+Whether the operation used the DNS protocol or the operating system's name-resolution service.
+
+Distinguish these situations:
+
+Domain not found.
+
+Record type has no returned data.
+
+Resolver unavailable.
+
+DNS timeout.
+
+Invalid hostname.
+
+Network failure.
+
+Local hosts-file resolution.
+
+Successful response.
+
+Do not describe every DNS error as NXDOMAIN. Do not invent an IP address when resolution fails.
+
+Do not assume that a public resolver such as Google DNS is configured merely because the application requires a default.
+
+Use the real configured resolver or OS resolver, and label the method accurately.
+
+Avoid DNS resolution paths that can unexpectedly block for tens of seconds.
+
+Implement bounded asynchronous resolution and consistent timeout behavior. Ensure that cached data is distinguishable from a fresh lookup.
+
+Intelligent DNS behavior
+
+When I ask "Check DNS connectivity," inspect the actual local DNS configuration and perform a sensible health check.
+
+When I ask "Check DNS for this hostname," resolve the requested hostname.
+
+These are different operations and must not be confused.
+
+A DNS-health request should not automatically inherit an unrelated hostname from a previous conversation.
+
+If the requested hostname resembles a known typo, use a cautious correction strategy. Automatically correct only sufficiently unambiguous cases and show the correction to the user. For uncertain cases, ask a short clarification question.
+
+Never silently substitute an arbitrary internal or customer domain.
+
+7. STRENGTHEN PING AND TCP DIAGNOSTICS
+
+Improve the existing ICMP and TCP implementations.
+
+Ping
+
+Report actual packet counts, received replies, loss percentage, and measured RTT statistics where available.
+
+Handle ICMP restrictions honestly.
+
+If ICMP fails but a permitted TCP connection succeeds, explain that the service is reachable over TCP even though ping did not receive a reply.
+
+Do not manufacture a successful ping from a TCP handshake. The two measurements must remain distinct.
+
+If a runtime sandbox prevents raw ICMP, identify the limitation and provide an optional alternative connectivity check when appropriate.
+
+TCP ports
+
+Support requests involving one or multiple ports using the existing port diagnostic engine.
+
+Distinguish:
+
+A successful TCP handshake.
+
+An explicit connection refusal.
+
+A timeout.
+
+A DNS resolution error.
+
+A local permission or execution error.
+
+An unsupported operation.
+
+Use the actual measured handshake duration. Remove arbitrary banner-wait delays when they are not required for the test itself.
+
+Do not claim that a service is healthy simply because a port accepts connections. Port openness establishes transport connectivity, not application health.
+
+The system should understand short follow-ups such as:
+
+"Try 80 too."
+
+"Now check 443."
+
+"Test the other port."
+
+"Repeat the same check."
+
+Resolve these references through reliable session context, not through blind reuse of an old target.
+
+8. DEVELOP WEBSITE AND HTTPS DIAGNOSTICS
+
+Extend the existing website and cross-layer diagnostic path.
+
+For a request to test a website, execute the relevant supported checks:
+
+Resolve the hostname.
+
+Establish TCP connectivity to the relevant service port.
+
+Inspect the TLS handshake and certificate validation for HTTPS.
+
+Obtain an HTTP response.
+
+Correlate the evidence.
+
+Do not claim that every layer succeeded unless every required check actually ran and returned sufficient evidence.
+
+Handle HTTP redirects correctly. A 301 or 302 response indicates redirection, not necessarily a failure.
+
+Handle HTTP 4xx and 5xx responses as application-layer evidence with the correct interpretation.
+
+For example:
+
+DNS failure means the hostname could not be resolved by the tested resolver.
+
+TCP refusal indicates that the attempted connection was refused.
+
+TCP timeout means no definitive handshake result was obtained.
+
+TLS handshake failure identifies a TLS-layer problem only to the extent demonstrated by the evidence.
+
+Certificate validation failure must be distinguished from a completed TLS handshake.
+
+HTTP 500 indicates that an HTTP server responded with an application-level error.
+
+HTTP 200 establishes a successful response for the tested request, not universal application health.
+
+Correct all mismatched result fields so TLS protocol information, cipher details, certificate status, HTTP timing, and response details are read from the real schemas returned by the drivers.
+
+Never show [object Object], undefinedms, or invented numbers in the user interface.
+
+When a field is unavailable, display that fact clearly.
+
+PART VI — LOCAL NETWORK AND HOST AWARENESS
+
+9. IMPLEMENT A RELIABLE "CHECK MY IP" WORKFLOW
+
+The existing platform should distinguish local interface addresses, private network addresses, public addresses, DNS server addresses, and remote destination IPs.
+
+When I ask "Check my IP," EJII should inspect actual local host information.
+
+Collect relevant fields from the operating system:
+
+Interface name.
+
+Interface status where available.
+
+IPv4 and IPv6 addresses.
+
+Netmask or prefix length where applicable.
+
+MAC address when exposed.
+
+DNS configuration where available.
+
+Default route and verified gateway.
+
+Collection timestamp.
+
+Collection method.
+
+If I ask for my public IP, treat that as a separate operation. It requires an explicitly configured external discovery service or another valid method. Do not infer a public IP from the local private address.
+
+If multiple active interfaces exist, report them clearly and avoid arbitrarily selecting one without explanation.
+
+Gateway correctness
+
+The default gateway must be obtained from the actual operating-system routing information.
+
+Never infer the gateway from the local IP address, subnet, or a familiar network convention.
+
+Never substitute the previous remote diagnostic target for the gateway.
+
+If the current route table cannot be read, report the limitation and do not ping a guessed address.
+
+A gateway ping must use the gateway verified for the current EJII host environment.
+
+Keep host-local information distinct from information about the end user's device when EJII is running on a remote server or in a container.
+
+This distinction is essential. The server running EJII is not necessarily the same machine from which the browser is connecting.
+
+10. BUILD AN ACCURATE ACTIVE CONNECTIONS AND DESTINATION ENDPOINT FEATURE
+
+This capability is particularly important.
+
+I want to understand which destination IP addresses and destination ports are being used by applications currently running on the machine where EJII performs its host diagnostics.
+
+I should be able to ask:
+
+"Show me the active connections."
+
+"Which applications are connected to the internet?"
+
+"Show the destination IP and destination port for every application."
+
+"Which process is connecting to this server?"
+
+"Which application is communicating with port 443?"
+
+"Which remote IP belongs to this process?"
+
+"List established TCP connections."
+
+"Show connected UDP endpoints where the OS exposes them."
+
+"Explain which connections belong to browsers and other visible processes."
+
+Extend the existing process/socket diagnostic engine. Do not implement a separate, competing collector.
+
+Required fields
+
+Where the operating system exposes the information, collect:
+
+Process name.
+
+Process ID.
+
+Transport protocol.
+
+Local address.
+
+Local port.
+
+Remote address.
+
+Remote destination port.
+
+Connection state.
+
+Collection timestamp.
+
+Collection method.
+
+Whether process attribution was available.
+
+Whether permissions restricted the result.
+
+The interface should present a clear and readable table or compact report when the user explicitly requests a connection inventory.
+
+This is one of the cases where a table is more useful than prose alone. Keep the ordinary chat interface minimalist, but present connection results in a structured way that makes destination IPs and ports easy to compare.
+
+Correct operating-system parsing
+
+Inspect how the current implementation handles Windows netstat, Windows process information, Linux ss, and any other supported collector.
+
+Correctly parse IPv4 and IPv6 endpoints, local and remote ports, TCP states, UDP endpoints, optional process metadata, and permission-restricted results.
+
+Do not assume that every socket row contains process information.
+
+Do not confuse a UDP listening or unconnected endpoint with a connected remote destination.
+
+Do not report a process name unless it was actually observed or correctly associated with a process ID.
+
+Do not use fake fallback socket rows when the operating-system collector fails.
+
+An empty result from a successful OS query is different from failure to execute the collector. Represent those states separately.
+
+Runtime environment limitations
+
+If EJII runs inside Docker, a container, WSL, or another restricted execution environment, its socket table may not represent every process or connection on the physical Windows host.
+
+The system must report the collection scope and its limitations.
+
+Do not claim complete host-wide application visibility when EJII only has access to its own container namespace.
+
+Where appropriate, support an explicitly configured, authenticated host agent to collect additional telemetry. Build this as an optional extension that follows the existing security architecture, not as an assumed requirement for basic EJII operation.
+
+Do not attempt to bypass permissions or access restrictions.
+
+Connection history
+
+Allow optional historical comparison of observed endpoint snapshots.
+
+For example, the user might ask which remote endpoints appeared since the last snapshot or which previously observed connections disappeared.
+
+Label snapshots with their timestamps. Never represent historical endpoints as currently connected.
+
+PART VII — IMPROVE AUTONOMOUS INVESTIGATION
+
+11. DEVELOP A BOUNDED INVESTIGATION PLANNER
+
+Extend the existing AI Operator and investigation engine so that multi-step troubleshooting is systematic, efficient, and explainable.
+
+When the user reports a problem, the AI should:
+
+Define the problem in practical terms.
+
+Identify the relevant target and environment.
+
+Determine what evidence is already available.
+
+Build a short initial diagnostic plan.
+
+Execute the most informative low-risk checks.
+
+Compare the results.
+
+Identify the earliest confirmed failure.
+
+Determine which uncertainties remain.
+
+Run additional checks only when they can improve the diagnosis.
+
+Stop when the evidence is sufficient or the investigation reaches its defined budget.
+
+Deliver a concise conclusion and the next useful action.
+
+Do not launch every subsystem for every problem.
+
+For a basic connectivity problem, begin with the relevant checks. For a complex incident, expand the investigation when the evidence justifies it.
+
+Example investigation: website unreachable
+
+An intelligent investigation may examine:
+
+Whether local host network information can be read.
+
+Whether a default route is verified.
+
+Whether DNS resolution succeeds.
+
+Whether the target is permitted by the security policy.
+
+Whether a TCP connection can be established.
+
+Whether the TLS handshake and certificate validation succeed.
+
+Whether an HTTP response is returned.
+
+However, do not label unverified telemetry as healthy merely to fill every step in a report.
+
+If a local NIC check is unavailable, identify that fact. If gateway telemetry is missing, do not invent a gateway address.
+
+If a probe fails before reaching a later layer, report the dependency accurately and run only independent checks that can still offer useful evidence.
+
+Confidence and uncertainty
+
+Develop a disciplined evidence-based reasoning layer.
+
+The AI should differentiate:
+
+Directly observed facts.
+
+Correlated evidence.
+
+Plausible hypotheses.
+
+Unsupported possibilities.
+
+Verified root causes.
+
+Do not calculate arbitrary confidence percentages without an established and validated scoring method.
+
+Do not call a problem solved because the explanation sounds plausible.
+
+A root cause should be considered confirmed only when the available evidence meets the relevant criteria.
+
+PART VIII — CONVERSATIONAL MEMORY AND FOLLOW-UPS
+
+12. DEVELOP A RELIABLE CONTEXT SYSTEM
+
+Preserve the existing conversation persistence and improve the mechanisms used to retrieve relevant context.
+
+The AI needs to retain information that is useful for continuing investigations, including:
+
+Current investigation.
+
+Previous targets.
+
+Explicitly tested ports.
+
+Previously tested URLs.
+
+Actual tool calls and results.
+
+Relevant timestamps.
+
+Confirmed failures.
+
+Unresolved questions.
+
+Remediation actions and verification results.
+
+Useful environmental facts that were genuinely observed.
+
+Use the existing database and session architecture when appropriate.
+
+Keep the complete persisted history separate from the bounded working context used for individual model calls.
+
+Do not load unlimited messages into RAM or the model context window.
+
+Do not delete useful persisted history simply because the working context has reached its limit.
+
+Use appropriate retrieval, summaries, recent message windows, and entity history to keep relevant information available efficiently.
+
+Follow-up examples
+
+After checking example.com, I may ask:
+
+"Test port 80 too."
+
+"What did DNS return?"
+
+"Why did it fail?"
+
+"Which layer failed first?"
+
+"Compare it with the previous result."
+
+"Try again."
+
+"Write an incident report."
+
+The AI must use the correct previous evidence.
+
+A greeting must not replace the previous diagnostic result.
+
+A local-network request must not blindly repeat a remote website test.
+
+A multi-host connection inventory must not establish an arbitrary host as the target for the next diagnostic.
+
+When a follow-up is ambiguous, ask one concise clarification question.
+
+If there are multiple recent hosts or ports, make the ambiguity clear.
+
+Never silently invent a target.
+
+PART IX — A MORE CAPABLE TECHNICAL AI
+
+13. SUPPORT BOTH OPERATIONAL TASKS AND TECHNICAL QUESTIONS
+
+EJII should be able to help with technical explanations as well as live diagnostics.
+
+Examples:
+
+"Explain the difference between TCP and UDP."
+
+"What is a default gateway?"
+
+"Explain why DNS resolution failed."
+
+"What is the difference between connection refused and timeout?"
+
+"Explain the TLS certificate error in simple English."
+
+"What does this PowerShell command do?"
+
+"Help me understand this routing table."
+
+"Prepare a troubleshooting checklist."
+
+"Explain this incident report."
+
+"How can I verify the suggested fix?"
+
+Use the configured local AI model for informational questions when available and appropriate.
+
+Make sure the AI distinguishes general technical knowledge from information collected from the running system.
+
+A model-generated explanation must not be presented as live telemetry.
+
+If the model is offline or unavailable, handle the situation predictably without claiming that model inference succeeded.
+
+Do not send internal infrastructure details to external providers when the configured privacy policy prohibits it.
+
+Dual-mode intelligence
+
+The system should distinguish between:
+
+Informational mode: Explain a concept, answer a general technical question, or help the user understand a command.
+
+Operational mode: Invoke approved tools to execute an actual diagnostic or action.
+
+A question such as "What is a default gateway?" should not trigger network probes.
+
+A request such as "Ping my default gateway" should trigger the gateway-specific tool.
+
+A contextual question such as "What is happening?" immediately after an investigation should normally refer to the previous diagnostic evidence.
+
+Use the existing context, intent classifier, and AI architecture to make these distinctions more robust.
+
+14. IMPROVE THE MODEL ORCHESTRATION WITHOUT PROMISING THE IMPOSSIBLE
+
+Develop the existing local-model integration and model orchestrator as practical capabilities.
+
+Use the configured model and provider settings rather than inventing new dependencies unnecessarily.
+
+When the local model is available, use it for appropriate planning, interpretation, explanation, and contextual reasoning.
+
+When the request is unambiguous and straightforward, prefer deterministic, efficient execution instead of unnecessary model calls.
+
+For complex investigation, use model reasoning where it can improve tool selection or analysis.
+
+Separate planning, tool execution, evidence interpretation, and final explanation as appropriate.
+
+Do not allow a model to modify authorization decisions, directly execute arbitrary shell commands, or bypass validated backend tools.
+
+Do not promise unlimited reasoning, unlimited memory, unlimited execution, or guaranteed superiority to other AI systems.
+
+Instead, aim for measurable improvements in accuracy, latency, task completion, context retention, and technical usefulness.
+
+PART X — NEW CAPABILITIES TO ADD TO THE EXISTING PLATFORM
+
+15. CREATE A UNIFIED INVESTIGATION HISTORY
+
+Extend the existing conversation and database functionality so each meaningful investigation can be revisited.
+
+A user should be able to ask what was tested earlier and receive a relevant, evidence-based answer.
+
+Preserve:
+
+Investigation timestamp.
+
+Target and scope.
+
+Requested task.
+
+Selected tools.
+
+Actual results.
+
+Errors.
+
+Findings.
+
+Conclusion.
+
+Recommended next steps.
+
+Approved actions and verification results.
+
+Allow historical investigations to be compared with current results.
+
+Do not create duplicate records unnecessarily. Reuse the existing persistence architecture.
+
+Make history retrieval efficient and access-controlled.
+
+When a request requires old evidence, retrieve the relevant records rather than loading the complete database into a model prompt.
+
+16. DEVELOP BEFORE-AND-AFTER VERIFICATION
+
+Build on the existing remediation and verification capabilities.
+
+When an authorized change is made, the AI should be able to:
+
+Record the observed initial state.
+
+Identify the proposed change.
+
+Explain the expected outcome.
+
+Check authorization and approval requirements.
+
+Execute the approved operation.
+
+Observe the resulting state.
+
+Compare the result with the initial state.
+
+Report whether the intended outcome was verified.
+
+Record any remaining problem.
+
+Do not report success merely because the command returned an exit code that appears successful.
+
+Use appropriate postcondition checks.
+
+Do not attempt rollback when the required state, safety conditions, or rollback operation cannot be established.
+
+Preserve the existing remediation engine, audit controls, and permission model.
+
+17. DEVELOP ACTIONABLE INCIDENT REPORTS
+
+Allow the user to request a report directly in chat.
+
+The report should contain relevant information such as:
+
+Incident summary.
+
+Affected target.
+
+Time of investigation.
+
+Scope of tests.
+
+Confirmed evidence.
+
+Failed checks.
+
+Likely cause.
+
+Confidence and remaining uncertainty.
+
+Recommended next steps.
+
+Verification status.
+
+Technical evidence when appropriate.
+
+Keep the default report concise. Detailed evidence should remain available when needed.
+
+Do not fabricate a ticket number, incident severity, service owner, incident start time, or business impact if these were not supplied or obtained from an actual integrated system.
+
+Support copying or exporting reports using existing project conventions.
+
+Do not introduce a large new report-management interface unless it is needed for functionality that cannot reasonably be served through chat.
+
+18. DEVELOP DIAGNOSTIC COMPARISONS
+
+Allow the AI to compare actual observations across time.
+
+Examples:
+
+"Compare the latest ping results with the previous test."
+
+"Which ports changed from open to closed?"
+
+"Did the hostname resolve to a different IP?"
+
+"Were the response times higher than yesterday?"
+
+"Which endpoints appeared in the new socket snapshot?"
+
+"Did the approved remediation improve the situation?"
+
+Use real stored observations and their timestamps.
+
+Distinguish apples-to-apples comparisons from comparisons between different environments, targets, protocols, or measurement methods.
+
+Do not fabricate a historical baseline when no previous observation exists.
+
+Do not assume that different latency measurements were collected under identical conditions.
+
+PART XI — PERFORMANCE AND RESOURCE MANAGEMENT
+
+19. MAKE THE SYSTEM FAST, PREDICTABLE, AND RESOURCE-EFFICIENT
+
+Optimize the existing implementation based on measured behavior.
+
+Do not rewrite entire subsystems merely because a different architecture might theoretically be faster.
+
+Inspect the real bottlenecks.
+
+Pay special attention to:
+
+Unbounded DNS resolution.
+
+Duplicate diagnostic calls.
+
+Long-running requests.
+
+Redundant model calls.
+
+Excessive conversation history.
+
+Repeated tool initialization.
+
+Blocking operations on request paths.
+
+Unnecessary subprocesses.
+
+Excessive frontend re-rendering.
+
+Database access patterns.
+
+Concurrent investigations.
+
+Socket and process collection timeouts.
+
+Use asynchronous operations where appropriate.
+
+Set explicit budgets for requests and multi-step investigations.
+
+Use concurrency limits to prevent one investigation from exhausting host resources.
+
+Allow the user to stop a running operation when cancellation can be implemented reliably.
+
+Ensure that cancelled or timed-out operations cannot continue to corrupt session context.
+
+Caching
+
+Use caching only when appropriate.
+
+For cached results, preserve the timestamp, expiration policy, and distinction from live results.
+
+Do not serve stale information as current system state.
+
+Use cache invalidation rules that reflect the data being cached.
+
+Do not repeatedly probe the same service merely because the frontend re-rendered or a previous response was formatted.
+
+Resource exhaustion
+
+Set practical limits for:
+
+Concurrent investigations.
+
+Number of tools per investigation.
+
+Network scan scope.
+
+Model input size.
+
+Model output size.
+
+In-memory session state.
+
+Stored telemetry volume.
+
+Individual subprocess execution.
+
+Retained socket snapshots.
+
+Keep the limits configurable where necessary.
+
+The objective is to maximize useful capability while keeping performance predictable, not to remove every resource limit.
+
+PART XII — SECURITY AND PRIVACY
+
+20. PRESERVE AND STRENGTHEN EXISTING SECURITY CONTROLS
+
+Security is a core requirement, not a feature to simplify away.
+
+Preserve and audit the current authentication, JWT/session behavior, role-based access control, target validation, SSRF prevention, DNS pinning, audit logging, and remediation controls.
+
+Improve them where the actual implementation needs improvement.
+
+Target validation
+
+Validate targets on the server before any network operation.
+
+Protect against:
+
+Cloud metadata access.
+
+SSRF.
+
+DNS rebinding.
+
+Unsafe URL parsing.
+
+Invalid port values.
+
+Shell injection.
+
+Arbitrary command execution.
+
+Excessive network scans.
+
+Unauthorized internal-target access.
+
+Redirect-based security bypasses.
+
+Ensure that redirected requests are subject to appropriate target validation too.
+
+However, do not block all private IP addresses indiscriminately if authorized internal infrastructure diagnostics are a core use case.
+
+Apply explicit access policy and validate the resolved addresses before connecting.
+
+Preserve validated target information for subsequent steps so the engine does not silently re-resolve a hostname to an unvalidated address.
+
+Session ownership
+
+A user's session ID must not grant access to another user's history.
+
+Enforce authorization for session creation, retrieval, message submission, cancellation, deletion, and any other operation that accesses session-specific data.
+
+Do not trust a client-provided role or identity field to establish authorization.
+
+Use the authenticated identity established by the existing server-side authentication system.
+
+State-changing actions
+
+Routine, low-risk read-only diagnostics should not require unnecessary confirmation.
+
+Meaningful changes to network configuration, firewall rules, services, processes, or infrastructure state must retain appropriate permission checks and approval requirements.
+
+Record security-relevant actions.
+
+Never let model-generated text override the server's rules.
+
+PART XIII — FRONTEND AND BACKEND INTEGRATION
+
+21. CONNECT NEW CAPABILITIES TO THE EXISTING APPLICATION CORRECTLY
+
+Before creating a new API route, inspect the existing route tree and determine whether the operation already has a suitable endpoint.
+
+Before creating a new utility, inspect the existing module exports.
+
+Before introducing new state, inspect the existing session and persistence model.
+
+Before adding a new UI entry point, determine whether the action can be reached naturally through the main chat.
+
+Use consistent error formats, input validation, permission checks, logging, and structured result contracts.
+
+Preserve the existing UI routing and component conventions.
+
+Ensure that the frontend reads the actual result fields returned by the backend rather than assuming its own field names.
+
+Use safe rendering for model output and diagnostic evidence.
+
+Do not inject arbitrary HTML generated by the model into the page.
+
+Do not duplicate the AI Operator into two independent chat implementations.
+
+Do not expose API keys, credentials, sensitive network configuration, or restricted evidence in browser code.
+
+Source and build consistency
+
+If the project maintains JavaScript runtime files alongside TypeScript source, determine which files are authoritative and how build output is generated.
+
+Keep runtime code and source code aligned according to the project's actual build process.
+
+Do not blindly edit generated files in a way that will be overwritten by the next build.
+
+Do not ignore an updated source file while the application continues executing stale compiled output.
+
+Verify that the application entry point imports the code that was actually changed.
+
+PART XIV — TESTING AND VALIDATION
+
+22. TEST THE ACTUAL APPLICATION, NOT JUST THE APPEARANCE
+
+The final product must be evaluated using its real frontend, backend, diagnostic tools, session persistence, and security controls.
+
+First, inspect the existing test suite and test infrastructure. Reuse it wherever possible and add focused regression tests.
+
+Do not invent a new test framework without justification.
+
+Do not delete tests simply because they fail after an implementation change.
+
+Do not change expected results to hide a regression.
+
+Required regression cases
+
+Verify that:
+
+A. Greeting
+
+"Hello" returns a conversational response, performs no network diagnostics, and preserves the previous diagnostic context.
+
+B. DNS
+
+"Check DNS for example.com" uses a real resolver and reports the actual result.
+
+C. DNS failure
+
+An invalid domain returns an appropriately classified failure without an excessive wait or fabricated success.
+
+D. General DNS health
+
+"Check DNS connectivity" checks the local resolver configuration and relevant health signals without blindly inheriting an unrelated target.
+
+E. Ping
+
+"Ping example.com" reports actual ICMP evidence.
+
+F. ICMP restriction
+
+A failed ICMP probe does not automatically prove that the target is offline.
+
+G. TCP port
+
+A port test correctly distinguishes a completed handshake, a refused connection, a timeout, and a tool failure.
+
+H. HTTPS
+
+The website check uses the actual TLS and HTTP result schemas and never displays [object Object] or undefinedms.
+
+I. Local IP
+
+"Check my IP" reads actual local interface addresses and does not silently perform a previous remote-host diagnostic.
+
+J. Gateway
+
+"Ping my default gateway" uses an OS-observed gateway. If the route cannot be verified, no ping should be sent to a guessed address.
+
+K. Active connections
+
+The socket collector reports actual operating-system data, correctly identifies destination IPs and ports where available, and clearly handles restricted access.
+
+L. Collector failure
+
+A failed socket collector must not fabricate a connection list or report that no connections exist.
+
+M. Contextual follow-up
+
+"Now test port 80 on the same host" uses the correct previous target only when that target is unambiguous.
+
+N. Context loss
+
+If the relevant target is unavailable, the assistant asks for clarification rather than silently switching to localhost.
+
+O. Multi-target follow-up
+
+After displaying multiple endpoints, the assistant asks which one the user means when a follow-up does not identify a particular endpoint.
+
+P. Technical explanation
+
+"What is a default gateway?" produces an informational answer rather than triggering network probes.
+
+Q. Historical question
+
+"What happened?" following a completed investigation refers to the relevant previous evidence when available.
+
+R. Security
+
+An unauthorized user cannot access another user's conversation, execute restricted actions, or bypass target-validation policies.
+
+S. Cancellation
+
+Stopping a request does not allow an old operation to corrupt a newer request's session state.
+
+T. Persistence
+
+Conversation history remains available after session restoration while active memory stays bounded.
+
+U. Frontend
+
+The redesigned interface remains simple, readable, responsive, and functional without removing the existing advanced tools.
+
+Real versus simulated tests
+
+Use isolated test services, controlled fixtures, and mocks only where appropriate for deterministic testing.
+
+Mocks are acceptable for testing isolated components, but they must not be presented as live production data.
+
+Verify successful diagnostic execution against real local test targets or permitted real targets when the environment supports it.
+
+If an operation cannot be tested because of sandbox restrictions, missing permissions, unavailable drivers, or unavailable model providers, record that limitation explicitly.
+
+Honest verification report
+
+At completion, distinguish between:
+
+Static code inspection.
+
+Unit tests actually executed.
+
+Integration tests actually executed.
+
+End-to-end tests actually executed.
+
+Build commands actually executed.
+
+Tests that were added but not run.
+
+Capabilities that could not be verified.
+
+Never report a test as passing merely because the implementation appears correct.
+
+PART XV — DEVELOPMENT WORKFLOW FOR GOOGLE AI STUDIO
+
+23. WORK IN INCREMENTAL, SAFE CHECKPOINTS
+
+This project has already experienced long AI Studio runs and quota-limit failures. Avoid repeating the same pattern.
+
+Do not spend hours generating an enormous rewrite in a single uninterrupted operation.
+
+Use small, coherent implementation stages with explicit checkpoints.
+
+At the beginning, inspect the existing project and identify its present state. If some features have already been implemented, do not recreate them.
+
+After each meaningful stage:
+
+Save the relevant modifications.
+
+Run the most relevant available tests.
+
+Review the changed files.
+
+Fix immediate regressions.
+
+Record a concise checkpoint summary.
+
+Continue with the next useful improvement.
+
+Preserve a short durable checkpoint containing:
+
+The current goal.
+
+The files changed.
+
+The commits or modifications completed.
+
+Tests actually executed.
+
+Failures found.
+
+Remaining tasks.
+
+Important compatibility constraints.
+
+Keep checkpoint summaries concise enough to remain useful when the context window is limited.
+
+Do not repeatedly dump the entire repository or every modified file into the model context.
+
+Do not claim that a change is completed before the relevant implementation has been written.
+
+Do not repeat already completed work because the model lost track of its earlier actions.
+
+When the development environment encounters a quota error, preserve the current working state and leave a clear, actionable continuation checkpoint. Avoid creating partially rewritten files or undoing working changes during recovery.
+
+Scope prioritization
+
+Work in this order:
+
+Fix bugs and remove false results.
+
+Establish correct intent classification and context handling.
+
+Connect existing capabilities through the chat.
+
+Improve local-host and active-endpoint visibility.
+
+Strengthen memory, persistence, and session security.
+
+Improve AI-assisted planning and evidence correlation.
+
+Add valuable, genuinely missing capabilities.
+
+Improve reporting, comparison, and investigation workflows.
+
+Perform UI refinements and performance optimization.
+
+Run final regression and integration checks.
+
+Do not prioritize flashy new features over broken diagnostic accuracy or unsafe behavior.
+
+PART XVI — DEFINITION OF DONE
+
+24. EJII SHOULD FEEL LIKE ONE COHERENT INTELLIGENT SYSTEM
+
+The existing and new components must work together, rather than behaving as disconnected modules.
+
+The user should not have to know which subsystem owns a capability.
+
+The chat should route a request to the proper existing engine.
+
+The engine should return structured evidence.
+
+The AI should understand the evidence.
+
+The conversation should preserve the useful result.
+
+The next request should build on the right context.
+
+The frontend should display the information simply.
+
+The backend should enforce permissions regardless of what the model or frontend requests.
+
+The history should distinguish current observations from old observations.
+
+The final answer should identify the confirmed result, its meaning, and what remains uncertain.
+
+The AI should be able to explain what it did without pretending to have performed actions it did not execute.
+
+Final acceptance criteria
+
+The implementation should demonstrate that:
+
+Existing EJII capabilities are preserved and improved.
+
+The main interface remains minimalist and chat-first.
+
+Natural-language requests reach appropriate real diagnostic tools.
+
+Diagnostic output is truthful and correctly formatted.
+
+Technical questions can use the configured AI model without triggering unnecessary probes.
+
+Local IP and default-gateway requests use actual host information.
+
+Active application endpoints are collected accurately within the available permissions and execution scope.
+
+Multi-step investigations are bounded and evidence-driven.
+
+Contextual follow-ups resolve the correct target.
+
+Persistent history and active memory are handled separately.
+
+Session ownership and authorization remain enforced.
+
+Model unavailability, unsupported tools, and execution failures are reported clearly.
+
+Builds and tests are reported according to their actual outcomes.
+
+New capabilities integrate into the existing architecture without unnecessary duplication.
+
+FINAL DIRECTIVE
+
+Continue developing the existing EJII application into a practical, powerful AI infrastructure operations platform.
+
+Preserve the current project, its existing working systems, its architecture, and its accumulated functionality.
+
+Do not start over.
+
+Do not remove capabilities simply to reduce the visible interface.
+
+Do not rely on mock data or fabricated results.
+
+Do not add features just to increase the codebase or make the application look more impressive.
+
+Prioritize correct behavior, reliable execution, natural-language interaction, evidence-based reasoning, secure autonomy, useful memory, and efficient operation.
+
+The long-term goal is to let me communicate with EJII in ordinary language and have it perform appropriate infrastructure work through the real tools already available in the system.
+
+Keep the interface simple. Keep the backend capable. Make the intelligence more reliable. Extend the existing product and verify every meaningful improvement.

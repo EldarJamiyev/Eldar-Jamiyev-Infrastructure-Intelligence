@@ -165,6 +165,150 @@ const CAPABILITY_DEFINITIONS = Object.freeze([
     blastRadius: 'none',
     timeoutMs: 5000,
     fallbackBehavior: 'Explicitly marks unavailable OS counters as unavailable/unsupported in fieldProvenance'
+  },
+  {
+    id: 'ejii.dns.lookup',
+    name: 'Real DNS Record Resolution & Error Classification',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD', 'NO_FABRICATED_IP'],
+    inputsSchema: { type: 'object', required: ['domain'], properties: { domain: { type: 'string' }, recordType: { type: 'string' }, nameserver: { type: 'string' } } },
+    outputsSchema: { type: 'object', required: ['success', 'domain', 'recordType', 'records', 'resolutionMethod'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 1500,
+    fallbackBehavior: 'Falls back to OS getaddrinfo with explicit resolutionMethod label; never invents IP addresses'
+  },
+  {
+    id: 'ejii.dns.connectivity_health',
+    name: 'System DNS Configuration & Connectivity Health Check',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['READ_ONLY_RESOLVER_INSPECTION'],
+    inputsSchema: { type: 'object', properties: { probeDomain: { type: 'string' } } },
+    outputsSchema: { type: 'object', required: ['configuredServers', 'primaryResolver', 'healthy'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 2500,
+    fallbackBehavior: 'Distinguishes local hosts resolution from recursive external DNS failures'
+  },
+  {
+    id: 'ejii.icmp.ping',
+    name: 'ICMP Echo Reachability Probe with Explicit Sandbox Restriction Detection',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD', 'DISTINCT_ICMP_VS_TCP'],
+    inputsSchema: { type: 'object', required: ['host'], properties: { host: { type: 'string' }, count: { type: 'number' }, timeoutMs: { type: 'number' } } },
+    outputsSchema: { type: 'object', required: ['success', 'host', 'packetsSent', 'packetsReceived', 'packetLossPct'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 3000,
+    fallbackBehavior: 'Reports ICMP restriction or timeout honestly; never fabricates ICMP replies from TCP handshakes'
+  },
+  {
+    id: 'ejii.tcp.port_check',
+    name: 'TCP 3-Way Handshake & Listener State Verifier',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD', 'PINNED_IP'],
+    inputsSchema: { type: 'object', required: ['host', 'port'], properties: { host: { type: 'string' }, port: { type: 'number' }, timeoutMs: { type: 'number' } } },
+    outputsSchema: { type: 'object', required: ['status', 'host', 'port', 'connectLatencyMs'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 2500,
+    fallbackBehavior: 'Distinguishes OPEN, CLOSED (ECONNREFUSED), and FILTERED (ETIMEDOUT)'
+  },
+  {
+    id: 'ejii.web.https_diagnose',
+    name: 'Layered Website & HTTPS Diagnostic (DNS -> TCP -> TLS -> HTTP)',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD', 'REDIRECT_HOP_SSRF_DEFENSE'],
+    inputsSchema: { type: 'object', required: ['url'], properties: { url: { type: 'string' }, timeoutMs: { type: 'number' } } },
+    outputsSchema: { type: 'object', required: ['success', 'url', 'statusCode', 'waterfall'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 5000,
+    fallbackBehavior: 'Reports exact failing layer (DNS, TCP, TLS, or HTTP status code)'
+  },
+  {
+    id: 'ejii.host.local_ip_config',
+    name: 'Local OS Network Interface, DNS & Verified Gateway Inspector',
+    domain: 'host_diagnostics',
+    version: '6.0.0',
+    executionMode: 'passive',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: false,
+    safetyConstraints: ['NO_GUESSED_GATEWAY', 'EXPLICIT_CONTAINER_SCOPE'],
+    inputsSchema: { type: 'object', properties: {} },
+    outputsSchema: { type: 'object', required: ['hostname', 'interfaces', 'dnsServers', 'defaultGateway', 'executionScope'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 2500,
+    fallbackBehavior: 'Reports unverified gateway honestly without guessing .1'
+  },
+  {
+    id: 'ejii.host.gateway_ping',
+    name: 'Verified OS Default Gateway Reachability Probe',
+    domain: 'host_diagnostics',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['VERIFIED_ROUTING_TABLE_ONLY', 'NO_GUESSED_GATEWAY'],
+    inputsSchema: { type: 'object', properties: {} },
+    outputsSchema: { type: 'object', required: ['gatewayVerified', 'gatewayIp'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 3000,
+    fallbackBehavior: 'Refuses to ping a guessed address if the OS routing table does not expose a verified default gateway'
+  },
+  {
+    id: 'ejii.host.active_connections',
+    name: 'Active Socket, Process & Remote Destination Endpoint Inventory',
+    domain: 'host_diagnostics',
+    version: '6.0.0',
+    executionMode: 'passive',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['ZERO_FABRICATED_SOCKETS', 'EXPLICIT_PERMISSION_AND_NAMESPACE_SCOPE'],
+    inputsSchema: { type: 'object', properties: { process: { type: 'string' }, port: { type: 'number' }, state: { type: 'string' }, externalOnly: { type: 'boolean' } } },
+    outputsSchema: { type: 'object', required: ['connections', 'collectionMethod', 'collectionScope', 'processAttributionAvailable'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 4000,
+    fallbackBehavior: 'Returns explicit collectorError if OS socket enumeration fails; never returns fake fallback rows'
   }
 ]);
 
@@ -268,6 +412,45 @@ class CapabilityRegistry {
           status = 'partial';
           warnings.push('Some hardware/wireless counters are unavailable in this OS container environment.');
         }
+      } else if (capabilityId === 'ejii.dns.lookup') {
+        const { resolveRecord } = require('../protocols/dns-diag');
+        data = await resolveRecord(params.domain || 'localhost', params.recordType || 'A', params.nameserver || null);
+        if (!data.success) status = 'failed';
+      } else if (capabilityId === 'ejii.dns.connectivity_health') {
+        const { checkDnsConnectivityHealth } = require('../protocols/dns-diag');
+        data = await checkDnsConnectivityHealth(params.probeDomain || 'example.com');
+        if (!data.healthy) status = data.localOnlyHealthy ? 'partial' : 'failed';
+      } else if (capabilityId === 'ejii.icmp.ping') {
+        const { realPing } = require('../protocols/icmp-ping');
+        data = await realPing(params.host || '127.0.0.1', Number(params.count) || 2, Number(params.timeoutMs) || 1000);
+        if (!data.success) status = 'failed';
+      } else if (capabilityId === 'ejii.tcp.port_check') {
+        const { checkPort } = require('../protocols/tcp-port');
+        data = await checkPort(params.host || '127.0.0.1', Number(params.port) || 443, Number(params.timeoutMs) || 1800);
+        if (data.status !== 'OPEN') status = 'failed';
+      } else if (capabilityId === 'ejii.web.https_diagnose') {
+        const { probeHttp } = require('../protocols/http-probe');
+        data = await probeHttp(params.url || 'http://localhost:3000', 'GET', Number(params.timeoutMs) || 3000);
+        if (!data.success) status = 'failed';
+      } else if (capabilityId === 'ejii.host.local_ip_config') {
+        const { inspectLocalNetworkConfiguration } = require('../protocols/host-metrics');
+        data = inspectLocalNetworkConfiguration();
+      } else if (capabilityId === 'ejii.host.gateway_ping') {
+        const { getVerifiedDefaultGateway } = require('../protocols/host-metrics');
+        const { realPing } = require('../protocols/icmp-ping');
+        const gw = getVerifiedDefaultGateway();
+        if (!gw.verified || !gw.gatewayIp) {
+          status = 'partial';
+          data = { gatewayVerified: false, gatewayIp: null, gatewayInfo: gw, pingResult: null };
+        } else {
+          const pingResult = await realPing(gw.gatewayIp, 2, 1000);
+          data = { gatewayVerified: true, gatewayIp: gw.gatewayIp, gatewayInfo: gw, pingResult };
+          if (!pingResult.success) status = 'partial';
+        }
+      } else if (capabilityId === 'ejii.host.active_connections') {
+        const { processSocketCorrelator } = require('../network/process-socket-correlator');
+        data = await processSocketCorrelator.collectActiveConnectionsInventory(params || {});
+        if (!data.success) status = 'failed';
       }
 
       return createEjiiResult({
@@ -288,6 +471,7 @@ class CapabilityRegistry {
         evidenceIds: Array.from(new Set(evidenceIds)),
         warnings
       });
+
     } catch (err) {
       return createEjiiResult({
         success: false,

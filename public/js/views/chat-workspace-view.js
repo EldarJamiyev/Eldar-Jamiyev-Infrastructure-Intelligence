@@ -127,6 +127,39 @@
       </div>
     ` : '';
 
+    const tableSpec = meta.connectionTable || meta.interfaceTable || null;
+    const tableHtml = tableSpec && Array.isArray(tableSpec.columns) && Array.isArray(tableSpec.rows) && tableSpec.rows.length > 0 ? `
+      <div class="ejii-structured-table-wrapper" role="region" aria-label="${esc(tableSpec.title || 'Structured Telemetry Table')}">
+        ${tableSpec.title ? `<div class="ejii-structured-table-title">${esc(tableSpec.title)}</div>` : ''}
+        <table class="ejii-structured-table">
+          <thead>
+            <tr>
+              ${tableSpec.columns.map((col) => `<th>${esc(col)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableSpec.rows.map((row) => `
+              <tr>
+                ${(Array.isArray(row) ? row : []).map((cell) => `<td>${esc(cell)}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '';
+
+    const reportBtnHtml = meta.reportMarkdown ? `
+      <div style="margin-top: 10px;">
+        <button
+          type="button"
+          class="ejii-header-btn"
+          onclick="navigator.clipboard && navigator.clipboard.writeText(${esc(JSON.stringify(meta.reportMarkdown))}); this.textContent = '✓ Report Copied';"
+        >
+          Copy Incident Report
+        </button>
+      </div>
+    ` : '';
+
     const evidenceHtml = evidence ? `
       <details class="ejii-evidence-details">
         <summary>Technical details &amp; raw probe output</summary>
@@ -143,9 +176,11 @@
           </div>
           ${stepsHtml}
           ${findingsHtml}
+          ${tableHtml}
           <div class="ejii-answer-body">
             ${formatStructuredMarkdown(msg.content)}
           </div>
+          ${reportBtnHtml}
           ${evidenceHtml}
         </div>
       </div>
@@ -291,12 +326,16 @@
           meta: {
             requestId: d.requestId,
             intent: d.intent,
+            mode: d.mode,
             target: d.target,
             ports: d.ports,
             totalDurationMs: d.totalDurationMs,
             structuredAnswer: d.structuredAnswer,
             steps: d.steps || [],
             findings: d.findings || [],
+            connectionTable: d.connectionTable || null,
+            interfaceTable: d.interfaceTable || null,
+            reportMarkdown: d.reportMarkdown || null,
             technicalEvidence: d.technicalEvidence || null
           }
         });

@@ -382,9 +382,204 @@ async function getEventLogs(logName = 'System', maxEvents = 15) {
   }
 }
 
+/**
+ * Obtain the verified default gateway from the actual OS routing table.
+ * Never guesses .1 from the local IP address.
+ */
+function getVerifiedDefaultGateway() {
+  const fs = require('fs');
+  const { execSync } = require('child_process');
+
+  if (IS_WINDOWS) {
+    try {
+      const out = execSync('route print 0.0.0.0', { timeout: 2500, encoding: 'utf8' });
+      const lines = out.split(/\r?\n/);
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 4 && parts[0] === '0.0.0.0' && parts[1] === '0.0.0.0') {
+          const gw = parts[2];
+          const iface = parts[3] || null;
+          if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(gw) && gw !== '0.0.0.0') {
+            return {
+              verified: true,
+              gatewayIp: gw,
+              interfaceName: iface,
+              collectionMethod: 'windows_route_print'
+            };
+          }
+        }
+      }
+    } catch (_) {}
+    return {
+      verified: false,
+      gatewayIp: null,
+      interfaceName: null,
+      collectionMethod: 'windows_route_table_unverified',
+      limitationReason: 'Could not read a verified 0.0.0.0/0 default route from the Windows routing table.'
+    };
+  }
+
+  // 1. Linux /proc/net/route inspection (fastest, zero-subprocess kernel routing table)
+  try {
+    if (fs.existsSync('/proc/net/route')) {
+      const routeContent = fs.readFileSync('/proc/net/route', 'utf8');
+      const lines = routeContent.trim().split('\n').slice(1);
+      for (const line of lines) {
+        const cols = line.trim().split(/\s+/);
+        // Iface(0) Destination(1) Gateway(2) Flags(3)
+        if (cols.length >= 4 && cols[1] === '00000000' && cols[2] !== '00000000') {
+          const hexGw = cols[2];
+          if (/^[0-9a-fA-F]{8}$/.test(hexGw)) {
+            const octets = [
+              parseInt(hexGw.slice(6, 8), 16),
+              parseInt(hexGw.slice(4, 6), 16),
+              parseInt(hexGw.slice(2, 4), 16),
+              parseInt(hexGw.slice(0, 2), 16)
+            ];
+            const gwIp = octets.join('.');
+            if (gwIp !== '0.0.0.0') {
+              return {
+                verified: true,
+                gatewayIp: gwIp,
+                interfaceName: cols[0] || null,
+                collectionMethod: '/proc/net/route'
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Fallback to ip route show default / netstat -rn
+  try {
+    const out = execSync('ip route show default 2>/dev/null || route -n 2>/dev/null || netstat -rn 2>/dev/null || true', {
+      timeout: 2000,
+      encoding: 'utf8'
+    });
+    const viaMatch = out.match(/default\s+via\s+((?:\d{1,3}\.){3}\d{1,3})(?:\s+dev\s+(\S+))?/i);
+    if (viaMatch && viaMatch[1] && viaMatch[1] !== '0.0.0.0') {
+      return {
+        verified: true,
+        gatewayIp: viaMatch[1],
+        interfaceName: viaMatch[2] || null,
+        collectionMethod: 'ip_route_show_default'
+      };
+    }
+    for (const line of out.split('\n')) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 2 && (parts[0] === '0.0.0.0' || parts[0] === 'default')) {
+        const candidate = parts[1];
+        if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(candidate) && candidate !== '0.0.0.0') {
+          return {
+            verified: true,
+            gatewayIp: candidate,
+            interfaceName: parts[parts.length - 1] || null,
+            collectionMethod: 'posix_route_table'
+          };
+        }
+      }
+    }
+  } catch (_) {}
+
+  return {
+    verified: false,
+    gatewayIp: null,
+    interfaceName: null,
+    collectionMethod: 'os_routing_table_unavailable',
+    limitationReason: 'No verified default gateway route (0.0.0.0/0) was found in the local OS or container routing table. EJII never guesses a .1 gateway address.'
+  };
+}
+
+/**
+ * Inspect local host network configuration (`os.networkInterfaces()`, DNS servers, and verified OS default gateway).
+ * Clearly distinguishes EJII host/container interface addresses from public IPs and client workstation IPs.
+ */
+function inspectLocalNetworkConfiguration() {
+  const fs = require('fs');
+  const dns = require('dns');
+  const rawIfaces = os.networkInterfaces() || {};
+  const interfaces = [];
+  const primaryIpv4List = [];
+  const primaryIpv6List = [];
+
+  for (const [ifaceName, addrs] of Object.entries(rawIfaces)) {
+    if (!Array.isArray(addrs)) continue;
+    const ipv4 = [];
+    const ipv6 = [];
+    let mac = null;
+    let internal = false;
+
+    for (const addr of addrs) {
+      if (addr.mac && addr.mac !== '00:00:00:00:00:00' && !mac) {
+        mac = addr.mac;
+      }
+      if (addr.internal) internal = true;
+      const isV4 = addr.family === 'IPv4' || addr.family === 4;
+      const isV6 = addr.family === 'IPv6' || addr.family === 6;
+      if (isV4) {
+        ipv4.push({
+          address: addr.address,
+          netmask: addr.netmask || null,
+          cidr: addr.cidr || null,
+          internal: Boolean(addr.internal)
+        });
+        if (!addr.internal) primaryIpv4List.push({ interfaceName: ifaceName, address: addr.address, cidr: addr.cidr || null, netmask: addr.netmask || null });
+      } else if (isV6) {
+        ipv6.push({
+          address: addr.address,
+          netmask: addr.netmask || null,
+          cidr: addr.cidr || null,
+          scopeid: addr.scopeid,
+          internal: Boolean(addr.internal)
+        });
+        if (!addr.internal) primaryIpv6List.push({ interfaceName: ifaceName, address: addr.address, cidr: addr.cidr || null });
+      }
+    }
+
+    interfaces.push({
+      interfaceName: ifaceName,
+      status: (ipv4.length > 0 || ipv6.length > 0) ? 'UP' : 'DOWN',
+      internal,
+      macAddress: mac || (internal ? 'loopback (none)' : 'unavailable'),
+      ipv4Addresses: ipv4,
+      ipv6Addresses: ipv6
+    });
+  }
+
+  const gatewayInfo = getVerifiedDefaultGateway();
+  const dnsServers = dns.getServers();
+  const isContainer = Boolean(
+    fs.existsSync('/.dockerenv') ||
+    fs.existsSync('/run/.containerenv') ||
+    (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
+  );
+
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    isContainer,
+    executionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
+    scopeDistinctionNote: isContainer
+      ? 'These network interfaces belong to the EJII server/container environment. If you are accessing EJII from a remote browser, your personal device may have a different local LAN IP, and external websites see your NAT/public egress IP.'
+      : 'These network interfaces belong to the local EJII host machine. External internet services see your router/NAT public IP rather than private RFC1918 interface addresses.',
+    primaryIpv4: primaryIpv4List[0]?.address || '127.0.0.1',
+    nonLoopbackIpv4: primaryIpv4List,
+    nonLoopbackIpv6: primaryIpv6List,
+    interfaces,
+    dnsServers,
+    defaultGateway: gatewayInfo,
+    collectionMethod: 'os.networkInterfaces + ' + gatewayInfo.collectionMethod,
+    observedAt: new Date().toISOString()
+  };
+}
+
 module.exports = {
   getHostMetrics,
   getServices,
   getProcesses,
-  getEventLogs
+  getEventLogs,
+  getVerifiedDefaultGateway,
+  inspectLocalNetworkConfiguration
 };
+
