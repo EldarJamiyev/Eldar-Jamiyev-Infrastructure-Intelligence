@@ -13,6 +13,88 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const os = require('node:os');
+const dns = require('node:dns');
+const { execFileSync } = require('node:child_process');
+const { hostDiagnosticsEngine } = require('../../systems/diagnostics/host-diagnostics-engine');
+
+function isIpv4Address(value) {
+  const parts = String(value || '').split('.');
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
+function prefixLengthFromNetmask(netmask) {
+  if (!isIpv4Address(netmask)) return null;
+  return netmask.split('.').reduce((sum, octet) => sum + Number(octet).toString(2).padStart(8, '0').replace(/0/g, '').length, 0);
+}
+
+function readDefaultRoute() {
+  try {
+    if (process.platform === 'win32') {
+      const output = execFileSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        "Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1 -ExpandProperty NextHop"
+      ], { encoding: 'utf8', timeout: 1600, windowsHide: true });
+      const gatewayIp = String(output || '').trim().split(/\r?\n/).find(isIpv4Address) || null;
+      return { gatewayIp, interfaceName: null, sourceIp: null, source: gatewayIp ? 'OS default route' : null };
+    }
+    if (process.platform === 'darwin') {
+      const output = execFileSync('route', ['-n', 'get', 'default'], { encoding: 'utf8', timeout: 1600 });
+      const gatewayIp = output.match(/\bgateway:\s*(\d+\.\d+\.\d+\.\d+)/)?.[1] || null;
+      const interfaceName = output.match(/\binterface:\s*(\S+)/)?.[1] || null;
+      return { gatewayIp, interfaceName, sourceIp: null, source: gatewayIp ? 'OS default route' : null };
+    }
+    const output = execFileSync('ip', ['-4', 'route', 'show', 'default'], { encoding: 'utf8', timeout: 1600 });
+    const routeLine = String(output || '').split(/\r?\n/).find((line) => /^default\s/.test(line.trim())) || '';
+    const gatewayIp = routeLine.match(/\bvia\s+(\d+\.\d+\.\d+\.\d+)/)?.[1] || null;
+    const interfaceName = routeLine.match(/\bdev\s+(\S+)/)?.[1] || null;
+    const sourceIp = routeLine.match(/\bsrc\s+(\d+\.\d+\.\d+\.\d+)/)?.[1] || null;
+    return { gatewayIp, interfaceName, sourceIp, source: gatewayIp ? 'OS default route' : null };
+  } catch (_) {
+    return { gatewayIp: null, interfaceName: null, sourceIp: null, source: null };
+  }
+}
+
+function collectLocalNetworkSnapshot() {
+  const interfaces = Object.entries(os.networkInterfaces()).flatMap(([name, addresses]) =>
+    (addresses || [])
+      .filter((address) => !address.internal && (address.family === 'IPv4' || address.family === 4) && isIpv4Address(address.address))
+      .map((address) => ({
+        name,
+        address: address.address,
+        netmask: address.netmask || null,
+        cidr: address.cidr || null,
+        mac: address.mac || null
+      }))
+  );
+  const route = readDefaultRoute();
+  const eligible = interfaces.filter((item) => !item.address.startsWith('169.254.'));
+  const localInterface = (route.sourceIp && eligible.find((item) => item.address === route.sourceIp)) ||
+    (route.interfaceName && eligible.find((item) => item.name === route.interfaceName)) || eligible[0] || null;
+  const prefixLength = localInterface ? prefixLengthFromNetmask(localInterface.netmask) : null;
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    interfaces: eligible,
+    localInterface,
+    localIp: localInterface?.address || null,
+    subnetCidr: localInterface?.cidr || (localInterface && prefixLength !== null ? localInterface.address + '/' + prefixLength : null),
+    gatewayIp: route.gatewayIp && isIpv4Address(route.gatewayIp) ? route.gatewayIp : null,
+    gatewaySource: route.source,
+    dnsServers: dns.getServers(),
+    collectedAt: new Date().toISOString()
+  };
+}
+
+function parseSocketEndpoint(endpoint) {
+  const value = String(endpoint || '').trim();
+  const match = value.match(/^(.*):(\d+)$/);
+  if (!match) return null;
+  const address = match[1].replace(/^\[|\]$/g, '');
+  const port = Number(match[2]);
+  if (!address || !Number.isInteger(port) || port < 0 || port > 65535) return null;
+  return { address, port };
+}
 const { performance } = require('node:perf_hooks');
 const config = require('../../config');
 const { db } = require('../../db/database');
@@ -363,6 +445,26 @@ class ChatOperatorService {
     const raw = String(promptText || '').trim();
     const lower = raw.toLowerCase();
 
+const emptyTargetPlan = (intent) => ({
+      intent, target: null, explicitTarget: null, typoSuggestion: null,
+      isSystemDnsHealthCheck: false, ports: [], url: null, urlProtocol: null,
+      recordType: 'A', usedFollowUpTarget: false
+    });
+
+    // Handle local-host questions before considering any previous remote target.
+    if (/^(hi|hello|hey|good morning|good afternoon|good evening|how are you|thanks|thank you|thx)[.!\\s]*$/i.test(lower)) {
+      return emptyTargetPlan('conversation');
+    }
+    if (/(?:\b(?:destination|dest)\s+(?:ip|address|port|ports)\b|\bactive\s+(?:tcp\s+)?connections\b|\bremote\s+(?:ip|address|ports?)\b|\bapps?\b.*\b(?:currently|using|connections|destination|dest|ports?)\b)/i.test(lower)) {
+      return emptyTargetPlan('active_connections');
+    }
+    if (/(?:\bping\b|\bicmp\b).*\b(?:default\s+gateway|gateway|router)\b|\b(?:default\s+gateway|gateway|router)\b.*(?:\bping\b|\bicmp\b)/i.test(lower)) {
+      return emptyTargetPlan('gateway_ping');
+    }
+    if (/\b(?:check|show|get|find|display|what is|what's|tell me)\b.*\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\b|\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\b/i.test(lower)) {
+      return emptyTargetPlan('local_network_info');
+    }
+
     // 1. Check if the user is asking for an explanation, summary, memory recall, or comparison of previous findings
     const isExplanationFollowUp =
       /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
@@ -551,8 +653,12 @@ class ChatOperatorService {
       !explicitTarget
     ) {
       intent = 'host_health';
-    } else {
+    } else if (
+      /\b(investigate|diagnose|diagnostic|troubleshoot|online|offline|reachable|accessible|not opening|not responding|not working|slow|connection failure|website|server|host|network|gateway|router)\b/i.test(lower)
+    ) {
       intent = 'multi_step_investigation';
+    } else {
+      intent = 'conversation';
     }
 
     // Default ports based on intent
@@ -578,6 +684,13 @@ class ChatOperatorService {
           extractedPorts.push(443, 80);
         }
       }
+    }
+
+    if (intent === 'conversation') {
+      resolvedTarget = null;
+      extractedPorts.length = 0;
+      extractedUrl = null;
+      usedFollowUpTarget = false;
     }
 
     // Extract DNS record type if specified
@@ -774,7 +887,8 @@ class ChatOperatorService {
       }
 
       // SSRF & Command Injection Target Validation + Automatic Typo Recovery
-      if (plan.intent !== 'follow_up_explanation' && plan.intent !== 'host_health') {
+      const localOnlyIntents = ['follow_up_explanation', 'host_health', 'conversation', 'local_network_info', 'active_connections', 'gateway_ping'];
+      if (!localOnlyIntents.includes(plan.intent)) {
         if (!isSafeNetworkTarget(plan.target)) {
           return {
             success: false,
@@ -822,6 +936,18 @@ class ChatOperatorService {
 
       let executionOutcome;
       switch (plan.intent) {
+        case 'conversation':
+          executionOutcome = await this._executeConversationScenario(cleanPrompt);
+          break;
+        case 'local_network_info':
+          executionOutcome = await this._executeLocalNetworkInfoScenario(abortController.signal);
+          break;
+        case 'gateway_ping':
+          executionOutcome = await this._executeGatewayPingScenario(plan, session, abortController.signal);
+          break;
+        case 'active_connections':
+          executionOutcome = await this._executeActiveConnectionsScenario(abortController.signal);
+          break;
         case 'dns':
           executionOutcome = await this._executeDnsScenario(plan, session, abortController.signal);
           break;
@@ -939,10 +1065,11 @@ class ChatOperatorService {
         session.lastValidTarget = plan.target;
       }
     }
-    if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation') {
+    const contextOnlyIntent = ['conversation', 'local_network_info', 'active_connections'].includes(plan.intent);
+    if (Array.isArray(plan.ports) && plan.ports.length > 0 && plan.intent !== 'follow_up_explanation' && !contextOnlyIntent) {
       session.lastPorts = plan.ports;
     }
-    if (plan.intent !== 'follow_up_explanation') {
+    if (plan.intent !== 'follow_up_explanation' && !contextOnlyIntent) {
       session.lastIntent = plan.intent;
     }
     if (plan.url) {
@@ -996,6 +1123,175 @@ class ChatOperatorService {
         lastIntent: session.lastIntent,
         turnCount: session.turnCount,
         knownEntitiesCount: Object.keys(session.entityMemory || {}).length
+      }
+    };
+  }
+
+
+  async _executeConversationScenario(promptText) {
+    const lower = String(promptText || '').toLowerCase();
+    const reply = /\b(thanks|thank you|thx)\b/i.test(lower)
+      ? 'You are welcome. Ask me to run a diagnostic or investigate an infrastructure problem whenever you need.'
+      : 'Hello! I am EJII. Tell me what you want to check—for example, ping a host, test a TCP port, check DNS, inspect your local network, or investigate a connection problem.';
+    return {
+      reply,
+      structuredAnswer: {
+        result: 'No diagnostic was requested, so no network probe was executed.',
+        meaning: 'This message was handled conversationally; EJII did not infer a target from previous checks.',
+        nextStep: 'Describe the host, service, or network issue you want to investigate.',
+        layerFailedFirst: null,
+        uncertainty: null
+      },
+      steps: [],
+      findings: [],
+      technicalEvidence: { tool: 'conversation_router', executedDiagnostic: false, observedAt: new Date().toISOString() }
+    };
+  }
+
+  async _executeLocalNetworkInfoScenario(signal) {
+    this._checkAborted(signal);
+    const started = performance.now();
+    const net = collectLocalNetworkSnapshot();
+    const durationMs = Number((performance.now() - started).toFixed(2));
+    const iface = net.localInterface;
+    const prefix = iface ? prefixLengthFromNetmask(iface.netmask) : null;
+    const subnet = iface && prefix !== null ? iface.address + '/' + prefix : (iface?.cidr || 'not available');
+    const interfaceLine = iface ? iface.name + ' (' + iface.address + ')' : 'No non-loopback IPv4 interface could be read';
+    const gatewayLine = net.gatewayIp ? net.gatewayIp + ' (read from the OS default route)' : 'Not confirmed (the OS route table did not provide an IPv4 default gateway)';
+    const dnsLine = net.dnsServers.length ? net.dnsServers.join(', ') : 'No DNS servers reported by the Node.js resolver';
+    const steps = [{
+      stepNumber: 1,
+      label: 'Reading local network interfaces, default route, and DNS resolver configuration…',
+      tool: 'os.networkInterfaces + OS route table + dns.getServers',
+      status: iface ? (net.gatewayIp ? 'PASS' : 'WARN') : 'FAIL',
+      summary: iface ? 'Local IPv4 ' + iface.address + ' on ' + iface.name + '; default gateway ' + (net.gatewayIp || 'not confirmed') : 'No active non-loopback IPv4 interface was available to inspect',
+      durationMs
+    }];
+    const structuredAnswer = {
+      result: 'Local host: ' + net.hostname + '. Interface: ' + interfaceLine + '. Subnet: ' + subnet + '. Default gateway: ' + gatewayLine + '. DNS servers: ' + dnsLine + '.',
+      meaning: iface && net.gatewayIp
+        ? 'These values were read from the running host interfaces and operating-system route table. This reports the EJII backend host, which may differ from the browser device if EJII is accessed remotely or runs in a container.'
+        : 'Some network configuration could not be confirmed from the current runtime; EJII has not substituted a guessed gateway or address.',
+      nextStep: net.gatewayIp ? 'You can ask “Can you ping the default gateway?” to test ' + net.gatewayIp + '.' : 'Check the host route table and runtime network permissions, then retry.',
+      layerFailedFirst: iface ? null : 'Local interface discovery',
+      uncertainty: net.gatewayIp ? null : 'No IPv4 default gateway was returned by the operating-system route query.'
+    };
+    return {
+      reply: '**Result:** ' + structuredAnswer.result + '\n\n**Meaning:** ' + structuredAnswer.meaning + '\n\n**Next step:** ' + structuredAnswer.nextStep,
+      structuredAnswer,
+      steps,
+      findings: [
+        { label: 'Local IPv4', value: net.localIp || 'Not detected', tone: iface ? 'ok' : 'danger' },
+        { label: 'Default Gateway', value: net.gatewayIp || 'Not confirmed', tone: net.gatewayIp ? 'ok' : 'warn' },
+        { label: 'DNS Servers', value: dnsLine, tone: net.dnsServers.length ? 'neutral' : 'warn' }
+      ],
+      technicalEvidence: { tool: 'collectLocalNetworkSnapshot', ...net, observedAt: new Date().toISOString() }
+    };
+  }
+
+  async _executeGatewayPingScenario(plan, session, signal) {
+    this._checkAborted(signal);
+    const net = collectLocalNetworkSnapshot();
+    const gatewayIp = net.gatewayIp;
+    if (!gatewayIp || !isSafeNetworkTarget(gatewayIp)) {
+      const structuredAnswer = {
+        result: 'EJII could not identify a verified IPv4 default gateway from the operating-system route table, so no ping was sent.',
+        meaning: 'Guessing an address such as x.x.x.1 could test the wrong device. The current runtime may not expose a default route.',
+        nextStep: 'Ask “check my IP” to inspect available interface and route information, or verify the host route table.',
+        layerFailedFirst: 'Default route discovery',
+        uncertainty: null
+      };
+      return {
+        reply: '**Result:** ' + structuredAnswer.result + '\n\n**Meaning:** ' + structuredAnswer.meaning + '\n\n**Next step:** ' + structuredAnswer.nextStep,
+        structuredAnswer,
+        steps: [{ stepNumber: 1, label: 'Reading the OS default route…', tool: 'readDefaultRoute', status: 'FAIL', summary: 'No verified IPv4 default gateway was available; ping was not executed.', durationMs: null }],
+        findings: [{ label: 'Default Gateway', value: 'Not detected', tone: 'danger' }],
+        technicalEvidence: { tool: 'readDefaultRoute', gatewayIp: null, pingExecuted: false, observedAt: new Date().toISOString() }
+      };
+    }
+    plan.target = gatewayIp;
+    plan.explicitTarget = gatewayIp;
+    plan.targetValidation = { valid: true, pinnedIp: gatewayIp, resolvedIps: [gatewayIp], isIpLiteral: true };
+    const outcome = await this._executePingScenario(plan, session, signal);
+    outcome.findings = [{ label: 'Target Role', value: 'Verified OS default gateway', tone: 'neutral' }].concat(outcome.findings || []);
+    outcome.technicalEvidence = {
+      ...(outcome.technicalEvidence || {}),
+      gatewayDiscovery: { gatewayIp, source: net.gatewaySource },
+      observedAt: new Date().toISOString()
+    };
+    return outcome;
+  }
+
+  async _executeActiveConnectionsScenario(signal) {
+    this._checkAborted(signal);
+    const started = performance.now();
+    const results = await Promise.allSettled([
+      hostDiagnosticsEngine.getSocketList(),
+      hostDiagnosticsEngine.getProcessList(300)
+    ]);
+    this._checkAborted(signal);
+    const socketResult = results[0];
+    const processResult = results[1];
+    const socketError = socketResult.status === 'rejected' ? String(socketResult.reason?.message || socketResult.reason) : null;
+    const sockets = socketResult.status === 'fulfilled' && Array.isArray(socketResult.value) ? socketResult.value : [];
+    const processes = processResult.status === 'fulfilled' && Array.isArray(processResult.value) ? processResult.value : [];
+    const processNames = new Map(processes.filter((p) => p && p.pid != null).map((p) => [String(p.pid), p.name || p.processName || ('PID ' + p.pid)]));
+    const active = sockets.filter((s) => String(s.state || '').toUpperCase() === 'ESTABLISHED').map((s) => {
+      const local = parseSocketEndpoint(s.local);
+      const remote = parseSocketEndpoint(s.remote);
+      if (!remote || !remote.port || !remote.address || ['*', '0.0.0.0', '::', ':::', '0:0:0:0:0:0:0:0'].includes(remote.address)) return null;
+      const pid = s.pid == null || s.pid === '' ? null : String(s.pid);
+      return {
+        application: pid ? (processNames.get(pid) || ('PID ' + pid + ' (name unavailable)')) : 'Process attribution unavailable',
+        pid: pid ? Number(pid) : null,
+        localAddress: local?.address || null,
+        localPort: local?.port ?? null,
+        destinationIp: remote.address,
+        destinationPort: remote.port,
+        state: String(s.state || '').toUpperCase()
+      };
+    }).filter(Boolean).sort((a, b) => a.application.localeCompare(b.application) || a.destinationIp.localeCompare(b.destinationIp) || a.destinationPort - b.destinationPort);
+    const durationMs = Number((performance.now() - started).toFixed(2));
+    const lines = active.slice(0, 30).map((c) => '- ' + c.application + ' -> ' + c.destinationIp + ':' + c.destinationPort + ' (' + c.state + (c.pid ? ', PID ' + c.pid : '') + ')').join('\n');
+    const truncated = active.length > 30 ? '\n- …and ' + (active.length - 30) + ' more connection(s).' : '';
+    const scopeNote = 'Collected from the EJII backend host "' + os.hostname() + '". If EJII is accessed from another computer or runs in a container, this is the backend/container network namespace—not necessarily the browser computer’s full socket table.';
+    const resultText = socketError
+      ? 'The OS socket collector failed: ' + socketError + '. No destination list can be verified.'
+      : active.length
+        ? 'Found ' + active.length + ' established TCP connection(s). Destination IPs and ports:\n' + lines + truncated
+        : 'The OS socket collector returned no established TCP connections with a usable remote IP and port at the time of collection. This does not prove that no apps are using the network; access or container namespace limits may apply.';
+    const structuredAnswer = {
+      result: resultText,
+      meaning: scopeNote,
+      nextStep: socketError ? 'Check operating-system permissions and the host diagnostics collector, then retry.' : 'Ask for a specific destination or port to investigate a connection further.',
+      layerFailedFirst: socketError ? 'OS socket collection' : null,
+      uncertainty: processResult.status === 'rejected'
+        ? 'The socket list may be available, but application names could not be collected because process inspection failed.'
+        : 'Process names depend on OS permissions and the accuracy of PID attribution provided by the platform collector.'
+    };
+    return {
+      reply: '**Result:** ' + structuredAnswer.result + '\n\n**Meaning:** ' + structuredAnswer.meaning + '\n\n**Next step:** ' + structuredAnswer.nextStep,
+      structuredAnswer,
+      steps: [{
+        stepNumber: 1,
+        label: 'Inspecting the current host TCP connection table…',
+        tool: 'hostDiagnosticsEngine.getSocketList',
+        status: socketError ? 'FAIL' : 'PASS',
+        summary: socketError || ('Read ' + sockets.length + ' OS socket record(s); ' + active.length + ' established remote connection(s) had a usable destination.'),
+        durationMs
+      }],
+      findings: [
+        { label: 'Established TCP', value: String(active.length), tone: socketError ? 'danger' : 'neutral' },
+        { label: 'Host', value: os.hostname(), tone: 'neutral' }
+      ],
+      technicalEvidence: {
+        tool: 'hostDiagnosticsEngine.getSocketList',
+        host: os.hostname(),
+        socketCount: sockets.length,
+        establishedConnections: active,
+        processCollectionAvailable: processResult.status === 'fulfilled',
+        socketCollectionError: socketError,
+        observedAt: new Date().toISOString()
       }
     };
   }
@@ -1764,18 +2060,18 @@ class ChatOperatorService {
         stepNumber: 3,
         label: `Verifying TLS handshake and certificate on ${target}:${port}…`,
         tool: 'auditTls',
-        status: tlsRes.success ? (tlsRes.authorized ? 'PASS' : 'WARN') : 'FAIL',
+        status: tlsRes.success ? (tlsRes.validation?.authorized ? 'PASS' : 'WARN') : 'FAIL',
         summary: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.cipherName}) · Cert valid (${tlsRes.daysRemaining} days remaining)`
+          ? `${tlsRes.protocol} (${tlsRes.cipher?.name || 'cipher not reported'}) · Cert valid (${tlsRes.certificate?.daysRemaining} days remaining)`
           : `TLS handshake failed: ${tlsRes.error || 'Handshake error'}`,
         durationMs: Number((performance.now() - t2).toFixed(1))
       });
       findings.push({
         label: 'TLS Security',
         value: tlsRes.success
-          ? `${tlsRes.protocol} (${tlsRes.daysRemaining}d left)`
+          ? `${tlsRes.protocol} (${tlsRes.certificate?.daysRemaining}d left)`
           : `FAILED (${tlsRes.error || 'Error'})`,
-        tone: tlsRes.success ? (tlsRes.authorized ? 'ok' : 'warn') : 'danger'
+        tone: tlsRes.success ? (tlsRes.validation?.authorized ? 'ok' : 'warn') : 'danger'
       });
     }
 
@@ -1783,13 +2079,15 @@ class ChatOperatorService {
     this._checkAborted(signal);
     const t3 = performance.now();
     const httpRes = await probeHttp(urlToProbe, 'GET', 2500);
+    const httpTtfbMs = Number.isFinite(httpRes.waterfall?.ttfbMs) ? httpRes.waterfall.ttfbMs : null;
+    const httpTotalMs = Number.isFinite(httpRes.waterfall?.totalMs) ? httpRes.waterfall.totalMs : null;
     steps.push({
       stepNumber: isHttps ? 4 : 3,
       label: `Checking HTTP response from ${urlToProbe}…`,
       tool: 'probeHttp',
       status: httpRes.success ? 'PASS' : (httpRes.statusCode ? 'WARN' : 'FAIL'),
       summary: httpRes.statusCode
-        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpRes.ttfbMs} ms, total: ${httpRes.totalTimeMs} ms)`
+        ? `HTTP ${httpRes.statusCode} ${httpRes.statusMessage || ''} (TTFB: ${httpTtfbMs} ms, total: ${httpTotalMs} ms)`
         : `HTTP request failed: ${httpRes.error || 'No HTTP response'}`,
       durationMs: Number((performance.now() - t3).toFixed(1))
     });
@@ -1797,7 +2095,7 @@ class ChatOperatorService {
     if (httpRes.statusCode) {
       findings.push({
         label: 'HTTP Status',
-        value: `${httpRes.statusCode} (${httpRes.ttfbMs} ms TTFB)`,
+        value: `${httpRes.statusCode} (${httpTtfbMs} ms TTFB)`,
         tone: httpRes.statusCode < 400 ? 'ok' : (httpRes.statusCode < 500 ? 'warn' : 'danger')
       });
     } else {
@@ -1814,13 +2112,13 @@ class ChatOperatorService {
       openPorts: [port],
       portLatencies: { [port]: tcpRes.latencyMs },
       httpStatus: httpRes.statusCode || 'FAILED',
-      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpRes.ttfbMs || 0}ms TTFB)`
+      summary: `Website check ${urlToProbe}: HTTP ${httpRes.statusCode || 'FAILED'} (${httpTtfbMs || 0}ms TTFB)`
     });
 
     let structuredAnswer;
     if (httpRes.statusCode && httpRes.statusCode < 400) {
       structuredAnswer = {
-        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpRes.ttfbMs} ms TTFB.`,
+        result: `${urlToProbe} is online and working — DNS resolved to ${resolvedIp} (${dnsRes.durationMs} ms), TCP port ${port} is OPEN (${tcpRes.latencyMs} ms)${tlsRes?.success ? `, TLS negotiated ${tlsRes.protocol}` : ''}, and HTTP returned ${httpRes.statusCode} in ${httpTtfbMs} ms TTFB.`,
         meaning: `Every layer from DNS and TCP transport through ${isHttps ? 'TLS encryption and ' : ''}HTTP application delivery is healthy.`,
         nextStep: `No infrastructure fault detected. If specific users still report issues, check browser caching or client-side network DNS settings.`,
         layerFailedFirst: null,
@@ -2013,7 +2311,7 @@ class ChatOperatorService {
       tool: s.layer,
       status: s.status,
       summary: s.summary,
-      durationMs: s.details?.connectLatencyMs || s.details?.latencyMs || s.details?.durationMs || s.details?.avgRttMs || s.details?.ttfbMs || 1.2
+      durationMs: s.details?.connectLatencyMs ?? s.details?.latencyMs ?? s.details?.durationMs ?? s.details?.avgRttMs ?? s.details?.waterfall?.ttfbMs ?? null
     }));
 
     const extraPortResults = [];
