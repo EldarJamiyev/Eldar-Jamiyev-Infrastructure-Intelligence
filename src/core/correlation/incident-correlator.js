@@ -409,40 +409,50 @@ class CrossLayerIncidentCorrelator {
 
     // Step 1 & 2: Local NIC, link state, and IP/subnet/APIPA state
     const netInfo = getPhysicalNetworkInfo({ forceRefresh: false });
-    const isApipa = Boolean(netInfo.localIp && netInfo.localIp.startsWith('169.254.'));
+    const hasVerifiedNetworkInfo = Boolean(netInfo && netInfo.isDetected === true);
+    const observedLocalIp = hasVerifiedNetworkInfo ? (netInfo.localIp || null) : null;
+    const observedAdapterName = hasVerifiedNetworkInfo ? (netInfo.adapterName || null) : null;
+    const observedSubnetCidr = hasVerifiedNetworkInfo ? (netInfo.subnetCidr || null) : null;
+    const isApipa = Boolean(observedLocalIp && observedLocalIp.startsWith('169.254.'));
     steps.push({
       stepNumber: 1,
       layer: 'L1/L2 Local NIC & Subnet State',
-      status: netInfo.localIp ? 'PASS' : 'FAIL',
-      summary: `Interface ${netInfo.adapterName || 'eth0'} bound to ${netInfo.localIp} (${netInfo.subnetCidr})`,
-      details: { adapter: netInfo.adapterName, localIp: netInfo.localIp, subnetCidr: netInfo.subnetCidr, isApipa }
+      status: observedLocalIp ? 'PASS' : 'WARN',
+      summary: observedLocalIp
+        ? `Interface ${observedAdapterName || 'unknown adapter'} bound to ${observedLocalIp} (${observedSubnetCidr || 'subnet unavailable'})`
+        : 'Local interface address and subnet could not be verified from OS telemetry',
+      details: { adapter: observedAdapterName, localIp: observedLocalIp, subnetCidr: observedSubnetCidr, isApipa, verified: Boolean(observedLocalIp) }
     });
     signals.push({
       domain: 'dhcp_apipa_arp',
-      subject: `nic:${netInfo.adapterName || 'eth0'}`,
-      claim: `Local interface ${netInfo.adapterName || 'eth0'} configured with IP ${netInfo.localIp} (${netInfo.subnetCidr})`,
-      rawValue: { localIp: netInfo.localIp, subnetCidr: netInfo.subnetCidr },
-      normalizedValue: netInfo.localIp ? 'NIC_UP' : 'NIC_DOWN',
-      anomaly: !netInfo.localIp,
+      subject: `nic:${observedAdapterName || 'unknown'}`,
+      claim: observedLocalIp
+        ? `Observed local interface ${observedAdapterName || 'unknown'} configured with IP ${observedLocalIp} (${observedSubnetCidr || 'subnet unavailable'})`
+        : 'Local interface address could not be verified by the OS network detector',
+      rawValue: { localIp: observedLocalIp, subnetCidr: observedSubnetCidr, verified: Boolean(observedLocalIp) },
+      normalizedValue: observedLocalIp ? (isApipa ? 'APIPA_ADDRESS' : 'NIC_UP') : 'UNKNOWN',
+      anomaly: Boolean(isApipa),
       collectionMethod: 'os_route_table',
       correlationGroup: 'local_l2'
     });
 
     // Step 3: Default gateway reachability and ARP resolution
-    const gwIp = netInfo.defaultGateway || '127.0.0.1';
+    const gwIp = hasVerifiedNetworkInfo && netInfo.defaultGateway ? netInfo.defaultGateway : null;
     steps.push({
       stepNumber: 2,
       layer: 'L2/L3 Default Gateway & ARP Resolution',
       status: gwIp ? 'PASS' : 'WARN',
-      summary: `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'Observed Gateway'})`,
-      details: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac, gatewayVendor: netInfo.gatewayVendor }
+      summary: gwIp
+        ? `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'vendor unknown'})`
+        : 'Default gateway could not be verified from the active OS routing table',
+      details: { gatewayIp: gwIp, gatewayMac: hasVerifiedNetworkInfo ? netInfo.gatewayMac : null, gatewayVendor: hasVerifiedNetworkInfo ? netInfo.gatewayVendor : null, verified: Boolean(gwIp) }
     });
     signals.push({
       domain: 'topology_blast_radius',
-      subject: `gateway:${gwIp}`,
-      claim: `Default gateway ${gwIp} present in active routing table`,
-      rawValue: { gatewayIp: gwIp, gatewayMac: netInfo.gatewayMac },
-      normalizedValue: 'GATEWAY_OBSERVED',
+      subject: `gateway:${gwIp || 'unknown'}`,
+      claim: gwIp ? `Default gateway ${gwIp} observed in OS network telemetry` : 'Default gateway was not verified from OS network telemetry',
+      rawValue: { gatewayIp: gwIp, gatewayMac: hasVerifiedNetworkInfo ? netInfo.gatewayMac : null, verified: Boolean(gwIp) },
+      normalizedValue: gwIp ? 'GATEWAY_OBSERVED' : 'UNKNOWN',
       anomaly: false,
       collectionMethod: 'os_route_table',
       correlationGroup: 'gateway_l3'
@@ -459,11 +469,12 @@ class CrossLayerIncidentCorrelator {
     steps.push({
       stepNumber: 3,
       layer: 'L3 Binary Radix Longest-Prefix Match',
-      status: 'PASS',
+      status: lpmMatch && lpmMatch.matched ? 'PASS' : (gwIp ? 'PASS' : 'WARN'),
       summary: lpmMatch && lpmMatch.matched
         ? `Longest-prefix match selected route ${lpmMatch.prefix}/${lpmMatch.prefixLen} via ${lpmMatch.nextHop}`
-        : `Default route 0.0.0.0/0 active via ${gwIp}`,
-      details: lpmMatch || { matched: true, prefix: '0.0.0.0', prefixLen: 0, nextHop: gwIp }
+        : gwIp ? `Default gateway ${gwIp} was observed; detailed longest-prefix match was unavailable`
+          : 'Default route could not be verified from the available OS routing telemetry',
+      details: lpmMatch || { matched: false, prefix: null, prefixLen: null, nextHop: gwIp, verified: Boolean(gwIp) }
     });
 
     // Step 5: DNS Resolver reachability and RFC 1035 resolution (honoring pre-validated pinnedIp to prevent DNS rebinding)
@@ -623,13 +634,15 @@ class CrossLayerIncidentCorrelator {
 
       // Step 8 & 9: TLS & HTTP inspection if TCP port is open
       if (tcpOpen && (port === 443 || port === 8443)) {
-        const tlsRes = await inspectTls(hostname, port, 2500).catch((e) => ({ valid: false, error: e.message }));
+        const tlsRes = await inspectTls(hostname, port, 2500).catch((e) => ({ success: false, error: e.message }));
+        const tlsAuthorized = tlsRes && tlsRes.validation && tlsRes.validation.authorized === true;
+        const tlsCipherName = tlsRes && tlsRes.cipher && typeof tlsRes.cipher === 'object' ? tlsRes.cipher.name : null;
         steps.push({
           stepNumber: 7,
           layer: 'L6 TLS Handshake, SNI & X.509 Chain',
-          status: tlsRes && tlsRes.valid ? 'PASS' : 'WARN',
-          summary: tlsRes && tlsRes.protocol
-            ? `TLS ${tlsRes.protocol} (${tlsRes.cipher}) negotiated`
+          status: tlsRes && tlsRes.success ? (tlsAuthorized ? 'PASS' : 'WARN') : 'WARN',
+          summary: tlsRes && tlsRes.success && tlsRes.protocol
+            ? `TLS ${tlsRes.protocol} (${tlsCipherName || 'cipher unavailable'}) negotiated${tlsAuthorized ? '; certificate trusted' : '; certificate trust not verified'}`
             : `TLS handshake warning: ${tlsRes?.error || 'Unverified'}`,
           details: tlsRes
         });
@@ -642,7 +655,7 @@ class CrossLayerIncidentCorrelator {
           layer: 'L7 HTTP Application Response & TTFB',
           status: httpRes && httpRes.statusCode ? 'PASS' : 'WARN',
           summary: httpRes && httpRes.statusCode
-            ? `HTTP ${httpRes.statusCode} received (TTFB: ${httpRes.ttfbMs}ms)`
+            ? `HTTP ${httpRes.statusCode} received (TTFB: ${httpRes.waterfall?.ttfbMs ?? 'n/a'}ms)`
             : `HTTP probe note: ${httpRes?.error || 'No HTTP response'}`,
           details: httpRes
         });
