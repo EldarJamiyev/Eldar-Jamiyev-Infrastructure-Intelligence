@@ -220,7 +220,6 @@
     } else if (lower.includes('https') || lower.includes('website') || lower.includes('http')) {
       stages = ['Resolving DNS…', 'Testing TCP connection…', 'Verifying TLS & HTTP response…'];
     }
-    }
 
     let idx = 0;
     chatState.liveProgressStepText = stages[0];
