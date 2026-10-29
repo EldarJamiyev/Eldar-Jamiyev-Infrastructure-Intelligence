@@ -205,11 +205,11 @@
     ];
     if (/^(hi|hello|hey|good morning|good afternoon|good evening|how are you|thanks|thank you|thx)[.!\\s]*$/i.test(lower)) {
       stages = ['Preparing a response…'];
-    } else if (/(?:\\b(?:destination|dest)\\s+(?:ip|address|port|ports)\\b|\\bactive\\s+(?:tcp\\s+)?connections\\b|\\bremote\\s+(?:ip|address|ports?)\\b|\\bapps?\\b.*\\b(?:currently|using|connections|destination|dest|ports?)\\b)/i.test(lower)) {
+    } else if (/(?:\b(?:destination|dest)\s+(?:ip|address|port|ports)\b|\bactive\s+(?:tcp\s+)?connections\b|\bremote\s+(?:ip|address|ports?)\b|\bapps?\b.*\b(?:currently|using|connections|destination|dest|ports?)\b)/i.test(lower)) {
       stages = ['Reading the current host TCP connection table…', 'Mapping destination addresses and ports…'];
-    } else if (/(?:\\bping\\b|\\bicmp\\b).*\\b(?:default\\s+gateway|gateway|router)\\b|\\b(?:default\\s+gateway|gateway|router)\\b.*(?:\\bping\\b|\\bicmp\\b)/i.test(lower)) {
+    } else if (/(?:\bping\b|\bicmp\b).*\b(?:default\s+gateway|gateway|router)\b|\b(?:default\s+gateway|gateway|router)\b.*(?:\bping\b|\bicmp\b)/i.test(lower)) {
       stages = ['Reading the operating-system default route…', 'Testing the verified gateway…'];
-    } else if (/\\b(?:check|show|get|find|display|what is|what's|tell me)\\b.*\\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\\b|\\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\\b/i.test(lower)) {
+    } else if (/\b(?:check|show|get|find|display|what is|what's|tell me)\b.*\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\b|\b(?:my ip|local ip|ip address|default gateway|gateway ip|network configuration|network interface|subnet|dns servers)\b/i.test(lower)) {
       stages = ['Reading local interfaces and route configuration…'];
     } else if (lower.includes('dns')) {
       stages = ['Querying DNS records…', 'Measuring lookup latency…'];
@@ -219,6 +219,7 @@
       stages = ['Initiating TCP 3-way handshake…', 'Verifying port listener state…'];
     } else if (lower.includes('https') || lower.includes('website') || lower.includes('http')) {
       stages = ['Resolving DNS…', 'Testing TCP connection…', 'Verifying TLS & HTTP response…'];
+    }
     }
 
     let idx = 0;
