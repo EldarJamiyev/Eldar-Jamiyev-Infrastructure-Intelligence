@@ -1077,9 +1077,12 @@ const emptyTargetPlan = (intent) => ({
       session.lastUrl = plan.url;
     }
 
-    session.lastToolResults = technicalEvidence;
-    session.lastSteps = steps;
-    session.lastStructuredAnswer = structuredAnswer;
+    // Greetings must not erase the last diagnostic evidence needed for contextual follow-ups.
+    if (plan.intent !== 'conversation') {
+      session.lastToolResults = technicalEvidence;
+      session.lastSteps = steps;
+      session.lastStructuredAnswer = structuredAnswer;
+    }
     session.turnCount = (session.turnCount || 0) + 1;
 
     const assistantMsgRecord = {
