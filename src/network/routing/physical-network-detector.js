@@ -226,7 +226,8 @@ function calculateSubnet(ip, prefixLength = 24) {
   if (!ip || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(ip))) return null;
   const octets = String(ip).split('.').map(Number);
   if (octets.some((octet) => octet < 0 || octet > 255)) return null;
-  const prefix = Math.min(Math.max(0, parseInt(prefixLength, 10) || 24), 32);
+  const parsedPrefix = Number.parseInt(prefixLength, 10);
+  const prefix = Number.isInteger(parsedPrefix) && parsedPrefix >= 0 && parsedPrefix <= 32 ? parsedPrefix : 24;
   const ipParts = octets;
   const ipNum = ((ipParts[0] << 24) >>> 0) + ((ipParts[1] << 16) >>> 0) + ((ipParts[2] << 8) >>> 0) + (ipParts[3] >>> 0);
   
@@ -381,9 +382,6 @@ function getPhysicalNetworkInfo(options = {}) {
     return cachedPhysicalInfo;
   }
   if (!forceRefresh && cachedPhysicalInfo && currentSig === lastInterfaceSignature && (now - lastCacheTime < 300000)) {
-    return cachedPhysicalInfo;
-  }
-  if (forceRefresh && cachedPhysicalInfo && currentSig === lastInterfaceSignature && (now - lastCacheTime < 15000)) {
     return cachedPhysicalInfo;
   }
 
