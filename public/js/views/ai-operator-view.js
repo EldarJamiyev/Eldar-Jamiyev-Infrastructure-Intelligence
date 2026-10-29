@@ -34,6 +34,8 @@
 
   async function fetchOperatorState() {
     try {
+      const token = localStorage.getItem('eji_token') || localStorage.getItem('ejii_token');
+      if (!token) return window.__ejiiOperatorState;
       const res = await operatorAuthFetch('/api/v6/operator/state');
       if (!res.ok) return window.__ejiiOperatorState;
       const env = await res.json();

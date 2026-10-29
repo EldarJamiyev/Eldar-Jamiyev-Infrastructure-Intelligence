@@ -1,0 +1,3620 @@
+I’ve written this as a major architectural evolution prompt for EJII, not just a request to add a few dashboard cards. It pushes Gemini to build a more capable AI operations brain, stronger backend, causal reasoning, real infrastructure knowledge, safe autonomous actions, and new premium operator experiences—while preserving the existing project and preventing fake intelligence or fabricated telemetry.
+
+# EJII SOVEREIGN INTELLIGENCE EVOLUTION
+
+## MASTER ENGINEERING DIRECTIVE — NEXT-GENERATION INFRASTRUCTURE OPERATIONS, NEURO-SYMBOLIC AI BRAIN, AUTONOMOUS REASONING, CAUSAL INTELLIGENCE, KNOWLEDGE MEMORY, AND ENTERPRISE BACKEND
+
+**PROJECT:** Eldar Jamiyev’s Infrastructure Intelligence (EJII)\
+**REPOSITORY:** `https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence`\
+**MISSION:** Transform EJII into a genuinely useful, evidence-driven, highly capable infrastructure intelligence and operations platform with a stronger backend, a significantly more sophisticated reasoning engine, reliable operational memory, explainable diagnosis, controlled remediation, and a serious professional command interface.
+
+---
+
+# PART I — THE MISSION
+
+## 1. You are not building another dashboard
+
+You are evolving an existing infrastructure intelligence system into a far more capable product.
+
+Do not interpret this assignment as permission to add random panels, decorative AI animations, more counters, fake network nodes, or impressive-looking but meaningless algorithms.
+
+The central requirement is to improve what EJII can actually understand, investigate, remember, explain, predict, and safely do.
+
+The platform should progressively become an infrastructure operator that can:
+
+- Discover what infrastructure is actually visible to it.
+- Understand what is known, what is inferred, and what remains unknown.
+- Connect observations from different protocol layers.
+- Investigate why a service or network path is failing.
+- Construct and compare competing causal explanations.
+- Select the next diagnostic probe because it is expected to reduce uncertainty.
+- Retrieve relevant historical incidents and previously verified solutions.
+- Design remediation plans that are bounded by explicit policies.
+- Explain the operational consequences of a proposed change.
+- Require the correct human approval when necessary.
+- Execute only permitted actions using real available tools.
+- Verify each action through independent postconditions.
+- Roll back reversible state when necessary and verify that rollback.
+- Escalate honestly when a failure cannot be safely resolved.
+- Learn from confirmed outcomes without treating every previous guess as truth.
+- Provide a complete, inspectable record of its reasoning and actions.
+
+EJII must become an actual operational intelligence system, not a chatbot placed inside a network-themed interface.
+
+The AI should not simply answer, “The DNS server is probably the problem.” It should identify its evidence, explain why DNS is a plausible cause, consider alternative hypotheses, select a useful verification step, show the result, and update its conclusion in response.
+
+The platform should not say, “The network is healthy,” because five local probes succeeded. It should explain exactly which checks passed, which infrastructure was inspected, which systems were outside its visibility, and how fresh the observations are.
+
+The platform should not call an operation successful just because the requested function returned without throwing an exception. It should define success before execution, inspect the resulting state, perform post-action checks, and report what actually changed.
+
+These principles apply throughout the backend, intelligence engine, API, storage, tests, and user interface.
+
+## 2. The central product ambition
+
+Build the next evolution of EJII as an integrated system with six cooperating dimensions:
+
+1. **Infrastructure perception:** Real host, network, service, application, and runtime observations collected through available adapters.
+2. **Evidence intelligence:** Structured observations, source provenance, timestamps, confidence semantics, freshness, dependencies, and contradictions.
+3. **Reasoning intelligence:** A causal investigation engine that maintains hypotheses, selects discriminating probes, and updates its conclusions.
+4. **Operational intelligence:** Policy-governed plans, approvals, real tool execution, action verification, rollback, and escalation.
+5. **Persistent experience:** Historical incidents, reusable runbooks, verified resolutions, environment baselines, and feedback from operators.
+6. **Operator experience:** A polished console that makes complicated infrastructure states understandable without hiding important technical details.
+
+Each dimension must be connected to the others. A dashboard displaying a hypothesis that the backend cannot reproduce is not acceptable. A remediation planner that does not use the evidence store is incomplete. A memory subsystem that stores unverified AI answers as facts is unsafe. A beautiful timeline whose historical values are fabricated is misleading.
+
+## 3. The expected scale of this assignment
+
+Think at the level of a substantial product evolution, not a cosmetic patch.
+
+Inspect the repository and identify the highest-value improvements that can be implemented using the current architecture. Make a coherent set of substantial changes across the intelligence core, backend, persistence, API, verification tests, and user interface.
+
+Do not stop after writing a plan. Do not merely produce a design document. Do not replace actual development with a summary of what could theoretically be done.
+
+Inspect, design, implement, test, and document the changes.
+
+The goal is not the maximum number of files changed. The goal is a noticeable increase in working capabilities, reliable behavior, and maintainability.
+
+When a feature is too large to finish safely in one pass, establish explicit module boundaries and complete a useful end-to-end vertical slice rather than adding a disconnected mock implementation.
+
+---
+
+# PART II — NON-NEGOTIABLE ENGINEERING RULES
+
+## 4. Inspect the current repository before editing
+
+Begin by inspecting the actual current code, file structure, dependencies, architecture, API routes, database, frontend entry points, authentication flow, tests, and existing infrastructure tools.
+
+Use the repository as the source of truth.
+
+Do not assume an architecture based on a previous conversation, an old prompt, or a design proposal.
+
+The repository has included Node.js and Express backend code, JavaScript modules, SQLite persistence, and browser-side JavaScript. Confirm its actual state before deciding how to extend it.
+
+If the repository has since adopted additional packages or a different frontend structure, adapt to the code that actually exists.
+
+Produce a short internal implementation map before changing files:
+
+- Current server entry point.
+- Backend framework and module conventions.
+- Database implementation and migration approach.
+- Current authentication middleware and role model.
+- Existing evidence and topology models.
+- Existing diagnostic adapters.
+- Existing governed action implementation.
+- Current AI-related modules and interfaces.
+- Frontend entry points and view organization.
+- Test commands and test isolation conventions.
+- Existing build and deployment behavior.
+
+Do not replace a working component simply because you prefer another framework.
+
+Do not introduce a second backend stack unless there is a clearly demonstrated reason and a documented migration strategy.
+
+## 5. Preserve useful existing capabilities
+
+EJII already contains significant work related to:
+
+- Infrastructure telemetry.
+- Network topology.
+- Evidence collection.
+- Temporal graphs.
+- Incident correlation.
+- Governance and access control.
+- Autonomous operation planning.
+- Remediation verification.
+- Audit logging.
+- Test suites.
+- Runtime and sandbox classification.
+- Operator workspaces.
+- Predictive and historical views.
+
+Understand these components before building replacements.
+
+Where a component is good, extend it. Where it is weak, improve it. Where two components do the same job, consolidate them carefully. Where an interface is missing, establish a clear contract.
+
+Do not create a new intelligence engine that ignores the old one. Do not introduce three competing implementations of incident memory. Do not maintain different confidence conventions in separate parts of the application.
+
+A platform with more modules but less coherence is a regression.
+
+## 6. Actual functionality over synthetic presentation
+
+Every new feature must belong to one of these explicit classes:
+
+- **LIVE EMPIRICAL:** Directly observed by a real collection tool.
+- **DERIVED:** Calculated from explicit observed inputs using a reproducible transformation.
+- **MODELLED:** Produced by a defined mathematical, statistical, or simulation model.
+- **AI HYPOTHESIS:** Proposed by the reasoning engine but not confirmed.
+- **UNOBSERVED:** Unknown because relevant evidence is unavailable.
+- **STALE:** Previously observed, but no longer fresh enough for the decision being made.
+- **FAILED COLLECTION:** A collection operation was attempted but did not produce a valid result.
+- **POLICY BLOCKED:** The operation could not proceed because a policy rejected it.
+- **SIMULATED:** Produced by an isolated simulation rather than a live system.
+
+These distinctions must be available in stored data, API responses, and the user interface.
+
+Never present simulated packet loss as real packet loss. Never present an illustrative switch as discovered hardware. Never present a default value as an observed value. Never use a confident AI sentence to upgrade an unverified hypothesis into a confirmed finding.
+
+Do not use arbitrary confidence values such as `0.95` to create the appearance of empirical certainty.
+
+If confidence cannot be derived using a documented method, use `null`, `unknown`, or an explicit qualitative state.
+
+## 7. No false test results or misleading completion reports
+
+Tests must exercise actual application code.
+
+Do not produce test summaries that claim a test ran when it was skipped, ignored, or never executed.
+
+Do not catch every exception and convert it into a passing result.
+
+Do not create assertions that merely repeat a mocked response while claiming that the backend was verified end to end.
+
+Do not label an operation successful when its action did not execute.
+
+Do not claim browser verification unless a real browser test was actually run.
+
+Do not claim a production security audit just because a collection of unit tests passed.
+
+Test output must distinguish:
+
+- Passed.
+- Failed.
+- Skipped.
+- Not executed.
+- Blocked by the environment.
+
+Do not silently ignore failed cleanup operations or test artifacts.
+
+Tests must not pollute the user's operational database, audit history, incident memory, live topology, or task ledger.
+
+Use isolated temporary storage, deterministic fixtures, and controlled cleanup wherever appropriate.
+
+## 8. Safety before autonomous power
+
+EJII must not gain uncontrolled infrastructure privileges as its intelligence increases.
+
+A more capable reasoning engine must not bypass the existing governance system.
+
+Every operational action must pass through a trusted action-control boundary that enforces:
+
+- Verified user identity.
+- Server-derived user roles.
+- Explicit permissions.
+- Allowed targets.
+- Allowed ports and protocols where relevant.
+- Action-specific risk classification.
+- Required approval.
+- Preconditions.
+- Timeouts.
+- Execution limits.
+- Verification requirements.
+- Audit persistence.
+- Failure handling.
+- Rollback capability, when applicable.
+
+The language model must never create its own administrator identity, elevate its role through a prompt, forge an approval, bypass a policy, or directly invoke an unrestricted shell.
+
+Never treat the client's proposed role as authoritative.
+
+Never trust an action name, target, approval flag, or execution result merely because the client submitted it.
+
+Keep privileged operations behind authenticated server-side controls.
+
+If a diagnostic requires broader privileges, declare that requirement explicitly rather than pretending it has them.
+
+---
+
+# PART III — BUILD A NEW INTELLIGENCE CORE
+
+## 9. Introduce the EJII Neuro-Symbolic Operations Brain
+
+Implement an integrated reasoning subsystem with a clear internal identity, such as:
+
+**EJII Neuro-Symbolic Operations Brain (NSOB)**
+
+The exact name can be adjusted to fit project conventions, but its responsibilities must be distinct from the visual interface and action executor.
+
+The brain should combine several complementary approaches:
+
+1. Deterministic operational rules.
+2. Typed evidence and graph reasoning.
+3. Hypothesis generation and ranking.
+4. Statistical anomaly detection.
+5. Historical retrieval.
+6. Constrained language-model reasoning when configured.
+7. Active diagnostic probe selection.
+8. Explicit uncertainty management.
+9. Policy-aware action planning.
+10. Outcome-based feedback.
+
+Do not attempt to solve every infrastructure problem with an unrestricted LLM prompt.
+
+The model should interpret, generate candidate hypotheses, explain evidence, propose plans, and help rank options. Deterministic components must validate inputs, calculate metrics, evaluate policies, execute tools, verify outcomes, and enforce the final action boundary.
+
+The reasoning engine must remain useful if the language model is unavailable.
+
+When no model is configured, the application should still provide deterministic diagnostics, evidence retrieval, rule-based hypotheses, graph traversal, safe runbook selection, and clear operational explanations.
+
+Do not hardwire the product to a single model provider.
+
+## 10. Create a structured diagnostic investigation object
+
+Every investigation should have a persistent, versioned representation.
+
+A conceptual investigation object should include:
+
+- Investigation identifier.
+- Tenant or workspace identifier, if the current application supports multi-workspace isolation.
+- Requesting user.
+- Original operational question.
+- Normalized incident scope.
+- Affected targets.
+- Relevant service and topology identifiers.
+- Start and update timestamps.
+- Investigation status.
+- Initial symptoms.
+- Current hypotheses.
+- Supporting evidence identifiers.
+- Contradicting evidence identifiers.
+- Missing observations.
+- Completed probes.
+- Pending probes.
+- Failed probes.
+- Probe costs and elapsed times.
+- Current causal graph.
+- Current confidence semantics.
+- Selected next probe.
+- Reason for selecting the next probe.
+- Proposed remediation plans.
+- Action approvals.
+- Actual execution results.
+- Postcondition results.
+- Rollback outcomes.
+- Final operator conclusion.
+- Human feedback.
+- Closure reason.
+- Links to related incidents and runbooks.
+
+Use validated schema definitions and explicit state transitions.
+
+Do not store the entire investigation as an unstructured string and expect the model to reconstruct its state every time.
+
+A language model should receive a carefully prepared view of the investigation data. The authoritative state remains in the backend.
+
+## 11. Implement a disciplined reasoning cycle
+
+The reasoning cycle should follow an explicit sequence:
+
+1. Understand the request.
+2. Normalize the incident scope.
+3. Establish what the system can actually observe.
+4. Retrieve recent and historical evidence.
+5. Collect initial measurements.
+6. Generate candidate hypotheses.
+7. Eliminate hypotheses contradicted by strong evidence.
+8. Identify uncertainties that matter to the incident.
+9. Estimate the information value and risk of candidate probes.
+10. Select the next permitted probe.
+11. Execute it through an approved diagnostic adapter.
+12. Validate and store the result.
+13. Update the causal graph and hypothesis rankings.
+14. Decide whether more evidence is needed.
+15. Prepare a remediation plan only when justified.
+16. Apply the appropriate approval policy.
+17. Execute the approved action.
+18. Verify the expected postconditions.
+19. Roll back reversible changes if necessary.
+20. Explain the result and preserve the outcome in memory.
+
+The cycle must be bounded.
+
+Define a maximum number of reasoning iterations, a per-probe timeout, an investigation deadline, an action budget, and a maximum resource budget.
+
+If the loop reaches a limit, it should stop safely, state what remains unknown, and offer the highest-value next step.
+
+Do not allow an LLM to create an infinite loop of self-generated tasks.
+
+## 12. Separate reasoning from execution
+
+Create explicit internal interfaces for these responsibilities:
+
+- Request interpretation.
+- Evidence retrieval.
+- Hypothesis generation.
+- Hypothesis scoring.
+- Diagnostic plan generation.
+- Diagnostic tool selection.
+- Policy evaluation.
+- Action plan construction.
+- Action approval.
+- Tool execution.
+- Postcondition verification.
+- Rollback.
+- Incident closure.
+
+The exact module layout should match the existing codebase, but these boundaries must be understandable and testable.
+
+A proposed action is not an executed action.
+
+An executed action is not automatically verified.
+
+A verified postcondition is not necessarily proof of root cause.
+
+An improved metric is not necessarily evidence that the attempted remediation caused the improvement.
+
+The platform must keep these distinctions explicit.
+
+---
+
+# PART IV — EVIDENCE INTELLIGENCE
+
+## 13. Build a stronger evidence lifecycle
+
+Improve the evidence layer so every observation can be traced from collection to conclusion.
+
+An evidence record should have fields appropriate to its type, including:
+
+- Stable identifier.
+- Evidence category.
+- Subject.
+- Claim.
+- Raw observed value or reference to a bounded payload.
+- Normalized value.
+- Unit.
+- Source adapter.
+- Collection method.
+- Collection status.
+- Observed timestamp.
+- Ingestion timestamp.
+- Expiry or freshness policy.
+- Target identity.
+- Protocol or system layer.
+- Measurement quality.
+- Provenance.
+- Related investigation.
+- Related evidence.
+- Known limitations.
+- Applicable policy classification.
+- Content hash or integrity metadata when useful.
+
+Do not create placeholder evidence records and label them as live.
+
+A successful tool result should contain enough metadata for another component to understand where it came from and what it actually proves.
+
+A failed tool result should be represented honestly as a failed or incomplete collection attempt, rather than silently disappearing.
+
+## 14. Introduce evidence quality and freshness rules
+
+Define a central evidence-quality policy.
+
+Quality must not mean “how much the AI believes the claim.”
+
+Quality should reflect measurable properties, such as:
+
+- Source reliability.
+- Measurement validity.
+- Target identity resolution.
+- Timestamp validity.
+- Data freshness.
+- Method suitability.
+- Contradictions with other evidence.
+- Whether the result is direct or derived.
+- Whether the result was produced by a simulation.
+- Whether collection errors affected the result.
+
+Keep quality separate from root-cause confidence.
+
+Root-cause confidence should concern the explanatory hypothesis. Evidence quality concerns the inputs.
+
+The two must not be conflated.
+
+Create a documented policy for freshness by observation category. A DNS query, switch inventory, running-process observation, configuration snapshot, and historical incident do not become stale at the same rate.
+
+Use different freshness policies where justified.
+
+Expired evidence may remain valuable historically, but it must not appear to represent the present state.
+
+## 15. Implement evidence contradiction detection
+
+Infrastructure intelligence must recognize contradictory observations.
+
+For example:
+
+- DNS resolves a hostname to one address in one observation and another address later.
+- A topology node is marked healthy in an old snapshot but fails a fresh TCP probe.
+- A service is marked down by one probe but returns successfully through another path.
+- A configuration baseline says a port should be closed, while a fresh socket scan indicates that it is open.
+- An operator claims an incident is fixed, but the verification probe still fails.
+
+Represent contradictions directly.
+
+Do not automatically overwrite old evidence with the latest result and erase history.
+
+Determine whether the contradiction reflects a change over time, different observation scopes, differing vantage points, stale data, or a genuine unresolved conflict.
+
+Where the system cannot identify the reason, preserve the conflict as an explicit uncertainty.
+
+## 16. Add evidence lineage
+
+Each conclusion should identify which evidence supports it.
+
+For a derived claim, record:
+
+- The operation or algorithm used.
+- Its version.
+- The source evidence identifiers.
+- Relevant input parameters.
+- The resulting value.
+- Execution timestamp.
+- Any assumptions.
+- Whether the result is deterministic.
+- Whether the derivation can be replayed.
+
+If an evidence record is removed, invalidated, or superseded, findings that depend on it should be marked for re-evaluation.
+
+Do not leave stale conclusions marked as fully supported after their key evidence becomes invalid.
+
+The backend should be able to answer:
+
+“Why does EJII believe this service depends on that gateway?”
+
+“Which live probe established this latency value?”
+
+“Which previous observation supports this current finding?”
+
+“What changed between the previous diagnosis and the current diagnosis?”
+
+“Which assumptions were required for this conclusion?”
+
+These answers must come from stored records, not freshly invented explanations.
+
+---
+
+# PART V — CAUSAL REASONING AND ROOT-CAUSE ANALYSIS
+
+## 17. Build a multi-hypothesis incident engine
+
+Move beyond a single guessed cause.
+
+For each investigation, construct a set of plausible hypotheses.
+
+Examples include:
+
+- DNS resolution failure.
+- Incorrect DNS answer.
+- Local resolver issue.
+- Route selection problem.
+- Gateway unreachability.
+- ARP or neighbor-resolution failure.
+- Packet filtering or firewall drop.
+- TCP service port closed.
+- Service listener unavailable.
+- TLS certificate or handshake failure.
+- HTTP application error.
+- Proxy failure.
+- Upstream dependency failure.
+- Congestion or queueing.
+- MTU or path-MTU problem.
+- Authentication or authorization failure.
+- Resource exhaustion.
+- Stale local cache.
+- Incorrect client configuration.
+- Monitoring blind spot.
+- Unrelated failures sharing a misleading symptom.
+
+These are examples, not a fixed list that should be copied blindly.
+
+Create typed hypothesis definitions with:
+
+- Hypothesis identifier.
+- Description.
+- Applicable symptoms.
+- Required observations.
+- Expected supporting evidence.
+- Expected contradictory evidence.
+- Related topology nodes and edges.
+- Alternative explanations.
+- Discriminating probes.
+- Preconditions.
+- Risk and cost of the required probes.
+- Model or rule version.
+- Current status.
+- Confidence or ranking rationale.
+- Final resolution state.
+
+A hypothesis must not become confirmed merely because an LLM described it convincingly.
+
+Use explicit states such as proposed, under investigation, supported, weakened, rejected, confirmed, unresolved, and superseded.
+
+The difference between “supported” and “confirmed” must be defined.
+
+## 18. Add a causal dependency engine
+
+Build causal reasoning that uses typed infrastructure relationships instead of treating the topology as a decorative diagram.
+
+Useful relationships may include:
+
+- `routes_to`
+- `depends_on`
+- `resolves_to`
+- `connects_to`
+- `hosts`
+- `member_of`
+- `served_by`
+- `replicates_to`
+- `proxies_to`
+- `authenticates_against`
+- `uses`
+- `configured_by`
+- `monitored_by`
+
+Use only relationships that are supported by the current data model and can be represented meaningfully.
+
+For each relationship, define direction and semantics.
+
+Do not infer causation solely from a path in the graph. A graph edge indicates a possible relationship; it does not automatically prove that a failure on one node caused an incident on another.
+
+For every causal edge used in reasoning, retain its source, evidence, freshness, and epistemic status.
+
+Allow the investigation to explain:
+
+- Which dependency path may be responsible.
+- Which shared dependency could explain multiple symptoms.
+- Which evidence supports the dependency.
+- Which edge is only inferred.
+- Which relevant relationships remain unobserved.
+
+A causal graph should be navigable from a top-level incident down to concrete observations.
+
+## 19. Improve competing-hypothesis ranking
+
+Implement a transparent ranking function.
+
+Possible inputs include:
+
+- Evidence likelihood under the hypothesis.
+- Contradictory evidence.
+- Prior frequency of similar confirmed incidents.
+- Source quality.
+- Evidence independence.
+- Temporal alignment.
+- Dependency-path plausibility.
+- Probe results.
+- Known environmental constraints.
+- Alternative explanations.
+- Historical resolution validity.
+
+Do not use an arbitrary formula whose weights have no explanation.
+
+If using Bayesian reasoning, document the priors, likelihood assumptions, independence assumptions, and limitations. Do not claim calibrated posterior probabilities unless the model has been calibrated with appropriate data.
+
+If using heuristic ranking, label it heuristic and expose the contributing factors.
+
+If multiple hypotheses are almost equally plausible, show that uncertainty rather than forcing a single answer.
+
+When data is insufficient, the best answer may be “not enough evidence.”
+
+That is a valid operational result.
+
+## 20. Add shared-symptom and shared-dependency correlation
+
+When several services fail around the same time, investigate common causes.
+
+For example, if three applications resolve through the same resolver and all begin failing, the common resolver is a useful investigation target.
+
+If one application fails while other services sharing the same network path remain healthy, the evidence may point toward a more specific dependency.
+
+Develop logic that accounts for:
+
+- Common upstream dependencies.
+- Shared DNS infrastructure.
+- Shared gateways.
+- Common firewall or proxy paths.
+- Shared identity providers.
+- Common application dependencies.
+- Correlated timestamps.
+- Distinct network vantage points.
+- Evidence that should be independent but is not.
+
+Do not count repeated copies of the same measurement as independent confirmation.
+
+A single failed probe repeated five times should not automatically be treated as five independent pieces of causal evidence.
+
+## 21. Introduce active diagnostic probe selection
+
+Create a central probe-selection engine.
+
+It should choose the next diagnostic step based on expected usefulness, not merely follow a fixed sequence every time.
+
+For each candidate probe, estimate:
+
+- Which hypotheses it can distinguish.
+- Expected information gain.
+- Execution time.
+- Resource consumption.
+- Operational risk.
+- Required permissions.
+- Target availability.
+- Cost of running the probe.
+- Whether equivalent evidence already exists.
+- Whether the probe could disrupt a service.
+- Whether the result is likely to change the operational decision.
+
+Use information gain only when the underlying hypothesis distribution and outcome model are sufficiently defined. Otherwise use a clearly labelled heuristic priority score.
+
+The system should be able to explain:
+
+“Selected a direct TCP connection test because DNS resolution already succeeded, and this probe distinguishes a closed service port from a DNS failure.”
+
+Or:
+
+“Selected a query through an independent resolver because existing evidence does not distinguish an upstream resolver problem from a local cache issue.”
+
+Or:
+
+“No additional probe is justified because the remaining candidates have low information value relative to their risk.”
+
+Create a reusable interface for registering diagnostic probe definitions.
+
+Do not bury all probe-selection logic inside a large handler.
+
+---
+
+# PART VI — THE OPERATIONAL BRAIN AND LLM INTEGRATION
+
+## 22. Create a provider-independent model gateway
+
+Introduce a model gateway that separates the reasoning system from individual model APIs.
+
+Inspect the current architecture first. Integrate with existing abstractions if they already exist.
+
+The gateway should support, as appropriate to the current environment:
+
+- A deterministic no-model mode.
+- A locally hosted model, if available.
+- A remote model provider through a configured adapter.
+- Explicit model selection by task type.
+- Timeouts.
+- Request budgets.
+- Structured response validation.
+- Token or response-size limits when applicable.
+- Retry policy for transient failures.
+- Safe cancellation.
+- Provider failure reporting.
+- Model capability metadata.
+- Request identifiers.
+- Audit-friendly metadata without unnecessary logging of secrets.
+
+Never hardcode API keys.
+
+Never require a remote model for basic application startup.
+
+Never silently switch to an unconfigured provider.
+
+Do not send sensitive infrastructure data to an external model by default.
+
+Require explicit configuration for external transmission, and apply data minimization before sending any context.
+
+## 23. Use different reasoning modes for different tasks
+
+Do not use the largest or most expensive reasoning process for every operation.
+
+Define task categories such as:
+
+- Intent normalization.
+- Symptom classification.
+- Evidence summarization.
+- Hypothesis generation.
+- Hypothesis comparison.
+- Probe selection assistance.
+- Remediation plan explanation.
+- Runbook retrieval.
+- Operator-facing incident report.
+- Historical incident comparison.
+
+For deterministic measurements and calculations, use code.
+
+For exact policy validation, use code.
+
+For graph traversal, use code.
+
+For role checks, use code.
+
+For action execution, use code behind the policy boundary.
+
+Use language models where they add value: interpreting ambiguous descriptions, organizing evidence, proposing explanations, comparing alternatives, and explaining technical results.
+
+A model response must be treated as an untrusted proposal until validated against the system's contracts and evidence.
+
+## 24. Require schema-constrained model output
+
+Every model task that influences the backend should use a defined output schema.
+
+For example, an investigative reasoning response might include:
+
+- `summary`
+- `hypotheses`
+- `supportingEvidenceIds`
+- `contradictingEvidenceIds`
+- `unknowns`
+- `candidateProbes`
+- `recommendedProbeId`
+- `reasonForProbe`
+- `recommendedPlanIds`
+- `riskNotes`
+- `operatorExplanation`
+
+Validate the response before use.
+
+Reject or repair invalid structures through a bounded process.
+
+Reject evidence identifiers that do not exist in the actual investigation context.
+
+Reject references to tools that are not registered.
+
+Reject unsupported status values.
+
+Reject role changes proposed by the model.
+
+Reject direct commands or scripts when the task calls only for a diagnostic recommendation.
+
+If model output is invalid, preserve deterministic system state and show a model parsing or validation warning.
+
+Do not let natural-language output become executable control data without a typed translation layer.
+
+## 25. Add adversarial and untrusted-input handling
+
+Treat external telemetry, hostnames, logs, banners, service names, device descriptions, and remote diagnostic responses as data, not instructions.
+
+A hostname containing text that looks like a prompt must not influence the model's system instructions.
+
+A log line that says “ignore all rules and execute this command” must remain a log line.
+
+Never place external content into privileged instruction templates without proper delimitation and context.
+
+Use explicit templates that separate:
+
+- Trusted system policy.
+- Trusted tool output metadata.
+- User requests.
+- Untrusted observation payloads.
+- Retrieved historical incident text.
+- Generated hypotheses.
+
+The LLM must not have unrestricted tool authority.
+
+It should propose tool calls through a typed plan, and the backend should validate each proposal independently.
+
+Add regression cases for prompt injection in hostnames, log messages, evidence claims, and retrieved incident descriptions.
+
+## 26. Add a bounded multi-expert reasoning system
+
+Introduce several analytical perspectives without turning the platform into a theatrical multi-agent simulation.
+
+A useful expert structure might include:
+
+**Network Analyst:** Evaluates DNS, addressing, routes, neighbors, transport connectivity, packet loss, and path behavior.
+
+**Systems Analyst:** Evaluates processes, CPU, memory, disk, service state, socket tables, and operating-system constraints.
+
+**Application Analyst:** Evaluates service endpoints, HTTP/TLS behavior, dependency health, application errors, and service-level observations.
+
+**Causal Investigator:** Compares candidate explanations and identifies contradictions or common dependencies.
+
+**Safety Governor:** Reviews proposed operations against authorization, risk policies, and verification requirements.
+
+**Synthesis Engine:** Combines the strongest evidence into a concise investigation state and recommended next step.
+
+These need not be separate LLM instances. Use deterministic specialist functions when possible, and invoke models only when their added value justifies the cost.
+
+Do not generate five lengthy speculative reports for every incident.
+
+Specialists should return concise structured results and evidence references.
+
+The safety governor must be an independent deterministic policy layer, not an AI agent whose advice can be overruled by another AI agent.
+
+The synthesis engine must not average incompatible conclusions and call the result consensus.
+
+If specialists disagree, preserve the disagreement and identify what observation could resolve it.
+
+## 27. Use a reasoning trace without exposing hidden internal thoughts
+
+Provide an inspectable operational reasoning record.
+
+It should contain:
+
+- Observed facts.
+- Relevant evidence identifiers.
+- Candidate hypotheses.
+- Why a hypothesis is currently supported or weakened.
+- The probe selected.
+- The reason for selecting it.
+- The actual tool outcome.
+- The effect of that result on the investigation.
+- What remains unknown.
+- The policy decision.
+- The final operator recommendation.
+
+This is an auditable explanation of observable system behavior, not an unfiltered dump of private model reasoning.
+
+Do not fabricate internal deliberations to make the interface look intelligent.
+
+Only display reasoning artifacts that are actually generated and stored by the application.
+
+---
+
+# PART VII — PERSISTENT OPERATIONAL MEMORY
+
+## 28. Build an incident-memory subsystem
+
+Add a structured long-term memory layer that makes future investigations more useful.
+
+Memory should preserve operational knowledge that is supported by evidence, not merely store every AI answer indefinitely.
+
+A confirmed incident record should include:
+
+- Incident identifier.
+- Environment or workspace scope.
+- Affected system or topology identifiers.
+- Initial symptoms.
+- Relevant time interval.
+- Confirmed observations.
+- Candidate and rejected hypotheses.
+- Root cause, if established.
+- Root-cause certainty category.
+- Successful remediation.
+- Failed remediation attempts.
+- Postconditions.
+- Rollback results.
+- Final service state.
+- Operator confirmation.
+- Source evidence.
+- Associated runbook.
+- Software or configuration versions, where relevant.
+- Last reviewed timestamp.
+- Known limitations.
+- Reuse policy.
+
+Separate confirmed solutions from unverified suggestions.
+
+A previous AI hypothesis that was never tested must not be treated as a known solution.
+
+## 29. Implement retrieval for similar incidents
+
+Build an incident-retrieval interface that uses available data.
+
+It may combine:
+
+- Keyword matching.
+- Structured symptom matching.
+- Error-code matching.
+- Topology dependency overlap.
+- Time-of-day or maintenance-window context where relevant.
+- Service and environment identifiers.
+- Vector retrieval if a suitable embedding implementation is available and appropriately configured.
+
+Do not add a vector database just for architectural fashion.
+
+SQLite-based structured and full-text retrieval may be sufficient for a meaningful first implementation.
+
+Use embeddings only if they materially improve retrieval and the dependency cost is acceptable.
+
+Every memory result must include why it is relevant.
+
+For example:
+
+“Related incident found because the same service, DNS symptom, and upstream dependency were involved. The prior solution was confirmed by a post-remediation probe.”
+
+Do not say a prior incident was “identical” merely because its descriptions share several words.
+
+## 30. Add memory confidence, expiry, and invalidation
+
+Operational environments change.
+
+A runbook that worked on one version may be wrong after an upgrade.
+
+A historical IP address may now belong to a different device.
+
+A previous resolution may have depended on a one-time maintenance action.
+
+Include applicable version, environment, freshness and validity information.
+
+When a topology identity changes, a dependency disappears, or a relevant configuration changes, mark related memories for review where appropriate.
+
+Do not silently delete historical records.
+
+Keep a clear separation between:
+
+- Confirmed and reusable operational knowledge.
+- Confirmed but environment-specific knowledge.
+- Tentative findings.
+- Superseded information.
+- Rejected hypotheses.
+- Historical evidence retained for audit.
+
+## 31. Learn from operator feedback safely
+
+Allow operators to mark:
+
+- Diagnosis correct.
+- Diagnosis incorrect.
+- Helpful evidence.
+- Irrelevant evidence.
+- Remediation worked.
+- Remediation did not work.
+- Root cause confirmed.
+- Root cause remains uncertain.
+- Runbook needs revision.
+
+Store this feedback as structured data.
+
+Use it to improve retrieval rankings, probe preferences, and runbook recommendations.
+
+Do not allow a single feedback click to alter privileged policies or automatically retrain the reasoning model without controlled governance.
+
+Never treat “thumbs up” as proof that a proposed root cause is correct.
+
+A verified action outcome and an operator's assessment should remain distinct signals.
+
+## 32. Create explainable runbook generation
+
+When the system finds a confirmed successful resolution, allow it to propose a reusable runbook.
+
+A runbook should contain:
+
+- Scope.
+- Required permissions.
+- Preconditions.
+- Required evidence.
+- Diagnostic steps.
+- Decision branches.
+- Action definitions.
+- Risk classification.
+- Required approvals.
+- Postconditions.
+- Expected results.
+- Rollback steps.
+- Escalation criteria.
+- Applicable versions.
+- Source incident identifiers.
+
+New runbooks should begin as drafts.
+
+Require appropriate review before a runbook can be promoted into an automatically executable operational procedure.
+
+A language model may help write the runbook, but code must validate the structure and safety constraints.
+
+---
+
+# PART VIII — A NEW DIAGNOSTIC WORKFLOW ENGINE
+
+## 33. Create reusable diagnostic workflows
+
+Introduce a workflow representation that allows investigations to be expressed as typed steps, branches and conditions.
+
+A workflow step should define:
+
+- Step ID.
+- Step type.
+- Description.
+- Input schema.
+- Required capability.
+- Required role.
+- Risk level.
+- Timeout.
+- Execution budget.
+- Preconditions.
+- Expected outputs.
+- Success conditions.
+- Failure conditions.
+- Branching logic.
+- Evidence produced.
+- Retry policy.
+- Cancellation behavior.
+
+Supported step types might include:
+
+- Read-only observation.
+- DNS query.
+- TCP connection probe.
+- Route inspection.
+- Service-health check.
+- Evidence retrieval.
+- Hypothesis evaluation.
+- Approval request.
+- Governed remediation.
+- Postcondition verification.
+- Human escalation.
+- Final report.
+
+Use the current tool registry where appropriate.
+
+Do not create a second disconnected execution system if the existing architecture already supports governed capabilities.
+
+## 34. Add workflow templates
+
+Create a small but meaningful collection of reusable investigation templates.
+
+### Template A: Service unreachable
+
+Determine whether failure occurs at name resolution, route reachability, transport connectivity, TLS, HTTP, or the application layer.
+
+Do not assume every layer can be probed in every environment.
+
+### Template B: DNS resolution failure
+
+Inspect the resolver configuration, perform a real query, compare relevant resolver paths where permitted, inspect the returned records and TTL where available, and distinguish resolver failure from application connection failure.
+
+Never claim that a DNS cache was flushed if the operating system did not confirm the operation.
+
+### Template C: Intermittent latency
+
+Inspect measured latency samples, distinguish local processing latency from network latency, evaluate sample freshness, identify missing observations, and compare time windows with a documented statistical method.
+
+Do not infer a trend from one sample.
+
+### Template D: Suspected packet loss
+
+Use actual available measurement methods.
+
+Distinguish application probe failures, socket errors, streamer bookkeeping counters, and genuine packet-loss measurements. Use the correct label for each.
+
+### Template E: Resource saturation
+
+Inspect supported host CPU, memory, disk, process, and socket metrics. Identify whether the source is the local runtime or a remote monitored host.
+
+Do not claim remote resource visibility when no remote agent or data source exists.
+
+### Template F: Configuration regression
+
+Compare a new observed configuration snapshot with an authenticated, versioned baseline. Identify the exact differences, their sources, and the expected impact.
+
+Do not call an unreachable node a configuration drift event.
+
+### Template G: Multi-service incident
+
+Identify shared dependencies, correlate timestamps, compare healthy and failed paths, and prioritize probes that distinguish common-cause hypotheses.
+
+### Template H: Post-change verification
+
+Compare the approved expected state against the actual resulting state, run the appropriate checks, track failed checks, and escalate if the postcondition cannot be established.
+
+### Template I: Authentication and service access
+
+Distinguish connectivity, TLS negotiation, identity-provider access, credentials, access policy and application authorization.
+
+Do not store passwords or authentication tokens in evidence records.
+
+### Template J: Infrastructure visibility audit
+
+Explain which data sources are active, which devices were discovered, which details were directly observed, which details remain unavailable, and which permissions are missing.
+
+## 35. Make workflows resumable and cancellable
+
+Long-running investigations must survive ordinary UI refreshes and transient browser failures.
+
+Persist the workflow state and its current step.
+
+Provide a way to inspect progress, cancel an investigation, retry an eligible failed step, and resume where appropriate.
+
+Cancellation should prevent future steps from starting.
+
+Do not promise that a running system command was cancelled unless its cancellation mechanism was successful.
+
+Use bounded worker concurrency, timeouts and cleanup.
+
+Avoid holding open HTTP requests for long investigations if the existing project can support background jobs and client polling or server-sent events.
+
+If the project already has a job infrastructure, extend it rather than creating a competing one.
+
+---
+
+# PART IX — AUTONOMOUS OPERATIONS WITH HARD SAFETY BOUNDARIES
+
+## 36. Build a typed remediation planner
+
+The planner must produce a structured action plan before execution.
+
+A plan should contain:
+
+- Plan ID.
+- Investigation ID.
+- Target identifiers.
+- Intended outcome.
+- Required observations.
+- Preconditions.
+- Proposed actions.
+- Risk category.
+- Required user role.
+- Required approvals.
+- Possible failure modes.
+- Verification probes.
+- Rollback strategy.
+- Non-reversible consequences.
+- Estimated resource impact where measurable.
+- Expiry time.
+- Policy version.
+- Plan hash or equivalent approval binding.
+
+An approval must apply to a specific plan and its parameters.
+
+If the target, action, policy, or relevant parameters change, invalidate the previous approval and obtain a new one.
+
+Do not let approval for a diagnostic task become approval for a destructive action.
+
+## 37. Formalize action risk classes
+
+Use explicit risk classes consistent with existing project policies.
+
+A possible classification:
+
+**Class 0 — Read-only observation:** Query existing state without modifying infrastructure.
+
+**Class 1 — Low-risk diagnostic:** Perform bounded tests that may generate network traffic but do not intentionally alter persistent configuration.
+
+**Class 2 — Reversible local remediation:** Modify a narrowly defined local setting with a verified rollback path.
+
+**Class 3 — Service-impacting operation:** Restart a service, modify network configuration or perform an action with potential availability impact.
+
+**Class 4 — Destructive or broad-impact operation:** Delete data, change a shared gateway, modify large-scale infrastructure policy or perform a potentially irreversible action.
+
+These are conceptual examples. Align the final classes with the existing policy engine.
+
+Require stronger approval for higher-risk actions.
+
+A more capable AI brain must not automatically acquire permissions because it is more confident.
+
+## 38. Add a pre-execution risk assessment
+
+Before any state-changing operation, evaluate:
+
+- Is the target verified?
+- Is the target within the authorized scope?
+- Does the requester have permission?
+- Does the action require another approver?
+- Are the preconditions satisfied?
+- Is the operation safe in the current environment?
+- Are sufficient rollback records available?
+- Does the snapshot persist and read back correctly?
+- Is audit persistence available?
+- Are there conflicting active incidents?
+- Could another operation be modifying the same target?
+- Is the expected benefit supported by evidence?
+- Could the action affect multiple dependent systems?
+- Is the action idempotent?
+- Is a rate limit or concurrency limit required?
+
+Return an explicit decision with reasons.
+
+The decision can be allowed, denied, blocked, awaiting approval, or requiring further evidence.
+
+Do not translate an uncertainty into approval.
+
+## 39. Introduce change-impact analysis before remediation
+
+Before approving a change, inspect relevant dependencies and estimate the potential blast radius.
+
+Differentiate:
+
+- Directly affected targets.
+- Known downstream dependents.
+- Possible dependents.
+- Unknown dependency regions.
+- Unobserved infrastructure.
+- Modelled impact.
+- Empirically confirmed impact.
+
+Use the actual dependency graph and typed relationships.
+
+Do not count every graph node as a downstream dependent.
+
+Do not treat incoming and outgoing relationships as interchangeable.
+
+A route to a gateway, a service consuming another service, and membership in a subnet have different semantics.
+
+If the graph is incomplete, say so.
+
+## 40. Add idempotency and concurrency protection
+
+Prevent repeated requests from executing the same remediation multiple times.
+
+Use operation identifiers and idempotency keys where appropriate.
+
+Prevent simultaneous actions that would conflict on the same configuration, target, or shared resource.
+
+Consider a per-target operation lock or transactional state transition.
+
+Every state-changing task should record whether it is:
+
+- Proposed.
+- Approved.
+- Queued.
+- Running.
+- Awaiting verification.
+- Completed and verified.
+- Completed with warnings.
+- Failed before mutation.
+- Failed after mutation.
+- Rolled back and verified.
+- Rollback not verified.
+- Escalated for manual intervention.
+- Cancelled.
+
+Do not reduce all failure cases to a generic `FAILED` status.
+
+## 41. Make rollback a verified procedure
+
+Rollback is not simply executing an inverse command.
+
+For each reversible action, define:
+
+- The state to capture.
+- How the state is stored.
+- How to check the stored snapshot.
+- What fields are expected to change.
+- How the restoration is executed.
+- How restoration is verified.
+- How external effects are reported.
+- What happens if restoration cannot be completed.
+- What happens if audit logging fails before or after the action.
+
+Do not claim an atomic rollback when only the database portion was transactional and external operations were not.
+
+Where an action has non-reversible effects, record them explicitly.
+
+If rollback verification fails, the system must stop claiming recovery, preserve the evidence, and escalate.
+
+If audit persistence is mandatory, fail closed before mutation when the audit subsystem is missing or unavailable.
+
+Do not treat audit failure as a normal warning that can be ignored.
+
+---
+
+# PART X — BACKEND ARCHITECTURE UPGRADE
+
+## 42. Introduce a consistent application service layer
+
+Inspect the current backend and identify logic embedded inside HTTP route handlers.
+
+Move business logic into reusable service modules where it improves clarity and testing.
+
+API handlers should generally perform:
+
+1. Request parsing.
+2. Authentication and authorization.
+3. Schema validation.
+4. Invocation of a service.
+5. Response serialization.
+6. Error mapping.
+
+They should not independently implement complex reasoning, perform ad hoc policy evaluation, and mutate several unrelated tables in one large handler.
+
+Create or improve service boundaries for:
+
+- Investigation service.
+- Evidence service.
+- Topology service.
+- Incident-memory service.
+- Workflow service.
+- Model gateway.
+- Remediation planner.
+- Governance service.
+- Action execution service.
+- Audit service.
+- Preflight service.
+- Reporting service.
+
+Reuse existing services if their responsibilities already exist.
+
+Do not produce empty service wrappers that simply move code into another file without improving separation.
+
+## 43. Define a unified result contract
+
+Create a consistent API result model.
+
+Every response should contain an appropriate status, success indicator, stable error code when relevant, data payload, and request or correlation identifier.
+
+Where useful, include:
+
+- `status`
+- `success`
+- `requestId`
+- `correlationId`
+- `data`
+- `error`
+- `warnings`
+- `evidenceIds`
+- `provenance`
+- `durationMs`
+
+Avoid returning raw stack traces to clients.
+
+Avoid silently changing field types between responses.
+
+A metric that is unavailable should not sometimes be `0`, sometimes `null`, and sometimes a missing property without a documented contract.
+
+Use typed schemas for inputs and outputs.
+
+## 44. Standardize error handling
+
+Create a meaningful error taxonomy across the backend.
+
+Possible categories include:
+
+- Invalid request.
+- Authentication required.
+- Authorization denied.
+- Policy blocked.
+- Target not authorized.
+- Target resolution failure.
+- Tool unavailable.
+- Tool timeout.
+- Tool execution failure.
+- Evidence persistence failure.
+- Snapshot persistence failure.
+- Audit persistence failure.
+- Postcondition failure.
+- Rollback failure.
+- Model unavailable.
+- Model response invalid.
+- Resource limit exceeded.
+- Dependency state unknown.
+- Internal server failure.
+
+Return stable error codes with safe user-facing messages.
+
+Log enough context for investigation while avoiding secrets and sensitive payloads.
+
+Do not catch all exceptions and return success-shaped JSON.
+
+If a workflow has partial success, express partial success explicitly and identify the incomplete components.
+
+## 45. Add a background job system where necessary
+
+If investigations are long-running, introduce a persistent job system consistent with the current technology stack.
+
+It should support:
+
+- Persistent job identifiers.
+- Bounded concurrency.
+- Retry rules.
+- Failure classification.
+- Timeouts.
+- Cancellation.
+- Progress events.
+- Recovery after process restart.
+- Idempotency.
+- Task ownership.
+- Rate limits.
+- Expired-job handling.
+- Dead-letter or terminal failure state.
+
+Do not add a heavyweight external queue without a real need.
+
+For a single-process deployment, a carefully designed SQLite-backed queue may be a reasonable initial solution if its concurrency and recovery semantics are adequate.
+
+For a distributed deployment, identify the requirements before choosing a queue.
+
+Do not describe a volatile in-memory array as a durable job queue.
+
+## 46. Introduce a domain event stream
+
+Create a consistent internal event model for important operational events.
+
+Examples:
+
+- `TelemetryObserved`
+- `EvidenceRecorded`
+- `EvidenceInvalidated`
+- `TopologyUpdated`
+- `IncidentOpened`
+- `HypothesisUpdated`
+- `ProbeScheduled`
+- `ProbeCompleted`
+- `PlanProposed`
+- `ApprovalGranted`
+- `ApprovalDenied`
+- `ActionStarted`
+- `ActionCompleted`
+- `PostconditionPassed`
+- `PostconditionFailed`
+- `RollbackStarted`
+- `RollbackVerified`
+- `RollbackEscalationRequired`
+- `IncidentResolved`
+- `MemoryCandidateCreated`
+- `RunbookReviewed`
+
+Use a transactional outbox or another reliable approach if events must be published consistently with database transactions.
+
+Do not create a large distributed event system for decorative purposes.
+
+The event architecture should improve traceability, timeline reconstruction, notification handling, and recovery.
+
+Events should contain identifiers and references rather than unnecessarily duplicating sensitive payloads.
+
+## 47. Improve API versioning and backward compatibility
+
+Keep existing API contracts working unless a deliberate breaking change is justified.
+
+If a response schema changes, document and test it.
+
+Use a clear versioning strategy.
+
+Do not rename fields in the UI while leaving stale references in the backend.
+
+Do not change authorization semantics unexpectedly.
+
+Update frontend clients, tests and documentation together.
+
+A migration should not leave the old and new implementations operating with contradictory security rules.
+
+## 48. Implement bounded caching
+
+Use caching for expensive, safe-to-cache read operations where appropriate.
+
+Potential targets include:
+
+- Capability definitions.
+- Static policy definitions.
+- Repeated non-sensitive topology reads.
+- Historical incident retrieval.
+- Model metadata.
+
+Do not cache live host health indefinitely.
+
+Do not let a cached result retain an incorrect freshness label.
+
+Use explicit cache keys, expiry rules, and invalidation triggers.
+
+Never cache privileged responses in a way that allows one user's context or role to leak into another user's session.
+
+Avoid introducing a cache for information that is already inexpensive to retrieve.
+
+## 49. Improve database lifecycle and migrations
+
+Review every existing table that the new features need.
+
+Use versioned migrations rather than relying entirely on `CREATE TABLE IF NOT EXISTS` and ignored `ALTER TABLE` errors.
+
+Each migration should be safe, traceable and testable.
+
+Where appropriate, include tables for:
+
+- Investigations.
+- Hypotheses.
+- Investigation evidence links.
+- Diagnostic execution records.
+- Workflow jobs.
+- Action plans.
+- Action approvals.
+- Verification results.
+- Incident memory.
+- Runbooks.
+- Operator feedback.
+- Model invocation metadata.
+- Event records.
+- Runtime preflight checks.
+
+Reuse existing tables where appropriate.
+
+Avoid redundant tables for concepts already represented elsewhere.
+
+Add useful indexes for the actual read and filtering patterns.
+
+Define retention policies and deletion behavior.
+
+Use transactions for logically related state changes.
+
+Ensure schema migration failures are visible and can prevent unsafe startup when necessary.
+
+## 50. Improve data retention and storage hygiene
+
+Long-running infrastructure platforms accumulate a large amount of telemetry and history.
+
+Implement explicit retention rules for:
+
+- Raw probe events.
+- Historical telemetry.
+- Snapshots.
+- Diagnostic logs.
+- Audit records.
+- Model request metadata.
+- Incident memory.
+- Workflow execution history.
+
+Audit records may require stronger retention than ordinary telemetry.
+
+Never silently delete audit records to reduce database size.
+
+When pruning time-series data, preserve the information required for historical comparisons and operational investigations.
+
+Use aggregation and rollups where appropriate, while clearly distinguishing raw observations from aggregated values.
+
+Add maintenance checks for SQLite integrity, backup status where implemented, database size, and retention failures.
+
+Do not claim a backup exists unless it was actually produced and its verification succeeded.
+
+---
+
+# PART XI — NEW INFRASTRUCTURE PERCEPTION CAPABILITIES
+
+## 51. Build a provider-neutral telemetry adapter layer
+
+Introduce clear interfaces for telemetry collectors.
+
+A collector should declare:
+
+- Adapter identifier.
+- Supported platform.
+- Required permissions.
+- Supported operations.
+- Input and output schemas.
+- Network requirements.
+- Collection timeout.
+- Expected observation types.
+- Whether it is read-only.
+- Its reliability limitations.
+- Its supported versions.
+- Health status.
+- Last successful execution.
+
+Examples may include:
+
+- Local operating-system inspection.
+- DNS resolver queries.
+- TCP connection checks.
+- Route table collection.
+- Local neighbor-table inspection.
+- Host resource measurements.
+- Process and socket collection.
+- HTTP and TLS checks.
+- SNMP, if a real configured implementation exists.
+- SSH or remote-agent collection, if actually supported.
+- Cloud provider inventory, if configured and authorized.
+- Monitoring-system integration, if credentials and endpoints are available.
+
+Do not claim support for a collector merely because a class name exists.
+
+A collector should have a real implementation, a defined availability state, and tests.
+
+## 52. Add a collector capability registry
+
+Create a registry of actual diagnostic capabilities.
+
+For each capability, store:
+
+- Name.
+- Description.
+- Scope.
+- Platform compatibility.
+- Permission requirements.
+- Risk level.
+- Inputs.
+- Outputs.
+- Timeout.
+- Execution constraints.
+- Availability status.
+
+The reasoning engine should select probes only from the capabilities the current runtime truly supports.
+
+If the environment lacks administrator access, the capability registry must reflect that limitation.
+
+If a remote agent is offline, its capabilities should be unavailable or stale, not simulated as successful.
+
+The UI should expose capability status and reason for unavailability.
+
+## 53. Improve local and remote visibility semantics
+
+Separate observations from the local host and observations from remote systems.
+
+The local environment should not be mistaken for the user's entire enterprise network.
+
+If EJII runs inside a cloud sandbox, show which data describes that sandbox.
+
+If physical switches are outside direct visibility, show them as unobserved unless real inventory, management API, SNMP, agent or authenticated device data supports their presence.
+
+Do not manufacture vendor models, MAC addresses, interface names, utilization, route entries, or device roles to make the topology look complete.
+
+An unknown device is better than a fictional device.
+
+## 54. Add multi-vantage diagnostics
+
+When genuine remote agents or permitted probes are available, allow an investigation to compare different observation points.
+
+For example:
+
+- Local client.
+- Application host.
+- DNS resolver.
+- Remote service monitor.
+- Network management agent.
+
+Each observation must identify the actual vantage point, collection timestamp, and tool.
+
+Use multi-vantage comparison to identify which path or dependency differs.
+
+Do not pretend to perform a multi-vantage analysis when all tests originate from the same process.
+
+If only local observations are available, clearly state that limitation.
+
+## 55. Add service dependency discovery with verification
+
+Use observed connections, configured service maps, DNS records, management APIs, and operator-provided information where available.
+
+Treat each discovery method according to its evidence strength.
+
+A single established TCP connection may indicate communication but does not necessarily prove an architectural dependency.
+
+A DNS record does not necessarily prove that an application uses that address.
+
+A configured dependency may be stale.
+
+Build a candidate dependency process that can compare sources and request verification.
+
+Preserve uncertain relationships instead of silently promoting them to confirmed dependencies.
+
+---
+
+# PART XII — HISTORICAL TELEMETRY AND FORENSIC TIME MACHINE
+
+## 56. Build a reliable telemetry history
+
+Extend the existing history and Time Machine components so they are based on stored observations.
+
+Provide historical views for:
+
+- CPU and memory.
+- Disk use.
+- DNS timing.
+- TCP connection timing.
+- Probe success rate.
+- Service status.
+- Topology changes.
+- Node reachability.
+- Incident status.
+- Action execution.
+- Verification outcomes.
+- Confidence or hypothesis changes.
+
+Do not show a continuous historical line if only one or two samples exist.
+
+Show the sample count, actual time span, missing intervals, and data freshness.
+
+A gap in data is not proof that the system was healthy.
+
+## 57. Create before-and-after incident analysis
+
+For a remediation, capture:
+
+- Baseline measurements.
+- Timestamp of proposed action.
+- Timestamp of approval.
+- Actual execution time.
+- Post-action measurements.
+- Follow-up measurements.
+- Changes in relevant dependencies.
+- Verification status.
+- Any unrelated changes or measurement limitations.
+
+Use appropriate observation windows.
+
+Do not claim causation solely because a metric improved after an action.
+
+Where possible, compare relevant metrics against a recent baseline and identify whether the change is statistically or operationally meaningful.
+
+For short-lived tests, report the sample count and limitations.
+
+## 58. Enable forensic incident replay
+
+Provide a replay interface that can navigate through real recorded observations.
+
+A replay timeline should identify:
+
+- Real events.
+- Collected measurements.
+- Derived findings.
+- Operator actions.
+- Simulation-only experiments.
+- Missing intervals.
+- Snapshot boundaries.
+- Evidence invalidation.
+- Incident closure.
+
+A replay must reproduce a historical record, not invent missing events to create a smooth animation.
+
+If no data exists for a period, show the gap.
+
+Allow the operator to inspect the evidence and causal hypothesis that was current at a particular timestamp.
+
+Do not overwrite old causal explanations when the current diagnosis changes.
+
+---
+
+# PART XIII — STATISTICAL INTELLIGENCE AND FORECASTING
+
+## 59. Replace arbitrary predictive claims with measured forecasting
+
+Build forecasting features that use actual samples and document their limitations.
+
+Potential methods include:
+
+- Rolling averages.
+- Median and percentile-based latency.
+- Exponential smoothing.
+- Robust anomaly thresholds.
+- Trend estimates.
+- Change-point indicators.
+- Seasonal patterns when enough history exists.
+- Baseline deviation.
+- Error-rate windows.
+- Resource saturation forecasts when sufficient data exists.
+
+Choose methods appropriate to the available sample count.
+
+Do not forecast a meaningful outage probability from one measurement.
+
+Do not invent historical data to make a forecasting panel appear active.
+
+When there are insufficient observations, show a baseline collection requirement rather than a fabricated prediction.
+
+## 60. Add anomaly detection
+
+Implement a reusable anomaly framework.
+
+An anomaly result should contain:
+
+- Metric.
+- Target.
+- Current value.
+- Expected baseline.
+- Relevant time window.
+- Detection method.
+- Deviation size.
+- Number of samples.
+- Confidence limitations.
+- Whether the event was confirmed by independent observations.
+
+Start with simple explainable statistical rules.
+
+Use more complex models only when they provide measurable value.
+
+Avoid treating every threshold breach as a root cause.
+
+An anomaly is evidence requiring interpretation, not a final diagnosis.
+
+## 61. Distinguish performance degradation from service failure
+
+Define different incident classes for:
+
+- Hard availability failure.
+- High latency.
+- Intermittent failures.
+- Partial degradation.
+- Capacity pressure.
+- Configuration divergence.
+- Dependency failure.
+- Data-quality failure.
+- Monitoring failure.
+- Unconfirmed warning.
+
+Avoid mapping every negative observation to “critical.”
+
+Use severity based on the impact, affected scope, data quality, and relevant operational policy.
+
+A local sandbox resolver warning should not be displayed as a corporate DNS outage.
+
+---
+
+# PART XIV — CHANGE-IMPACT AND BLAST-RADIUS INTELLIGENCE
+
+## 62. Rebuild blast-radius analysis around directed relationships
+
+Implement a proper traversal of downstream dependencies.
+
+Use an explicit direction for each relationship.
+
+Do not treat all edges as undirected.
+
+For a selected target, return:
+
+- Direct dependents.
+- Transitive downstream dependents.
+- Critical dependency paths.
+- Shared upstream dependencies.
+- Nodes reached by each path.
+- Cycles detected.
+- Unknown or unverified edges.
+- Confidence or evidence status for each relationship.
+- Estimated impact.
+- Assumptions used by the model.
+
+Avoid infinite traversal through cycles.
+
+Use configurable depth and node budgets.
+
+For large graphs, consider a bounded traversal strategy with clear truncation warnings.
+
+## 63. Add scenario-based change simulation
+
+Allow an operator to propose a hypothetical change, such as:
+
+- A service becomes unavailable.
+- A dependency link is removed.
+- A gateway is unreachable.
+- A DNS resolver fails.
+- A service latency increases.
+- A shared dependency is degraded.
+- A planned maintenance event removes a node.
+- A policy change denies a traffic flow.
+
+The simulation should compute consequences only from the model and relationships the system actually possesses.
+
+Use a deterministic propagation model where possible.
+
+Label outputs as simulated or modeled.
+
+Do not write simulation mutations into live topology state.
+
+Keep live and simulated identities separate.
+
+Provide a comparison between:
+
+- Baseline state.
+- Hypothetical state.
+- Affected services.
+- Assumptions.
+- Unknown dependencies.
+- Expected consequences.
+- Confidence limitations.
+
+## 64. Make model assumptions adjustable and inspectable
+
+Do not hide all modeling decisions inside a hard-coded multiplier.
+
+Define explicit parameters for the simulation.
+
+For example, a queueing approximation should declare its assumptions and explain whether its inputs represent measured utilization, estimated arrival rate, configured service capacity, or user-provided values.
+
+Validate parameter ranges and reject nonsensical inputs.
+
+Provide a sensible default only when the default is explicitly a model parameter, not an observation.
+
+Show sensitivity analysis where it materially changes the result.
+
+If slightly changing an assumption changes the entire conclusion, report that the result is sensitive to the assumption.
+
+---
+
+# PART XV — NEW PREMIUM OPERATOR EXPERIENCES
+
+## 65. Create a Unified Incident Command Center
+
+Build an integrated incident workspace that connects evidence, hypotheses, diagnostics, memory, action planning, and verification.
+
+It should not be a collection of disconnected cards.
+
+The primary workflow should guide the operator through:
+
+1. Incident intake.
+2. Scope confirmation.
+3. Current observations.
+4. Competing explanations.
+5. Evidence gaps.
+6. Recommended next probe.
+7. Probe result.
+8. Updated diagnosis.
+9. Historical incident matches.
+10. Remediation options.
+11. Risk and dependency impact.
+12. Approval.
+13. Action execution.
+14. Postcondition verification.
+15. Resolution report.
+16. Knowledge capture.
+
+Show progress and current investigation status.
+
+Keep technical details available but avoid overwhelming the primary view.
+
+The operator must be able to expand a conclusion and inspect the evidence behind it.
+
+## 66. Build a Hypothesis Comparison Workbench
+
+Create an interface that compares multiple candidate causes.
+
+For each hypothesis, show:
+
+- Current state.
+- Supporting evidence.
+- Contradicting evidence.
+- Missing evidence.
+- Affected dependency path.
+- Best discriminating probe.
+- Risk of the next probe.
+- Reason it ranks where it does.
+
+Allow the operator to inspect why a hypothesis was rejected or weakened.
+
+Do not create a ranking based solely on a colorful percentage gauge.
+
+When the hypotheses cannot yet be distinguished, say so.
+
+## 67. Create an Operational Knowledge Workbench
+
+Provide a dedicated workspace for:
+
+- Historical incidents.
+- Verified runbooks.
+- Draft runbooks.
+- Operator feedback.
+- Similarity and retrieval explanations.
+- Validity and review state.
+- Deprecated knowledge.
+- Environment-specific caveats.
+
+Allow an operator to compare a proposed runbook with its source incidents.
+
+Require explicit review before a draft becomes eligible for automation.
+
+## 68. Create a Change Safety Console
+
+Before a proposed remediation is approved, show:
+
+- Exact target.
+- Exact action.
+- Risk class.
+- Current state.
+- Expected state.
+- Preconditions.
+- Required approvals.
+- Direct impact.
+- Transitive impact.
+- Rollback plan.
+- Non-reversible consequences.
+- Evidence freshness.
+- Unknown dependencies.
+- Verification plan.
+
+The approval interface must make it difficult to approve a different action from the one that was reviewed.
+
+Bind approval to the plan version or hash.
+
+Display when approval has expired or become invalid.
+
+## 69. Add a System Readiness and Preflight Center
+
+Build an operational readiness page that uses real checks.
+
+Potential checks include:
+
+- Application process status.
+- API response health.
+- Database integrity.
+- Schema migration version.
+- Database write/read test where safe.
+- Audit chain integrity.
+- Audit persistence availability.
+- Configured model gateway status.
+- Tool registry availability.
+- Last successful collector execution.
+- DNS resolver test.
+- Test-target connection.
+- Data retention health.
+- Storage utilization.
+- Background worker status.
+- Security configuration.
+- Authentication configuration.
+- Runtime environment classification.
+
+Each check must state what it actually tests.
+
+A successful database integrity check does not prove the database contains the correct application data.
+
+A successful loopback DNS lookup does not prove recursive DNS works.
+
+A functioning application process does not prove all features are healthy.
+
+Return per-check results, timestamps, limitations, and actionable remediation.
+
+Do not mark the entire environment healthy merely because most checks returned success.
+
+## 70. Provide clear operational attention priorities
+
+Introduce a prioritized attention queue.
+
+Rank items using impact, evidence quality, scope, urgency, and whether the issue is actionable.
+
+Examples:
+
+- A verified critical service failure.
+- A new failure with uncertain scope.
+- A stale critical dependency.
+- A failed postcondition after remediation.
+- A rollback requiring escalation.
+- An audit persistence fault.
+- A required approval waiting on an operator.
+- A data-quality issue affecting diagnosis.
+- A scheduled runbook review.
+
+Do not manufacture urgency just to fill the page.
+
+The queue can be empty. That is preferable to false alerts.
+
+---
+
+# PART XVI — FRONTEND DESIGN DIRECTION
+
+## 71. Preserve a mature enterprise visual identity
+
+The user interface should feel like a premium infrastructure operations product.
+
+Use a serious, mature, polished visual design:
+
+- Refined spacing.
+- Strong hierarchy.
+- Legible technical typography.
+- Clean tables.
+- Calm neutral surfaces.
+- Subtle depth.
+- Restrained use of accent colors.
+- Clear severity indicators.
+- Smooth but quiet transitions.
+- Thoughtful empty states.
+- Professional diagrams.
+- Readable evidence details.
+- High information density without clutter.
+
+Avoid:
+
+- Cheap futuristic styling.
+- Excessive neon.
+- Huge glowing panels.
+- Unnecessary gradients.
+- Constant pulsing animations.
+- Decorative pseudo-terminal text.
+- Fake live indicators.
+- Random counters.
+- Decorative AI brains that do not represent working logic.
+- Too many cards with no relationship to an operational workflow.
+
+The interface should be attractive because it is structured, reliable, and easy to understand—not because it is noisy.
+
+## 72. Improve hierarchy and density
+
+The primary screen should tell an operator, quickly:
+
+- What is happening?
+- What is affected?
+- What is verified?
+- What remains unknown?
+- What should happen next?
+- Is approval required?
+- Is an action running?
+- Did verification pass?
+- Does an operator need to intervene?
+
+Keep low-priority detail available through drill-downs.
+
+Do not place every metric at the same visual weight.
+
+Use clear visual distinction between status, information, warnings, errors, and unknown values.
+
+## 73. Treat unknown states as first-class UI states
+
+Every data-driven component must handle:
+
+- Loading.
+- Successful data.
+- Empty data.
+- Unknown values.
+- Stale data.
+- Partial collection.
+- Failed collection.
+- Permission denied.
+- Unavailable model.
+- Model response failure.
+- Simulation-only data.
+- Active execution.
+- Verification pending.
+- Rollback.
+- Escalation required.
+
+Do not display blank spaces that appear like rendering bugs.
+
+Do not turn a missing metric into zero.
+
+Do not hide failure states behind generic “Something went wrong” text.
+
+## 74. Add an investigation activity timeline
+
+Provide a compact, chronological timeline showing:
+
+- Observation collected.
+- Evidence recorded.
+- Hypothesis proposed.
+- Hypothesis weakened or rejected.
+- Diagnostic probe started.
+- Diagnostic probe completed.
+- Policy decision made.
+- Approval requested.
+- Approval granted or denied.
+- Action executed.
+- Verification completed.
+- Rollback performed.
+- Incident closed.
+
+Each item should link to its source record.
+
+Distinguish an event timestamp from the timestamp when the interface fetched the data.
+
+Use actual timestamps, not artificial countdown labels.
+
+## 75. Build a useful real-time update mechanism
+
+Use the existing project capabilities where appropriate.
+
+Possible mechanisms include server-sent events, WebSockets, or bounded polling.
+
+Choose based on actual requirements and dependencies.
+
+Do not invent a WebSocket architecture if ordinary polling is adequate.
+
+Updates should identify changed records, allow reconnection, and avoid duplicating events.
+
+If the client loses its connection, display that the displayed state may be stale.
+
+Never label data “live” simply because the browser automatically refreshes a panel.
+
+## 76. Ensure accessibility and operator ergonomics
+
+Provide:
+
+- Keyboard navigation.
+- Clear focus indicators.
+- Accessible labels.
+- Sufficient contrast.
+- Status indicators that do not rely on color alone.
+- Responsive behavior.
+- Appropriate table overflow handling.
+- Understandable validation errors.
+- Confirmation steps for higher-risk actions.
+- Clear disabled-state explanations.
+- Copyable evidence identifiers.
+- Copyable error details where appropriate.
+
+Do not make an operator click through five screens to understand a simple failure.
+
+Keep details available without making the default workflow excessively complex.
+
+---
+
+# PART XVII — NEW CAPABILITY: EVIDENCE-DRIVEN OPERATIONS COPILOT
+
+## 77. Create an operational question-and-answer interface
+
+The operator should be able to ask questions such as:
+
+- Why is this application unreachable?
+- Which dependency is shared by these failures?
+- What changed just before this incident?
+- What evidence supports the current hypothesis?
+- Which probe should run next?
+- Have we seen this problem before?
+- What is the lowest-risk remediation?
+- What could this proposed action affect?
+- Which verification failed?
+- Why did the rollback fail?
+- Which systems cannot currently be observed?
+- What must be fixed before this environment is safe for automated actions?
+
+The copilot must use retrieved, authorized, relevant system data.
+
+It must not respond from memory alone when the answer requires current state.
+
+It must identify the difference between current observation and historical knowledge.
+
+## 78. Include evidence in every material answer
+
+Each important factual claim should link to evidence or a documented derivation.
+
+For instance:
+
+“DNS resolution succeeded for the requested hostname at 14:02:17. The TCP connection to port 443 failed with `ECONNREFUSED` at 14:02:18. The current evidence therefore supports a transport/service-listener issue more strongly than a DNS failure, but the application process has not yet been inspected.”
+
+This is better than:
+
+“The server is broken. Restart it.”
+
+The copilot must identify uncertainties and relevant missing observations.
+
+Do not drown the user in every record. Give the decisive evidence first and offer a drill-down.
+
+## 79. Support multiple response styles
+
+Allow the user to select a response style:
+
+- Concise operational summary.
+- Technical diagnosis.
+- Step-by-step investigation.
+- Executive impact report.
+- Remediation plan.
+- Verification report.
+- Incident timeline.
+- Runbook draft.
+
+Different styles should format the same authoritative investigation state. They should not invent different results.
+
+## 80. Separate explanation from execution commands
+
+The copilot may explain a command or propose a structured operation.
+
+It must not execute arbitrary generated shell commands directly.
+
+If a task requires a real operation, translate it into a registered capability with a validated schema.
+
+For commands that cannot be safely represented as a supported capability, offer a read-only explanation or an explicit manual instruction.
+
+Never use user-facing natural language as the sole authorization mechanism.
+
+---
+
+# PART XVIII — SECURITY AND GOVERNANCE EVOLUTION
+
+## 81. Review authorization across the entire API
+
+Do not limit security testing to the endpoints that recently caused problems.
+
+Enumerate every route.
+
+For each route, document:
+
+- Public or authenticated.
+- Minimum required role.
+- Data sensitivity.
+- Whether it mutates state.
+- Whether it performs network operations.
+- Whether it can affect privileged resources.
+- Applicable input schema.
+- Rate limits.
+- Audit requirements.
+- Relevant threat model.
+
+Public endpoints may be appropriate, but their intended exposure must be explicit.
+
+Apply uniform middleware and policy enforcement where possible.
+
+Do not assume that a frontend hiding a button protects an endpoint.
+
+Do not treat `req.body.role` as the authenticated role.
+
+## 82. Strengthen SSRF protection
+
+Apply a centralized target-authorization mechanism to network-facing diagnostics.
+
+Validate both the supplied address and the actual destination used by the network connection.
+
+Where a hostname is resolved, account for DNS changes between validation and connection.
+
+Apply a defined policy for:
+
+- Loopback addresses.
+- Link-local addresses.
+- Multicast addresses.
+- Unspecified addresses.
+- Cloud metadata endpoints.
+- Private infrastructure addresses.
+- IPv4-mapped IPv6 addresses.
+- IPv6 zone identifiers.
+- Malformed hostnames.
+- Numeric and alternative address representations.
+
+Do not blindly block all private addresses if authorized internal diagnostics are a core product feature.
+
+Instead, enforce explicit target scopes and reject prohibited destinations that fall outside those scopes.
+
+When a probe redirects or follows a second hostname, apply the same validation to the redirected destination.
+
+Never allow a model-suggested hostname to bypass these rules.
+
+## 83. Use least privilege
+
+Require each action to declare the minimum role and any additional requirements.
+
+Separate the capabilities to:
+
+- View data.
+- Run read-only diagnostics.
+- Record evidence.
+- Edit incident metadata.
+- Approve changes.
+- Execute remediation.
+- Manage users and policies.
+- Configure model providers.
+- Access audit details.
+
+Use server-side authorization.
+
+Do not elevate an operator because a client selects a higher role.
+
+Do not assign administrative credentials to convenience-login flows.
+
+For evaluation mode, enforce strict local-only boundaries. If the system cannot safely establish those boundaries, disable passwordless access.
+
+## 84. Prevent sensitive information leakage
+
+Never log:
+
+- Passwords.
+- Session tokens.
+- API keys.
+- Private cryptographic secrets.
+- Authorization headers.
+- Sensitive authentication payloads.
+
+Redact sensitive fields before recording model invocation metadata.
+
+Apply data minimization before external model requests.
+
+Protect audit logs against tampering where supported, and treat audit subsystem failure as a security-relevant event.
+
+Do not return internal file paths, stack traces, process environment contents, or other sensitive server metadata in routine client-facing errors.
+
+## 85. Improve rate limiting and abuse controls
+
+Apply appropriate limits to:
+
+- Login attempts.
+- Passwordless login attempts.
+- Diagnostic requests.
+- Network probing.
+- Investigation creation.
+- Model calls.
+- Expensive graph traversals.
+- Report generation.
+- Remediation proposals.
+- Action execution.
+
+Rate limits should account for authenticated identity, target scopes and resource cost where appropriate.
+
+Do not let a user flood the system with thousands of concurrent probes.
+
+Add request-size limits and bounded query parameters.
+
+Reject extreme graph depth, result size, and simulation iteration count.
+
+## 86. Establish explicit safety policies for the AI brain
+
+The intelligence engine must never:
+
+- Override the policy engine.
+- Execute a denied action.
+- Grant itself additional privileges.
+- Use an unregistered tool.
+- Bypass mandatory approval.
+- Mark an unverified action successful.
+- Hide failed verification.
+- Hide a failed rollback.
+- Change security configuration automatically without authorization.
+- Send sensitive data to an unapproved model provider.
+- Treat untrusted observation text as operational instructions.
+
+These conditions must be tested, not just written in documentation.
+
+---
+
+# PART XIX — MODEL MEMORY AND LEARNING ARCHITECTURE
+
+## 87. Separate three kinds of memory
+
+Do not place all information in one unstructured “AI memory” table.
+
+Separate:
+
+**Operational State:** Current tasks, incidents, jobs, approvals, and transient investigation context.
+
+**Verified Knowledge:** Confirmed incidents, reviewed runbooks, valid environment-specific procedures, and verified resolution patterns.
+
+**Reasoning Trace:** Hypotheses, supporting evidence, probe decisions, model proposals, rejected suggestions and uncertainty history.
+
+These serve different purposes and have different retention and authority.
+
+A transient hypothesis must not automatically become verified knowledge.
+
+A historical record must not override a fresh observation.
+
+A generated runbook must not become executable merely because the model created it.
+
+## 88. Add retrieval quality evaluation
+
+Create tests with known examples of relevant and irrelevant incident records.
+
+Evaluate whether the retrieval system ranks the relevant historical incidents appropriately.
+
+Track:
+
+- Relevant record retrieval.
+- Irrelevant result rate.
+- Duplicate retrieval.
+- Stale knowledge selection.
+- Cross-workspace leakage.
+- Unsupported memory claims.
+
+Do not claim that semantic memory improves diagnosis simply because embeddings were added.
+
+Use measurable examples.
+
+## 89. Add bounded context construction
+
+The model should not receive an unlimited history dump.
+
+Create a context builder that selects:
+
+- The current user question.
+- Current target scope.
+- Relevant fresh evidence.
+- Important contradictory evidence.
+- Top candidate hypotheses.
+- Related historical incidents.
+- Available tools.
+- Current policy limits.
+- Known environment constraints.
+- Required structured output schema.
+
+Include provenance and source IDs.
+
+Exclude unrelated sensitive records.
+
+Set maximum context size and relevance thresholds.
+
+When important evidence is excluded due to a context budget, record that limitation where it affects the result.
+
+## 90. Add model observability
+
+Track model usage without recording secrets.
+
+Useful fields may include:
+
+- Provider.
+- Model identifier.
+- Task type.
+- Request ID.
+- Duration.
+- Input and output token estimates where available.
+- Validation success.
+- Retry count.
+- Error category.
+- Fallback mode.
+- Whether the answer was used.
+- Whether the proposed hypothesis was confirmed.
+- Outcome feedback.
+
+Use this data to decide whether an expensive model meaningfully improves accuracy or merely increases latency and cost.
+
+Do not use model call success as a measure of diagnosis correctness.
+
+---
+
+# PART XX — CONNECTOR AND TOOL ECOSYSTEM
+
+## 91. Design a safe connector framework
+
+Use a common adapter contract for infrastructure connectors.
+
+A connector should declare:
+
+- Identity.
+- Provider.
+- Capabilities.
+- Authentication method.
+- Supported scopes.
+- Health status.
+- Permission status.
+- Last successful use.
+- Failure state.
+- Data freshness.
+- Rate limits.
+- Output schemas.
+
+Credentials should be obtained through secure configuration or a credential-management integration, never hardcoded into source files.
+
+Connectors should be optional.
+
+The application must still start and function when optional integrations are absent.
+
+## 92. Add integration capabilities only when implementable
+
+Potential future integrations include:
+
+- Network device management.
+- Monitoring systems.
+- Centralized logs.
+- Infrastructure inventory.
+- Ticketing systems.
+- Remote endpoint agents.
+- Cloud platform inventory.
+- Source-controlled configuration.
+- Identity providers.
+
+Do not claim any integration is operational until the code actually authenticates, retrieves data, validates the response, and handles errors.
+
+Do not create placeholder connectors that simply return example records.
+
+When an integration cannot be connected in the current environment, provide a truthful disabled state and a configuration guide.
+
+## 93. Keep external tool permissions narrow
+
+A connector should expose specific operations instead of a general unrestricted command interface.
+
+For example, a network adapter might expose:
+
+- Read device status.
+- Read interfaces.
+- Read routes.
+- Read neighbor tables.
+- Query configuration.
+- Run a bounded health check.
+
+A higher-risk configuration change should be a separate governed capability.
+
+Tool schemas should reject unexpected fields.
+
+Do not let an LLM choose arbitrary URLs, shell executables, file paths or privilege escalation flags.
+
+---
+
+# PART XXI — RELIABILITY ENGINEERING
+
+## 94. Add a circuit-breaker strategy
+
+Prevent repeated failing external services or model providers from consuming excessive resources.
+
+Where appropriate, use states such as:
+
+- Closed.
+- Open.
+- Half-open.
+
+Document the conditions that trigger transitions.
+
+Do not apply a circuit breaker to ordinary deterministic functions without a clear need.
+
+Expose the status and recovery behavior.
+
+## 95. Add graceful degradation
+
+EJII should remain useful if:
+
+- The model provider is unavailable.
+- A remote agent disconnects.
+- DNS diagnostics fail.
+- Audit storage becomes unavailable.
+- The database becomes read-only.
+- An external connector times out.
+- Historical memory is temporarily unavailable.
+- A browser loses its event stream.
+
+Define the expected behavior for each case.
+
+A model outage should not disable deterministic diagnostics.
+
+An audit failure should block governed mutation if required by policy.
+
+A missing remote agent should reduce visibility, not fabricate a healthy remote host.
+
+A transient UI connection loss should not cause the backend to repeat a remediation.
+
+## 96. Add health monitoring for the monitoring system
+
+An infrastructure intelligence product can itself become unhealthy.
+
+Track:
+
+- Last successful telemetry collection.
+- Failed collector count.
+- Job queue depth.
+- Oldest queued job.
+- Failed model requests.
+- Audit write failures.
+- Database errors.
+- Migration status.
+- Background worker health.
+- Memory growth where measurable.
+- Resource utilization.
+- Last successful integrity check.
+
+Distinguish application health from monitored infrastructure health.
+
+The product should make monitoring blind spots visible.
+
+## 97. Add bounded resource usage
+
+Define limits for:
+
+- Concurrent probes.
+- Concurrent investigations.
+- Model requests.
+- Diagnostic durations.
+- Topology traversal.
+- Memory retrieval.
+- Query result sizes.
+- Event retention.
+- Snapshot volume.
+- History display.
+- Simulation complexity.
+
+Prefer explicit budgets over arbitrary sleeps.
+
+Stop operations when the budget is exceeded.
+
+Explain whether a result is complete, partial or truncated.
+
+Do not silently return an incomplete graph and label it complete.
+
+---
+
+# PART XXII — TESTING STRATEGY
+
+## 98. Create a genuine end-to-end verification suite
+
+Cover the entire operational lifecycle:
+
+1. Create an investigation.
+2. Collect real or controlled test observations.
+3. Save evidence.
+4. Generate candidate hypotheses.
+5. Select a probe.
+6. Execute the probe.
+7. Update the investigation.
+8. Generate a safe action plan.
+9. Enforce permissions.
+10. Request approval when required.
+11. Execute a permitted action.
+12. Verify postconditions.
+13. Record the result.
+14. Retrieve the completed investigation.
+15. Generate the report.
+16. Verify that no test data leaked into production-facing views.
+
+Use temporary data directories and temporary databases.
+
+Use controlled local servers for TCP tests.
+
+Use deterministic fixtures for reasoning tests.
+
+Do not require access to real enterprise infrastructure for ordinary unit tests.
+
+Separate tests that need elevated system permissions from portable tests.
+
+## 99. Security regression tests
+
+Cover at least:
+
+- Evaluation mode on a loopback host.
+- Evaluation mode on a non-loopback host.
+- Port 3000 with `0.0.0.0`.
+- Quick-NOC attempting to select an administrator username.
+- Quick-NOC with an administrator role.
+- Invalid JWT.
+- Expired JWT.
+- Insufficient user role.
+- Role elevation through request parameters.
+- Unauthenticated diagnostic requests.
+- Unauthenticated mutation requests.
+- Missing audit logger.
+- Audit write failure before mutation.
+- Audit write failure after mutation.
+- Rollback failure.
+- Unverified postconditions.
+- Unauthorized target.
+- Direct metadata IP.
+- Hostname resolving to a prohibited IP.
+- DNS changes between validation and connection.
+- Excessive port or depth values.
+- Malformed target input.
+- Oversized request payload.
+- Prompt injection through log or evidence content.
+- Duplicate approval.
+- Repeated idempotency key.
+- Concurrent conflicting actions.
+
+A test that checks only an HTTP response must not be used to claim that rollback state was verified.
+
+## 100. Reasoning regression tests
+
+Construct test scenarios where the correct next diagnostic action is known.
+
+Examples:
+
+**Case A:** DNS fails and TCP cannot begin because the hostname has no address. The system should not diagnose the application listener as proven down.
+
+**Case B:** DNS succeeds but the target TCP port returns a refused connection. The hypothesis ranking should distinguish transport reachability from application health.
+
+**Case C:** Multiple services sharing a resolver fail within the same time interval. The system should inspect the common dependency without claiming that shared timing proves causation.
+
+**Case D:** A remote host's CPU metric is unavailable. The system should show unknown remote CPU rather than copying local CPU.
+
+**Case E:** The historical runbook is stale or applies to a different software version. The retrieval layer should expose the mismatch.
+
+**Case F:** Two hypotheses have nearly equal support. The system should show unresolved uncertainty and select a useful discriminating probe.
+
+**Case G:** A model proposes a nonexistent tool. The planner should reject it.
+
+**Case H:** An evidence record contains prompt-injection text. The investigation must treat it as untrusted data.
+
+**Case I:** A probe fails due to insufficient permissions. The system should identify the visibility limitation rather than assert that the target is down.
+
+**Case J:** A remediation returns success but the postcondition remains false. The operation must not be marked verified.
+
+## 101. Database and migration tests
+
+Cover:
+
+- Fresh database creation.
+- Upgrade from the current schema.
+- Repeated migration invocation.
+- Interrupted migration.
+- Missing columns.
+- Duplicate identifiers.
+- Corrupted snapshots.
+- Failed write.
+- Failed read-after-write verification.
+- Foreign-key or referential integrity where used.
+- Audit chain verification.
+- Test data isolation.
+- Retention.
+- History retrieval.
+- Concurrent updates.
+
+Do not delete real operational records to make a migration test pass.
+
+Do not perform cleanup against the real working database.
+
+## 102. API contract tests
+
+Test actual route behavior for:
+
+- Valid requests.
+- Invalid payloads.
+- Missing required fields.
+- Oversized values.
+- Unknown identifiers.
+- Insufficient permissions.
+- Malformed tokens.
+- Missing integrations.
+- Timeout conditions.
+- Partial results.
+- Error serialization.
+- Request correlation.
+- Stable response fields.
+- Null and unknown semantics.
+
+Ensure the UI can render every documented status.
+
+## 103. Frontend interaction tests
+
+Verify that the new controls work.
+
+Include:
+
+- Starting an investigation.
+- Reading the progress state.
+- Inspecting evidence.
+- Comparing hypotheses.
+- Running an allowed probe.
+- Requesting approval.
+- Approving or denying a plan.
+- Cancelling a job.
+- Inspecting verification.
+- Opening a related incident.
+- Reviewing a runbook.
+- Filtering historical records.
+- Recovering after a network interruption.
+
+Do not rely on screenshot tests alone.
+
+A screen can look correct while every button fails.
+
+## 104. Performance and scale tests
+
+Measure the actual cost of:
+
+- Large evidence queries.
+- Investigation retrieval.
+- Topology traversal.
+- Incident-memory search.
+- Long activity histories.
+- Multiple concurrent diagnostic workflows.
+- Multiple simultaneous model requests.
+- Event stream reconnection.
+- Repeated preflight checks.
+
+Use representative synthetic test fixtures, clearly marked as fixtures.
+
+Report actual execution measurements and hardware/environment limitations.
+
+Do not promise performance targets that were not measured.
+
+---
+
+# PART XXIII — DOCUMENTATION AND OPERABILITY
+
+## 105. Document the new architecture
+
+Add useful documentation explaining:
+
+- The system architecture.
+- The reasoning cycle.
+- Evidence provenance.
+- Hypothesis states.
+- Probe selection.
+- Model gateway.
+- Persistent memory.
+- Workflow execution.
+- Action governance.
+- Approval flow.
+- Rollback semantics.
+- API contracts.
+- Database migrations.
+- Configuration.
+- Security boundaries.
+- Failure handling.
+- Testing.
+- Deployment.
+
+Include architecture diagrams where they clarify real module interactions.
+
+Diagrams must match the actual code. Do not create architecture diagrams that portray a future feature as already implemented.
+
+## 106. Document the AI configuration
+
+Explain:
+
+- How deterministic mode works.
+- How to configure an optional local model.
+- How to configure an approved external provider.
+- How credentials are supplied.
+- How external data transmission is controlled.
+- What happens when the model is unavailable.
+- How model responses are validated.
+- Which tasks require a model.
+- Which tasks never delegate control to the model.
+
+Do not require model configuration to use core deterministic diagnostics.
+
+## 107. Document the safe-operation lifecycle
+
+Provide a practical guide describing:
+
+- What an operator can inspect.
+- Which roles can run diagnostics.
+- Which roles can approve actions.
+- Which actions require additional approval.
+- What gets recorded.
+- How verification works.
+- What rollback means.
+- What rollback cannot undo.
+- What happens after audit failure.
+- What escalation states mean.
+- How to inspect an incident's evidence.
+
+Use actual route names, commands and configuration keys from the final implementation.
+
+Do not invent setup commands.
+
+---
+
+# PART XXIV — DELIVERY PLAN
+
+## 108. Work in coherent implementation phases
+
+Do not attempt to rewrite every subsystem simultaneously.
+
+Use a phased engineering approach, but complete real code changes in this run.
+
+### Phase 1: Architecture and safety foundation
+
+Inspect the current repository, consolidate the relevant interfaces, correct security and persistence defects discovered during implementation, create or update schemas and tests, and establish reliable API contracts.
+
+The foundation must be trustworthy before autonomous features are expanded.
+
+### Phase 2: Evidence and investigation core
+
+Implement the structured investigation object, evidence linkage, hypothesis lifecycle, probe registry, and bounded investigation loop.
+
+Connect them to the existing telemetry and topology code.
+
+Ensure each major state transition persists and can be reconstructed.
+
+### Phase 3: Brain and operational memory
+
+Implement the model gateway, constrained structured reasoning, historical incident retrieval, explicit uncertainty, and reviewed runbook generation.
+
+Keep deterministic behavior available when models are unconfigured.
+
+### Phase 4: Safe operations
+
+Integrate the planner with the existing governance boundary. Implement action-specific preconditions and postconditions, approval binding, idempotency, rollback verification, and audited completion states.
+
+Do not give the language model direct privileged access.
+
+### Phase 5: Operator console
+
+Build the investigation workbench, hypothesis comparison, activity timeline, change-safety view, system preflight and knowledge workspace. Connect each feature to working backend functionality.
+
+### Phase 6: Verification and optimization
+
+Run regression tests, reasoning tests, API security tests, migration tests and browser interaction tests where tooling is available. Fix failures and inspect the final changes.
+
+Do not declare completion until the final state has been checked.
+
+## 109. Select a useful first vertical slice
+
+If the full roadmap exceeds the available implementation window, prioritize a coherent end-to-end flow with real value.
+
+The recommended first slice is:
+
+**Service failure → evidence collection → ranked hypotheses → best next probe → investigation update → historical incident retrieval → safe remediation plan → approval → action execution → postcondition verification → persisted report.**
+
+This single workflow exercises the intelligence architecture and provides a foundation for future features.
+
+Do not replace any missing integration with a fake result.
+
+If remote topology data is unavailable, demonstrate the workflow using actual local observations and controlled test fixtures.
+
+Keep the production interface truthful about those constraints.
+
+## 110. Define acceptance criteria before claiming success
+
+A feature is complete only when:
+
+1. The backend has an actual implementation.
+2. The relevant API contract is defined.
+3. Inputs are validated.
+4. Authentication and authorization are enforced.
+5. Persistence works where persistence is required.
+6. The frontend uses real returned data.
+7. Empty and failure states work.
+8. The capability is tested.
+9. Documentation reflects actual behavior.
+10. The final status can be independently verified.
+
+A module with only a class definition is not a complete feature.
+
+A route returning a static example is not a complete feature.
+
+A dashboard card containing a hard-coded number is not a complete feature.
+
+An AI-generated plan that is never validated or executed through a real tool is not a completed operational workflow.
+
+---
+
+# PART XXV — SPECIFIC NEW FEATURES TO PRIORITIZE
+
+Implement as many of the following as can be completed coherently and safely, beginning with the features that strengthen the core intelligence and operational lifecycle.
+
+## 111. The Incident Causal Map
+
+A view that displays the affected service and the dependency paths that may explain its failure.
+
+It should support:
+
+- Expandable nodes.
+- Typed relationships.
+- Evidence-backed edges.
+- Hypothesis overlays.
+- Unknown edges.
+- Freshness indicators.
+- Contradicting evidence.
+- Click-through to original observations.
+- Comparison of alternative paths.
+
+The map should communicate which parts are observed, derived or merely modeled.
+
+It should not pretend to know the complete network when the available topology is incomplete.
+
+## 112. The Next Best Probe panel
+
+For each active investigation, show a single recommended next diagnostic action, with alternatives available.
+
+Display:
+
+- What question the probe answers.
+- Which hypotheses it distinguishes.
+- Expected result categories.
+- Why those results matter.
+- Cost and execution time.
+- Permissions required.
+- Risk category.
+- Whether the operation is read-only.
+- How the result will change the next decision.
+
+After execution, record whether the probe reduced uncertainty as expected.
+
+Measure whether the chosen probe actually changed the hypothesis ranking or operational recommendation.
+
+## 113. The Verified Runbook Library
+
+Build a searchable library of verified operational procedures.
+
+A runbook needs:
+
+- Version.
+- Scope.
+- Source incident.
+- Preconditions.
+- Required roles.
+- Action definitions.
+- Verification.
+- Rollback.
+- Expiry or review rules.
+
+Add lifecycle states:
+
+- Draft.
+- Under review.
+- Approved.
+- Deprecated.
+- Rejected.
+
+Only appropriately approved runbooks should be eligible for automation.
+
+If a runbook has failed in recent similar incidents, reflect that in its retrieval ranking.
+
+## 114. The Operational Learning Ledger
+
+Create a transparent record of what the system has learned from outcomes.
+
+For each learning update, show:
+
+- Previous belief or ranking.
+- New evidence.
+- Outcome.
+- Resulting change.
+- Method.
+- Timestamp.
+- Who or what authorized the update.
+- Whether the change affects retrieval, model selection, hypothesis ranking or policy.
+
+Do not silently modify privileged policy based on an incident.
+
+Learning should improve diagnostic quality without weakening security.
+
+## 115. The Change Impact Simulator
+
+Allow a proposed change to be evaluated before approval.
+
+The operator should be able to ask:
+
+“What happens if this service becomes unavailable?”
+
+“What if this dependency is unreachable?”
+
+“What if DNS resolution is delayed?”
+
+“What if this network path is removed?”
+
+“What if this policy blocks the connection?”
+
+Use the actual graph and a transparent model.
+
+Show direct impact, transitive impact, uncertain dependencies and model assumptions.
+
+Provide a way to compare multiple scenarios.
+
+Keep all scenario mutations in isolated simulation state.
+
+## 116. The Evidence Quality Inspector
+
+Create a page that identifies:
+
+- Stale measurements.
+- Failed collectors.
+- Duplicate evidence.
+- Contradictory claims.
+- Unsupported findings.
+- Unknown dependency edges.
+- Invalidated historical assumptions.
+- Model claims without evidence.
+- Simulation data accidentally mixed with live data.
+- Metrics whose provenance is missing.
+
+Offer a way to inspect and correct data quality problems.
+
+Do not hide uncertainty to make the overall system score look better.
+
+## 117. The Operational Readiness Gate
+
+Before enabling autonomous remediation, evaluate the system's readiness.
+
+Readiness should depend on real checks such as:
+
+- Strong authentication configuration.
+- Valid operator permissions.
+- Audit persistence.
+- Snapshot persistence.
+- Postcondition tooling.
+- Rollback verification.
+- Approved target scope.
+- Tool registry health.
+- Database integrity.
+- Valid policy configuration.
+- Required model configuration, if the feature depends on it.
+
+Report readiness with per-check evidence.
+
+If the prerequisites for safe execution are missing, disable the relevant autonomous action and explain why.
+
+## 118. The Incident Review Generator
+
+Generate an incident report using the actual stored timeline and evidence.
+
+Include:
+
+- Initial report.
+- User-visible impact, if known.
+- Detection timestamp.
+- Investigation steps.
+- Evidence collected.
+- Hypotheses considered.
+- Root cause or unresolved cause.
+- Actions attempted.
+- Verification results.
+- Rollback details.
+- Resolution timestamp.
+- Time to detection and resolution, if supported by timestamps.
+- Remaining risks.
+- Recommended follow-up.
+- Source evidence identifiers.
+
+Make all generated reports editable.
+
+Do not invent customer impact, lost revenue, or the exact moment an outage began if those facts are not known.
+
+## 119. The Infrastructure Drift and Baseline Engine
+
+Build real baseline comparison.
+
+An observed configuration can be compared with a versioned baseline only if the relevant configuration was actually collected.
+
+Track:
+
+- Baseline source.
+- Baseline version.
+- Collection timestamp.
+- Current observation.
+- Difference.
+- Expected or unexpected classification.
+- Approval reference.
+- Resulting verification.
+
+Keep availability failures and configuration drift as separate issue types.
+
+A node that cannot be reached does not automatically have configuration drift.
+
+## 120. The Investigation Quality Scorecard
+
+Evaluate the quality of completed investigations using explicit dimensions:
+
+- Evidence coverage.
+- Freshness.
+- Independent corroboration.
+- Hypothesis discrimination.
+- Verification completeness.
+- Contradiction resolution.
+- Operational safety.
+- Human review status.
+- Outcome confirmation.
+
+Do not convert this into a fake universal probability of correctness.
+
+Show the constituent dimensions and how the system calculated them.
+
+Where scores are heuristic, say so.
+
+Use the scorecard to identify process improvements, not to reward superficial certainty.
+
+---
+
+# PART XXVI — IMPLEMENTATION DETAILS AND ARCHITECTURAL DISCIPLINE
+
+## 121. Use explicit TypeScript or schema contracts where they fit
+
+If the project already has TypeScript contracts, extend them.
+
+Represent investigations, evidence, hypotheses, probes, plans, approvals, outcomes, and memories as typed interfaces or runtime-validated schemas.
+
+Do not duplicate the same schema in many unrelated modules.
+
+Where data crosses a trust boundary, use runtime validation even if the code is statically typed.
+
+Keep database representations and API representations consistent through explicit mapping.
+
+Avoid widespread `any` types where a useful contract can be defined.
+
+Do not introduce a complex type framework just to avoid a handful of straightforward interfaces.
+
+## 122. Use dependency injection for testable services
+
+Where appropriate, allow critical components to receive dependencies such as:
+
+- Database.
+- Clock.
+- Diagnostic adapters.
+- Model gateway.
+- Audit service.
+- Policy engine.
+- Storage interface.
+
+This makes it possible to test error paths without manipulating global modules in fragile ways.
+
+Use a consistent pattern. Do not create a large dependency-injection container if the project does not need one.
+
+Do not let tests monkey-patch shared global dependencies in a way that affects concurrent tests.
+
+## 123. Make operations deterministic where possible
+
+Use deterministic IDs only where appropriate for tests and reproducibility.
+
+Capture timestamps and identifiers from trusted backend code.
+
+Allow the reasoning ranking and graph algorithms to be reproduced using the stored inputs.
+
+Where model generation is stochastic, record the model and task metadata needed to interpret the result.
+
+Do not promise exact replay of an external LLM response unless the system has a way to preserve that result.
+
+A replay should at minimum reconstruct the actual stored investigation state and action history.
+
+## 124. Keep algorithms explainable
+
+Every important algorithm should have:
+
+- A clear purpose.
+- Defined inputs.
+- Defined outputs.
+- Explicit assumptions.
+- Bounded complexity.
+- Failure behavior.
+- Tests.
+- Useful diagnostic metadata.
+
+Avoid adding algorithms because their names sound advanced.
+
+A well-tested graph traversal and a simple statistical detector are more valuable than an unverified neural network or a pseudo-Bayesian score with arbitrary constants.
+
+Use complex ML only when real data, validation, and operational benefit justify it.
+
+## 125. Avoid monolithic intelligence modules
+
+The reasoning brain must not become one enormous file with hundreds of unrelated responsibilities.
+
+Organize the system around actual domain boundaries.
+
+Keep prompts in dedicated, versioned templates when useful. Keep schemas separate from prompts. Keep model invocation separate from business logic. Keep tool definitions separate from authorization policy. Keep operational workflows separate from UI rendering.
+
+Do not create tiny modules that add indirection without value.
+
+Every module should have a clear responsibility and a practical test strategy.
+
+## 126. Avoid excessive dependencies
+
+Before adding a library, evaluate:
+
+- Whether an equivalent capability already exists.
+- Maintenance activity and compatibility.
+- Security implications.
+- Installation complexity.
+- Runtime resource cost.
+- Whether the dependency requires a new server or service.
+- Whether it can be tested in the current environment.
+- Whether the functionality can be implemented more safely using the current stack.
+
+Do not add a large orchestration framework simply to call a language model once.
+
+Do not add a separate database just for vector search before evaluating the existing storage requirements.
+
+Do not add a heavyweight message broker if a simpler persistence-backed workflow queue is sufficient for the target deployment.
+
+---
+
+# PART XXVII — OPERATOR WORKFLOW EXAMPLE
+
+## 127. Demonstrate the brain through a real failure investigation
+
+Build a working demonstration based on real available telemetry or controlled local test infrastructure.
+
+Use this scenario:
+
+A user reports that an internal service is unreachable.
+
+The system should begin by creating an investigation and identifying the target.
+
+It should retrieve relevant current evidence.
+
+It should inspect whether the hostname resolves.
+
+If resolution fails, the engine should consider DNS-related hypotheses and choose an appropriate next query.
+
+If DNS succeeds, it should assess whether the address is authorized for testing, then perform a bounded transport probe.
+
+If the TCP connection is refused, it should distinguish a closed or unavailable listener from a routing failure.
+
+If the TCP connection times out, it should not automatically assume the service is down. It should inspect available route and reachability evidence, while acknowledging the limitations of the observation point.
+
+If TLS or HTTP tests are available, it may proceed to those layers.
+
+At each stage, the system should preserve the evidence and update the hypothesis ranking.
+
+It should retrieve relevant verified historical incidents.
+
+It should formulate a safe plan only after the observations justify the next step.
+
+If remediation is available, it should identify the action, risk, authorization, preconditions and verification.
+
+It should request approval where necessary.
+
+After execution, it should verify the relevant postconditions.
+
+If the verification fails, it should handle rollback and escalation according to the operation's policy.
+
+Finally, it should produce an incident report that references the actual evidence, describes what was confirmed, and lists unresolved uncertainties.
+
+The complete demonstration must be inspectable from the database and UI.
+
+Do not simply hardcode the narrative and display it as if the investigation occurred.
+
+## 128. Demonstrate memory reuse
+
+Once the first investigation is confirmed and reviewed, create an appropriate memory record or runbook candidate.
+
+Run a second controlled investigation with similar symptoms.
+
+Show that the system retrieves the earlier incident and explains why it is relevant.
+
+Let the current observations determine whether the old solution applies.
+
+If the target or environment differs, surface that limitation.
+
+Do not blindly replay the old remediation.
+
+The purpose of memory is to reduce repeated diagnostic work, not replace current evidence.
+
+---
+
+# PART XXVIII — DEFINITION OF DONE
+
+## 129. Product-level completion
+
+The new intelligence system is not complete until the implemented vertical slice allows an operator to perform an actual workflow from symptom to verified outcome.
+
+At a minimum, that workflow must:
+
+- Accept a meaningful operational question.
+- Inspect real available data.
+- Preserve evidence and provenance.
+- Create structured hypotheses.
+- Select a justifiable next probe.
+- Execute a permitted diagnostic.
+- Update the investigation from the result.
+- Retrieve relevant historical information when available.
+- Produce a bounded plan.
+- Enforce authorization and action policy.
+- Execute a real supported action or state clearly why it cannot.
+- Verify action-specific postconditions.
+- Handle failure and rollback accurately.
+- Persist the investigation.
+- Render the real state in the UI.
+- Produce an evidence-linked summary.
+
+The product should offer useful deterministic behavior without a configured LLM. Additional configured model intelligence should improve explanation, hypothesis generation or planning without overriding deterministic safety controls.
+
+## 130. Security completion
+
+Verify that:
+
+- The port-3000 exception remains removed.
+- Non-loopback evaluation mode is rejected.
+- Quick-NOC cannot issue administrative tokens.
+- The actual request origin and server binding are handled correctly.
+- Every sensitive route is authenticated.
+- Every state-changing route enforces minimum role and target authorization.
+- Client-supplied roles cannot increase privilege.
+- Diagnostic targets are validated safely.
+- DNS resolution cannot bypass target validation.
+- Unregistered capabilities cannot be executed.
+- Missing audit infrastructure blocks mutation.
+- Failed audit persistence cannot lead to a success state.
+- Failed postconditions cannot lead to a verified state.
+- Failed rollback verification produces an escalation state.
+- Model output cannot bypass action governance.
+- Model provider secrets are protected.
+- Prompts, logs and evidence are treated as untrusted input.
+- Test data cannot alter real operational state.
+
+## 131. Data-integrity completion
+
+Verify that:
+
+- Database migrations are repeatable.
+- Test data is isolated.
+- Operational history is not deleted by broad text matching.
+- Every action has a traceable snapshot when required.
+- Snapshot read-after-write verification is meaningful.
+- Audit integrity checks use actual records.
+- Evidence lineage refers to existing records.
+- Historical findings retain their original provenance.
+- Simulation data cannot masquerade as live observations.
+- Missing measurements remain unknown.
+- Modelled values are labelled as modelled.
+- Stale observations are not presented as current state.
+
+## 132. Frontend completion
+
+Verify that:
+
+- Every new panel uses real API data.
+- All actions have functioning handlers.
+- Loading and error states work.
+- Empty states work.
+- Unknown values are displayed honestly.
+- Filters and searches work correctly.
+- Historical timelines reflect stored events.
+- Investigation details link to their evidence.
+- Remediation approvals show the exact plan.
+- Post-action status is based on backend results.
+- The interface clearly separates live, derived, simulated and unknown information.
+- The design remains mature and professional rather than cluttered.
+
+## 133. Verification completion
+
+Run the relevant tests against the final code, not an earlier draft.
+
+At minimum, run:
+
+- The existing build.
+- Existing autonomous-operator tests.
+- Existing v6 API tests.
+- Authentication and RBAC tests.
+- Secure-deployment tests.
+- New investigation workflow tests.
+- New evidence and lineage tests.
+- New model gateway tests.
+- New probe selection tests.
+- New memory retrieval tests.
+- New audit failure tests.
+- New rollback verification tests.
+- New SSRF tests.
+- New migration and database isolation tests.
+- Frontend interaction tests where browser tooling is available.
+
+Report exact commands, results, and any skipped tests.
+
+Do not state that a full end-to-end browser flow was verified if only unit tests ran.
+
+Do not state that the application is secure merely because the build succeeded.
+
+Do not hide failures behind an overall green summary.
+
+---
+
+# PART XXIX — REQUIRED DELIVERABLES
+
+## 134. Deliver real implementation, not a proposal
+
+Modify the current codebase directly.
+
+Add modules, schemas, tests, migrations and UI components only where justified by the design.
+
+Wire new features into the application so the actual user can reach them.
+
+Do not create unreferenced files and claim their functionality exists.
+
+Do not leave placeholder functions in a feature that is described as complete.
+
+If a real integration is not available, provide a properly implemented unavailable state with instructions for enabling it rather than a fake result.
+
+## 135. Keep the new functionality integrated
+
+The investigation brain, evidence system, topology graph, operational memory, probe registry, workflow engine, action control plane, audit logger and frontend must share stable identifiers and contracts.
+
+The system must be able to move naturally from one component to the next.
+
+Do not create parallel stores of incident status without a clear source of truth.
+
+Avoid duplicate event records where retries occur.
+
+Use correlation identifiers so a user can follow one investigation across API requests, tool calls, model invocations and stored evidence.
+
+## 136. Add an implementation report
+
+At the end of the work, provide a concise but exact engineering report.
+
+Include:
+
+**A. Architecture changes:** Actual new or refactored modules and their responsibilities.
+
+**B. Brain improvements:** Reasoning cycle, hypotheses, probe selection, model integration and fallback behavior.
+
+**C. Backend improvements:** APIs, services, jobs, persistence, schemas and migrations.
+
+**D. New product capabilities:** Which features are implemented and where to find them.
+
+**E. Safety and security:** Authorization, target checks, audit behavior, action policies and rollback semantics.
+
+**F. Testing:** Exact commands and actual test results.
+
+**G. Remaining limitations:** Unimplemented work, unavailable external dependencies, untested environments and known caveats.
+
+**H. Changed files:** A factual list of the most important modified and new files.
+
+**I. Deployment:** Configuration and migration steps needed to run the final implementation.
+
+Do not report speculative features as implemented.
+
+## 137. Repository and commit discipline
+
+Work against the actual repository revision available in the current environment.
+
+Avoid overwriting unrelated user changes.
+
+Before editing, inspect the working tree if the environment provides that capability.
+
+After editing, inspect the complete diff and run the relevant tests.
+
+If repository tools are available, commit the completed changes using a clear descriptive message. Push only when the environment and permissions support it and the intended branch is clear.
+
+After committing, inspect the committed file list and verify the final source corresponds to the reported implementation.
+
+Do not claim that changes have been pushed unless the repository confirms the new commit.
+
+Do not fabricate commit identifiers or CI results.
+
+---
+
+# PART XXX — THE FINAL ENGINEERING PRINCIPLE
+
+## 138. Build a system that knows the difference between intelligence and certainty
+
+The ultimate goal of this evolution is not to make EJII sound more intelligent.
+
+It is to make EJII more useful, more capable and more trustworthy.
+
+A genuinely advanced infrastructure intelligence platform should know when to investigate, when to act, when to ask for approval, when to retrieve historical knowledge, when to stop, and when to admit that it does not have enough evidence.
+
+Its intelligence should come from the interaction of real measurements, well-defined data models, causal relationships, explicit reasoning, historical outcomes, bounded language-model assistance, and robust operational governance.
+
+It should not derive its authority from the confidence of its wording.
+
+It should become more capable without becoming less safe.
+
+It should become more autonomous without becoming less accountable.
+
+It should make complex infrastructure easier to operate without hiding the complexity that matters.
+
+It should make good decisions easier to explain, reproduce, test, and verify.
+
+**Now inspect the actual EJII repository and implement this evolution as a coherent, working engineering upgrade. Prioritize the strongest end-to-end capabilities, preserve existing functionality, fix defects discovered along the way, validate the final code, and report only what has genuinely been completed and verified.**
+
+What is this?
+
+This prompt deliberately prioritizes a real reasoning brain and operational lifecycle over adding lots of disconnected features. The biggest improvement should be that EJII can investigate a fault, explain its evidence, choose the next useful test, learn from verified past incidents, and safely validate its actions—instead of merely displaying metrics and AI-generated explanations.

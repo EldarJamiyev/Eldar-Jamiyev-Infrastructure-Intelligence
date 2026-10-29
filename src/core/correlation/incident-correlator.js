@@ -396,9 +396,12 @@ class CrossLayerIncidentCorrelator {
    * Part VI (Section 6.2): End-to-End Cross-Layer Diagnostic Workflow for an Unreachable Hostname
    * Evaluates steps 1..10 across L1 -> L7 and records a complete Evidence Lineage chain.
    */
-  async diagnoseUnreachableHostname(hostnameInput = 'localhost', portInput = 443) {
+  async diagnoseUnreachableHostname(hostnameInput = 'localhost', portInput = 443, options = {}) {
     const hostname = String(hostnameInput || 'localhost').trim();
     const port = Number(portInput) || 443;
+    const pinnedIp = options && typeof options.pinnedIp === 'string' && options.pinnedIp.trim()
+      ? options.pinnedIp.trim()
+      : null;
     const workflowId = `WF-V6-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const startedAt = new Date().toISOString();
     const steps = [];
@@ -449,7 +452,7 @@ class CrossLayerIncidentCorrelator {
     let lpmMatch = null;
     try {
       const radixAudit = RoutingRadixIntelligenceEngine.captureAndAuditHostRoutes(
-        /^\d+\.\d+\.\d+\.\d+$/.test(hostname) ? hostname : '8.8.8.8'
+        pinnedIp || (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) ? hostname : '8.8.8.8')
       );
       lpmMatch = radixAudit.probeLookup || null;
     } catch (_) {}
@@ -463,15 +466,49 @@ class CrossLayerIncidentCorrelator {
       details: lpmMatch || { matched: true, prefix: '0.0.0.0', prefixLen: 0, nextHop: gwIp }
     });
 
-    // Step 5: DNS Resolver reachability and RFC 1035 resolution
+    // Step 5: DNS Resolver reachability and RFC 1035 resolution (honoring pre-validated pinnedIp to prevent DNS rebinding)
     const isIpLiteral = /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname === 'localhost';
-    let targetIp = hostname === 'localhost' ? '127.0.0.1' : hostname;
+    let targetIp = pinnedIp || (hostname === 'localhost' ? '127.0.0.1' : hostname);
     let dnsResult = null;
 
-    if (!isIpLiteral) {
+    if (pinnedIp && !isIpLiteral) {
+      const latencyMs = typeof options.prevalidatedDnsLatencyMs === 'number' ? options.prevalidatedDnsLatencyMs : 1.0;
+      dnsResult = {
+        success: true,
+        hostname,
+        records: options.resolvedIps || [pinnedIp],
+        addresses: options.resolvedIps || [pinnedIp],
+        latencyMs,
+        durationMs: latencyMs,
+        pinnedBySsrfGuard: true
+      };
+      steps.push({
+        stepNumber: 4,
+        layer: 'L7 DNS RFC 1035 Resolution',
+        status: 'PASS',
+        summary: `Resolved & pinned ${hostname} -> ${targetIp} (${latencyMs}ms, SSRF-validated)`,
+        details: dnsResult
+      });
+      signals.push({
+        domain: 'dns',
+        subject: `dns:${hostname}`,
+        claim: `DNS resolved and pinned ${hostname} to ${targetIp} (${latencyMs}ms)`,
+        rawValue: dnsResult,
+        normalizedValue: `RESOLVED:${targetIp}`,
+        unit: 'ms',
+        anomaly: false,
+        collectionMethod: 'rfc1035_udp_dns_pinned',
+        correlationGroup: 'dns_resolution'
+      });
+    } else if (!isIpLiteral) {
       dnsResult = await resolveDns(hostname);
       if (dnsResult.success && Array.isArray(dnsResult.addresses) && dnsResult.addresses.length > 0) {
-        targetIp = dnsResult.addresses[0];
+        const { isSafeNetworkTarget } = require('../security');
+        const candidateIp = dnsResult.addresses[0];
+        if (!isSafeNetworkTarget(candidateIp)) {
+          throw new Error(`SECURITY_VIOLATION_SSRF: Hostname '${hostname}' resolved to prohibited address '${candidateIp}'.`);
+        }
+        targetIp = candidateIp;
         steps.push({
           stepNumber: 4,
           layer: 'L7 DNS RFC 1035 Resolution',
@@ -562,12 +599,13 @@ class CrossLayerIncidentCorrelator {
       });
 
       const tcpOpen = tcpRes && tcpRes.status === 'OPEN';
+      const tcpHandshakeRttMs = tcpRes?.connectLatencyMs ?? tcpRes?.latencyMs ?? 0;
       steps.push({
         stepNumber: 6,
         layer: 'L4 TCP 3-Way Handshake & Kernel Socket Audit',
         status: tcpOpen ? 'PASS' : 'FAIL',
         summary: tcpOpen
-          ? `TCP port ${targetIp}:${port} is OPEN (Handshake RTT: ${tcpRes.latencyMs}ms)`
+          ? `TCP port ${targetIp}:${port} is OPEN (Handshake RTT: ${tcpHandshakeRttMs}ms)`
           : `TCP port ${targetIp}:${port} is ${tcpRes?.status || 'UNREACHABLE'} (${tcpRes?.errorCode || tcpRes?.error || 'Connection failed'})`,
         details: tcpRes
       });

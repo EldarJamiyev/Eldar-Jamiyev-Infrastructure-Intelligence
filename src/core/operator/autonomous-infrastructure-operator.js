@@ -1256,6 +1256,16 @@ class AutonomousInfrastructureOperator {
       };
     }
 
+    // Immediate Fail-Closed Cryptographic Audit Logger Availability Check (before any snapshot or state mutation)
+    if (!auditLogger || typeof auditLogger.logAction !== 'function') {
+      return {
+        allowed: true,
+        approved: false,
+        status: 'AUDIT_PERSISTENCE_FAILED',
+        error: 'Aborted remediation before state mutation: cryptographic audit logger service is unavailable. Fail-closed policy mandates verified audit trail for all state mutations.'
+      };
+    }
+
     const numericPort = Number(port) || Number(config.PORT) || 3000;
     const tcpHost = target === 'localhost' ? '127.0.0.1' : target;
     const dnsHost = target === '127.0.0.1' ? 'localhost' : target;
@@ -1326,24 +1336,31 @@ class AutonomousInfrastructureOperator {
     }
 
     // Pre-action Fail-Closed Cryptographic Audit Log
-    if (auditLogger && typeof auditLogger.logAction === 'function') {
-      try {
-        auditLogger.logAction({
-          userId: user.id || 'operator',
-          username: user.username || 'operator',
-          role: normalizedRole,
-          action: 'OPERATOR_SELF_HEALING_COMMENCING',
-          resource: actionId,
-          details: { snapshotId: preSnapshotId, target, port: numericPort }
-        });
-      } catch (auditErr) {
-        return {
-          allowed: true,
-          approved: false,
-          status: 'AUDIT_PERSISTENCE_FAILED',
-          error: `Aborted remediation before state mutation: cryptographic audit logging failed (${auditErr.message}).`
-        };
-      }
+    if (!auditLogger || typeof auditLogger.logAction !== 'function') {
+      return {
+        allowed: true,
+        approved: false,
+        status: 'AUDIT_PERSISTENCE_FAILED',
+        error: 'Aborted remediation before state mutation: cryptographic audit logger service is unavailable. Fail-closed policy mandates verified audit trail for all state mutations.'
+      };
+    }
+
+    try {
+      auditLogger.logAction({
+        userId: user.id || 'operator',
+        username: user.username || 'operator',
+        role: normalizedRole,
+        action: 'OPERATOR_SELF_HEALING_COMMENCING',
+        resource: actionId,
+        details: { snapshotId: preSnapshotId, target, port: numericPort }
+      });
+    } catch (auditErr) {
+      return {
+        allowed: true,
+        approved: false,
+        status: 'AUDIT_PERSISTENCE_FAILED',
+        error: `Aborted remediation before state mutation: cryptographic audit logging failed (${auditErr.message}).`
+      };
     }
 
     // 2. Execute real GovernedActionControlPlane action + live topology node reachability reconciliation
@@ -1463,7 +1480,7 @@ class AutonomousInfrastructureOperator {
         rollbackError = rbErr.message;
       }
 
-      let auditPersisted = true;
+      let auditPersisted = false;
       const failureReasonStr = failureReasons.join('; ');
       const rollbackStatus = rollbackVerified
         ? 'ROLLED_BACK_ON_VERIFICATION_FAILURE'
@@ -1516,7 +1533,10 @@ class AutonomousInfrastructureOperator {
         rollbackSummary: `Postcondition failed (${failureReasonStr}). Restored state from snapshot ${preSnapshotId}.`
       };
 
-      if (auditLogger && typeof auditLogger.logAction === 'function') {
+      if (!auditLogger || typeof auditLogger.logAction !== 'function') {
+        auditPersisted = false;
+        rollbackProof.auditError = 'Audit logger service unavailable';
+      } else {
         try {
           auditLogger.logAction({
             userId: user.id || 'operator',
@@ -1526,6 +1546,7 @@ class AutonomousInfrastructureOperator {
             resource: validActionId,
             details: rollbackProof
           });
+          auditPersisted = true;
         } catch (auditErr) {
           auditPersisted = false;
           rollbackProof.auditError = auditErr.message;
@@ -1560,7 +1581,7 @@ class AutonomousInfrastructureOperator {
       unverifiedTopologyNodes: (postTel.dbNodes || []).filter((n) => n.status !== 'healthy').length
     };
 
-    let auditPersisted = true;
+    let auditPersisted = false;
     let auditErrorMsg = null;
     const flushOutcome = controlPlaneExecution.details?.flushOutcome || controlPlaneExecution.lifecycleState || 'RESOLVER_REFRESHED';
 

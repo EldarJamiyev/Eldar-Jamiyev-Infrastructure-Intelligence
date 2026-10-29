@@ -541,7 +541,7 @@ window.quickNocLogin = async function() {
   try {
     const res = await api('/api/auth/quick-noc', {
       method: 'POST',
-      body: JSON.stringify({ username: selectedProfileUsername || 'admin' })
+      body: JSON.stringify({})
     });
     state.token = res.token;
     state.user = res.user;
@@ -554,7 +554,7 @@ window.quickNocLogin = async function() {
     if (window.location.hash && window.location.hash.startsWith('#/learning')) {
       renderView('learning-center');
     } else {
-      renderView('topology');
+      renderView('chat');
     }
   } catch (err) {
     const errAlert = document.getElementById('loginErrorAlert');
@@ -598,7 +598,7 @@ window.handleLoginFormSubmit = async function(event) {
     if (window.location.hash && window.location.hash.startsWith('#/learning')) {
       renderView('learning-center');
     } else {
-      renderView('topology');
+      renderView('chat');
     }
   } catch (err) {
     if (errAlert && errMsg) {
@@ -651,7 +651,7 @@ window.loadWarmBootstrap = loadWarmBootstrap;
 /**
  * Universal View Renderer for the 4 Dedicated Workstations
  */
-function renderView(viewName = 'topology') {
+function renderView(viewName = 'chat') {
   let target = viewName;
   if (target === 'noc') target = 'topology';
   if (target === 'ip-scanner') target = 'ultra-ip-scanner';
@@ -659,6 +659,10 @@ function renderView(viewName = 'topology') {
   state.currentView = target;
   window.currentRouteGeneration = (window.currentRouteGeneration || 0) + 1;
   const currentGen = window.currentRouteGeneration;
+
+  if (target !== 'chat' && document.body && document.body.classList && typeof document.body.classList.remove === 'function') {
+    document.body.classList.remove('ejii-chat-first-active');
+  }
 
   // Enforce mutual exclusivity across workstations: clean up background batching and dismiss dangling modals
   if (typeof window.stopPacketBatchFlusher === 'function' && target !== 'packet-sniffer' && target !== 'topology') {
@@ -684,7 +688,13 @@ function renderView(viewName = 'topology') {
     link.classList.toggle('active', isActive);
   });
 
-  if (target === 'ai-operator') {
+  if (target === 'chat') {
+    if (typeof window.renderChatWorkspaceView === 'function') {
+      window.renderChatWorkspaceView();
+    } else if (typeof window.renderTopologyStandaloneView === 'function') {
+      window.renderTopologyStandaloneView();
+    }
+  } else if (target === 'ai-operator') {
     if (typeof window.renderAiOperatorView === 'function') {
       window.renderAiOperatorView();
     }
@@ -1208,7 +1218,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (window.location.hash && window.location.hash.startsWith('#/learning')) {
         renderView('learning-center');
       } else {
-        renderView('topology');
+        renderView('chat');
       }
     } catch (e) {
       if (window.location.hash && window.location.hash.startsWith('#/learning')) {

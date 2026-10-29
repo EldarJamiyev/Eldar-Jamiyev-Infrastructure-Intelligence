@@ -846,18 +846,26 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   if (!coreDnsIp && netInfo.secondaryDnsIp && netInfo.secondaryDnsIp !== gwIp) {
     coreDnsIp = netInfo.secondaryDnsIp;
   }
+  let isFallbackResolver = false;
   if (!coreDnsIp) {
     const vIface = (netInfo.allActiveInterfaces || []).find(i => i.isVirtual && i.address !== gwIp);
-    coreDnsIp = vIface ? vIface.address : '1.1.1.1';
+    if (vIface) {
+      coreDnsIp = vIface.address;
+    } else {
+      coreDnsIp = '1.1.1.1';
+      isFallbackResolver = true;
+    }
   }
   const coreNodeType = isSandbox ? 'dns_resolver' : 'switch';
   const coreNodeMac = isSandbox ? null : '64:12:25:E4:68:F0';
   const coreNodeIfName = isSandbox ? null : 'tengig0/1';
-  const coreVendor = coreDnsIp === '1.1.1.1'
-    ? 'Cloudflare Anycast Resolver'
-    : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver (Service Endpoint)' : 'Core Backbone Switch & Services'));
+  const coreVendor = isFallbackResolver
+    ? 'Illustrative Anycast Resolver (Unobserved Fallback)'
+    : (coreDnsIp === '1.1.1.1'
+      ? 'Cloudflare Anycast Resolver'
+      : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver (Service Endpoint)' : 'Core Backbone Switch & Services')));
   const coreNodeName = isSandbox
-    ? `Configured DNS Resolver (${coreDnsIp})`
+    ? (isFallbackResolver ? 'Proposed Default Resolver (1.1.1.1 - Unobserved)' : `Configured DNS Resolver (${coreDnsIp})`)
     : `Core Switch & DNS (${coreDnsIp})`;
 
   db.prepare(`
@@ -881,13 +889,16 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     coreVendor,
     coreNodeIfName,
     JSON.stringify({
-      role: isSandbox ? 'Configured DNS Resolver' : 'Core Backbone Switch',
+      role: isSandbox ? (isFallbackResolver ? 'Proposed Default Resolver' : 'Configured DNS Resolver') : 'Core Backbone Switch',
       vlan: isSandbox ? null : 10,
       isSandboxRuntime: isSandbox,
-      hardwareFidelity: isSandbox ? 'UNOBSERVED_SANDBOX_SERVICE' : 'PHYSICAL_MANAGED_SWITCH',
-      macObserved: !isSandbox,
-      interfaceObserved: !isSandbox,
-      evidenceClassification: 'Observed'
+      isFallbackResolver,
+      hardwareFidelity: isSandbox
+        ? (isFallbackResolver ? 'UNOBSERVED_ILLUSTRATIVE_RESOLVER' : 'UNOBSERVED_SANDBOX_SERVICE')
+        : 'PHYSICAL_MANAGED_SWITCH',
+      macObserved: !isSandbox && !isFallbackResolver,
+      interfaceObserved: !isSandbox && !isFallbackResolver,
+      evidenceClassification: isFallbackResolver ? 'Proposed_Fallback' : 'Observed'
     })
   );
 

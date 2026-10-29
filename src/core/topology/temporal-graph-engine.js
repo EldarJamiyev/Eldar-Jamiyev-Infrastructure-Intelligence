@@ -185,7 +185,16 @@ class TemporalInfrastructureGraph {
         lastSeenAt: nowIso,
         validFrom: existing ? existing.validFrom : nowIso,
         validTo: null,
-        confidence: n.evidenceClassification === 'Observed' ? 0.96 : 0.85,
+        confidence: typeof n.confidence === 'number'
+          ? n.confidence
+          : (n.last_latency_ms != null
+            ? Number(Math.max(0.5, Math.min(0.99, 1.0 - (n.last_latency_ms / 500))).toFixed(3))
+            : (n.evidenceClassification === 'Observed' ? 0.90 : null)),
+        confidenceType: typeof n.confidence === 'number'
+          ? 'EXPLICIT_SPECIFIED'
+          : (n.last_latency_ms != null
+            ? 'EMPIRICALLY_MEASURED_PROBE'
+            : (n.evidenceClassification === 'Observed' ? 'HEURISTIC_OBSERVED' : 'UNKNOWN_UNMEASURED')),
         evidenceIds: existing
           ? Array.from(new Set([...existing.evidenceIds.slice(-4), ev.id]))
           : [ev.id]

@@ -1,0 +1,766 @@
+/**
+ * EJII Minimalist Chat-First Workspace & Simplified Login Stylesheet
+ * High-craft calm conversational UI (ChatGPT / Claude inspired)
+ */
+
+:root {
+  --chat-bg: #F9F9F8;
+  --chat-surface: #FFFFFF;
+  --chat-surface-subtle: #F3F2EE;
+  --chat-user-bubble: #EDEDEA;
+  --chat-border: #E5E4DF;
+  --chat-border-strong: #D4D3CD;
+  --chat-text: #141413;
+  --chat-text-secondary: #575653;
+  --chat-text-muted: #82817C;
+  --chat-accent: #18181B;
+  --chat-accent-contrast: #FFFFFF;
+  --chat-ok: #15803D;
+  --chat-ok-bg: #DCFCE7;
+  --chat-warn: #B45309;
+  --chat-warn-bg: #FEF3C7;
+  --chat-danger: #B91C1C;
+  --chat-danger-bg: #FEE2E2;
+  --chat-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --chat-shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme="dark"] {
+  --chat-bg: #121214;
+  --chat-surface: #1A1A1E;
+  --chat-surface-subtle: #222227;
+  --chat-user-bubble: #27272D;
+  --chat-border: #2C2C33;
+  --chat-border-strong: #3D3D47;
+  --chat-text: #F4F4F5;
+  --chat-text-secondary: #A1A1AA;
+  --chat-text-muted: #71717A;
+  --chat-accent: #F4F4F5;
+  --chat-accent-contrast: #121214;
+  --chat-ok: #4ADE80;
+  --chat-ok-bg: rgba(22, 163, 74, 0.16);
+  --chat-warn: #FBBF24;
+  --chat-warn-bg: rgba(217, 119, 6, 0.16);
+  --chat-danger: #F87171;
+  --chat-danger-bg: rgba(220, 38, 38, 0.16);
+  --chat-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --chat-shadow-composer: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* ==========================================================================
+   1. SIMPLIFIED, CALM LOGIN EXPERIENCE
+   ========================================================================== */
+#loginScreen.login-screen-wrapper {
+  background: var(--chat-bg) !important;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+#loginScreen .login-shell {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  max-width: 420px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Hide decorative marketing/telemetry panels on the login screen to keep it clean and quiet */
+#loginScreen .login-brand-panel,
+#loginScreen .login-status-capsule,
+#loginScreen #loginTelemetryBar,
+#loginScreen #evaluationLoginPills,
+#loginScreen .login-card-footer {
+  display: none !important;
+}
+
+#loginScreen .login-card {
+  width: 100% !important;
+  max-width: 420px !important;
+  background: var(--chat-surface) !important;
+  border: 1px solid var(--chat-border) !important;
+  border-radius: 16px !important;
+  padding: 36px 32px !important;
+  box-shadow: var(--chat-shadow-composer) !important;
+}
+
+#loginScreen .login-heading-block {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+#loginScreen .login-brand-title {
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--chat-text) !important;
+  margin: 0 0 6px 0 !important;
+}
+
+#loginScreen .login-brand-subtitle {
+  font-size: 14px !important;
+  color: var(--chat-text-secondary) !important;
+  margin: 0 !important;
+}
+
+#loginScreen .login-btn-submit {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px !important;
+  background: var(--chat-accent) !important;
+  color: var(--chat-accent-contrast) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  border: none !important;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+#loginScreen #evaluationQuickCta {
+  margin-top: 12px;
+  background: transparent !important;
+  color: var(--chat-text-secondary) !important;
+  border: 1px solid var(--chat-border) !important;
+  border-radius: 10px !important;
+  height: 38px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+
+#loginScreen #evaluationLoginDivider {
+  display: none !important;
+}
+
+/* ==========================================================================
+   2. CHAT-FIRST MINIMALIST WORKSPACE MODE
+   ========================================================================== */
+body.ejii-chat-first-active #sidebar,
+body.ejii-chat-first-active .topbar,
+body.ejii-chat-first-active #ejiiActiveTargetContextBar,
+body.ejii-chat-first-active #v6FabricCommandRibbon,
+body.ejii-chat-first-active #aiOperatorProactiveBanner {
+  display: none !important;
+}
+
+body.ejii-chat-first-active #app {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  width: 100vw !important;
+  overflow: hidden !important;
+  background: var(--chat-bg) !important;
+}
+
+body.ejii-chat-first-active .main-wrapper {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--chat-bg) !important;
+}
+
+body.ejii-chat-first-active #mainContent {
+  padding: 0 !important;
+  margin: 0 !important;
+  flex: 1 !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--chat-bg) !important;
+}
+
+/* ==========================================================================
+   3. SHELL LAYOUT: HEADER, CONVERSATION AREA, COMPOSER
+   ========================================================================== */
+.ejii-chat-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  background: var(--chat-bg);
+  color: var(--chat-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Region 1: Compact Top Header */
+.ejii-minimal-header {
+  height: 54px;
+  min-height: 54px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--chat-border);
+  background: var(--chat-bg);
+  z-index: 20;
+}
+
+.ejii-minimal-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ejii-minimal-mark {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+
+.ejii-minimal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--chat-text);
+  letter-spacing: -0.01em;
+}
+
+.ejii-minimal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ejii-connection-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+  padding: 4px 8px;
+}
+
+.ejii-connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chat-ok);
+}
+
+.ejii-header-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--chat-border);
+  color: var(--chat-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ejii-header-btn:hover {
+  background: var(--chat-surface-subtle);
+  color: var(--chat-text);
+}
+
+/* Unobtrusive Advanced Tools Dropdown */
+.ejii-tools-dropdown {
+  position: relative;
+}
+
+.ejii-tools-dropdown > summary {
+  list-style: none;
+}
+
+.ejii-tools-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ejii-tools-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 230px;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  border-radius: 10px;
+  box-shadow: var(--chat-shadow-composer);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 100;
+}
+
+.ejii-tools-menu-item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--chat-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ejii-tools-menu-item:hover {
+  background: var(--chat-surface-subtle);
+}
+
+/* Region 2: Primary Conversation Area */
+.ejii-chat-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 20px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ejii-chat-column {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Empty State */
+.ejii-chat-empty-state {
+  margin: auto 0;
+  padding: 40px 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ejii-empty-heading {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--chat-text);
+  margin: 0 0 10px 0;
+}
+
+.ejii-empty-subtitle {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--chat-text-secondary);
+  max-width: 520px;
+  margin: 0 0 28px 0;
+}
+
+.ejii-starter-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.ejii-starter-prompt-btn {
+  appearance: none;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 13.5px;
+  color: var(--chat-text);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  box-shadow: var(--chat-shadow-sm);
+}
+
+.ejii-starter-prompt-btn:hover {
+  background: var(--chat-surface-subtle);
+  border-color: var(--chat-border-strong);
+}
+
+.ejii-starter-arrow {
+  color: var(--chat-text-muted);
+  font-size: 14px;
+}
+
+/* Conversation Messages */
+.ejii-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 20px;
+}
+
+.ejii-msg-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.ejii-msg-user {
+  align-items: flex-end;
+}
+
+.ejii-msg-user-bubble {
+  background: var(--chat-user-bubble);
+  color: var(--chat-text);
+  padding: 11px 16px;
+  border-radius: 16px 16px 4px 16px;
+  max-width: 82%;
+  font-size: 14.5px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ejii-msg-assistant {
+  align-items: flex-start;
+}
+
+.ejii-msg-assistant-card {
+  width: 100%;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: var(--chat-shadow-sm);
+}
+
+.ejii-assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--chat-text-muted);
+}
+
+.ejii-assistant-badge {
+  font-weight: 600;
+  color: var(--chat-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Brief Tool Execution Steps */
+.ejii-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--chat-surface-subtle);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+}
+
+.ejii-step-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--chat-text-secondary);
+}
+
+.ejii-step-left {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.ejii-step-status-icon {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.ejii-step-status-pass {
+  color: var(--chat-ok);
+}
+
+.ejii-step-status-warn {
+  color: var(--chat-warn);
+}
+
+.ejii-step-status-fail {
+  color: var(--chat-danger);
+}
+
+.ejii-step-duration {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--chat-text-muted);
+  white-space: nowrap;
+}
+
+/* Compact Findings Strip */
+.ejii-findings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ejii-finding-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg);
+}
+
+.ejii-finding-label {
+  color: var(--chat-text-muted);
+  font-weight: 500;
+}
+
+.ejii-finding-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: var(--chat-text);
+}
+
+.ejii-finding-ok .ejii-finding-value {
+  color: var(--chat-ok);
+}
+
+.ejii-finding-warn .ejii-finding-value {
+  color: var(--chat-warn);
+}
+
+.ejii-finding-danger .ejii-finding-value {
+  color: var(--chat-danger);
+}
+
+/* Structured Answer Body (Result, Meaning, Next Step) */
+.ejii-answer-body {
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--chat-text);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ejii-answer-section {
+  margin: 0;
+}
+
+.ejii-answer-section strong {
+  color: var(--chat-text);
+  font-weight: 600;
+}
+
+.ejii-answer-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--chat-surface-subtle);
+}
+
+/* Expandable Technical Evidence Drawer */
+.ejii-evidence-details {
+  margin-top: 14px;
+  border-top: 1px solid var(--chat-border);
+  padding-top: 10px;
+}
+
+.ejii-evidence-details > summary {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--chat-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ejii-evidence-details > summary:hover {
+  color: var(--chat-text);
+}
+
+.ejii-evidence-pre {
+  margin: 10px 0 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--chat-surface-subtle);
+  border: 1px solid var(--chat-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--chat-text);
+  overflow-x: auto;
+  max-height: 280px;
+}
+
+/* Live In-Flight Progress Indicator */
+.ejii-live-progress-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  font-size: 13.5px;
+  color: var(--chat-text-secondary);
+}
+
+.ejii-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chat-accent);
+  animation: ejiiChatPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes ejiiChatPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* Region 3: Bottom Message Composer */
+.ejii-composer-region {
+  padding: 12px 20px 20px 20px;
+  background: var(--chat-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ejii-composer-box {
+  width: 100%;
+  max-width: 760px;
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border-strong);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: var(--chat-shadow-composer);
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.ejii-composer-box:focus-within {
+  border-color: var(--chat-text);
+}
+
+.ejii-composer-textarea,
+#ejiiChatInput {
+  flex: 1;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--chat-text);
+  font-family: inherit;
+  font-size: 14.5px;
+  line-height: 1.45;
+  resize: none;
+  min-height: 24px;
+  max-height: 160px;
+  padding: 4px 6px !important;
+}
+
+.ejii-composer-textarea::placeholder {
+  color: var(--chat-text-muted);
+}
+
+.ejii-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ejii-btn-send {
+  appearance: none;
+  border: none;
+  background: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: opacity 0.15s ease;
+}
+
+.ejii-btn-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ejii-btn-stop {
+  appearance: none;
+  border: 1px solid var(--chat-danger);
+  background: var(--chat-danger-bg);
+  color: var(--chat-danger);
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ejii-composer-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--chat-text-muted);
+  text-align: center;
+}
+
+/* Mobile Responsive Adjustments (390x844) */
+@media (max-width: 640px) {
+  .ejii-minimal-header {
+    padding: 0 12px;
+  }
+  .ejii-minimal-title,
+  #ejiiChatUserBadge {
+    display: none;
+  }
+  .ejii-connection-indicator span:last-child {
+    display: none;
+  }
+  .ejii-header-btn {
+    white-space: nowrap;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .ejii-chat-scroll-container {
+    padding: 18px 12px 12px 12px;
+  }
+  .ejii-empty-heading {
+    font-size: 21px;
+  }
+  .ejii-composer-region {
+    padding: 8px 12px 14px 12px;
+  }
+  .ejii-msg-user-bubble {
+    max-width: 92%;
+  }
+}
