@@ -888,7 +888,7 @@ const emptyTargetPlan = (intent) => ({
       }
 
       // SSRF & Command Injection Target Validation + Automatic Typo Recovery
-      const localOnlyIntents = ['follow_up_explanation', 'host_health', 'conversation', 'local_network_info', 'active_connections', 'gateway_ping'];
+      const localOnlyIntents = ['follow_up_explanation', 'host_health', 'conversation', 'local_network_info', 'active_connections', 'gateway_ping', 'dns'];
       if (!localOnlyIntents.includes(plan.intent)) {
         if (!isSafeNetworkTarget(plan.target)) {
           return {
@@ -902,6 +902,7 @@ const emptyTargetPlan = (intent) => ({
           };
         }
 
+        const targetValidationStartedAt = performance.now();
         let targetValidation = await resolveAndValidateTarget(plan.target);
         if (!targetValidation.valid && String(targetValidation.error || '').includes('SECURITY_VIOLATION')) {
           return {
@@ -930,6 +931,9 @@ const emptyTargetPlan = (intent) => ({
           session.lastValidTarget = plan.target;
         }
 
+        if (targetValidation && !targetValidation.isIpLiteral && String(plan.target || '').toLowerCase() !== 'localhost') {
+          targetValidation.resolutionDurationMs = Number((performance.now() - targetValidationStartedAt).toFixed(2));
+        }
         plan.targetValidation = targetValidation;
       }
 
@@ -1784,7 +1788,7 @@ const emptyTargetPlan = (intent) => ({
             tool: 'resolveRecord',
             status: 'FAIL',
             summary: `DNS resolution failed for ${target} (ENOTFOUND)`,
-            durationMs: 1.5
+            durationMs: plan.targetValidation?.resolutionDurationMs ?? null
           }
         ],
         findings: [
@@ -1971,7 +1975,7 @@ const emptyTargetPlan = (intent) => ({
     if (!isIpLiteral) {
       if (plan.targetValidation?.valid && plan.targetValidation.pinnedIp) {
         resolvedIp = plan.targetValidation.pinnedIp;
-        dnsRes = { success: true, records: plan.targetValidation.resolvedIps, durationMs: Number((performance.now() - t0).toFixed(2)) };
+        dnsRes = { success: true, records: plan.targetValidation.resolvedIps, durationMs: Number.isFinite(plan.targetValidation.resolutionDurationMs) ? plan.targetValidation.resolutionDurationMs : null };
       } else {
         dnsRes = await resolveRecord(target, 'A');
         if (dnsRes.success && dnsRes.records?.length) {
@@ -1984,19 +1988,19 @@ const emptyTargetPlan = (intent) => ({
         tool: 'resolveRecord',
         status: dnsRes.success ? 'PASS' : 'FAIL',
         summary: dnsRes.success
-          ? `Resolved ${target} → ${resolvedIp} (${dnsRes.durationMs} ms)`
+          ? (Number.isFinite(dnsRes.durationMs) ? `Resolved ${target} → ${resolvedIp} (${dnsRes.durationMs} ms validation elapsed)` : `Resolved ${target} → ${resolvedIp}; timing not recorded`)
           : `DNS resolution failed: ${dnsRes.errorCode || dnsRes.error || 'ENOTFOUND'}`,
         durationMs: Number((performance.now() - t0).toFixed(1))
       });
     } else {
-      dnsRes = { success: true, records: [resolvedIp], durationMs: 0.4 };
+      dnsRes = { success: true, records: [resolvedIp], durationMs: null, lookupSkipped: true };
       steps.push({
         stepNumber: 1,
-        label: `Validating target address ${target}…`,
-        tool: 'resolveRecord',
+        label: `Using the direct target address ${target}…`,
+        tool: 'direct_target_validation',
         status: 'PASS',
-        summary: `Target ${target} maps to ${resolvedIp}`,
-        durationMs: 0.5
+        summary: `Target ${target} uses ${resolvedIp} directly; DNS lookup skipped`,
+        durationMs: null
       });
     }
 
@@ -2017,7 +2021,9 @@ const emptyTargetPlan = (intent) => ({
         technicalEvidence: { url: urlToProbe, dns: dnsRes, observedAt: new Date().toISOString() }
       };
     }
-    findings.push({ label: 'DNS', value: `${resolvedIp} (${dnsRes.durationMs} ms)`, tone: 'ok' });
+    findings.push(isIpLiteral
+      ? { label: 'Target Address', value: `${resolvedIp} (direct; DNS skipped)`, tone: 'neutral' }
+      : { label: 'DNS', value: `${resolvedIp}${Number.isFinite(dnsRes.durationMs) ? ` (${dnsRes.durationMs} ms validation elapsed)` : ' (timing not recorded)'}`, tone: 'ok' });
 
     // Step 2: TCP Port Check
     this._checkAborted(signal);
