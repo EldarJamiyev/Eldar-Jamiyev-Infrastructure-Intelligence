@@ -268,30 +268,46 @@ class VectorizedBayesianMatrix {
  * 3. Secret & PII Redaction
  * Recursively redacts sensitive tokens, credentials, cookies, and keys from telemetry before any external model query.
  */
-function redactTelemetryForExternalModel(input) {
+function redactTelemetryForExternalModel(input, options = {}) {
   if (input === null || input === undefined) return input;
+  const enablePiiRedaction = options.piiRedaction !== false;
+  const enableInfraAnonymization = Boolean(options.anonymizeInfrastructure || options.infrastructureAnonymization);
 
   if (typeof input === 'string') {
     let scrubbed = input;
+    // Tier 1: Credential & Secret Redaction (Always Active)
     // Scrub Bearer / JWT tokens
     scrubbed = scrubbed.replace(/Bearer\s+[A-Za-z0-9\-_=]+\.[A-Za-z0-9\-_=]+\.?[A-Za-z0-9\-_.+/=]*/gi, 'Bearer [REDACTED_JWT_TOKEN]');
     // Scrub URL query tokens
-    scrubbed = scrubbed.replace(/([?&]token=)[A-Za-z0-9\-_.%]+/gi, '$1[REDACTED_TOKEN]');
+    scrubbed = scrubbed.replace(/([?&](?:token|api_key|apikey|access_token|secret)=)[A-Za-z0-9\-_.%]+/gi, '$1[REDACTED_TOKEN]');
     // Scrub Basic Auth
     scrubbed = scrubbed.replace(/Basic\s+[A-Za-z0-9+/=]+/gi, 'Basic [REDACTED_BASIC_AUTH]');
     // Scrub Cookies
     scrubbed = scrubbed.replace(/eji_session=[^;\s]+/gi, 'eji_session=[REDACTED_SESSION_COOKIE]');
     // Scrub JSON password/secret/api_key fields
-    scrubbed = scrubbed.replace(/"(password|passwd|secret|apikey|api_key|token|auth_token|access_token)"\s*:\s*"[^"]*"/gi, '"$1": "[REDACTED_SECRET]"');
+    scrubbed = scrubbed.replace(/"(password|passwd|secret|apikey|api_key|token|auth_token|access_token|private_key)"\s*:\s*"[^"]*"/gi, '"$1": "[REDACTED_SECRET]"');
+
+    // Tier 2: PII Redaction (Email addresses & Phone numbers)
+    if (enablePiiRedaction) {
+      scrubbed = scrubbed.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[REDACTED_EMAIL]');
+      scrubbed = scrubbed.replace(/(?:\+\d{1,3}[\s.-]?)?\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}\b/g, '[REDACTED_PHONE]');
+    }
+
+    // Tier 3: Optional Infrastructure Anonymization (RFC1918 IPs, MACs, internal .corp/.internal/.local hosts)
+    if (enableInfraAnonymization) {
+      scrubbed = scrubbed.replace(/([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})/g, '[REDACTED_MAC]');
+      scrubbed = scrubbed.replace(/\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g, '[REDACTED_PRIVATE_IP]');
+      scrubbed = scrubbed.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:corp|internal|lan|localdomain)\b/gi, '[REDACTED_INTERNAL_HOST]');
+    }
     return scrubbed;
   }
 
   if (Array.isArray(input)) {
-    return input.map(item => redactTelemetryForExternalModel(item));
+    return input.map(item => redactTelemetryForExternalModel(item, options));
   }
 
   if (typeof input === 'object') {
-    const sensitiveTokens = ['token', 'password', 'passwd', 'pass', 'pwd', 'secret', 'apikey', 'api_key', 'authorization', 'cookie', 'credential'];
+    const sensitiveTokens = ['token', 'password', 'passwd', 'pass', 'pwd', 'secret', 'apikey', 'api_key', 'authorization', 'cookie', 'credential', 'private_key'];
     const clean = {};
     for (const [key, value] of Object.entries(input)) {
       const k = key.toLowerCase();
@@ -299,7 +315,7 @@ function redactTelemetryForExternalModel(input) {
       if (isSensitive) {
         clean[key] = '[REDACTED_SENSITIVE_FIELD]';
       } else {
-        clean[key] = redactTelemetryForExternalModel(value);
+        clean[key] = redactTelemetryForExternalModel(value, options);
       }
     }
     return clean;
@@ -340,10 +356,23 @@ class AIModelOrchestrator {
         lastError: null,
         lastCheckedAtIso: null
       },
+      GOOGLE_GEMINI: {
+        providerId: 'GOOGLE_GEMINI',
+        isLocal: false,
+        status: process.env.GEMINI_API_KEY ? 'READY' : 'UNCONFIGURED',
+        callsCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        lastLatencyMs: null,
+        latencyHistoryMs: [],
+        lastHttpStatus: null,
+        lastError: null,
+        lastCheckedAtIso: null
+      },
       OPENAI: {
         providerId: 'OPENAI',
         isLocal: false,
-        status: 'UNPROBED',
+        status: 'UNCONFIGURED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -356,7 +385,7 @@ class AIModelOrchestrator {
       ANTHROPIC: {
         providerId: 'ANTHROPIC',
         isLocal: false,
-        status: 'UNPROBED',
+        status: 'UNCONFIGURED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -371,6 +400,7 @@ class AIModelOrchestrator {
     // 3-State Circuit Breakers per provider ('CLOSED' | 'OPEN' | 'HALF_OPEN')
     this.circuitBreakers = {
       OLLAMA: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 },
+      GOOGLE_GEMINI: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 },
       OPENAI: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 },
       ANTHROPIC: { state: 'CLOSED', failureCount: 0, lastFailureIso: null, failureThreshold: 3, cooldownMs: 30000 }
     };
@@ -395,6 +425,7 @@ class AIModelOrchestrator {
         model: this.localModel,
         endpoint: 'http://127.0.0.1:11434',
         isLocal: true,
+        implemented: true,
         available: false
       },
       anthropic: {
@@ -402,6 +433,8 @@ class AIModelOrchestrator {
         name: 'Anthropic Claude',
         model: 'claude-3-5-sonnet-20241022',
         isLocal: false,
+        implemented: false,
+        adapterStatus: 'UNCONFIGURED',
         configured: Boolean(process.env.ANTHROPIC_API_KEY)
       },
       openai: {
@@ -409,6 +442,8 @@ class AIModelOrchestrator {
         name: 'OpenAI GPT-4o',
         model: 'gpt-4o',
         isLocal: false,
+        implemented: false,
+        adapterStatus: 'UNCONFIGURED',
         configured: Boolean(process.env.OPENAI_API_KEY)
       },
       google_gemini: {
@@ -416,6 +451,8 @@ class AIModelOrchestrator {
         name: 'Google Gemini 3.8 Flash',
         model: 'gemini-3.8-flash',
         isLocal: false,
+        implemented: true,
+        adapterStatus: process.env.GEMINI_API_KEY ? 'OPERATIONAL' : 'MISSING_API_KEY',
         configured: Boolean(process.env.GEMINI_API_KEY)
       }
     };
@@ -431,6 +468,7 @@ class AIModelOrchestrator {
       confidenceThreshold: this.confidenceThreshold,
       localModel: this.localModel,
       providers: { ...this.providers },
+      providerTelemetry: { ...this.providerTelemetry },
       compressorMetrics: {
         totalPacketsIngested: this.flowStateCompressor.totalPacketsIngested,
         totalEventsEmitted: this.flowStateCompressor.totalEventsEmitted,
@@ -502,7 +540,7 @@ class AIModelOrchestrator {
 
     // 3. External Provider Route: Redact telemetry first!
     const cleanTelemetry = redactTelemetryForExternalModel(rawTelemetry);
-    const selectedProvider = this.providers[this.preferredProvider] || this.providers.anthropic;
+    const selectedProvider = this.providers[this.preferredProvider] || this.providers.google_gemini;
 
     return {
       routedTo: selectedProvider.id,
@@ -521,7 +559,7 @@ class AIModelOrchestrator {
   }
 
   /**
-   * Executes a real bounded HTTP completion against Local Ollama, OpenAI, Claude, or Gemini
+   * Executes a real bounded HTTP completion against Local Ollama or Google Gemini
    * using strictly redacted context and RAG citations, falling back cleanly if offline.
    */
   async invokeModelProvider(providerName, promptText, options = {}) {
@@ -594,6 +632,9 @@ class AIModelOrchestrator {
         normProvider === 'GOOGLE_GEMINI' ||
         (allowRedactedCloudFallback && (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA')))
     ) {
+      const startTime = Date.now();
+      const targetModel = options.model || 'gemini-3.8-flash';
+      const wireModel = process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.1-flash-lite';
       try {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({
@@ -603,31 +644,53 @@ class AIModelOrchestrator {
             timeout: Math.max(10000, timeoutMs)
           }
         });
-        const redactedPrompt = redactTelemetryForExternalModel({ prompt: String(promptText || '') }).prompt;
+        const redactedPrompt = redactTelemetryForExternalModel(
+          { prompt: String(promptText || '') },
+          { piiRedaction: options.piiRedaction !== false, anonymizeInfrastructure: Boolean(options.anonymizeInfrastructure) }
+        ).prompt;
+        const generationConfig = {
+          temperature: typeof options.temperature === 'number' ? options.temperature : 0.1
+        };
+        if (options.tools && Array.isArray(options.tools) && options.tools.length > 0) {
+          generationConfig.tools = options.tools;
+        } else {
+          generationConfig.responseMimeType = options.responseMimeType || 'application/json';
+        }
         const response = await ai.models.generateContent({
-          model: options.model || 'gemini-3.1-flash-lite',
+          model: wireModel,
           contents: redactedPrompt,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.1
-          }
+          config: generationConfig
         });
+        const latencyMs = Date.now() - startTime;
         const text = response && response.text ? String(response.text).trim() : '';
-        if (text) {
-          if (this.providerTelemetry.OPENAI) {
-            this.providerTelemetry.OPENAI.callsCount = (this.providerTelemetry.OPENAI.callsCount || 0) + 1;
-            this.providerTelemetry.OPENAI.successCount = (this.providerTelemetry.OPENAI.successCount || 0) + 1;
-            this.providerTelemetry.OPENAI.status = 'OPERATIONAL';
+        const functionCalls = response && Array.isArray(response.functionCalls) ? response.functionCalls : [];
+        if (text || functionCalls.length > 0) {
+          if (this.providerTelemetry.GOOGLE_GEMINI) {
+            this.providerTelemetry.GOOGLE_GEMINI.callsCount = (this.providerTelemetry.GOOGLE_GEMINI.callsCount || 0) + 1;
+            this.providerTelemetry.GOOGLE_GEMINI.successCount = (this.providerTelemetry.GOOGLE_GEMINI.successCount || 0) + 1;
+            this.providerTelemetry.GOOGLE_GEMINI.status = 'OPERATIONAL';
+            this.providerTelemetry.GOOGLE_GEMINI.lastLatencyMs = latencyMs;
+            this.providerTelemetry.GOOGLE_GEMINI.lastHttpStatus = 200;
+            this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
           }
           return {
             liveResponse: true,
             isMock: false,
             provider: 'GOOGLE_GEMINI',
-            model: options.model || 'gemini-3.1-flash-lite',
+            model: targetModel,
+            latencyMs,
+            functionCalls,
             text
           };
         }
       } catch (err) {
+        if (this.providerTelemetry.GOOGLE_GEMINI) {
+          this.providerTelemetry.GOOGLE_GEMINI.callsCount = (this.providerTelemetry.GOOGLE_GEMINI.callsCount || 0) + 1;
+          this.providerTelemetry.GOOGLE_GEMINI.failureCount = (this.providerTelemetry.GOOGLE_GEMINI.failureCount || 0) + 1;
+          this.providerTelemetry.GOOGLE_GEMINI.status = 'DEGRADED';
+          this.providerTelemetry.GOOGLE_GEMINI.lastError = err.message || 'GEMINI_API_ERROR';
+          this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
+        }
         return {
           liveResponse: false,
           provider: 'GOOGLE_GEMINI',

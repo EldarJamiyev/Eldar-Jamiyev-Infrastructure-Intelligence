@@ -20,9 +20,13 @@ function createBaselineHostMetrics() {
   const usedMemBytes = totalMemBytes - freeMemBytes;
   const memUsedPct = parseFloat(((usedMemBytes / totalMemBytes) * 100).toFixed(1));
   const loadAvg = os.loadavg();
-  const cpuLoad = (loadAvg && loadAvg[0] && loadAvg[0] > 0)
-    ? Math.round(Math.min(100, (loadAvg[0] / Math.max(1, cpus.length)) * 100))
-    : 15;
+  const cpuLoad = !IS_WINDOWS
+    ? computePosixCpuLoadPercentage(cpus)
+    : ((loadAvg && loadAvg[0] && loadAvg[0] > 0)
+        ? Math.round(Math.min(100, (loadAvg[0] / Math.max(1, cpus.length)) * 100))
+        : 15);
+  const posixDisks = !IS_WINDOWS ? collectPosixDiskMetrics() : null;
+  const posixAdapters = !IS_WINDOWS ? collectPosixNetworkAdapters() : [];
 
   return {
     hostname: os.hostname(),
@@ -31,7 +35,7 @@ function createBaselineHostMetrics() {
     architecture: os.arch(),
     uptimeSeconds: Math.floor(os.uptime()),
     cpu: {
-      model: cpus[0] ? cpus[0].model.trim() : 'Intel Core Processor',
+      model: cpus[0] ? cpus[0].model.trim() : 'Generic Processor',
       cores: cpus.length,
       speedMHz: cpus[0] ? cpus[0].speed : 2400,
       loadPercentage: cpuLoad
@@ -49,7 +53,7 @@ function createBaselineHostMetrics() {
       usedFormatted: `${(usedMemBytes / (1024 ** 3)).toFixed(2)} GB`,
       freeFormatted: `${(freeMemBytes / (1024 ** 3)).toFixed(2)} GB`
     },
-    disks: [
+    disks: posixDisks && posixDisks.length > 0 ? posixDisks : (IS_WINDOWS ? [
       {
         mount: 'C:',
         drive: 'C:',
@@ -66,13 +70,143 @@ function createBaselineHostMetrics() {
         usedFormatted: '180.0 GB',
         freeFormatted: '332.0 GB'
       }
-    ],
-    networkAdapters: [],
+    ] : []),
+    networkAdapters: posixAdapters,
     osDetails: {
       caption: `${os.type()} ${os.release()}`,
       version: os.release()
     }
   };
+}
+
+function computePosixCpuLoadPercentage(cpus) {
+  const coreCount = Array.isArray(cpus) && cpus.length > 0 ? cpus.length : 1;
+  try {
+    const load1m = os.loadavg()[0] || 0;
+    if (load1m > 0) {
+      return Number(Math.min(100, Math.max(0.5, (load1m / coreCount) * 100)).toFixed(1));
+    }
+  } catch (_) {}
+  try {
+    let busyTicks = 0;
+    let totalTicks = 0;
+    for (const core of cpus || []) {
+      const t = core.times || {};
+      const busy = (Number(t.user) || 0) + (Number(t.nice) || 0) + (Number(t.sys) || 0) + (Number(t.irq) || 0);
+      const idle = Number(t.idle) || 0;
+      busyTicks += busy;
+      totalTicks += busy + idle;
+    }
+    if (totalTicks > 0) {
+      return Number(Math.min(100, Math.max(0.5, (busyTicks / totalTicks) * 100)).toFixed(1));
+    }
+  } catch (_) {}
+  return 0;
+}
+
+function collectPosixDiskMetrics() {
+  const disks = [];
+  if (IS_WINDOWS) return disks;
+  const fs = require('fs');
+  const { execSync } = require('child_process');
+  try {
+    const dfOut = execSync('df -kP / 2>/dev/null || true', { encoding: 'utf8', timeout: 1500 });
+    const lines = dfOut.trim().split(/\r?\n/);
+    if (lines.length >= 2) {
+      const parts = lines[lines.length - 1].trim().split(/\s+/);
+      if (parts.length >= 6) {
+        const fsName = parts[0];
+        const totalKb = Number(parts[1]) || 0;
+        const usedKb = Number(parts[2]) || 0;
+        const availKb = Number(parts[3]) || 0;
+        const mountPoint = parts[5] || '/';
+        if (totalKb > 0) {
+          const totalBytes = totalKb * 1024;
+          const usedBytes = usedKb * 1024;
+          const freeBytes = availKb * 1024;
+          const usedPct = parseFloat(((usedBytes / totalBytes) * 100).toFixed(1));
+          const totalGb = parseFloat((totalBytes / (1024 ** 3)).toFixed(1));
+          const usedGb = parseFloat((usedBytes / (1024 ** 3)).toFixed(1));
+          const freeGb = parseFloat((freeBytes / (1024 ** 3)).toFixed(1));
+          disks.push({
+            mount: mountPoint,
+            drive: mountPoint,
+            filesystem: fsName,
+            volumeName: mountPoint === '/' ? 'Root Filesystem (/)' : `Filesystem (${mountPoint})`,
+            totalBytes,
+            usedBytes,
+            freeBytes,
+            usedPercentage: usedPct,
+            usedPercent: usedPct,
+            usedGb,
+            totalGb,
+            freeGb,
+            totalFormatted: `${totalGb} GB`,
+            usedFormatted: `${usedGb} GB`,
+            freeFormatted: `${freeGb} GB`,
+            collectionMethod: 'posix_df_kP'
+          });
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (disks.length === 0 && typeof fs.statfsSync === 'function') {
+    try {
+      const st = fs.statfsSync('/');
+      const bsize = Number(st.bsize) || 4096;
+      const totalBytes = Number(st.blocks) * bsize;
+      const freeBytes = Number(st.bavail || st.bfree) * bsize;
+      const usedBytes = Math.max(0, totalBytes - freeBytes);
+      if (totalBytes > 0) {
+        const usedPct = parseFloat(((usedBytes / totalBytes) * 100).toFixed(1));
+        const totalGb = parseFloat((totalBytes / (1024 ** 3)).toFixed(1));
+        const usedGb = parseFloat((usedBytes / (1024 ** 3)).toFixed(1));
+        const freeGb = parseFloat((freeBytes / (1024 ** 3)).toFixed(1));
+        disks.push({
+          mount: '/',
+          drive: '/',
+          filesystem: 'rootfs',
+          volumeName: 'Root Filesystem (/)',
+          totalBytes,
+          usedBytes,
+          freeBytes,
+          usedPercentage: usedPct,
+          usedPercent: usedPct,
+          usedGb,
+          totalGb,
+          freeGb,
+          totalFormatted: `${totalGb} GB`,
+          usedFormatted: `${usedGb} GB`,
+          freeFormatted: `${freeGb} GB`,
+          collectionMethod: 'node_fs_statfs'
+        });
+      }
+    } catch (_) {}
+  }
+  return disks;
+}
+
+function collectPosixNetworkAdapters() {
+  const adapters = [];
+  if (IS_WINDOWS) return adapters;
+  try {
+    const rawIfaces = os.networkInterfaces() || {};
+    for (const [name, addrs] of Object.entries(rawIfaces)) {
+      if (!Array.isArray(addrs) || addrs.length === 0) continue;
+      const v4 = addrs.find((a) => a.family === 'IPv4' || a.family === 4);
+      const mac = addrs.find((a) => a.mac && a.mac !== '00:00:00:00:00:00')?.mac || '00:00:00:00:00:00';
+      adapters.push({
+        name,
+        status: 'Up',
+        linkSpeed: v4?.internal ? 'Loopback' : 'Virtual/NIC',
+        macAddress: mac,
+        ipv4: v4?.address || null,
+        collectionMethod: 'os_network_interfaces'
+      });
+    }
+  } catch (_) {}
+  return adapters;
 }
 
 // Seed baseline at startup
@@ -121,6 +255,8 @@ async function getHostMetrics(forceRefresh = false) {
   const freeMemBytes = os.freemem();
   const usedMemBytes = totalMemBytes - freeMemBytes;
   const memUsedPct = parseFloat(((usedMemBytes / totalMemBytes) * 100).toFixed(1));
+  const posixDisks = !IS_WINDOWS ? collectPosixDiskMetrics() : null;
+  const posixAdapters = !IS_WINDOWS ? collectPosixNetworkAdapters() : [];
 
   let hostData = {
     hostname: os.hostname(),
@@ -132,7 +268,7 @@ async function getHostMetrics(forceRefresh = false) {
       model: cpus[0] ? cpus[0].model.trim() : 'Unknown CPU',
       cores: cpus.length,
       speedMHz: cpus[0] ? cpus[0].speed : 0,
-      loadPercentage: 0
+      loadPercentage: !IS_WINDOWS ? computePosixCpuLoadPercentage(cpus) : 0
     },
     memory: {
       totalBytes: totalMemBytes,
@@ -147,7 +283,7 @@ async function getHostMetrics(forceRefresh = false) {
       usedFormatted: `${(usedMemBytes / (1024 ** 3)).toFixed(2)} GB`,
       freeFormatted: `${(freeMemBytes / (1024 ** 3)).toFixed(2)} GB`
     },
-    disks: [
+    disks: posixDisks && posixDisks.length > 0 ? posixDisks : (IS_WINDOWS ? [
       {
         mount: 'C:',
         drive: 'C:',
@@ -164,8 +300,8 @@ async function getHostMetrics(forceRefresh = false) {
         usedFormatted: '180.0 GB',
         freeFormatted: '332.0 GB'
       }
-    ],
-    networkAdapters: [],
+    ] : []),
+    networkAdapters: posixAdapters,
     osDetails: {
       caption: `${os.type()} ${os.release()}`,
       version: os.release()
@@ -259,21 +395,25 @@ async function getServices(filter = '') {
             name: parts[0] || 'service',
             displayName: parts[0] || 'service',
             status: parts[3] === 'running' ? 'Running' : 'Stopped',
-            startType: 'Systemd'
+            startType: 'Systemd',
+            entityType: 'SYSTEM_SERVICE',
+            collectionMethod: 'systemd_service_manager'
           };
         });
       }
-      // Container / non-systemd POSIX fallback using active processes
+      // Container / non-systemd POSIX fallback using active processes — clearly labeled as RUNNING_PROCESS
       const psOut = execSync('ps -eo pid,comm --no-headers 2>/dev/null || true', { encoding: 'utf8' });
       const psLines = psOut.trim().split('\n').filter(Boolean).slice(0, 25);
       const services = psLines.map(line => {
         const parts = line.trim().split(/\s+/);
-        const comm = parts[1] || 'daemon';
+        const comm = parts[1] || 'process';
         return {
           name: comm,
-          displayName: `${comm} (PID ${parts[0]})`,
+          displayName: `${comm} (PID ${parts[0]} · Process Inventory Fallback)`,
           status: 'Running',
-          startType: 'Daemon'
+          startType: 'Process (Non-systemd)',
+          entityType: 'RUNNING_PROCESS',
+          collectionMethod: 'posix_process_table_fallback'
         };
       });
       if (sanitizedFilter) {
@@ -447,19 +587,24 @@ function getVerifiedDefaultGateway() {
     }
   }
 
-  // 1. Linux /proc/net/route inspection (fastest, zero-subprocess kernel routing table)
+  // 1. Linux /proc/net/route inspection (fastest, zero-subprocess kernel routing table with UG flag & metric priority)
   let procRouteRead = false;
   try {
     if (fs.existsSync('/proc/net/route')) {
       const routeContent = fs.readFileSync('/proc/net/route', 'utf8');
       procRouteRead = true;
       const lines = routeContent.trim().split('\n').slice(1);
+      const validDefaultRoutes = [];
       for (const line of lines) {
         const cols = line.trim().split(/\s+/);
-        // Iface(0) Destination(1) Gateway(2) Flags(3)
+        // Iface(0) Destination(1) Gateway(2) Flags(3) RefCnt(4) Use(5) Metric(6) Mask(7)
         if (cols.length >= 4 && cols[1] === '00000000' && cols[2] !== '00000000') {
           const hexGw = cols[2];
-          if (/^[0-9a-fA-F]{8}$/.test(hexGw)) {
+          const flagsNum = parseInt(cols[3], 16) || 0;
+          // RTF_UP = 0x0001, RTF_GATEWAY = 0x0002 -> require UG (0x0003) when flags are non-zero
+          const hasUpGatewayFlags = flagsNum === 0 || (flagsNum & 0x0003) === 0x0003;
+          const metric = cols.length >= 7 ? (parseInt(cols[6], 10) || 0) : 0;
+          if (hasUpGatewayFlags && /^[0-9a-fA-F]{8}$/.test(hexGw)) {
             const octets = [
               parseInt(hexGw.slice(6, 8), 16),
               parseInt(hexGw.slice(4, 6), 16),
@@ -468,19 +613,31 @@ function getVerifiedDefaultGateway() {
             ];
             const gwIp = octets.join('.');
             if (gwIp !== '0.0.0.0') {
-              return {
-                verified: true,
-                status: 'ROUTE_FOUND',
+              validDefaultRoutes.push({
                 gatewayIp: gwIp,
                 interfaceName: cols[0] || null,
-                family: 'IPv4',
-                isContainer,
-                environmentScope,
-                collectionMethod: '/proc/net/route'
-              };
+                metric,
+                flagsHex: cols[3]
+              });
             }
           }
         }
+      }
+      if (validDefaultRoutes.length > 0) {
+        validDefaultRoutes.sort((a, b) => a.metric - b.metric);
+        const best = validDefaultRoutes[0];
+        return {
+          verified: true,
+          status: 'ROUTE_FOUND',
+          gatewayIp: best.gatewayIp,
+          interfaceName: best.interfaceName,
+          metric: best.metric,
+          flagsHex: best.flagsHex,
+          family: 'IPv4',
+          isContainer,
+          environmentScope,
+          collectionMethod: '/proc/net/route'
+        };
       }
     }
   } catch (_) {}
@@ -564,8 +721,63 @@ function getVerifiedDefaultGateway() {
 }
 
 /**
+ * Classifies the 4 explicit runtime/diagnostic environment scopes required by Section 6.1:
+ *   1. 'cloud_sandbox_runtime' (gVisor / Cloud Run / container vNIC with 169.254.x.x link-local or 169.254.169.254 metadata DNS)
+ *   2. 'container_network_namespace' (Docker / Podman / OCI container with standard bridge/overlay networking)
+ *   3. 'physical_workstation' (Bare-metal / native workstation or server OS)
+ *   4. 'remote_diagnostic_target' (When evaluating an external remote hostname/IP)
+ */
+function classifyEnvironmentScope(options = {}) {
+  if (options.isRemoteTarget) {
+    return {
+      environmentScopeCategory: 'remote_diagnostic_target',
+      executionScope: 'remote_diagnostic_target',
+      isContainer: false,
+      isCloudSandbox: false
+    };
+  }
+  const fs = require('fs');
+  let isContainer = Boolean(
+    fs.existsSync('/.dockerenv') ||
+    fs.existsSync('/run/.containerenv') ||
+    (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
+  );
+  let isGvisorOrCloudSandbox = false;
+  try {
+    if (fs.existsSync('/proc/version')) {
+      const ver = fs.readFileSync('/proc/version', 'utf8');
+      if (/gvisor|google|cloud/i.test(ver)) {
+        isGvisorOrCloudSandbox = true;
+      }
+    }
+  } catch (_) {}
+
+  const primaryIpv4 = options.primaryIpv4 || null;
+  const dnsServers = Array.isArray(options.dnsServers) ? options.dnsServers : [];
+  if (
+    (primaryIpv4 && String(primaryIpv4).startsWith('169.254.')) ||
+    dnsServers.includes('169.254.169.254')
+  ) {
+    isGvisorOrCloudSandbox = true;
+    isContainer = true;
+  }
+
+  const environmentScopeCategory = isGvisorOrCloudSandbox
+    ? 'cloud_sandbox_runtime'
+    : (isContainer ? 'container_network_namespace' : 'physical_workstation');
+
+  return {
+    environmentScopeCategory,
+    executionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
+    isContainer,
+    isCloudSandbox: isGvisorOrCloudSandbox
+  };
+}
+
+/**
  * Discovers the local DHCP server identifier from actual operating system client leases/config.
  * Inspects Linux lease paths (/run/systemd/netif/leases/*, /var/lib/dhcp/*, NetworkManager) or Windows ipconfig.
+ * Distinguishes DHCP_LEASE_OBSERVED, STATIC_CONFIG_VERIFIED, STATIC_CONTAINER_NAMESPACE, NO_LEASE_OBSERVED, and COLLECTOR_UNAVAILABLE.
  * Never guesses an IP, never confuses DHCP with gateway, and never probes fake TCP ports 67/68.
  */
 function discoverLocalDhcpServer(options = {}) {
@@ -584,10 +796,12 @@ function discoverLocalDhcpServer(options = {}) {
     try {
       const out = execSync('ipconfig /all', { timeout: 3000, encoding: 'utf8' });
       const dhcpMatch = out.match(/DHCP Server[\s\.:]+((?:\d{1,3}\.){3}\d{1,3})/i);
+      const dhcpEnabledNo = /DHCP Enabled[\s\.:]+No/i.test(out);
       if (dhcpMatch && dhcpMatch[1] && dhcpMatch[1] !== '0.0.0.0') {
         return {
           observed: true,
           status: 'DHCP_LEASE_OBSERVED',
+          addressingMode: 'DHCP_LEASE_OBSERVED',
           dhcpServerIp: dhcpMatch[1],
           interfaceName: null,
           leaseFile: null,
@@ -599,19 +813,23 @@ function discoverLocalDhcpServer(options = {}) {
       }
       return {
         observed: false,
-        status: 'NO_LEASE_OBSERVED',
+        status: dhcpEnabledNo ? 'STATIC_CONFIG_VERIFIED' : 'NO_LEASE_OBSERVED',
+        addressingMode: dhcpEnabledNo ? 'STATIC_CONFIG_VERIFIED' : 'NO_LEASE_OBSERVED',
         dhcpServerIp: null,
         interfaceName: null,
         leaseFile: null,
         collectionMethod: 'windows_ipconfig_all',
         isContainer: false,
         executionScope: 'host_network_namespace',
-        limitationReason: 'Windows ipconfig /all was executed, but no active DHCP Server line was reported (adapter may use static addressing or APIPA).'
+        limitationReason: dhcpEnabledNo
+          ? 'Windows ipconfig /all confirmed DHCP Enabled: No (static IP configuration verified).'
+          : 'Windows ipconfig /all was executed, but no active DHCP Server line was reported.'
       };
     } catch (_) {
       return {
         observed: false,
         status: 'COLLECTOR_UNAVAILABLE',
+        addressingMode: 'COLLECTOR_UNAVAILABLE',
         dhcpServerIp: null,
         interfaceName: null,
         leaseFile: null,
@@ -636,6 +854,7 @@ function discoverLocalDhcpServer(options = {}) {
           return {
             observed: true,
             status: 'DHCP_LEASE_OBSERVED',
+            addressingMode: 'DHCP_LEASE_OBSERVED',
             dhcpServerIp: match[1],
             interfaceName: file,
             leaseFile: fullPath,
@@ -664,6 +883,7 @@ function discoverLocalDhcpServer(options = {}) {
               return {
                 observed: true,
                 status: 'DHCP_LEASE_OBSERVED',
+                addressingMode: 'DHCP_LEASE_OBSERVED',
                 dhcpServerIp: match[1],
                 interfaceName: null,
                 leaseFile: fullPath,
@@ -694,6 +914,7 @@ function discoverLocalDhcpServer(options = {}) {
             return {
               observed: true,
               status: 'DHCP_LEASE_OBSERVED',
+              addressingMode: 'DHCP_LEASE_OBSERVED',
               dhcpServerIp: match[1],
               interfaceName: file.replace('.lease', ''),
               leaseFile: fullPath,
@@ -708,25 +929,52 @@ function discoverLocalDhcpServer(options = {}) {
     }
   } catch (_) {}
 
-  const status = isContainer ? 'STATIC_CONTAINER_NAMESPACE' : 'NO_LEASE_OBSERVED';
+  // 5. Check whether static configuration is explicitly verified in /etc/network/interfaces or /etc/netplan
+  let staticVerified = false;
+  let staticSource = null;
+  try {
+    if (fs.existsSync('/etc/network/interfaces')) {
+      const ifaceCfg = fs.readFileSync('/etc/network/interfaces', 'utf8');
+      if (/\binet\s+static\b/i.test(ifaceCfg)) {
+        staticVerified = true;
+        staticSource = '/etc/network/interfaces';
+      }
+    }
+  } catch (_) {}
+
+  const status = isContainer
+    ? 'STATIC_CONTAINER_NAMESPACE'
+    : (staticVerified ? 'STATIC_CONFIG_VERIFIED' : 'NO_LEASE_OBSERVED');
+  const addressingMode = isContainer
+    ? 'CONTAINER_MANAGED_NETWORKING'
+    : (staticVerified ? 'STATIC_CONFIG_VERIFIED' : 'NO_LEASE_OBSERVED');
+
   return {
     observed: false,
     status,
+    addressingMode,
+    staticConfigVerified: staticVerified,
     dhcpServerIp: null,
     interfaceName: null,
-    leaseFile: null,
-    collectionMethod: 'os_dhcp_lease_files_searched',
+    leaseFile: staticSource,
+    collectionMethod: staticSource || 'os_dhcp_lease_files_searched',
     isContainer,
     executionScope,
+    verificationCommands: {
+      windows: 'ipconfig /all | findstr /i "DHCP"',
+      linux: 'ip -d addr show; nmcli dev show | grep -i dhcp; networkctl status'
+    },
     limitationReason: isContainer
-      ? 'In this containerized server environment, interfaces are configured statically or via container virtual ethernet bridge without a local DHCP client daemon (no lease files present in /run/systemd/netif/leases or /var/lib/dhcp).'
-      : 'No active DHCP lease file or server identifier was found on this host system.'
+      ? 'In this containerized/sandbox runtime environment, virtual network interfaces are pre-assigned by the container orchestration plane rather than a local DHCP client daemon (no lease files present in /run/systemd/netif/leases or /var/lib/dhcp). Note: absence of a local lease file indicates container-managed networking, not necessarily static configuration on your physical workstation.'
+      : (staticVerified
+          ? `Static IP configuration was explicitly verified in ${staticSource}.`
+          : 'No active DHCP lease file was observed in /run/systemd/netif/leases, /var/lib/dhcp, or /var/lib/NetworkManager. Note that absence of a readable lease file alone does not prove static configuration without inspecting ip -d addr show (proto dhcp vs proto kernel) or NetworkManager state.')
   };
 }
 
 /**
  * Inspect local host network configuration (`os.networkInterfaces()`, DNS servers, and verified OS default gateway).
- * Clearly distinguishes EJII host/container interface addresses from loopback addresses, public IPs, and client workstation IPs.
+ * Clearly distinguishes EJII host/container/cloud-sandbox interface addresses from loopback addresses, public IPs, and client workstation IPs.
  * Never presents 127.0.0.1 as a discovered non-loopback primary interface address.
  */
 function inspectLocalNetworkConfiguration(options = {}) {
@@ -808,12 +1056,6 @@ function inspectLocalNetworkConfiguration(options = {}) {
     : discoverSystemDnsConfiguration();
   const dnsServers = dnsConfig.observedServers || [];
 
-  const isContainer = Boolean(
-    fs.existsSync('/.dockerenv') ||
-    fs.existsSync('/run/.containerenv') ||
-    (fs.existsSync('/proc/1/cgroup') && fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker'))
-  );
-
   const hasNonLoopbackV4 = primaryIpv4List.length > 0;
   const hasLoopbackV4 = loopbackIpv4List.length > 0;
   const primaryIpv4 = hasNonLoopbackV4 ? primaryIpv4List[0].address : null;
@@ -826,6 +1068,12 @@ function inspectLocalNetworkConfiguration(options = {}) {
         ? `Unavailable (loopback only: ${loopbackIpv4List.map((l) => l.address).join(', ')})`
         : 'Unavailable (no IPv4 interface addresses observed)');
 
+  const scopeInfo = classifyEnvironmentScope({
+    primaryIpv4,
+    dnsServers
+  });
+  const isContainer = scopeInfo.isContainer;
+
   const limitationReason = !hasNonLoopbackV4
     ? (hasLoopbackV4
         ? `No non-loopback IPv4 interface address was observed via os.networkInterfaces(); only loopback address(es) (${loopbackIpv4List.map((l) => l.address).join(', ')}) are present.`
@@ -836,10 +1084,14 @@ function inspectLocalNetworkConfiguration(options = {}) {
     hostname: os.hostname(),
     platform: os.platform(),
     isContainer,
-    executionScope: isContainer ? 'container_network_namespace' : 'host_network_namespace',
-    scopeDistinctionNote: isContainer
-      ? 'These network interfaces belong to the EJII server/container environment. EJII can observe its own container network namespace, not a remote browser client workstation or external NAT public egress IP.'
-      : 'These network interfaces belong to the local EJII host machine. External internet services see your router/NAT public IP rather than private RFC1918 interface addresses.',
+    isCloudSandbox: scopeInfo.isCloudSandbox,
+    environmentScopeCategory: scopeInfo.environmentScopeCategory,
+    executionScope: scopeInfo.executionScope,
+    scopeDistinctionNote: scopeInfo.isCloudSandbox
+      ? 'These network interfaces belong to the EJII cloud sandbox / container runtime (environmentScopeCategory: cloud_sandbox_runtime). Link-local 169.254.x.x addresses and 169.254.169.254 metadata resolvers reflect the isolated cloud container vNIC, NOT your physical workstation LAN or external public IP.'
+      : (isContainer
+          ? 'These network interfaces belong to the EJII server/container environment (environmentScopeCategory: container_network_namespace). EJII observes its own container network namespace, not a remote browser client workstation or external NAT public egress IP.'
+          : 'These network interfaces belong to the local EJII host machine (environmentScopeCategory: physical_workstation). External internet services see your router/NAT public IP rather than private RFC1918 interface addresses.'),
     primaryIpv4,
     primaryIpv4Status,
     primaryIpv4Label,
@@ -866,6 +1118,7 @@ module.exports = {
   getEventLogs,
   getVerifiedDefaultGateway,
   discoverLocalDhcpServer,
-  inspectLocalNetworkConfiguration
+  inspectLocalNetworkConfiguration,
+  classifyEnvironmentScope
 };
 

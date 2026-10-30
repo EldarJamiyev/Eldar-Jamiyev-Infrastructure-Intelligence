@@ -37,6 +37,11 @@ const {
   isInformationalTechnicalQuestion,
   answerInformationalQuestion
 } = require('./technical-knowledge-base');
+const {
+  isEpistemicOrSovereignFabricQuestion,
+  answerEpistemicOrFabricQuestion,
+  buildApplicationEpistemicContext
+} = require('./conversational-brain');
 
 const MAX_WORKING_MEMORY_MESSAGES = 40;
 const MAX_ENTITY_OBSERVATIONS = 25;
@@ -508,47 +513,103 @@ class ChatOperatorService {
         (session.socketSnapshots && session.socketSnapshots.length > 0))
     );
 
-    // 00A. Multi-turn Pending Task Continuation (e.g. Mail Server Inspection domain supply)
+    // 00-Epistemic. Sovereign Fabric v6 Truth Matrix, Bayesian Posteriors, Shannon Information-Gain, & Default Gateway Epistemic Queries
+    if (isEpistemicOrSovereignFabricQuestion(raw)) {
+      return {
+        intent: 'epistemic_fabric_query',
+        mode: 'informational',
+        target: null,
+        explicitTarget: null,
+        ports: [],
+        usedFollowUpTarget: false,
+        preserveContextOnly: true
+      };
+    }
+
+    // 00A. Multi-turn Pending Task Continuation (e.g. Mail Server Inspection domain supply or Port Ping target supply)
     const isMailServerCommand =
       /\b(check (?:the |my )?mail server|ping (?:the |my )?mail server|test (?:the |my )?mail server|mail server connection|email server|smtp server)\b/i.test(lower);
+
     if (session?.pendingTask?.type === 'mail_server_inspection' && !isMailServerCommand) {
-      const strippedCandidate = raw
-        .replace(/^(?:it'?s|it is|check|test|ping|try|for|the domain is|the server is|domain is|server is)\s+/i, '')
-        .replace(/[;,!?]+$/, '')
-        .trim();
-      const candidateTokens = strippedCandidate.split(/\s+/);
-      const nonTldWords = new Set(['server', 'host', 'domain', 'mail', 'email', 'smtp', 'imap', 'pop3', 'connection', 'status', 'check', 'ping', 'test']);
-      let normalizedDomain = null;
-      if (candidateTokens.length >= 2 && candidateTokens.every((t) => /^[a-zA-Z0-9-]+$/.test(t))) {
-        const last = candidateTokens[candidateTokens.length - 1].toLowerCase();
-        if (/^[a-z]{2,24}$/.test(last) && !nonTldWords.has(last)) {
-          normalizedDomain = candidateTokens.join('.').toLowerCase();
+      // If user switches topic to port ping, DHCP, gateway, conceptual question, or a general consumer brand (e.g. youtube), cancel the mail task immediately
+      const isTopicSwitch =
+        /\b(port\s+ping|ping\s+port|dhcp|gateway|my\s+ip|youtube|netflix|reddit|discord|github|cloudflare)\b/i.test(lower) ||
+        isInformationalTechnicalQuestion(raw);
+      if (isTopicSwitch) {
+        session.pendingTask = null;
+      } else {
+        const strippedCandidate = raw
+          .replace(/^(?:it'?s|it is|check|test|ping|try|for|the domain is|the server is|domain is|server is)\s+/i, '')
+          .replace(/[;,!?]+$/, '')
+          .trim();
+        const candidateTokens = strippedCandidate.split(/\s+/);
+        const nonTldWords = new Set([
+          'server', 'host', 'domain', 'mail', 'email', 'smtp', 'imap', 'pop3',
+          'connection', 'status', 'check', 'ping', 'test', 'port', 'ports',
+          'for', 'to', 'on', 'with', 'from', 'youtube', 'google', 'why', 'what', 'how', 'find', 'out'
+        ]);
+        const commandDisqualifiers = new Set(['port', 'ports', 'ping', 'for', 'check', 'test', 'resolve', 'lookup', 'why', 'what', 'how', 'youtube']);
+        let normalizedDomain = null;
+        if (
+          candidateTokens.length >= 2 &&
+          candidateTokens.length <= 5 &&
+          candidateTokens.every((t) => /^[a-zA-Z0-9-]+$/.test(t)) &&
+          !candidateTokens.some((t) => commandDisqualifiers.has(t.toLowerCase()))
+        ) {
+          const last = candidateTokens[candidateTokens.length - 1].toLowerCase();
+          if (/^[a-z]{2,24}$/.test(last) && !nonTldWords.has(last)) {
+            normalizedDomain = candidateTokens.join('.').toLowerCase();
+          }
+        } else if (/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(strippedCandidate)) {
+          const parts = strippedCandidate.toLowerCase().split('.');
+          if (!nonTldWords.has(parts[parts.length - 1])) {
+            normalizedDomain = strippedCandidate.toLowerCase();
+          }
         }
-      } else if (/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(strippedCandidate)) {
-        const parts = strippedCandidate.toLowerCase().split('.');
-        if (!nonTldWords.has(parts[parts.length - 1])) {
-          normalizedDomain = strippedCandidate.toLowerCase();
+
+        if (normalizedDomain && isSafeNetworkTarget(normalizedDomain)) {
+          session.pendingTask = null;
+          session.lastValidTarget = normalizedDomain;
+          session.lastTarget = normalizedDomain;
+          const mailPorts = [25, 465, 587, 143, 993, 110, 995];
+          return {
+            intent: 'port_check',
+            mode: 'operational',
+            target: normalizedDomain,
+            explicitTarget: normalizedDomain,
+            ports: mailPorts,
+            isMailTaskContinuation: true,
+            usedFollowUpTarget: false
+          };
         }
       }
+    }
 
-      if (normalizedDomain && isSafeNetworkTarget(normalizedDomain)) {
+    // 00A-2. Multi-turn Pending Task Continuation for bare "port ping" target supply (e.g. user said "port ping", then replies "youtube")
+    if (session?.pendingTask?.type === 'port_ping_target') {
+      const brandFollowUp = extractBrandHostnameShorthand(raw);
+      const domainFollowUpMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}|localhost|(?:\d{1,3}\.){3}\d{1,3})\b/);
+      const resolvedPendingTarget = (domainFollowUpMatch ? domainFollowUpMatch[1] : null) || brandFollowUp;
+      if (resolvedPendingTarget && isSafeNetworkTarget(resolvedPendingTarget)) {
+        const portMatches = raw.match(/\b(\d{2,5})\b/g);
+        const explicitPorts = portMatches
+          ? portMatches.map(Number).filter((p) => p >= 1 && p <= 65535)
+          : (session.pendingTask.requestedPorts || [80, 443]);
         session.pendingTask = null;
-        session.lastValidTarget = normalizedDomain;
-        session.lastTarget = normalizedDomain;
-        const mailPorts = [25, 465, 587, 143, 993, 110, 995];
+        session.lastValidTarget = resolvedPendingTarget;
+        session.lastTarget = resolvedPendingTarget;
         return {
           intent: 'port_check',
           mode: 'operational',
-          target: normalizedDomain,
-          explicitTarget: normalizedDomain,
-          ports: mailPorts,
-          isMailTaskContinuation: true,
+          target: resolvedPendingTarget,
+          explicitTarget: resolvedPendingTarget,
+          ports: explicitPorts.length > 0 ? explicitPorts : [80, 443],
           usedFollowUpTarget: false
         };
       }
     }
 
-    // 00B. Explicit "port ping" / "ping mail ports not ICMP" (Explicit TCP Port Check, Never ICMP Ping)
+    // 00B. Explicit "port ping" / "ping port youtube 443" / "ping mail ports not ICMP" (Explicit TCP Port Check, Never ICMP Ping)
     const isExplicitPortPing =
       /\bport\s+ping\b/i.test(lower) ||
       /\bping\s+(?:mail\s+)?ports?\b/i.test(lower) ||
@@ -556,26 +617,73 @@ class ChatOperatorService {
 
     if (isExplicitPortPing) {
       let domainTarget = null;
-      const domainMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})\b/);
+      const domainMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}|localhost|(?:\d{1,3}\.){3}\d{1,3})\b/);
       if (domainMatch) {
         domainTarget = domainMatch[1];
       }
-      const effectiveTarget = domainTarget || priorTarget;
+      if (!domainTarget) {
+        domainTarget = extractBrandHostnameShorthand(raw);
+      }
+
+      const rawWithoutIp = raw.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '');
+      const portNums = (rawWithoutIp.match(/\b(\d{2,5})\b/g) || [])
+        .map(Number)
+        .filter((p) => p >= 1 && p <= 65535);
+
+      const isExplicitMailKeyword = /\b(mail|smtp|imap|pop3)\b/i.test(lower);
+      // Only inherit priorTarget if the user said "not icmp" / "ping mail ports" or explicitly referred to the previous host
+      const shouldInheritPrior =
+        !domainTarget &&
+        priorTarget &&
+        (isExplicitMailKeyword || /\b(not\s+icmp|same|that|it|for\s+mail)\b/i.test(lower));
+      const effectiveTarget = domainTarget || (shouldInheritPrior ? priorTarget : null);
+
       if (!effectiveTarget) {
+        if (isExplicitMailKeyword) {
+          return {
+            intent: 'clarification_needed',
+            mode: 'conversational',
+            clarificationReason: 'MISSING_PORT_PING_TARGET',
+            clarificationPrompt: 'Which mail server hostname or IP address would you like me to test?',
+            target: null,
+            explicitTarget: null,
+            ports: [25, 465, 587, 143, 993, 110, 995],
+            preserveContextOnly: true
+          };
+        }
+        if (session) {
+          session.pendingTask = {
+            type: 'port_ping_target',
+            originalRequest: raw,
+            requestedPorts: portNums.length > 0 ? portNums : [80, 443],
+            createdAt: new Date().toISOString()
+          };
+        }
         return {
           intent: 'clarification_needed',
           mode: 'conversational',
           clarificationReason: 'MISSING_PORT_PING_TARGET',
-          clarificationPrompt: 'Which mail server hostname or IP address would you like me to test?',
+          clarificationPrompt: 'Which hostname or IP address (and TCP port, if specific) would you like me to test with a TCP port check?',
           target: null,
           explicitTarget: null,
-          ports: [25, 465, 587, 143, 993, 110, 995],
+          ports: portNums.length > 0 ? portNums : [80, 443],
           preserveContextOnly: true
         };
       }
 
-      const isMailRequest = /\bmail\b/i.test(lower) || effectiveTarget.toLowerCase().includes('mail') || (session?.lastPorts && session.lastPorts.includes(25));
-      const targetPorts = isMailRequest ? [25, 465, 587, 143, 993, 110, 995] : [80, 443];
+      if (session?.pendingTask) {
+        session.pendingTask = null;
+      }
+
+      const isMailRequest =
+        isExplicitMailKeyword ||
+        effectiveTarget.toLowerCase().startsWith('mail.') ||
+        effectiveTarget.toLowerCase().startsWith('smtp.') ||
+        effectiveTarget.toLowerCase().startsWith('imap.') ||
+        (!domainTarget && session?.lastPorts && session.lastPorts.includes(25));
+      const targetPorts = portNums.length > 0
+        ? portNums
+        : (isMailRequest ? [25, 465, 587, 143, 993, 110, 995] : [80, 443]);
 
       return {
         intent: 'port_check',
@@ -603,7 +711,7 @@ class ChatOperatorService {
       };
     }
 
-    // 00D. DHCP Server IP Discovery vs Conceptual Question
+    // 00D. DHCP Server IP Discovery & Follow-Up ("find out", "how can I find out", "is it static or dhcp") vs Conceptual Question
     const isDhcpIpDiscovery =
       /\b(what is my dhcp server ip|what's my dhcp server ip|whats my dhcp server ip|find the ip of dhcp|which dhcp server assigned my (?:ip|address)|where is my dhcp server|which server gave me this address|dhcp server ip|ip of dhcp)\b/i.test(lower) ||
       (/\b(dhcp server|dhcp)\b/i.test(lower) && /\b(ip|ip address|server address|assigned my)\b/i.test(lower) && !/\b(what is dhcp|how does dhcp work)\b/i.test(lower));
@@ -616,6 +724,47 @@ class ChatOperatorService {
         ports: [],
         usedFollowUpTarget: false,
         preserveLastRemoteTarget: true
+      };
+    }
+
+    const isDhcpFollowUp =
+      session?.lastIntent === 'dhcp_check' &&
+      (/^(?:find out|can you find out|how can i find out|how do i find out|how can i check|how do i check|check if it'?s static|is it static or dhcp|why not|check it)\??$/i.test(cleanNoPunct) ||
+        /\b(find out|whether (?:this|my) (?:ip|address|interface) is dhcp or static|is my ip static or dhcp)\b/i.test(lower));
+    if (isDhcpFollowUp) {
+      return {
+        intent: 'dhcp_check',
+        mode: 'operational',
+        target: 'local_dhcp_service',
+        explicitTarget: null,
+        ports: [],
+        isDhcpFollowUp: true,
+        usedFollowUpTarget: false,
+        preserveLastRemoteTarget: true
+      };
+    }
+
+    // 00E. Office Email / Mail Outage Problem Intake ("Users in our office cannot send or receive emails", "We have an office email problem")
+    const isOfficeEmailSymptom =
+      /\b(cannot send or receive emails?|can'?t send or receive emails?|unable to send or receive emails?|office email (?:problem|issue|outage)|emails? (?:are )?not (?:sending|receiving|working)|users (?:in our office )?can'?t (?:send|receive) email|email is down)\b/i.test(lower);
+    if (isOfficeEmailSymptom && !/\b((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,24})\b/.test(raw)) {
+      if (session) {
+        session.pendingTask = {
+          type: 'mail_server_inspection',
+          originalRequest: raw,
+          missingSlots: ['domain'],
+          requestedPorts: [25, 465, 587, 143, 993, 110, 995],
+          serviceType: 'mail',
+          createdAt: new Date().toISOString()
+        };
+      }
+      return {
+        intent: 'mail_troubleshooting_intake',
+        mode: 'conversational',
+        target: null,
+        explicitTarget: null,
+        ports: [25, 465, 587, 993],
+        preserveContextOnly: true
       };
     }
 
@@ -650,7 +799,23 @@ class ChatOperatorService {
       };
     }
 
-    // 0B. Conversational & Meta-Conversation Turns ("Hello", "How are you?", "Do you understand me?", "That was interesting", "Why did you say that?")
+    // 0B-1. Informational / Conceptual Technical Question (0 live probes, checked BEFORE conversational fallback & operational target extraction)
+    const hasCombinedCheckAndExplain =
+      /\b(check|test|ping|resolve|probe|inspect)\b/i.test(lower) &&
+      /\b(and|then)\s+(tell me|explain|what the result means|why it might be)\b/i.test(lower);
+
+    if (!hasCombinedCheckAndExplain && isInformationalTechnicalQuestion(raw)) {
+      return {
+        intent: 'informational_question',
+        mode: 'informational',
+        target: null,
+        explicitTarget: null,
+        ports: [],
+        preserveContextOnly: true
+      };
+    }
+
+    // 0B-2. Conversational & Meta-Conversation Turns ("Hello", "How are you?", "Do you understand me?", "That was interesting", "Why did you say that?")
     const convTurn = classifyConversationalTurn(raw, session);
     if (convTurn) {
       if (convTurn.type === 'meta_previous_turn') {
@@ -691,22 +856,6 @@ class ChatOperatorService {
         intent: 'greeting',
         mode: 'conversational',
         conversationalType: convTurn.type,
-        target: priorTarget,
-        explicitTarget: null,
-        ports: session?.lastPorts || [],
-        preserveContextOnly: true
-      };
-    }
-
-    // 0C. Informational / Conceptual Technical Question (0 live probes, unless combined with an explicit diagnostic request)
-    const hasCombinedCheckAndExplain =
-      /\b(check|test|ping|resolve|probe|inspect)\b/i.test(lower) &&
-      /\b(and|then)\s+(tell me|explain|what the result means|why it might be)\b/i.test(lower);
-
-    if (!hasCombinedCheckAndExplain && isInformationalTechnicalQuestion(raw)) {
-      return {
-        intent: 'informational_question',
-        mode: 'informational',
         target: priorTarget,
         explicitTarget: null,
         ports: session?.lastPorts || [],
@@ -1200,6 +1349,11 @@ class ChatOperatorService {
     let resolvedTarget = explicitTarget;
 
     if (!resolvedTarget) {
+      const isDirectPortCommandOnPrior =
+        extractedPorts.length > 0 &&
+        /^(?:try|check|test|now check|now test|probe|scan|what about|how about)\b/i.test(lower) &&
+        !/\b(local development server|our development server|can we definitively declare|application layer is healthy)\b/i.test(lower);
+
       if (isGenericDnsHealthPrompt) {
         resolvedTarget = 'example.com';
       } else if (isRemediation || isHostHealth) {
@@ -1207,7 +1361,7 @@ class ChatOperatorService {
       } else if (refersToFirstTarget && session?.targetHistory?.length > 0) {
         resolvedTarget = session.targetHistory[0];
         usedFollowUpTarget = true;
-      } else if (priorTarget && (refersToPreviousTarget || extractedPorts.length > 0)) {
+      } else if (priorTarget && (refersToPreviousTarget || isDirectPortCommandOnPrior)) {
         resolvedTarget = priorTarget;
         usedFollowUpTarget = true;
       } else {
@@ -1519,6 +1673,8 @@ class ChatOperatorService {
       const nonRemoteProbeIntents = new Set([
         'greeting',
         'informational_question',
+        'epistemic_fabric_query',
+        'mail_troubleshooting_intake',
         'clarification_needed',
         'follow_up_explanation',
         'host_health',
@@ -1580,6 +1736,12 @@ class ChatOperatorService {
           break;
         case 'informational_question':
           executionOutcome = this._executeInformationalQuestionScenario(cleanPrompt, session, plan);
+          break;
+        case 'epistemic_fabric_query':
+          executionOutcome = await this._executeEpistemicFabricQueryScenario(cleanPrompt, session, plan);
+          break;
+        case 'mail_troubleshooting_intake':
+          executionOutcome = this._executeMailTroubleshootingIntakeScenario(cleanPrompt, session, plan);
           break;
         case 'clarification_needed':
           executionOutcome = this._executeClarificationScenario(plan, session);
@@ -1907,7 +2069,7 @@ class ChatOperatorService {
    */
   _executeInformationalQuestionScenario(promptText, session, plan = null) {
     const kb = answerInformationalQuestion(promptText);
-    const modelReply = plan?.naturalReply && kb.topic === 'general_technical' ? plan.naturalReply : null;
+    const modelReply = plan?.naturalReply && kb.topic === 'Infrastructure & Network Engineering Concept' ? plan.naturalReply : null;
     const structuredAnswer = {
       result: modelReply || kb.result,
       meaning: kb.meaning,
@@ -1928,6 +2090,101 @@ class ChatOperatorService {
         topic: kb.topic,
         modelInterpreted: Boolean(plan?.modelInterpreted),
         preservedSessionTarget: session.lastValidTarget || null,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Sovereign Fabric v6 Truth Matrix, Bayesian Posteriors, & Shannon Information-Gain Reasoning (0 hostname prompts)
+   */
+  async _executeEpistemicFabricQueryScenario(promptText, session, plan = null) {
+    const analysis = await answerEpistemicOrFabricQuestion(promptText, session);
+    const topProbe = analysis.epistemicContext?.shannonInformationGainRecommendations?.[0];
+    const entropy = analysis.epistemicContext?.sovereignFabricV6TruthMatrix?.shannonEntropyBits ?? 3.17;
+    const gw = analysis.epistemicContext?.observedEvidence?.defaultGateway;
+
+    const structuredAnswer = {
+      result: analysis.result,
+      meaning: analysis.meaning,
+      nextStep: analysis.nextStep,
+      layerFailedFirst: null,
+      uncertainty: !gw?.verified
+        ? `Default gateway is ${gw?.reason || 'NO_DEFAULT_ROUTE_OBSERVED'} in this ${analysis.epistemicContext?.observedEvidence?.environmentScopeCategory || 'container_network_namespace'}.`
+        : null
+    };
+
+    return {
+      reply: analysis.naturalReply,
+      structuredAnswer,
+      steps: [],
+      findings: [
+        { label: 'Shannon Entropy H(X)', value: `${entropy} bits`, tone: 'neutral' },
+        {
+          label: 'Highest IG Next Probe',
+          value: topProbe ? `${topProbe.probeName} (${topProbe.expectedInformationGainBits} bits)` : 'L4 TCP Egress Probe',
+          tone: 'ok'
+        },
+        {
+          label: 'Gateway Epistemic State',
+          value: gw?.verified ? `Verified (${gw.gatewayIp})` : `Unverified (${gw?.reason || 'NO_DEFAULT_ROUTE_OBSERVED'})`,
+          tone: gw?.verified ? 'ok' : 'warn'
+        }
+      ],
+      technicalEvidence: {
+        mode: 'epistemic_fabric_query',
+        liveProbesExecuted: 0,
+        topic: analysis.topic,
+        sovereignFabricContext: analysis.epistemicContext,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Office Email / Mail Outage Structured Troubleshooting Intake
+   */
+  _executeMailTroubleshootingIntakeScenario(promptText, session, plan = null) {
+    if (session && !session.pendingTask) {
+      session.pendingTask = {
+        type: 'mail_server_inspection',
+        originalRequest: promptText,
+        missingSlots: ['domain'],
+        requestedPorts: [25, 465, 587, 143, 993, 110, 995],
+        serviceType: 'mail',
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    const result = 'I can help isolate the office email outage across DNS, mail transport ports, and TLS authentication.';
+    const meaning =
+      'When office users canneither send nor receive email, the fault typically lies in one of four layers:\n' +
+      '1. **DNS `MX` & `Autodiscover` Resolution:** If the mail domain\'s `MX` records or `smtp`/`imap` hostnames fail to resolve, both inbound and outbound mail stop.\n' +
+      '2. **Outbound SMTP Submission (`TCP 587` STARTTLS / `TCP 465` Implicit TLS) & Relay (`TCP 25`):** ISP or firewall blocks on ports `587`, `465`, or `25` prevent sending.\n' +
+      '3. **Inbound Mail Retrieval (`TCP 993` IMAPS / `TCP 143` IMAP / `TCP 995` POP3S):** If the mailbox daemon or TLS listener is down, clients cannot sync incoming messages.\n' +
+      '4. **TLS Certificate Expiry:** An expired X.509 certificate on the mail server causes Outlook, Apple Mail, and Thunderbird to block both sending and receiving.';
+    const nextStep =
+      'Please share your **email domain** (e.g., `company.com`) or **mail server hostname** (e.g., `mail.company.com`), and let me know if users are connecting via **Outlook/IMAP desktop clients** or **webmail**. As soon as you reply with the domain, I will inspect its `MX` records and test ports `25, 465, 587, 993, and 995`.';
+
+    return {
+      reply: `${result}\n\n${meaning}\n\n**Next Step:** ${nextStep}`,
+      structuredAnswer: {
+        result,
+        meaning,
+        nextStep,
+        layerFailedFirst: null,
+        uncertainty: 'Awaiting target mail domain or SMTP/IMAP hostname to begin live DNS MX and TCP port probes.'
+      },
+      steps: [],
+      findings: [
+        { label: 'Workflow', value: 'Mail Infrastructure Triage (DNS MX + SMTP/IMAP/POP3)', tone: 'neutral' },
+        { label: 'Target Ports Queued', value: '25, 465, 587, 143, 993, 110, 995', tone: 'neutral' },
+        { label: 'Awaiting Input', value: 'Mail Domain or Server Hostname', tone: 'warn' }
+      ],
+      technicalEvidence: {
+        mode: 'mail_troubleshooting_intake',
+        liveProbesExecuted: 0,
+        pendingTask: session?.pendingTask || null,
         observedAt: new Date().toISOString()
       }
     };
@@ -2112,9 +2369,19 @@ class ChatOperatorService {
 
     const reply = dhcpDiscovery.observed
       ? `**DHCP Server Discovered:** \`${dhcpServerIp}\`\n\n${dhcpDetails}\n\nNote that this is the DHCP server observed by the EJII runtime environment.`
-      : `**DHCP Server Inspection:** ${dhcpStatus}\n\n` +
-        `${dhcpDetails}\n\n` +
-        `Because this environment runs in a **\`${configData.executionScope}\`**, IP addressing is managed at the container bridge level rather than via DHCP leases. To check the DHCP server on your personal workstation, open PowerShell/Command Prompt and run \`ipconfig /all\` (look for "DHCP Server") or on Linux run \`nmcli dev show\`.`;
+      : plan?.isDhcpFollowUp
+        ? `### Addressing Mode Verification (\`${dhcpDiscovery.addressingMode || 'CONTAINER_MANAGED_NETWORKING'}\`)\n\n` +
+          `I inspected the local OS interface configuration, kernel address flags, and DHCP lease directories (\`/var/lib/dhcp\`, \`/var/lib/NetworkManager\`, \`/run/systemd/netif/leases\`, and \`/etc/network/interfaces\`):\n\n` +
+          `- **Runtime Addressing Status:** \`${dhcpStatus}\` (\`${dhcpDiscovery.addressingMode || 'CONTAINER_MANAGED_NETWORKING'}\`)\n` +
+          `- **Primary Interface Assigned:** \`${configData.primaryIpv4Label}\` on scope \`${configData.environmentScopeCategory || configData.executionScope}\`\n` +
+          `- **Why No DHCP Lease Exists Here:** ${dhcpDetails}\n\n` +
+          `### How to Check DHCP vs. Static IP on Your Own Workstation\n` +
+          `- **Windows (PowerShell / CMD):** Run \`ipconfig /all\` and check **DHCP Enabled: Yes/No** and **DHCP Server**.\n` +
+          `- **macOS:** Run \`ipconfig getpacket en0\` (returns the DHCP server packet if DHCP-assigned, or empty if static).\n` +
+          `- **Linux:** Run \`nmcli dev show | grep -E "IP4|DHCP4"\` or \`ip -d addr show\` (look for \`dynamic\` vs \`forever\` valid_lft).`
+        : `**DHCP Server Inspection:** ${dhcpStatus}\n\n` +
+          `${dhcpDetails}\n\n` +
+          `Because this environment runs in a **\`${configData.executionScope}\`**, IP addressing is managed at the container bridge level rather than via DHCP leases. To check the DHCP server on your personal workstation, open PowerShell/Command Prompt and run \`ipconfig /all\` (look for "DHCP Server") or on Linux run \`nmcli dev show\`.`;
 
     return {
       reply,
@@ -2122,6 +2389,7 @@ class ChatOperatorService {
       steps,
       findings: [
         { label: 'DHCP State', value: dhcpStatus, tone: dhcpDiscovery.observed ? 'ok' : 'warn' },
+        { label: 'Addressing Mode', value: dhcpDiscovery.addressingMode || 'CONTAINER_MANAGED_NETWORKING', tone: 'neutral' },
         { label: 'Execution Scope', value: configData.executionScope, tone: 'neutral' },
         { label: 'DHCP Server IP', value: dhcpServerIp || 'None (Statically Managed / Container)', tone: dhcpDiscovery.observed ? 'ok' : 'neutral' }
       ],
@@ -2129,8 +2397,10 @@ class ChatOperatorService {
         mode: 'dhcp_check',
         dhcpDiscovery,
         dhcpStatus,
+        addressingMode: dhcpDiscovery.addressingMode || 'CONTAINER_MANAGED_NETWORKING',
         isContainer: configData.isContainer,
         executionScope: configData.executionScope,
+        environmentScopeCategory: configData.environmentScopeCategory || 'container_network_namespace',
         observedAt: new Date().toISOString()
       }
     };

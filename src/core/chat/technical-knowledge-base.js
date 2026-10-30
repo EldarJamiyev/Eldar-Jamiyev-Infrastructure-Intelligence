@@ -65,9 +65,10 @@ const KNOWN_HOST_TYPO_MAP = Object.freeze({
   'example.con': 'example.com'
 });
 
-// Well-known conversational brand shorthand ("What's Google's IP?", "Resolve Google for me")
+// Well-known conversational brand shorthand ("What's Google's IP?", "Resolve Google for me", "port ping for youtube")
 const WELL_KNOWN_BRAND_DOMAINS = Object.freeze({
   google: 'google.com',
+  youtube: 'youtube.com',
   cloudflare: 'cloudflare.com',
   github: 'github.com',
   microsoft: 'microsoft.com',
@@ -77,7 +78,17 @@ const WELL_KNOWN_BRAND_DOMAINS = Object.freeze({
   example: 'example.com',
   wikipedia: 'wikipedia.org',
   npm: 'npmjs.com',
-  nodejs: 'nodejs.org'
+  nodejs: 'nodejs.org',
+  gmail: 'gmail.com',
+  outlook: 'outlook.office365.com',
+  yahoo: 'yahoo.com',
+  netflix: 'netflix.com',
+  reddit: 'reddit.com',
+  discord: 'discord.com',
+  slack: 'slack.com',
+  openai: 'openai.com',
+  anthropic: 'anthropic.com',
+  docker: 'docker.com'
 });
 
 /**
@@ -552,6 +563,14 @@ function isInformationalTechnicalQuestion(rawText) {
     return false;
   }
 
+  // Conceptual questions about whether an open TCP port / socket proves Layer 7 application health
+  if (
+    (/\b(open|responsive)\b/i.test(lower) && /\b(tcp|socket|port)\b/i.test(lower) && /\b(application layer|application is healthy|definitively declare|prove|guarantee|mean (?:the )?(?:app|application|service) is healthy)\b/i.test(lower)) ||
+    /\b(can we definitively declare|does an open (?:tcp )?(?:port|socket) (?:mean|prove|guarantee)|if (?:a )?(?:tcp )?port (?:\d+ )?is open,? (?:is|does)|open tcp socket.*application layer)\b/i.test(lower)
+  ) {
+    return true;
+  }
+
   // Conceptual questions about why ping works while a port fails (e.g. "Why can a server respond to ping but reject port 443?")
   if (
     /\b(why (?:can|does|would|might) (?:a |an |the )?(?:server|host|machine|device) (?:respond|reply) to ping|respond to ping but (?:reject|refuse|block|fail|drop)|ping works? but port|ping succeeds? but (?:tcp|port|http|https))\b/i.test(lower)
@@ -572,8 +591,8 @@ function isInformationalTechnicalQuestion(rawText) {
   }
 
   if (
-    /^(what is|what are|what exactly is|can you explain|explain|how does|how do|describe|define|is a |why can a |why does a |why do )\b/i.test(lower) &&
-    !/\b(my ip|my gateway|my network|my dns|my dhcp|active connections|running applications|talking to|what happened|what changed|previous test|previous result|last check|same host|that host|google's ip)\b/i.test(lower)
+    /^(what is|what are|what exactly is|can you explain|explain|how does|how do|describe|define|is a |why can a |why does a |why do |since our |if a port is open|does an open)\b/i.test(lower) &&
+    !/\b(my name|your name|who am i|who are you|my identity|my ip|my gateway|my network|my dns|my dhcp|active connections|running applications|talking to|what happened|what changed|previous test|previous result|last check|same host|that host|google's ip)\b/i.test(lower)
   ) {
     return true;
   }
@@ -587,6 +606,29 @@ function isInformationalTechnicalQuestion(rawText) {
 function answerInformationalQuestion(rawText) {
   const lower = String(rawText || '').toLowerCase();
   const clean = lower.replace(/[!?.]+$/, '').trim();
+
+  // Conceptual question: Does an open TCP socket (e.g. port 3000) prove the L7 application layer is healthy?
+  if (
+    (/\b(open|responsive)\b/i.test(lower) && /\b(tcp|socket|port)\b/i.test(lower) && /\b(application layer|application is healthy|definitively declare|prove|guarantee|mean (?:the )?(?:app|application|service) is healthy)\b/i.test(lower)) ||
+    /\b(can we definitively declare|does an open (?:tcp )?(?:port|socket) (?:mean|prove|guarantee)|if (?:a )?(?:tcp )?port (?:\d+ )?is open,? (?:is|does)|open tcp socket.*application layer)\b/i.test(lower)
+  ) {
+    const result = 'No — an open and responsive TCP socket on port 3000 only proves Layer 4 (Transport) reachability and kernel socket binding; it does **not** prove that the Layer 7 (Application) service is healthy.';
+    const meaning =
+      '- **What an Open TCP Socket Actually Proves (OSI Layer 4):** When a TCP check succeeds, the operating system kernel\'s network stack completed the 3-way handshake (`SYN` → `SYN-ACK` → `ACK`) because a process has bound the socket in `LISTEN` state and the kernel listen backlog is not full.\n' +
+      '- **Why the Application Layer Can Still Be Unhealthy (OSI Layer 7):**\n' +
+      '  1. **Event-Loop Starvation or Worker Deadlock:** The OS kernel will continue completing TCP 3-way handshakes in the listen queue even if the Node.js/Python/Java worker thread is completely deadlocked or frozen and never calls `accept()` or reads from the socket.\n' +
+      '  2. **HTTP 5xx Application Failures:** The server may accept the TCP connection and immediately return `500 Internal Server Error`, `502 Bad Gateway`, or `503 Service Unavailable`.\n' +
+      '  3. **Downstream Dependency Failure:** The web server process may be running, but its database connection pool, Redis cache, or upstream microservice is offline.\n' +
+      '  4. **TLS / Protocol Mismatch:** If TLS is expected, an expired certificate or cipher mismatch at Layer 6 will fail after the TCP handshake completes.';
+    const nextStep = 'To verify true Layer 7 application health, perform an HTTP/HTTPS health-endpoint request (e.g., checking status code `200 OK`, response latency, and payload validity on `http://localhost:3000`).';
+    return {
+      topic: 'Layer 4 TCP Socket State vs. Layer 7 Application Health',
+      result,
+      meaning,
+      nextStep,
+      naturalReply: `${result}\n\n${meaning}\n\n${nextStep}`
+    };
+  }
 
   // Conceptual question about DHCP
   if (clean === 'what is dhcp' || clean === 'what is dhcp?' || /\b(what (?:exactly )?is dhcp|how does dhcp work|what does dhcp do|explain dhcp)\b/i.test(lower)) {

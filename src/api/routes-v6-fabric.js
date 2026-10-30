@@ -935,6 +935,57 @@ router.post('/chat/message', authenticate, async (req, res) => {
   }));
 });
 
+router.post('/chat/stream', authenticate, async (req, res) => {
+  const authCheck = resolveVerifiedUser(req);
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.stream',
+      status: 'denied',
+      error: { code: 'AUTH_OR_ESCALATION_DENIED', message: authCheck.error }
+    }));
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const sendSse = (eventName, payload) => {
+    try {
+      res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
+    } catch (_) {}
+  };
+
+  const body = req.body || {};
+  sendSse('stage', { stage: 'INTERPRETING_INTENT', label: 'Analyzing intent and session context…', timestamp: new Date().toISOString() });
+
+  const outcome = await chatOperatorService.processMessage({
+    sessionId: body.sessionId,
+    message: body.message || body.prompt,
+    user: authCheck.user,
+    requestId: body.requestId || req.requestId,
+    simulateTimeout: Boolean(body.simulateTimeout)
+  });
+
+  if (outcome?.data?.steps && Array.isArray(outcome.data.steps)) {
+    for (const step of outcome.data.steps) {
+      sendSse('step', step);
+    }
+  }
+
+  sendSse('result', createEjiiResult({
+    success: outcome.success,
+    capabilityId: 'ejii.chat.stream',
+    requestId: req.requestId,
+    correlationId: req.correlationId,
+    status: outcome.status || (outcome.success ? 'ok' : 'failed'),
+    data: outcome.data || null,
+    ...(outcome.error ? { error: outcome.error } : {})
+  }));
+  res.end();
+});
+
 router.get('/chat/session/:sessionId', authenticate, (req, res) => {
   const authCheck = resolveVerifiedUser(req);
   if (!authCheck.allowed) {

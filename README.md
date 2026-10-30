@@ -8,10 +8,10 @@
 
 **AI-Native Conversational Infrastructure Assistant · L1–L7 Protocol & Wire Dissector · Epistemic Evidence Fabric · Governed Self-Healing Workbench**
 
-[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-100%2F100_PASS-059669?style=for-the-badge)](tests/run-tests.js)
-[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-34%2F34_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-100%2F100_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
+[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-46%2F46_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
 [![Design System](https://img.shields.io/badge/UI_Architecture-Project_Aurora_v7.0-0F172A?style=for-the-badge)](public/css/ejii-meridian.css)
-[![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
+[![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini_3.8_Flash-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
 [![Storage](https://img.shields.io/badge/Persistence-SQLite_WAL_%2B_RBAC-334155?style=for-the-badge)](src/db/database.js)
 
 [**Executive Vision**](#1-executive-overview) · [**Visual Product Tour (12 Live Screens)**](#2-visual-product-tour--every-workstation-in-action) · [**System Architecture**](#3-system-architecture--dataflow) · [**Project Falcon AI Brain**](#4-project-falcon--ai-native-conversational-intelligence) · [**Epistemic Guarantees**](#5-epistemic-integrity--zero-fabrication-engineering) · [**Quick Start & Testing**](#7-quick-start-configuration--verification)
@@ -181,7 +181,7 @@ flowchart TB
 
     subgraph Brain["Tier 2 · Project Falcon Conversational Brain & Sovereign Fabric v6"]
         ConvBrain["Conversational Brain\n(conversational-brain.js)"]
-        Gemini["Semantic AI Interpreter\n(@google/genai · gemini-2.5-flash)"]
+        Gemini["Semantic AI Interpreter\n(@google/genai · gemini-3.8-flash)"]
         ChatOp["Chat Operator Service\n(chat-operator-service.js)"]
         EvFabric["Sovereign Fabric v6\nEvidence Lineage DAG & Epistemic Guard"]
     end
@@ -256,9 +256,9 @@ EJII enforces strict engineering guardrails across every backend collector and f
 | :--- | :--- | :--- |
 | **No Assumed DNS Resolver Fallbacks** | `src/protocols/dns-diag.js` (`getRealSystemDns`) | Never substitutes `8.8.8.8` when OS resolver discovery is unavailable. Explicitly classifies `observed_os_config`, `local_stub_resolver`, or `unknown` with collection provenance. |
 | **Zero Fabricated Timing Values** | `src/core/chat/chat-operator-service.js`, `src/protocols/*` | Eliminates synthetic fallback durations (`\|\| 1.2`, `\|\| 1.0`). Uses `performance.now()` / `process.hrtime.bigint()` and reports `null` (`unmeasured`) if timing was not captured. |
-| **No Hardcoded Gateway Fallbacks** | `src/core/network-env.js` | Never fabricates `192.168.1.1` when the OS routing table cannot be read; returns `gatewayIp: null, gatewayVerified: false`. |
+| **No Hardcoded Gateway Fallbacks** | `src/protocols/host-metrics.js` (`getVerifiedDefaultGateway`) | Never fabricates `192.168.1.1` when the OS routing table cannot be read; returns `gatewayIp: null, verified: false, reason: 'NO_DEFAULT_ROUTE_OBSERVED'`. |
 | **Transport vs. Application Distinction** | `src/core/chat/chat-operator-service.js` | A successful TCP port check (`SYN -> SYN-ACK`) is reported strictly as transport-layer reachability, explicitly noting that HTTP/TLS verification is required for application health. |
-| **Simulated vs. Live Evidence Isolation** | `src/core/v6/evidence-fabric.js` | Every `M/M/1/K` digital-twin simulation record carries `isolatedFromLiveTruth: true` and is capped at `HYPOTHESIS` confidence so simulations never masquerade as live wire truth. |
+| **Simulated vs. Live Evidence Isolation** | `src/core/evidence/evidence-fabric.js` | Every `M/M/1/K` digital-twin simulation record carries `isolatedFromLiveTruth: true` and is capped at `HYPOTHESIS` confidence so simulations never masquerade as live wire truth. |
 | **Strict Session Ownership & RBAC** | `src/server.js`, `src/core/security.js` | Every chat session and diagnostic history record is bound to `ownerUserId`. Non-owners receive `403 Forbidden` on read, write, and delete operations. |
 
 ---
@@ -267,15 +267,15 @@ EJII enforces strict engineering guardrails across every backend collector and f
 
 | Workstation / Domain | Key Modules | Core Capabilities |
 | :--- | :--- | :--- |
-| **1. AI Diagnostic Assistant** | `public/js/views/chat-workspace-view.js`<br>`src/core/chat/conversational-brain.js` | Multi-turn natural-language diagnostics, Gemini semantic interpretation, pronoun/context resolution, guided mail & ISP workflows, collapsible raw telemetry. |
-| **2. Autonomous AI Operator** | `public/js/views/ai-operator-view.js`<br>`src/core/v6/ai-operator-engine.js` | Continuous anomaly detection, natural-language goal planner, 4-agent AI Operations Council, pre-snapshot self-healing, postcondition verification, honest auto-rollback. |
+| **1. AI Diagnostic Assistant** | `public/js/views/chat-workspace-view.js`<br>`src/core/chat/conversational-brain.js` | Multi-turn natural-language diagnostics, Gemini 3.8 Flash semantic interpretation, pronoun/context resolution, guided mail & ISP workflows, collapsible raw telemetry. |
+| **2. Autonomous AI Operator** | `public/js/views/ai-operator-view.js`<br>`src/core/operator/autonomous-infrastructure-operator.js` | Continuous anomaly detection, natural-language goal planner, 4-agent AI Operations Council, pre-snapshot self-healing, postcondition verification, honest auto-rollback. |
 | **3. Network Topology & NOC** | `public/js/views/topology-view.js`<br>`public/js/views/noc-view.js` | L1–L6 hierarchical dependency graph, Fiedler algebraic connectivity ($\lambda_2$), cut-vertex detection, LPM route trie, blast-radius simulator, live hop telemetry. |
-| **4. 3-Pane Packet Analysis** | `public/js/views/sniffer-view.js`<br>`src/protocols/packet-dissector.js` | Live kernel socket & wire capture, L2–L7 binary header tree, TLS 1.3 JA4 fingerprinting, hex/ASCII inspector, Kernel BPF & Wireshark AST filters, FFT jitter & QoS studio. |
+| **4. 3-Pane Packet Analysis** | `public/js/views/sniffer-view.js`<br>`src/sniffer/wire-dissector-apex.js` | Live kernel socket & wire capture, L2–L7 binary header tree, TLS 1.3 JA4 fingerprinting, hex/ASCII inspector, Kernel BPF & Wireshark AST filters, FFT jitter & QoS studio. |
 | **5. Ultra IP & Asset Scanner** | `public/js/views/ultra-ip-scanner-view.js` | Multi-threaded subnet discovery, EDR-safe scan profiles, MAC OUI vendor resolution, open port auditing, printer/VoIP/APIPA classification, CSV/JSON/Print export. |
 | **6. Core Diagnostics Workbench** | `public/js/views/core-diagnostics-view.js` | 4-pillar host health X-ray, CUSUM change-point anomaly triage, 5-Agent War-Room root-cause arbitration, process-to-socket matrix, staged remediation console. |
 | **7. Host Automation Library** | `public/js/views/pc-automation-view.js` | 28 audited remediation & audit scripts across Network, Repair, Security, and Performance with risk-tier badges and streaming execution terminal. |
 | **8. Sovereign Learning Center** | `public/js/views/learning-center-view.js`<br>`src/core/learning-academy-data.js` | 2 specialist academies (Network CCNA 200-301 & System Administration), 8 courses, 24 modules, 72 lessons, 8 interactive labs, flashcards, and scored quizzes. |
-| **9. Sovereign Fabric v6 Studio** | `public/js/views/v6-sovereign-fabric.js`<br>`src/core/v6/*` | 17 registered capabilities, 11 evidence classes, acyclic evidence lineage DAG, Shannon information-gain probe recommender, and governed remediation control plane. |
+| **9. Sovereign Fabric v6 Studio** | `public/js/views/v6-sovereign-fabric.js`<br>`src/core/evidence/*` | 17 registered capabilities, 11 evidence classes, acyclic evidence lineage DAG, Shannon information-gain probe recommender, and governed remediation control plane. |
 
 ---
 
@@ -304,20 +304,20 @@ Open **`http://localhost:3000`** in your browser.
 | :--- | :--- | :--- |
 | `EJII_PORT` / `PORT` | `3000` (dev) / `8443` | HTTP/WebSocket listener port |
 | `EJII_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` supported in container/cloud preview) |
-| `GEMINI_API_KEY` | *(System-injected)* | Enables live `@google/genai` (`gemini-2.5-flash`) semantic interpretation and natural-language synthesis in `ConversationalBrain` |
+| `GEMINI_API_KEY` | *(System-injected)* | Enables live `@google/genai` (`gemini-3.8-flash`) semantic interpretation, native function calling, and natural-language synthesis in `ConversationalBrain` |
 | `EJII_DB_PATH` | `./data/ejii.sqlite` | Path to the SQLite WAL persistence database |
 | `EJII_EVALUATION_MODE` | `false` | When `true` on local loopback, enables one-click evaluation persona selectors on the sign-in screen |
 
 ### 7.4 Running the Automated Verification Suites
 
-EJII includes **100 end-to-end NOC verification suites** and **34 core conversational & protocol unit tests**:
+EJII includes **100 end-to-end NOC verification suites** and **46+ core conversational, epistemic, & protocol unit tests**:
 
 ```bash
-# Run all 34 Project Falcon & Phase 6 core unit tests (DNS, DHCP, 5-layer ISP, Conversational Brain)
+# Run all Project Falcon & Phase 6 core unit tests (DNS, DHCP, 5-layer ISP, Conversational Brain, Eval Suite)
 node --test src/core/__tests__/*.test.js
 
 # Run the complete 100-suite EJII NOC architectural, security, protocol, and UI verification harness
-npm test
+node tests/run-all-tests.js
 
 # Re-capture all 12 live application screenshots via Playwright
 node scripts/capture-aurora-screenshots.js
@@ -345,16 +345,17 @@ node scripts/capture-aurora-screenshots.js
 ├── src/
 │   ├── core/
 │   │   ├── chat/                      # Project Falcon ConversationalBrain, Gemini AI Interpreter, ChatOperatorService
-│   │   ├── v6/                        # Sovereign Intelligence Fabric v6 (Evidence DAG, Causal RCA, Governance)
-│   │   ├── __tests__/                 # 34 unit tests for conversational brain, DNS/DHCP, and 5-layer diagnostics
-│   │   ├── network-env.js             # Real OS interface, gateway, and DHCP discovery without fake fallbacks
+│   │   ├── evidence/                  # Sovereign Intelligence Fabric v6 (Evidence DAG, Causal RCA, Governance)
+│   │   ├── operator/                  # Autonomous Infrastructure Operator & Self-Healing Playbooks
+│   │   ├── __tests__/                 # Unit & evaluation tests for conversational brain, DNS/DHCP, and Sovereign Fabric v6
 │   │   └── security.js                # PBKDF2-SHA512 password hashing, HMAC-SHA256 JWTs, capability RBAC
 │   ├── db/
 │   │   └── database.js                # Native node:sqlite WAL schema, triggers, and persistence layer
-│   ├── protocols/                     # Real L2–L7 protocol engines (DNS, TCP, TLS, HTTP, ICMP, Packet Dissector)
+│   ├── protocols/                     # Real L2–L7 protocol engines (dns-diag, tcp-port, tls-audit, http-probe, host-metrics)
+│   ├── sniffer/                       # Wireshark-grade RFC binary packet dissector (wire-dissector-apex.js)
 │   └── server.js                      # HTTP/REST API & WebSocket real-time telemetry server
 └── tests/
-    ├── run-tests.js                   # Master runner for all 100 NOC verification suites
+    ├── run-all-tests.js               # Master runner for all 100 NOC verification suites
     └── *.test.js                      # Suites 1–100 covering security, protocols, AI brain, and UI cohesion
 ```
 

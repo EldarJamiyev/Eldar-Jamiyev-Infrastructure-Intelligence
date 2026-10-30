@@ -27,7 +27,8 @@
     abortController: null,
     liveProgressStepText: '',
     progressTimer: null,
-    lastContext: null
+    lastContext: null,
+    restoredSessionId: null
   };
 
   window.__ejiiChatState = chatState;
@@ -47,6 +48,44 @@
       sessionStorage.setItem('ejii_chat_session_id', generated);
     } catch (_) {}
     return generated;
+  }
+
+  async function restoreSessionHistoryIfNeeded() {
+    const sessionId = getOrInitSessionId();
+    if (!sessionId || chatState.messages.length > 0 || chatState.restoredSessionId === sessionId) {
+      return;
+    }
+    chatState.restoredSessionId = sessionId;
+    try {
+      const token = (window.state && window.state.token) || localStorage.getItem('ejii_token');
+      const headers = {};
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const res = await fetch(`/api/v6/chat/session/${encodeURIComponent(sessionId)}?full=true`, {
+        method: 'GET',
+        headers,
+        credentials: 'same-origin'
+      });
+      if (!res.ok) return;
+      const envelope = await res.json().catch(() => null);
+      const data = envelope && envelope.data ? envelope.data : null;
+      if (data && Array.isArray(data.messages) && data.messages.length > 0 && chatState.messages.length === 0) {
+        chatState.messages = data.messages.map((m) => ({
+          id: m.id || ('M-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5)),
+          role: m.role || 'assistant',
+          content: m.content || '',
+          createdAt: m.createdAt || new Date().toISOString(),
+          meta: m.meta || {}
+        }));
+        if (data.lastValidTarget || data.lastTarget) {
+          chatState.lastContext = {
+            lastTarget: data.lastValidTarget || data.lastTarget,
+            lastPorts: data.lastPorts || [],
+            lastIntent: data.lastIntent || null
+          };
+        }
+        updateThreadDom();
+      }
+    } catch (_) {}
   }
 
   function formatStructuredMarkdown(text) {
@@ -247,14 +286,19 @@
   function startProgressStepTicker(promptText) {
     stopProgressStepTicker();
     const lower = String(promptText || '').toLowerCase();
+    const isConceptualOrEpistemic =
+      /\b(what is|how does|explain|difference between|can we definitively declare|sovereign fabric|truth matrix|information[- ]gain|shannon entropy|why is (?:the |my )?default gateway)\b/i.test(lower);
+
     let stages = [
-      'Validating target and checking DNS…',
-      'Testing live socket reachability…',
-      'Correlating evidence…'
+      'Interpreting intent and session context…',
+      'Executing verified diagnostic checks…',
+      'Synthesizing evidence…'
     ];
-    if (lower.includes('dns')) {
+    if (isConceptualOrEpistemic) {
+      stages = ['Reasoning over conversation & technical knowledge…'];
+    } else if (lower.includes('dns')) {
       stages = ['Querying DNS records…', 'Measuring lookup latency…'];
-    } else if (lower.includes('ping')) {
+    } else if (lower.includes('ping') && !lower.includes('port')) {
       stages = ['Sending ICMP echo requests…', 'Measuring round-trip latency and packet loss…'];
     } else if (lower.includes('port')) {
       stages = ['Initiating TCP 3-way handshake…', 'Verifying port listener state…'];
@@ -264,12 +308,14 @@
 
     let idx = 0;
     chatState.liveProgressStepText = stages[0];
-    chatState.progressTimer = setInterval(() => {
-      idx = Math.min(stages.length - 1, idx + 1);
-      chatState.liveProgressStepText = stages[idx];
-      const lbl = document.getElementById('ejiiChatProgressLabel');
-      if (lbl) lbl.textContent = chatState.liveProgressStepText;
-    }, 650);
+    if (stages.length > 1) {
+      chatState.progressTimer = setInterval(() => {
+        idx = Math.min(stages.length - 1, idx + 1);
+        chatState.liveProgressStepText = stages[idx];
+        const lbl = document.getElementById('ejiiChatProgressLabel');
+        if (lbl) lbl.textContent = chatState.liveProgressStepText;
+      }, 650);
+    }
   }
 
   function stopProgressStepTicker() {
@@ -638,5 +684,6 @@
     }
 
     updateThreadDom();
+    restoreSessionHistoryIfNeeded();
   };
 })();
