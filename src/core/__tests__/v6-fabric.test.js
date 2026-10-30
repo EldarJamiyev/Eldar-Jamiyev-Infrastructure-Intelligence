@@ -115,8 +115,11 @@ test('Part III & IV: CapabilityRegistry, EJIIResult<T> contract, EvidenceFabric 
   const healthRes = await capabilityRegistry.invokeCapability('ejii.host.health_metrics', {});
   const healthValidation = validateEjiiResult(healthRes);
   assert.equal(healthValidation.valid, true);
-  assert.equal(healthRes.status, 'ok');
-  assert.ok(healthRes.data?.cpu?.cores > 0);
+  assert.ok(['ok', 'partial'].includes(healthRes.status), 'Health status must be ok or partial');
+  assert.ok(['live_observed', 'partial_live_collection', 'cached_telemetry', 'baseline_snapshot'].includes(healthRes.source.fidelity));
+  assert.ok(healthRes.data?.cpu?.cores > 0, 'CPU cores must be greater than zero');
+  assert.ok(healthRes.data?.memory?.totalBytes > 0, 'Total memory bytes must be greater than zero');
+  assert.ok(healthRes.data?.telemetryMetadata?.collectionMode, 'Telemetry metadata collectionMode must be defined');
 
   const dhcpRes = await capabilityRegistry.invokeCapability('ejii.host.dhcp_status', {});
   const dhcpValidation = validateEjiiResult(dhcpRes);

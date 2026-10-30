@@ -165,13 +165,16 @@ router.get('/active', (req, res) => {
 
 /**
  * GET /api/rca/incidents
- * Return active/open incidents formatted for on-call operations and mobile companion
+ * Return active/open incidents formatted for on-call operations and mobile companion.
+ * Protected by authentication and telemetry read permissions.
  */
-router.get('/incidents', (req, res) => {
+router.get('/incidents', authenticate, requirePermission('telemetry.read'), (req, res) => {
   try {
-    const statusFilter = req.query.status || 'all';
-    const active = Array.from(aiBrain.activeIncidents.values()).map(inc => ({
-      id: inc.incidentKey || `INC-${Date.now()}`,
+    const statusFilter = String(req.query.status || 'all').toLowerCase();
+
+    // 1. Active incidents
+    const active = Array.from(aiBrain.activeIncidents ? aiBrain.activeIncidents.values() : []).map(inc => ({
+      id: inc.incidentKey || `INC-${String(inc.target || 'HOST').replace(/[^a-zA-Z0-9]/g, '_')}`,
       title: `${inc.incidentType || 'Network Anomaly'}: ${inc.target || 'Host'}${inc.destPort ? `:${inc.destPort}` : ''}`,
       severity: (inc.topHypothesis?.confidence && inc.topHypothesis.confidence > 0.8) ? 'critical' : 'warning',
       status: 'open',
@@ -179,34 +182,99 @@ router.get('/incidents', (req, res) => {
       suppressed_count: inc.suppressedCount || 0,
       created_at: inc.createdAt || new Date().toISOString()
     }));
+
+    // 2. Resolved historical incidents
+    const resolved = (aiBrain.incidentHistory || [])
+      .filter(h => h.status === 'resolved' || h.resolvedAt)
+      .map(h => ({
+        id: h.incidentKey || h.id || `INC-${String(h.target || 'HOST').replace(/[^a-zA-Z0-9]/g, '_')}`,
+        title: `${h.incidentType || 'Network Anomaly'}: ${h.target || 'Host'}${h.destPort ? `:${h.destPort}` : ''}`,
+        severity: h.severity || 'warning',
+        status: 'resolved',
+        root_cause: h.topHypothesis?.label || h.rootCause || 'Anomaly mitigated and verified',
+        suppressed_count: h.suppressedCount || 0,
+        created_at: h.createdAt || h.timestamp || new Date().toISOString(),
+        resolved_at: h.resolvedAt || h.updatedAt
+      }));
+
+    let incidents = [];
+    if (statusFilter === 'open') {
+      incidents = active;
+    } else if (statusFilter === 'resolved') {
+      incidents = resolved;
+    } else {
+      incidents = [...active, ...resolved];
+    }
+
     res.json({
       success: true,
-      count: active.length,
-      incidents: active
+      count: incidents.length,
+      incidents
     });
   } catch (err) {
-    res.status(500).json({ error: err.message, incidents: [] });
+    res.status(500).json({ success: false, error: err.message, incidents: [] });
   }
 });
 
 /**
  * POST /api/rca/incidents/:id/resolve
- * Resolve an active incident
+ * Resolve an active incident. Enforces authentication, operator permission, and 404 validation.
  */
-router.post('/incidents/:id/resolve', (req, res) => {
+router.post('/incidents/:id/resolve', authenticate, requirePermission('network.diagnostics.execute'), (req, res) => {
   try {
     const id = req.params.id;
-    if (aiBrain.activeIncidents && aiBrain.activeIncidents.has(id)) {
-      aiBrain.activeIncidents.delete(id);
+    if (!aiBrain.activeIncidents || !aiBrain.activeIncidents.has(id)) {
+      return res.status(404).json({
+        success: false,
+        error: `Incident '${id}' not found or already resolved.`
+      });
     }
+
+    const inc = aiBrain.activeIncidents.get(id);
+    aiBrain.activeIncidents.delete(id);
+
+    const resolvedRecord = {
+      ...inc,
+      incidentKey: id,
+      status: 'resolved',
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: req.user?.username || 'operator'
+    };
+
+    if (!Array.isArray(aiBrain.incidentHistory)) {
+      aiBrain.incidentHistory = [];
+    }
+    aiBrain.incidentHistory.push(resolvedRecord);
+
+    // Tamper-resistant audit record
+    try {
+      if (db && typeof db.prepare === 'function') {
+        const stmt = db.prepare(`
+          INSERT INTO audit_logs (id, user_id, username, action, resource, details, ip_address, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+          require('crypto').randomUUID ? require('crypto').randomUUID() : `AUD-${Date.now()}`,
+          req.user?.id || 'usr_unknown',
+          req.user?.username || 'unknown',
+          'INCIDENT_RESOLVED',
+          `incident:${id}`,
+          JSON.stringify({ target: inc.target, resolver: resolvedRecord.resolvedBy }),
+          req.ip || '127.0.0.1',
+          resolvedRecord.resolvedAt
+        );
+      }
+    } catch (_) {}
+
     res.json({
       success: true,
       id,
       resolved: true,
-      resolvedAt: new Date().toISOString()
+      resolvedAt: resolvedRecord.resolvedAt,
+      resolvedBy: resolvedRecord.resolvedBy
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -72,6 +72,7 @@ const rcaRoutes = require('./api/routes-rca');
 const observabilityRoutes = require('./api/routes-observability');
 const learningRoutes = require('./api/routes-learning');
 const v6FabricRoutes = require('./api/routes-v6-fabric');
+const { handleActionsList, handleActionReview } = require('./api/webauthn-automation');
 const { initLearningSchema } = require('./db/learning-schema');
 const { cncfObservabilityExporter } = require('./integrations/observability/cncf-observability-exporter');
 const { TypeContractValidator } = require('./core/type-contract-validator');
@@ -81,7 +82,7 @@ const { gitopsReconciliationEngine } = require('./core/gitops-reconciliation-eng
 const { collectLinuxParityTelemetry } = require('./systems/linux/linux-native-telemetry');
 const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('./network/routing/physical-network-detector');
 const { topologyEngine } = require('./network/topology/topology-engine');
-const { requestCorrelationAndTelemetryMiddleware, authenticate } = require('./api/middleware');
+const { requestCorrelationAndTelemetryMiddleware, authenticate, requireRole } = require('./api/middleware');
 
 // Sovereign-Apex v2.0.0 & Sovereign-Enterprise v3.0.0 Core Deep Intelligence & Safety Engines
 const { NeuroSymbolicApexEngine } = require('./ai/neuro-symbolic-apex');
@@ -338,6 +339,8 @@ app.use('/api/rca', rcaRoutes);
 app.use('/api/observability', observabilityRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/v6', v6FabricRoutes);
+app.get('/api/automation/actions', handleActionsList);
+app.post('/api/automation/actions/:id/review', authenticate, requireRole('OPERATOR', 'NOC_OPERATOR', 'SYSADMIN', 'NETWORK_ADMIN', 'ADMIN'), handleActionReview);
 
 // Native Prometheus Exposition Endpoint (/metrics)
 app.get('/metrics', (req, res) => {

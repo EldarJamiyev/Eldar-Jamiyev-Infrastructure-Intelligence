@@ -533,8 +533,49 @@ class CapabilityRegistry {
         data = await realTraceroute(params.target || params.host || '127.0.0.1', Number(params.maxHops) || 15);
         if (!data.success) status = 'partial';
       } else if (capabilityId === 'ejii.host.health_metrics') {
-        const { createBaselineHostMetrics } = require('../protocols/host-metrics');
-        data = createBaselineHostMetrics();
+        const { getHostMetrics, createBaselineHostMetrics } = require('../protocols/host-metrics');
+        try {
+          const forceRefresh = Boolean(params && (params.forceRefresh || params.live));
+          data = await getHostMetrics(forceRefresh);
+
+          // Evaluate live telemetry completeness and platform observability
+          const hasCpuUsage = data.cpu && data.cpu.usagePercentage !== null && !isNaN(data.cpu.usagePercentage);
+          const hasDisks = Array.isArray(data.disks) && data.disks.length > 0;
+          const diskStatus = data.diskCollectionStatus?.status;
+
+          if (diskStatus === 'COLLECTION_FAILED' || !hasDisks) {
+            status = 'partial';
+            fidelity = 'partial_live_collection';
+            warnings.push(data.diskCollectionStatus?.error || 'Disk counters unobserved in current runtime environment.');
+          } else if (!hasCpuUsage) {
+            status = 'partial';
+            fidelity = 'partial_live_collection';
+            warnings.push('CPU tick delta sampling unavailable; CPU usage percentage is pending or null.');
+          } else if (data._isCached) {
+            status = 'ok';
+            fidelity = 'cached_telemetry';
+          } else {
+            status = 'ok';
+            fidelity = 'live_observed';
+          }
+
+          data.telemetryMetadata = {
+            collectionMode: fidelity,
+            hardwareObserved: hasCpuUsage && hasDisks,
+            diskStatus: diskStatus || (hasDisks ? 'OBSERVED' : 'UNAVAILABLE'),
+            cpuMeasurementMethod: data.cpu?.measurementMethod || 'os_standard'
+          };
+        } catch (collectorErr) {
+          data = createBaselineHostMetrics();
+          status = 'partial';
+          fidelity = 'baseline_snapshot';
+          warnings.push(`Live hardware collector error (${collectorErr.message}); degraded to static baseline snapshot.`);
+          data.telemetryMetadata = {
+            collectionMode: 'baseline_snapshot',
+            hardwareObserved: false,
+            error: collectorErr.message
+          };
+        }
       } else if (capabilityId === 'ejii.path.5_layer_diagnostic') {
         const { chatOperatorService } = require('./chat/chat-operator-service');
         const plan = { intent: 'path_diagnostic', mode: 'operational', ports: [] };

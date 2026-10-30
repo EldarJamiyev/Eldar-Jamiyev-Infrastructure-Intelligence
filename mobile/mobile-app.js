@@ -27,11 +27,13 @@ async function mApi(endpoint, options = {}) {
 
   try {
     const res = await fetch(endpoint, { ...options, headers });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
   } catch (err) {
-    console.warn(`[Mobile API Fallback] ${endpoint}:`, err.message);
+    if (!err.message.includes('Authentication required')) {
+      console.warn(`[Mobile API Fallback] ${endpoint}:`, err.message);
+    }
     throw err;
   }
 }
@@ -67,22 +69,79 @@ function showMobileToast(message) {
   }, 2600);
 }
 
-// Biometric Security Gate
+// Biometric Security Gate with Real WebAuthn Challenge-Response Ceremony
 async function triggerBiometricAuth() {
-  if (window.PublicKeyCredential) {
-    try {
-      showMobileToast('Biometric Key Authenticated: Identity verified for Dual-Custody Actions.');
-      mState.biometricAuthenticated = true;
-      document.getElementById('btnBiometricUnlock').textContent = '🔓';
-      return true;
-    } catch (e) {
-      console.warn('Biometric challenge cancelled:', e);
-    }
+  const btn = document.getElementById('btnBiometricUnlock');
+  if (!window.PublicKeyCredential || !navigator.credentials) {
+    mState.biometricAuthenticated = false;
+    mState.biometricTicket = null;
+    if (btn) btn.textContent = '🔒';
+    showMobileToast('Biometric WebAuthn hardware is not available on this device/browser.');
+    return false;
   }
-  mState.biometricAuthenticated = true;
-  document.getElementById('btnBiometricUnlock').textContent = '🔓';
-  showMobileToast('Identity verified for Dual-Custody Actions.');
-  return true;
+
+  try {
+    showMobileToast('Requesting cryptographic authentication challenge...');
+    // 1. Fetch live challenge from server
+    const challengeRes = await mApi('/api/auth/webauthn/login-challenge', { method: 'POST' });
+    if (!challengeRes.success || !challengeRes.challenge) {
+      throw new Error(challengeRes.error || 'Server rejected challenge request');
+    }
+
+    // Convert base64url challenge string to Uint8Array buffer
+    const rawBinary = atob(challengeRes.challenge.replace(/-/g, '+').replace(/_/g, '/'));
+    const challengeBuffer = new Uint8Array(rawBinary.length);
+    for (let i = 0; i < rawBinary.length; i++) {
+      challengeBuffer[i] = rawBinary.charCodeAt(i);
+    }
+
+    // 2. Execute browser WebAuthn ceremony
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        challenge: challengeBuffer,
+        timeout: 60000,
+        rpId: window.location.hostname || 'localhost',
+        userVerification: 'required'
+      }
+    });
+
+    if (!credential) {
+      throw new Error('No credential assertion returned by authenticator');
+    }
+
+    // Convert rawId buffer to base64url
+    const rawIdBase64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    // 3. Submit assertion to server for cryptographic validation & ticket issuance
+    const verifyRes = await mApi('/api/auth/webauthn/login-verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        challenge: challengeRes.challenge,
+        credentialId: credential.id || rawIdBase64,
+        clientDataJSON: credential.response?.clientDataJSON ? btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))) : null,
+        authenticatorData: credential.response?.authenticatorData ? btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))) : null,
+        signature: credential.response?.signature ? btoa(String.fromCharCode(...new Uint8Array(credential.response.signature))) : null
+      })
+    });
+
+    if (verifyRes.success && verifyRes.biometricTicket) {
+      mState.biometricAuthenticated = true;
+      mState.biometricTicket = verifyRes.biometricTicket;
+      if (btn) btn.textContent = '🔓';
+      showMobileToast('Biometric Verified: Identity confirmed for Dual-Custody Actions.');
+      return true;
+    } else {
+      throw new Error(verifyRes.error || 'Biometric signature validation failed');
+    }
+  } catch (err) {
+    console.warn('Biometric authentication failed:', err.message);
+    mState.biometricAuthenticated = false;
+    mState.biometricTicket = null;
+    if (btn) btn.textContent = '🔒';
+    showMobileToast(`Biometric authentication denied: ${err.message}`);
+    return false;
+  }
 }
 
 
@@ -97,6 +156,21 @@ async function renderMobileIncidents() {
     incidents = res.incidents || [];
     localStorage.setItem('eji_cached_incidents', JSON.stringify(incidents));
   } catch (err) {
+    if (err.message && err.message.includes('Authentication required')) {
+      container.innerHTML = `
+        <div class="m-card" style="text-align: center; padding: 30px 16px;">
+          <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
+          <div class="m-title">Operator Authentication Required</div>
+          <p style="color: var(--text-muted); font-size: 12px; margin-top: 6px; margin-bottom: 16px;">
+            Secure connection established. Sign in via desktop NOC workstation or authorize on-call mobile session.
+          </p>
+          <div style="font-size: 11px; color: #34d399; background: rgba(5,150,105,0.12); padding: 8px; border-radius: 6px; border: 1px solid rgba(5,150,105,0.3);">
+            Live Network Telemetry & Dual-Custody Ready
+          </div>
+        </div>
+      `;
+      return;
+    }
     incidents = mState.cachedIncidents;
     container.innerHTML += `<div style="color: var(--warning); font-size: 11px;">⚠️ Offline: Showing ${incidents.length} cached alerts.</div>`;
   }
@@ -225,6 +299,14 @@ function attachSwipeHandler(actionId) {
 
   thumb.addEventListener('touchend', async () => {
     if (currentX >= maxSlide * 0.75) {
+      // Require real biometric authentication ticket
+      if (!mState.biometricAuthenticated || !mState.biometricTicket) {
+        thumb.style.transform = 'translateX(0px)';
+        showMobileToast('Biometric WebAuthn verification required before dual-custody authorization. Tap 🔐 in header.');
+        currentX = 0;
+        return;
+      }
+
       // Threshold reached -> trigger authorization
       thumb.style.transform = `translateX(${maxSlide}px)`;
       thumb.style.backgroundColor = '#059669';
@@ -233,7 +315,11 @@ function attachSwipeHandler(actionId) {
       try {
         await mApi(`/api/automation/actions/${actionId}/review`, {
           method: 'POST',
-          body: JSON.stringify({ approved: true, comment: 'Authorized via EJI Mobile Swipe Gesture' })
+          body: JSON.stringify({
+            approved: true,
+            comment: 'Authorized via EJI Mobile Swipe Gesture + WebAuthn Biometric Verification',
+            biometricTicket: mState.biometricTicket
+          })
         });
         track.innerHTML = '<span style="color: #34d399; font-weight: 700; font-size: 13px;">✓ Remediation Authorized</span>';
         setTimeout(renderMobileApprovals, 800);

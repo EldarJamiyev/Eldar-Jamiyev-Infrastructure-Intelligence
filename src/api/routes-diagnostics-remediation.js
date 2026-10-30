@@ -159,4 +159,9 @@ router.get(['/host/trends', '/trends'], authenticate, (req, res) => {
   }
 });
 
+// Dual-Custody Remediation Action Handlers
+const { handleActionsList, handleActionReview } = require('./webauthn-automation');
+router.get(['/actions', '/automation/actions'], authenticate, handleActionsList);
+router.post(['/actions/:id/review', '/automation/actions/:id/review'], authenticate, requireRole('OPERATOR', 'NOC_OPERATOR', 'SYSADMIN', 'NETWORK_ADMIN', 'ADMIN'), handleActionReview);
+
 module.exports = router;

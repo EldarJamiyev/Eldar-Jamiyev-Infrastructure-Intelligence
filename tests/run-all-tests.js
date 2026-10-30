@@ -138,7 +138,8 @@ const COMPANION_TEST_MODULES = [
   './learning-catalog.test',
   './learning-labs.test',
   './learning-quiz-engine.test',
-  './learning-router.test'
+  './learning-router.test',
+  './mobile-and-webauthn-dual-custody.test'
 ];
 
 async function runAllTests() {

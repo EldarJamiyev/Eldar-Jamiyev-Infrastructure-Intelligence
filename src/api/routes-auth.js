@@ -235,4 +235,8 @@ router.post('/logout', (req, res) => {
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 
+// Mount WebAuthn Biometric Authentication Challenge & Verification
+const { mountWebAuthnRoutes } = require('./webauthn-automation');
+mountWebAuthnRoutes(router);
+
 module.exports = router;

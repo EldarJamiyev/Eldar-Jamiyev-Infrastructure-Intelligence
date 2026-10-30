@@ -10,9 +10,13 @@ const crypto = require('crypto');
 
 const VALID_FIDELITIES = new Set([
   'live',
+  'live_observed',
   'derived',
   'cached',
+  'cached_telemetry',
   'simulated',
+  'partial_live_collection',
+  'baseline_snapshot',
   'unavailable',
   'unsupported'
 ]);
