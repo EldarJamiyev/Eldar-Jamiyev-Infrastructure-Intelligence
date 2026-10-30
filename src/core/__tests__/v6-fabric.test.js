@@ -105,10 +105,25 @@ test('Part II: Hardened TypeScript Flagship Engines handle adversarial & edge-ca
 });
 
 test('Part III & IV: CapabilityRegistry, EJIIResult<T> contract, EvidenceFabric & Acyclic Lineage', async () => {
+  const { CAPABILITY_DEFINITIONS } = require('../capability-registry');
+  assert.equal(CAPABILITY_DEFINITIONS.length, 21, 'Must have exactly 21 canonical capabilities registered');
+
   const res = await capabilityRegistry.invokeCapability('ejii.discovery.temporal_topology', {});
   const validation = validateEjiiResult(res);
   assert.equal(validation.valid, true);
+
+  const healthRes = await capabilityRegistry.invokeCapability('ejii.host.health_metrics', {});
+  const healthValidation = validateEjiiResult(healthRes);
+  assert.equal(healthValidation.valid, true);
+  assert.equal(healthRes.status, 'ok');
+  assert.ok(healthRes.data?.cpu?.cores > 0);
+
+  const dhcpRes = await capabilityRegistry.invokeCapability('ejii.host.dhcp_status', {});
+  const dhcpValidation = validateEjiiResult(dhcpRes);
+  assert.equal(dhcpValidation.valid, true);
+
   assert.equal(EVIDENCE_CLASSES.length, 11);
+
 
   // Stale or simulated-only evidence cannot confirm a live finding
   const simEv = evidenceFabric.recordEvidence({

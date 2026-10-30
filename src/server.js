@@ -214,6 +214,15 @@ app.use(express.static(path.resolve(__dirname, '..', 'public'), {
   }
 }));
 
+// Serve mobile companion application directory at /mobile
+app.use('/mobile', express.static(path.resolve(__dirname, '..', 'mobile'), {
+  maxAge: 0,
+  etag: true,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+}));
+
 // Primary NOC Workstation API Routes
 app.get('/api/health', (req, res) => {
   res.json({
@@ -224,6 +233,42 @@ app.get('/api/health', (req, res) => {
     port: config.PORT
   });
 });
+
+// Platform Engine & System Telemetry Endpoint for Mobile and Admin Health
+app.get('/api/admin/system-health', authenticate, (req, res) => {
+  try {
+    const mem = process.memoryUsage();
+    let totalAuditRecords = 0;
+    let dbSize = 0;
+    try {
+      const row = db.prepare('SELECT COUNT(*) as cnt FROM audit_logs').get();
+      if (row) totalAuditRecords = row.cnt || 0;
+    } catch (_) {}
+    try {
+      const stats = fs.statSync(config.DB_PATH);
+      dbSize = stats.size;
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      status: 'UP',
+      uptimeSeconds: Math.floor(process.uptime()),
+      memory: {
+        rssMb: Number((mem.rss / (1024 * 1024)).toFixed(1)),
+        heapUsedMb: Number((mem.heapUsed / (1024 * 1024)).toFixed(1)),
+        heapTotalMb: Number((mem.heapTotal / (1024 * 1024)).toFixed(1))
+      },
+      database: {
+        totalAuditRecords,
+        sizeBytes: dbSize,
+        sizeFormatted: (dbSize / (1024 * 1024)).toFixed(2) + ' MB'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 // Fast Aggregated Bootstrap Endpoint (Instant 0ms multi-view hydration)
 app.get('/api/system/bootstrap', authenticate, async (req, res) => {

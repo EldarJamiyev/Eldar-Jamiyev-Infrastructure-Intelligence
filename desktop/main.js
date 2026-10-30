@@ -11,7 +11,7 @@ const http = require('http');
 let mainWindow = null;
 let tray = null;
 let serverProcess = null;
-const PORT = process.env.EJII_PORT || 8443;
+const PORT = process.env.EJII_PORT || process.env.PORT || 8443;
 const SERVER_URL = `http://localhost:${PORT}`;
 
 // Enforce single instance lock

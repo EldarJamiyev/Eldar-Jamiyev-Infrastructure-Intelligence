@@ -1160,6 +1160,8 @@ function inspectLocalNetworkConfiguration(options = {}) {
 
 module.exports = {
   getHostMetrics,
+  createBaselineHostMetrics,
+  sampleCpuTickDeltaPercentage,
   getServices,
   getProcesses,
   getEventLogs,
@@ -1168,4 +1170,5 @@ module.exports = {
   inspectLocalNetworkConfiguration,
   classifyEnvironmentScope
 };
+
 

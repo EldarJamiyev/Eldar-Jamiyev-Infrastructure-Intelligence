@@ -51,12 +51,27 @@ function switchMobileTab(tab) {
   }
 }
 
+function showMobileToast(message) {
+  let toast = document.getElementById('mobileToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'mobileToast';
+    toast.style.cssText = 'position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f8fafc;padding:10px 16px;border-radius:8px;font-size:12px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.4);border:1px solid #334155;pointer-events:none;transition:opacity 0.2s;max-width:90%;text-align:center;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.style.opacity = '0';
+  }, 2600);
+}
+
 // Biometric Security Gate
 async function triggerBiometricAuth() {
   if (window.PublicKeyCredential) {
     try {
-      // Prompt device biometric / credential manager
-      alert('Biometric Key Authenticated: Identity verified for Dual-Custody Actions.');
+      showMobileToast('Biometric Key Authenticated: Identity verified for Dual-Custody Actions.');
       mState.biometricAuthenticated = true;
       document.getElementById('btnBiometricUnlock').textContent = '🔓';
       return true;
@@ -66,8 +81,10 @@ async function triggerBiometricAuth() {
   }
   mState.biometricAuthenticated = true;
   document.getElementById('btnBiometricUnlock').textContent = '🔓';
+  showMobileToast('Identity verified for Dual-Custody Actions.');
   return true;
 }
+
 
 // 1. INCIDENTS VIEW
 async function renderMobileIncidents() {
@@ -129,9 +146,10 @@ async function resolveMobileIncident(id) {
     if (navigator.vibrate) navigator.vibrate([40, 40]);
     renderMobileIncidents();
   } catch (e) {
-    alert(`Resolve failed: ${e.message}`);
+    showMobileToast(`Resolve failed: ${e.message}`);
   }
 }
+
 
 // 2. APPROVALS VIEW (SWIPE-TO-APPROVE)
 async function renderMobileApprovals() {
@@ -220,9 +238,10 @@ function attachSwipeHandler(actionId) {
         track.innerHTML = '<span style="color: #34d399; font-weight: 700; font-size: 13px;">✓ Remediation Authorized</span>';
         setTimeout(renderMobileApprovals, 800);
       } catch (err) {
-        alert(`Approval error: ${err.message}`);
+        showMobileToast(`Approval error: ${err.message}`);
         thumb.style.transform = 'translateX(0px)';
       }
+
     } else {
       // Snap back
       thumb.style.transform = 'translateX(0px)';

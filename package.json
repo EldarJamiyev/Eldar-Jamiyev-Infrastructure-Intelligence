@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "EJII_PORT=3000 EJII_HOST=0.0.0.0 node src/server.js",
     "build": "tsc",
-    "lint": "node --check src/server.js && node --check src/core/chat/conversational-brain.js && node --check src/core/chat/semantic-ai-interpreter.js && node --check src/core/chat/chat-operator-service.js",
+    "lint": "node scripts/lint-all.js",
     "pretest": "tsc",
     "start": "node src/server.js",
     "desktop": "node bin/ejii-desktop.js",

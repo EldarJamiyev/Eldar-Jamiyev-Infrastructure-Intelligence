@@ -9,7 +9,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
-const PORT = process.env.EJII_PORT || 8443;
+const PORT = process.env.EJII_PORT || process.env.PORT || 8443;
 const SERVER_URL = `http://localhost:${PORT}`;
 
 console.log('========================================================================');

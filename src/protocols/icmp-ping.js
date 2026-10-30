@@ -204,8 +204,9 @@ function realTraceroute(host, maxHops = 15) {
       const lines = raw.split('\n');
 
       for (const line of lines) {
+        const trimmed = line.trim();
         // Windows format: "  1    <1 ms    <1 ms    <1 ms  192.168.1.1"
-        const winHop = line.trim().match(/^(\d+)\s+([<\d\s*ms]+)\s+([0-9a-fA-F:.]+)/);
+        const winHop = trimmed.match(/^(\d+)\s+([<\d\s*ms]+)\s+([0-9a-fA-F:.]+)/);
         if (winHop) {
           const hopNumber = parseInt(winHop[1], 10);
           const ip = winHop[3];
@@ -214,8 +215,31 @@ function realTraceroute(host, maxHops = 15) {
             ip,
             rawDetails: winHop[2].trim()
           });
+          continue;
+        }
+
+        // POSIX format: " 1  192.168.1.1  0.512 ms  0.481 ms" or " 1  10.0.0.1 (10.0.0.1)  0.450 ms"
+        const posixHop = trimmed.match(/^(\d+)\s+([0-9a-fA-F:.]+)(?:\s+\([^\)]+\))?\s+([<\d\s*ms.]+)/);
+        if (posixHop) {
+          hops.push({
+            hop: parseInt(posixHop[1], 10),
+            ip: posixHop[2],
+            rawDetails: posixHop[3].trim()
+          });
+          continue;
+        }
+
+        // Star timeout hop: " 2  * * *"
+        const starHop = trimmed.match(/^(\d+)\s+\*\s+\*\s+\*/);
+        if (starHop) {
+          hops.push({
+            hop: parseInt(starHop[1], 10),
+            ip: '*',
+            rawDetails: 'Request timed out'
+          });
         }
       }
+
 
       resolve({
         success: hops.length > 0,

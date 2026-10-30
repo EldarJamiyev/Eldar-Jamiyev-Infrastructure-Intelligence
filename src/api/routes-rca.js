@@ -164,6 +164,54 @@ router.get('/active', (req, res) => {
 });
 
 /**
+ * GET /api/rca/incidents
+ * Return active/open incidents formatted for on-call operations and mobile companion
+ */
+router.get('/incidents', (req, res) => {
+  try {
+    const statusFilter = req.query.status || 'all';
+    const active = Array.from(aiBrain.activeIncidents.values()).map(inc => ({
+      id: inc.incidentKey || `INC-${Date.now()}`,
+      title: `${inc.incidentType || 'Network Anomaly'}: ${inc.target || 'Host'}${inc.destPort ? `:${inc.destPort}` : ''}`,
+      severity: (inc.topHypothesis?.confidence && inc.topHypothesis.confidence > 0.8) ? 'critical' : 'warning',
+      status: 'open',
+      root_cause: inc.topHypothesis?.label || 'Investigating network anomaly',
+      suppressed_count: inc.suppressedCount || 0,
+      created_at: inc.createdAt || new Date().toISOString()
+    }));
+    res.json({
+      success: true,
+      count: active.length,
+      incidents: active
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, incidents: [] });
+  }
+});
+
+/**
+ * POST /api/rca/incidents/:id/resolve
+ * Resolve an active incident
+ */
+router.post('/incidents/:id/resolve', (req, res) => {
+  try {
+    const id = req.params.id;
+    if (aiBrain.activeIncidents && aiBrain.activeIncidents.has(id)) {
+      aiBrain.activeIncidents.delete(id);
+    }
+    res.json({
+      success: true,
+      id,
+      resolved: true,
+      resolvedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+/**
  * POST /api/rca/probe
  * Dispatch a distinguishing probe to refine an active RCA investigation
  */

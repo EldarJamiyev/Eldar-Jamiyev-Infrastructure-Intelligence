@@ -309,8 +309,81 @@ const CAPABILITY_DEFINITIONS = Object.freeze([
     blastRadius: 'none',
     timeoutMs: 4000,
     fallbackBehavior: 'Returns explicit collectorError if OS socket enumeration fails; never returns fake fallback rows'
+  },
+  {
+    id: 'ejii.host.dhcp_status',
+    name: 'Local OS DHCP Lease & Addressing Mode Inspector',
+    domain: 'host_diagnostics',
+    version: '6.0.0',
+    executionMode: 'passive',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: false,
+    safetyConstraints: ['READ_ONLY_DHCP_INSPECTION'],
+    inputsSchema: { type: 'object', properties: {} },
+    outputsSchema: { type: 'object', required: ['status', 'observed', 'addressingMode'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 2500,
+    fallbackBehavior: 'Reports container-managed or static addressing honestly without fabricating a fake DHCP lease'
+  },
+  {
+    id: 'ejii.icmp.traceroute',
+    name: 'Layer 3 Hop-by-Hop Traceroute Probe',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD'],
+    inputsSchema: { type: 'object', required: ['target'], properties: { target: { type: 'string' }, maxHops: { type: 'number' } } },
+    outputsSchema: { type: 'object', required: ['success', 'host', 'hopCount', 'hops'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 35000,
+    fallbackBehavior: 'Captures hop progression and reports unreached intermediate hops honestly'
+  },
+  {
+    id: 'ejii.host.health_metrics',
+    name: 'Live Host CPU, Load Average, Memory & Disk Telemetry',
+    domain: 'host_diagnostics',
+    version: '6.0.0',
+    executionMode: 'passive',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: false,
+    safetyConstraints: ['NO_FABRICATED_COUNTERS'],
+    inputsSchema: { type: 'object', properties: {} },
+    outputsSchema: { type: 'object', required: ['hostname', 'cpu', 'memory', 'disks'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'none',
+    timeoutMs: 3000,
+    fallbackBehavior: 'Returns truthful POSIX CPU tick deltas and uninvented disk status'
+  },
+  {
+    id: 'ejii.path.5_layer_diagnostic',
+    name: '5-Layer Local-to-ISP Path Diagnostic Workflow',
+    domain: 'protocol_probe',
+    version: '6.0.0',
+    executionMode: 'active_probe',
+    privilegeLevel: 'unprivileged',
+    supportedPlatforms: ['win32', 'linux', 'darwin'],
+    cancellable: true,
+    safetyConstraints: ['SSRF_GUARD'],
+    inputsSchema: { type: 'object', properties: {} },
+    outputsSchema: { type: 'object', required: ['layers', 'verdict', 'healthy'] },
+    evidenceProduced: ['observation'],
+    determinism: 'deterministic',
+    blastRadius: 'low',
+    timeoutMs: 12000,
+    fallbackBehavior: 'Identifies the lowest failing OSI layer (L1 NIC -> L2 ARP -> L3 Gateway -> L4 Anycast -> L7 HTTPS)'
   }
 ]);
+
 
 class CapabilityRegistry {
   constructor() {
@@ -451,7 +524,26 @@ class CapabilityRegistry {
         const { processSocketCorrelator } = require('../network/process-socket-correlator');
         data = await processSocketCorrelator.collectActiveConnectionsInventory(params || {});
         if (!data.success) status = 'failed';
+      } else if (capabilityId === 'ejii.host.dhcp_status') {
+        const { discoverLocalDhcpServer } = require('../protocols/host-metrics');
+        data = discoverLocalDhcpServer();
+        if (data.status === 'UNAVAILABLE' || data.status === 'ERROR') status = 'partial';
+      } else if (capabilityId === 'ejii.icmp.traceroute') {
+        const { realTraceroute } = require('../protocols/icmp-ping');
+        data = await realTraceroute(params.target || params.host || '127.0.0.1', Number(params.maxHops) || 15);
+        if (!data.success) status = 'partial';
+      } else if (capabilityId === 'ejii.host.health_metrics') {
+        const { createBaselineHostMetrics } = require('../protocols/host-metrics');
+        data = createBaselineHostMetrics();
+      } else if (capabilityId === 'ejii.path.5_layer_diagnostic') {
+        const { chatOperatorService } = require('./chat/chat-operator-service');
+        const plan = { intent: 'path_diagnostic', mode: 'operational', ports: [] };
+        const session = { id: context.sessionId || 'CAP-5LAYER' };
+        data = await chatOperatorService._executePathDiagnosticScenario(plan, session, null);
+        if (data.structuredAnswer?.status === 'FAIL') status = 'failed';
+        else if (data.structuredAnswer?.status === 'WARN') status = 'partial';
       }
+
 
       return createEjiiResult({
         success: status !== 'failed' && status !== 'denied',
