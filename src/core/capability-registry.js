@@ -496,6 +496,26 @@ class CapabilityRegistry {
       });
     }
   }
+  getFunctionDeclarations() {
+    const { EJII_FUNCTION_DECLARATIONS } = require('./chat/conversational-brain');
+    return EJII_FUNCTION_DECLARATIONS;
+  }
+
+  getFunctionDeclaration(toolName) {
+    const { EJII_FUNCTION_DECLARATIONS } = require('./chat/conversational-brain');
+    return EJII_FUNCTION_DECLARATIONS.find((fn) => fn.name === toolName) || null;
+  }
+
+  mapFunctionCallToPlan(toolNameOrCall, args = {}, session = null) {
+    const { mapFunctionCallToExecutionPlan } = require('./chat/conversational-brain');
+    const callObj = (typeof toolNameOrCall === 'object' && toolNameOrCall !== null && toolNameOrCall.name)
+      ? toolNameOrCall
+      : { name: toolNameOrCall, args };
+    const sess = (typeof toolNameOrCall === 'object' && toolNameOrCall !== null && !session && args && (args.lastTarget || args.sessionId))
+      ? args
+      : session;
+    return mapFunctionCallToExecutionPlan(callObj, sess);
+  }
 }
 
 const capabilityRegistry = new CapabilityRegistry();
@@ -504,5 +524,10 @@ module.exports = {
   CAPABILITY_DEFINITIONS,
   CapabilityRegistry,
   capabilityRegistry,
-  validateEjiiResult
+  validateEjiiResult,
+  get EJII_FUNCTION_DECLARATIONS() {
+    const { EJII_FUNCTION_DECLARATIONS } = require('./chat/conversational-brain');
+    return EJII_FUNCTION_DECLARATIONS;
+  }
 };
+

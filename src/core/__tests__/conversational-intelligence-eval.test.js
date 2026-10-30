@@ -506,5 +506,39 @@ describe('EJII Conversational Intelligence & Technical Quality Evaluation Suite'
       aiModelOrchestrator.localOnlyPolicy = prevPolicy;
     }
   });
+
+  it('13. Verifies Unified Capability Registry provides all 12 Gemini tool schemas and maps tool plans with zero drift', () => {
+    const { capabilityRegistry, EJII_FUNCTION_DECLARATIONS } = require('../capability-registry');
+    const decls = capabilityRegistry.getFunctionDeclarations();
+    assert.equal(decls.length, 12, 'Must export exactly 12 Gemini function declarations');
+    assert.equal(EJII_FUNCTION_DECLARATIONS.length, 12);
+
+    const toolNames = decls.map((d) => d.name);
+    const expected = [
+      'dns_lookup',
+      'tcp_port_probe',
+      'icmp_ping',
+      'http_tls_inspect',
+      'inspect_local_network',
+      'inspect_default_gateway',
+      'inspect_dhcp_status',
+      'run_5_layer_path_diagnostic',
+      'query_sovereign_fabric_v6',
+      'inspect_host_health',
+      'inspect_active_sockets',
+      'run_traceroute'
+    ];
+    for (const name of expected) {
+      assert.ok(toolNames.includes(name), `Missing function declaration: ${name}`);
+      const single = capabilityRegistry.getFunctionDeclaration(name);
+      assert.ok(single && single.name === name);
+    }
+
+    const plan = capabilityRegistry.mapFunctionCallToPlan('tcp_port_probe', { target: '1.1.1.1', ports: [443, 80] });
+    assert.equal(plan.intent, 'port_check');
+    assert.equal(plan.target, '1.1.1.1');
+    assert.deepEqual(plan.ports, [443, 80]);
+  });
 });
+
 

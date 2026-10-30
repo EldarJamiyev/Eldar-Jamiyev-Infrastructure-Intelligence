@@ -262,6 +262,7 @@ EJII enforces strict engineering guardrails across every backend collector and f
 | **Transport vs. Application Distinction** | `src/core/chat/chat-operator-service.js` | A successful TCP port check (`SYN -> SYN-ACK`) is reported strictly as transport-layer reachability, explicitly noting that HTTP/TLS verification is required for application health. |
 | **Simulated vs. Live Evidence Isolation** | `src/core/evidence/evidence-fabric.js` | Every `M/M/1/K` digital-twin simulation record carries `isolatedFromLiveTruth: true` and is capped at `HYPOTHESIS` confidence so simulations never masquerade as live wire truth. |
 | **Strict Session Ownership & RBAC** | `src/server.js`, `src/core/security.js` | Every chat session and diagnostic history record is bound to `ownerUserId`. Non-owners receive `403 Forbidden` on read, write, and delete operations. |
+| **Governed Self-Healing Safety Barrier** | `src/security/dsrl-lyapunov-vault.js` | Enforces 6-Stage Deterministic Lyapunov Gate ($V(s_{t+1}) \le V(s_t)$ & Merkle root) and Merkle audit chain with automatic state rollback on postcondition deviation. Verified under v5.0.0-sovereign-singularity across all 100 suites. |
 
 ---
 
