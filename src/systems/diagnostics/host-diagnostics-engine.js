@@ -353,19 +353,26 @@ class HostDiagnosticsEngine {
         counts.ESTABLISHED = 2;
       }
 
-      let gatewayIp = '169.254.8.254';
+      let gatewayIp = null;
       try {
         const { getPhysicalNetworkInfo } = require('../../network/routing/physical-network-detector');
         const netInfo = getPhysicalNetworkInfo();
         if (netInfo && netInfo.gatewayIp) gatewayIp = netInfo.gatewayIp;
       } catch (_) {}
+      if (!gatewayIp) {
+        try {
+          const { getVerifiedDefaultGateway } = require('../../protocols/host-metrics');
+          const vGw = getVerifiedDefaultGateway();
+          if (vGw && vGw.verified && vGw.gatewayIp) gatewayIp = vGw.gatewayIp;
+        } catch (_) {}
+      }
 
-      const routes = [{
+      const routes = gatewayIp ? [{
         DestinationPrefix: '0.0.0.0/0',
         NextHop: gatewayIp,
-        InterfaceAlias: adapterList[0].Name,
+        InterfaceAlias: adapterList[0]?.Name || 'eth0',
         RouteMetric: 100
-      }];
+      }] : [];
 
       return {
         status: 'HEALTHY',

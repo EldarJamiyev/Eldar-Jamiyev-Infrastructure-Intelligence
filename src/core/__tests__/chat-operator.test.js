@@ -865,4 +865,326 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
     const hostContentionHyp = healthyReport.hypotheses.find(h => h.id === 'HYP-LOCAL-HOST-SOCKET-OR-KERNEL-CONTENTION');
     assert.ok(hostContentionHyp.posteriorProbability < 0.10, 'Host contention hypothesis must not be inflated on healthy checks');
   });
+
+  it('Phase 6 / Project Falcon: Operational Intelligence, Real & Mocked LLM Execution, Local Network Discovery & Multi-Turn Task Continuity', async () => {
+    const { aiModelOrchestrator } = require('../ai-model-orchestrator');
+    const {
+      semanticAiInterpreter,
+      getSemanticInterpreterMetrics,
+      resetSemanticInterpreterMetrics
+    } = require('../chat/semantic-ai-interpreter');
+
+    chatOperatorService.setLlmInterpreter(semanticAiInterpreter);
+    const adminUser = { id: 'u-admin-falcon', username: 'admin', role: 'ADMIN' };
+
+    // A. Multi-turn Mail-Task Continuation & Port Ping without ICMP
+    const mailSessionId = `TEST-FALCON-MAIL-CONTINUITY-${Date.now()}`;
+    const turn1Mail = await chatOperatorService.processMessage({
+      sessionId: mailSessionId,
+      message: 'ping mail server',
+      user: adminUser
+    });
+    assert.equal(turn1Mail.success, true);
+    assert.equal(turn1Mail.data.intent, 'clarification_needed');
+    assert.equal(turn1Mail.data.steps.length, 0);
+    const sessAfterT1 = chatOperatorService.getOrCreateSession(mailSessionId, adminUser);
+    assert.ok(sessAfterT1.pendingTask, 'pendingTask must be stored on session');
+    assert.equal(sessAfterT1.pendingTask.type, 'mail_server_inspection');
+
+    // Turn 2: casual unpunctuated reply "mail taxes gov az" must normalize to "mail.taxes.gov.az" and continue mail task
+    const turn2Mail = await chatOperatorService.processMessage({
+      sessionId: mailSessionId,
+      message: 'mail taxes gov az',
+      user: adminUser
+    });
+    assert.equal(turn2Mail.success, true);
+    assert.equal(turn2Mail.data.target, 'mail.taxes.gov.az', 'Unpunctuated "mail taxes gov az" must normalize to mail.taxes.gov.az');
+    assert.equal(turn2Mail.data.intent, 'port_check');
+    assert.ok(!turn2Mail.data.reply.includes("I'm here to help with network troubleshooting"), 'Must never fall through to generic assistance');
+
+    // Turn 3: "port ping for mail.taxes.gov.az" must execute TCP port check on mail ports without port 443 or ICMP
+    const turn3Mail = await chatOperatorService.processMessage({
+      sessionId: mailSessionId,
+      message: 'port ping for mail.taxes.gov.az',
+      user: adminUser
+    });
+    assert.equal(turn3Mail.success, true);
+    assert.equal(turn3Mail.data.intent, 'port_check');
+    assert.equal(turn3Mail.data.target, 'mail.taxes.gov.az');
+    assert.ok(turn3Mail.data.ports.includes(25) && turn3Mail.data.ports.includes(587), 'Must test mail TCP ports');
+    assert.ok(!turn3Mail.data.ports.includes(443), 'Must not inject HTTPS port 443 into mail port check');
+    assert.ok(!turn3Mail.data.steps.some((s) => s.tool === 'realPing'), 'port ping must not run ICMP realPing');
+
+    // Turn 4: "ping mail ports not ICMP" must inherit mail.taxes.gov.az and never run ICMP
+    const turn4Mail = await chatOperatorService.processMessage({
+      sessionId: mailSessionId,
+      message: 'ping mail ports not ICMP',
+      user: adminUser
+    });
+    assert.equal(turn4Mail.success, true);
+    assert.equal(turn4Mail.data.intent, 'port_check');
+    assert.equal(turn4Mail.data.target, 'mail.taxes.gov.az');
+    assert.ok(!turn4Mail.data.steps.some((s) => s.tool === 'realPing'), '"not ICMP" must strictly prohibit ICMP probes');
+
+    // B. DHCP Discovery vs Conceptual Question vs Explicit TCP Port 67 Check
+    const dhcpIpTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-DHCP-IP',
+      message: 'what is my DHCP server IP',
+      user: adminUser
+    });
+    assert.equal(dhcpIpTurn.success, true);
+    assert.equal(dhcpIpTurn.data.intent, 'dhcp_check');
+    assert.equal(dhcpIpTurn.data.ports.length, 0, 'DHCP discovery must not set fake TCP ports 67/68');
+    assert.ok(dhcpIpTurn.data.steps.some((s) => s.tool === 'discoverLocalDhcpServer'), 'Must invoke discoverLocalDhcpServer');
+
+    const findDhcpTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-FIND-DHCP',
+      message: 'find the IP of DHCP',
+      user: adminUser
+    });
+    assert.equal(findDhcpTurn.success, true);
+    assert.equal(findDhcpTurn.data.intent, 'dhcp_check');
+
+    // Deterministic fixture test for DHCP lease discovery
+    chatOperatorService.dhcpCollectorFn = () => ({
+      observed: true,
+      dhcpServerIp: '192.168.10.1',
+      leaseServerIdentifier: '192.168.10.1',
+      interfaceName: 'eth0',
+      collectionMethod: '/var/lib/dhcp/dhclient.leases',
+      status: 'DHCP_LEASE_OBSERVED',
+      isContainer: false,
+      environmentScope: 'local_host_os',
+      limitationReason: null
+    });
+    const dhcpLeaseFixtureTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-DHCP-FIXTURE',
+      message: 'which DHCP server assigned my address',
+      user: adminUser
+    });
+    chatOperatorService.dhcpCollectorFn = null;
+    assert.equal(dhcpLeaseFixtureTurn.success, true);
+    assert.equal(dhcpLeaseFixtureTurn.data.intent, 'dhcp_check');
+    assert.ok(dhcpLeaseFixtureTurn.data.reply.includes('192.168.10.1'), 'Must report discovered DHCP server IP from lease collector');
+
+    // Conceptual "what is DHCP?" must run 0 live probes
+    const whatIsDhcpTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-WHAT-IS-DHCP',
+      message: 'what is DHCP?',
+      user: adminUser
+    });
+    assert.equal(whatIsDhcpTurn.success, true);
+    assert.equal(whatIsDhcpTurn.data.intent, 'informational_question');
+    assert.equal(whatIsDhcpTurn.data.steps.length, 0, 'Conceptual DHCP question must run 0 probes');
+    assert.ok(whatIsDhcpTurn.data.reply.includes('Dynamic Host Configuration Protocol'), 'Must explain DHCP');
+
+    // Explicit "test TCP port 67 on 127.0.0.1" must run port_check, not dhcp_check
+    const tcp67Turn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-TCP-67',
+      message: 'test TCP port 67 on 127.0.0.1',
+      user: adminUser
+    });
+    assert.equal(tcp67Turn.success, true);
+    assert.equal(tcp67Turn.data.intent, 'port_check');
+    assert.deepEqual(tcp67Turn.data.ports, [67]);
+
+    // C. Gateway Discovery & Fallback Removal (Never fabricate 169.254.8.254 or 192.168.1.1)
+    chatOperatorService.gatewayCollectorFn = () => ({
+      verified: false,
+      status: 'NO_DEFAULT_ROUTE_OBSERVED',
+      gatewayIp: null,
+      interfaceName: null,
+      family: null,
+      collectionMethod: '/proc/net/route',
+      isContainer: true,
+      environmentScope: 'server_container_runtime',
+      limitationReason: 'No default route (0.0.0.0/0) was found in /proc/net/route.'
+    });
+    const gwNoneSessionId = `TEST-FALCON-GW-NONE-${Date.now()}`;
+    const gwUnobservedTurn = await chatOperatorService.processMessage({
+      sessionId: gwNoneSessionId,
+      message: 'what is the default gateway IP?',
+      user: adminUser
+    });
+    assert.equal(gwUnobservedTurn.success, true);
+    assert.equal(gwUnobservedTurn.data.intent, 'gateway_ip_query');
+    assert.ok(!gwUnobservedTurn.data.reply.includes('169.254.8.254'), 'Must never fabricate 169.254.8.254');
+    assert.ok(!gwUnobservedTurn.data.reply.includes('192.168.1.1'), 'Must never fabricate 192.168.1.1');
+
+    const wtfAfterGwNone = await chatOperatorService.processMessage({
+      sessionId: gwNoneSessionId,
+      message: 'wtf',
+      user: adminUser
+    });
+    assert.equal(wtfAfterGwNone.success, true);
+    assert.ok(!wtfAfterGwNone.data.reply.includes('169.254.8.254'), 'Frustration repair must never fabricate 169.254.8.254');
+    assert.ok(!wtfAfterGwNone.data.reply.includes('192.168.1.1'), 'Frustration repair must never fabricate 192.168.1.1');
+
+    // Collector Unavailable state
+    chatOperatorService.gatewayCollectorFn = () => ({
+      verified: false,
+      status: 'COLLECTOR_UNAVAILABLE',
+      gatewayIp: null,
+      interfaceName: null,
+      family: null,
+      collectionMethod: 'ip route',
+      isContainer: true,
+      environmentScope: 'server_container_runtime',
+      limitationReason: 'Routing table collector command failed.'
+    });
+    const gwCollectorUnavailTurn = await chatOperatorService.processMessage({
+      sessionId: `TEST-FALCON-GW-UNAVAIL-${Date.now()}`,
+      message: 'check my gateway',
+      user: adminUser
+    });
+    chatOperatorService.gatewayCollectorFn = null;
+    assert.equal(gwCollectorUnavailTurn.success, true);
+    assert.equal(gwCollectorUnavailTurn.data.intent, 'gateway_check');
+    assert.ok(gwCollectorUnavailTurn.data.reply.toLowerCase().includes('collector is unavailable'), 'Must distinguish COLLECTOR_UNAVAILABLE from NO_DEFAULT_ROUTE_OBSERVED');
+
+    // D. Layer-by-Layer Gateway & ISP Connection Diagnostic (Never asks for a hostname)
+    const layerByLayerTurn = await chatOperatorService.processMessage({
+      sessionId: 'TEST-FALCON-LOCAL-PATH',
+      message: 'check layer by layer my connection to gateway and ISP',
+      user: adminUser
+    });
+    assert.equal(layerByLayerTurn.success, true);
+    assert.equal(layerByLayerTurn.data.intent, 'local_path_diagnostic');
+    assert.equal(layerByLayerTurn.data.steps.length, 5, 'Must execute 5-layer local-to-ISP diagnostic');
+    assert.ok(!layerByLayerTurn.data.reply.includes('Which hostname, IP address, or URL'), 'Must never ask for a hostname on layer-by-layer local path check');
+    assert.ok(layerByLayerTurn.data.reply.includes('Layer 1') && layerByLayerTurn.data.reply.includes('Layer 3') && layerByLayerTurn.data.reply.includes('Layer 7'));
+
+    // E. Identity & Account Username Separation
+    const idSessionId = `TEST-FALCON-IDENTITY-SEPARATION-${Date.now()}`;
+    const whoAmITurn1 = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'who am i?',
+      user: adminUser
+    });
+    assert.equal(whoAmITurn1.success, true);
+    assert.ok(whoAmITurn1.data.reply.includes('admin'), 'Must mention authenticated account username admin');
+    assert.ok(!whoAmITurn1.data.reply.toLowerCase().includes('your name is admin'), 'Must never claim account username admin is personal name');
+    assert.ok(whoAmITurn1.data.reply.toLowerCase().includes("haven't shared your personal"), 'Must state personal name has not been shared');
+
+    const whatIsMyNameTurn1 = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'what is my name?',
+      user: adminUser
+    });
+    assert.equal(whatIsMyNameTurn1.success, true);
+    assert.ok(!whatIsMyNameTurn1.data.reply.toLowerCase().includes('your name is admin'), 'Must never say Your name is admin');
+
+    const iAmEldarTurn = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'I am Eldar',
+      user: adminUser
+    });
+    assert.equal(iAmEldarTurn.success, true);
+    assert.ok(iAmEldarTurn.data.reply.includes('Eldar'));
+
+    const whatIsMyNameTurn2 = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'what is my name?',
+      user: adminUser
+    });
+    assert.equal(whatIsMyNameTurn2.success, true);
+    assert.ok(whatIsMyNameTurn2.data.reply.includes('Eldar'), 'Must recall personal name Eldar');
+
+    const myNameIsElvinTurn = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'my name is Elvin',
+      user: adminUser
+    });
+    assert.equal(myNameIsElvinTurn.success, true);
+    assert.ok(myNameIsElvinTurn.data.reply.includes('Elvin'), 'Must update personal name to Elvin');
+
+    const whatIsMyNameTurn3 = await chatOperatorService.processMessage({
+      sessionId: idSessionId,
+      message: 'what is my name?',
+      user: adminUser
+    });
+    assert.equal(whatIsMyNameTurn3.success, true);
+    assert.ok(whatIsMyNameTurn3.data.reply.includes('Elvin'), 'Must recall updated personal name Elvin');
+
+    // F. Mocked & Real Model Invocation via AIModelOrchestrator.invokeModelProvider
+    resetSemanticInterpreterMetrics();
+    const originalInvoke = aiModelOrchestrator.invokeModelProvider;
+    try {
+      // 1. Test novel phrasing routed through mocked provider hook and verified in mockModelInvocationsCount
+      aiModelOrchestrator.invokeModelProvider = async () => ({
+        liveResponse: true,
+        isMock: true,
+        provider: 'MOCK_PROVIDER',
+        text: JSON.stringify({
+          intent: 'port_check',
+          target: '127.0.0.1',
+          ports: [3000],
+          clarificationPrompt: null,
+          naturalReply: null
+        })
+      });
+
+      const novelTurn = await chatOperatorService.processMessage({
+        sessionId: 'TEST-FALCON-MODEL-MOCK',
+        message: 'Could you please see if local service 3000 is accepting traffic right now',
+        user: adminUser
+      });
+      assert.equal(novelTurn.success, true);
+      assert.equal(novelTurn.data.intent, 'port_check');
+      assert.equal(novelTurn.data.target, '127.0.0.1');
+      assert.deepEqual(novelTurn.data.ports, [3000]);
+
+      const metricsAfterMock = getSemanticInterpreterMetrics();
+      assert.equal(metricsAfterMock.modelInvocationsAttempted, 1);
+      assert.equal(metricsAfterMock.mockModelInvocationsCount, 1, 'Must record mock model invocation separately from live model');
+      assert.equal(metricsAfterMock.realModelInvocationsSucceeded, 0, 'Must not count mock invocation as real live model');
+
+      // 2. Test provider failure safety: when model is unavailable on an ambiguous message, never invent a target or launch probes
+      aiModelOrchestrator.invokeModelProvider = async () => ({
+        liveResponse: false,
+        status: 'OFFLINE',
+        reason: 'ECONNREFUSED'
+      });
+
+      const offlineTurn = await chatOperatorService.processMessage({
+        sessionId: 'TEST-FALCON-MODEL-OFFLINE',
+        message: 'Check if the remote box is alive',
+        user: adminUser
+      });
+      assert.equal(offlineTurn.success, true);
+      assert.equal(offlineTurn.data.steps.length, 0, 'When model is offline and target is missing, must execute 0 probes');
+      assert.equal(offlineTurn.data.target, null, 'Must never invent localhost or arbitrary target on model failure');
+    } finally {
+      delete aiModelOrchestrator.invokeModelProvider;
+      if (originalInvoke && Object.prototype.hasOwnProperty.call(aiModelOrchestrator, 'invokeModelProvider')) {
+        aiModelOrchestrator.invokeModelProvider = originalInvoke;
+      }
+    }
+
+    // 3. Live Gemini Provider Verification (when GEMINI_API_KEY is configured in environment)
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) {
+      resetSemanticInterpreterMetrics();
+      const prevPolicy = aiModelOrchestrator.localOnlyPolicy;
+      aiModelOrchestrator.localOnlyPolicy = false;
+      try {
+        const livePlan = await semanticAiInterpreter(
+          'Could you explain in two sentences how BGP route flapping affects internet routing tables?',
+          {
+            forceModelInterpretation: true,
+            allowCloudFallback: true
+          }
+        );
+        const liveMetrics = getSemanticInterpreterMetrics();
+        assert.equal(liveMetrics.modelInvocationsAttempted, 1, 'Must attempt 1 live model invocation');
+        assert.equal(liveMetrics.realModelInvocationsSucceeded, 1, 'Must succeed with 1 real live model invocation');
+        assert.equal(liveMetrics.mockModelInvocationsCount, 0, 'Must record 0 mock invocations for live provider');
+        assert.ok(livePlan && livePlan.modelInterpreted === true, 'Must return validated model-interpreted plan');
+        assert.equal(livePlan.isMockModel, false, 'Live model invocation must have isMockModel: false');
+      } finally {
+        aiModelOrchestrator.localOnlyPolicy = prevPolicy;
+      }
+    }
+  });
 });
+
+

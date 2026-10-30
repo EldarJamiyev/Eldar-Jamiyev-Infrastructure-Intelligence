@@ -1,0 +1,1179 @@
+EJII PHASE 6 — OPERATIONAL INTELLIGENCE, REAL LLM EXECUTION, LOCAL NETWORK DISCOVERY, AND MULTI-TURN TASK CONTINUITY
+
+Product: EJII — Eldar Jamiyev's Infrastructure Intelligence
+Repository: https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence
+
+Mission: Fix the remaining failures demonstrated in the latest live chat transcript. Make EJII reliably understand the user's intent, preserve unfinished tasks and follow-up context, select the correct existing diagnostic capability, inspect only the environment it can genuinely access, and provide accurate, evidence-based results.
+
+This phase extends the previous brain-integration, semantic-understanding, context-repair, and diagnostic-truthfulness work.
+
+It is not a request to rewrite the application from scratch, add another collection of hardcoded phrases, or produce another report claiming success without verification.
+
+Build on the actual current implementation. Preserve working functionality. Correct the underlying contracts and prove the results through the real application.
+
+PART 1 — RECONCILE THE WORKSPACE AND VERIFY THE REAL ARCHITECTURE
+
+Before changing anything, inspect the current workspace and establish the actual state.
+
+Determine:
+
+Current branch, HEAD commit, and working-tree modifications.
+
+Which previous Phase 3/4/5 changes are present locally.
+
+Whether the published GitHub branch matches the workspace.
+
+Which version of src/core/chat/semantic-ai-interpreter.js is actually running.
+
+Whether the real chat request path invokes the configured model.
+
+Whether the mail, DHCP, gateway, port-check, and local-path operations use valid existing capabilities.
+
+Whether the frontend is displaying the live backend response or masking it with a generic response.
+
+Whether the route-discovery implementation is running in the user's actual host environment, a container, or another restricted runtime.
+
+Do not discard uncommitted changes. Do not assume previous completion reports accurately describe the current source.
+
+The latest published main branch contained the following issues when inspected:
+
+The semantic interpreter uses deterministic handlers and returns null for cases it does not handle, without directly invoking the configured model in that module.
+
+The name-query code can use the authenticated username as the user's personal name, causing a login such as admin to be returned as a person's name.
+
+The frustration-recovery logic can substitute 169.254.8.254 when no gateway has actually been observed.
+
+The DHCP parser has patterns for server checks, but the user's actual information requests—"what is my DHCP server IP?" and "find the IP of DHCP"—are not adequately covered by the operational path.
+
+These observations may differ from the latest local workspace. Verify them before editing. Keep any correction already implemented correctly.
+
+After the initial inspection, continue with implementation and testing. Do not stop at a review or proposal.
+
+PART 2 — CRITICAL ARCHITECTURAL REQUIREMENT: USE THE ACTUAL CONFIGURED AI MODEL
+
+The current product must not claim that it has a genuine semantic AI brain merely because a class is called semantic-ai-interpreter, the model orchestrator exists, or its status endpoint returns information.
+
+Inspect:
+
+src/core/chat/semantic-ai-interpreter.js
+
+src/core/chat/chat-operator-service.js
+
+src/core/chat/technical-knowledge-base.js
+
+src/core/ai-model-orchestrator.js
+
+src/server.js
+
+The actual chat API route.
+
+The capability registry.
+
+Relevant provider configuration and integration tests.
+
+Trace the full request lifecycle.
+
+User message → contextual interpretation → configured model when required → validated decision → correct capability dispatch → real evidence → natural-language response → frontend
+
+Every stage must be implemented and connected.
+
+2.1 Actual LLM invocation
+
+Use EJII's existing AI model orchestrator and configured provider. Preserve local-first behavior, provider privacy policy, timeouts, configuration, and error handling.
+
+If the configured provider is Ollama, use the existing provider selection and model settings. Do not hardcode that the model is online or invent a successful response.
+
+An import of aiModelOrchestrator or a call to getStatus() is not a model invocation.
+
+A successful server startup is not proof of semantic interpretation.
+
+A deterministic classification that matches known phrases is not proof that the model interpreted an unfamiliar request.
+
+Instrument the actual invocation path and verify that an unfamiliar, valid natural-language message reaches the configured model when semantic interpretation is needed.
+
+The model must return a validated structured decision. Trusted application code must validate intent, arguments, target, authorization, and execution policy before dispatching any capability.
+
+If a message is unambiguous and safely handled by an existing deterministic fast path, the application need not call the LLM merely for ceremony. However, novel wording, ambiguous operational language, contextual references, and cases not adequately understood by the deterministic layer must reach real model-based interpretation when the provider is available.
+
+Do not build a system that is effectively deterministic-only while counting interpreter-hook invocations as successful AI calls.
+
+2.2 Do not turn a model outage into a broad diagnostic
+
+If the provider is unavailable or output validation fails:
+
+Do not claim the model interpreted the message.
+
+Do not invent a target.
+
+Do not launch a generic investigation.
+
+Do not silently replace the failed live model request with a mock while reporting success.
+
+Use an existing safe deterministic interpretation only when the user's intent is genuinely unambiguous.
+
+Otherwise, explain the limitation naturally and request the minimum necessary clarification.
+
+The system status must distinguish a registered interpreter from an actual model request and successful model interpretation.
+
+2.3 Natural response generation
+
+An internal intent plan is not enough. The assistant must generate a response appropriate to the user's actual question.
+
+For diagnostic operations, use genuine diagnostic results as evidence and explain the meaning of those results. For conceptual questions, answer the concept directly. For contextual follow-ups, refer to the relevant earlier message and actual historical result.
+
+Do not let the knowledge base, a generic fallback, or a deterministic response template overwrite a more relevant answer.
+
+The model must never fabricate measurements, and it must not have direct authority to execute arbitrary commands or bypass the capability registry.
+
+PART 3 — MULTI-TURN INTENT CONTINUITY
+
+The application must preserve the user's intended task across clarification turns.
+
+This is different from merely remembering the last hostname.
+
+A pending task should contain the relevant unresolved operation, its supplied parameters, and what information is still missing.
+
+For example, if EJII asks the user for a mail domain and the user provides mail taxes gov az, that response is probably intended to satisfy the pending mail-server question. It should not be treated as a new unrelated topic.
+
+The system should maintain relevant context such as:
+
+Pending operation and original request.
+
+Current target and target type.
+
+Missing required parameters.
+
+Relevant service type.
+
+Previous diagnostic results.
+
+Current discussion topic.
+
+Explicit execution constraints.
+
+User-supplied identity information, where relevant.
+
+The actual observation time and scope of earlier measurements.
+
+Use the existing session and persistence architecture. Do not create an independent duplicate memory system merely for these cases.
+
+Context must be bounded, scoped to the correct user/session, and retained according to existing security and privacy requirements.
+
+Do not automatically reuse the prior target just because it exists. Resolve the reference only when the meaning is unambiguous.
+
+If a follow-up can fill an outstanding slot, use it. If it changes the requested operation, preserve the target but update the operation. If more than one target or service is plausible, ask one focused clarification.
+
+PART 4 — MAIL-SERVER TASKS: DOMAIN RESOLUTION, CONTINUATION, AND REAL PORT TESTS
+
+The latest conversation demonstrates three related failures.
+
+User: ping mail server
+
+Assistant asks which mail domain or hostname to check, and explains that it can look up MX records and test SMTP/IMAP/POP3 ports.
+
+User: mail taxes gov az
+
+Assistant returns generic networking assistance instead of continuing the pending mail task.
+
+User: port ping for mail.taxes.gov.az
+
+EJII performs an ICMP ping and additionally tests TCP port 443.
+
+User: ping mail ports not ICMP
+
+EJII asks for a hostname again instead of using the already-provided target and correction.
+
+Fix the shared mail-task and intent-resolution logic. Do not patch each exact sentence independently.
+
+4.1 Recognize the mail follow-up
+
+When a mail-server clarification is pending, interpret a new message as the supplied target when that is the natural contextual meaning.
+
+For example:
+
+mail taxes gov az
+
+taxes gov az
+
+mail.taxes.gov.az
+
+taxes.gov.az
+
+The model or a robust validated hostname-normalization component should recognize that spoken or casually typed domain labels may lack punctuation.
+
+In this specific conversation, mail taxes gov az strongly indicates mail.taxes.gov.az. Resolve the target if the pending task and domain structure make that interpretation unambiguous.
+
+Do not make this a special-case hardcoded rule for one Azerbaijani domain. Generalize to normal hostname/domain normalization and contextual slot completion.
+
+If multiple normalizations are plausible, ask the user to confirm. Do not silently invent a different hostname.
+
+Validate the resolved hostname using the existing hostname validation and SSRF controls before any network operation.
+
+A domain supplied in response to a clarification must never fall through to a generic conversational response.
+
+4.2 Continue the actual task
+
+The response to a clarification should complete the pending operation when the user's answer provides enough information.
+
+If the pending task is mail-server inspection and the user supplies a domain or server hostname:
+
+Determine whether the supplied value is a mail-server hostname or an email domain.
+
+For a domain, use the existing DNS capability to retrieve MX records if supported.
+
+For a direct mail-server hostname, resolve its address using the actual DNS capability.
+
+If the operation includes testing mail ports, test only the relevant ports within the selected scope.
+
+Clearly distinguish testing the supplied hostname from testing the MX servers published by the domain.
+
+Do not claim that a mail service was tested if only its DNS record was retrieved.
+
+Do not require the hostname again after it has been supplied and is still unambiguous.
+
+If the user has not specified a mail service or port and that detail materially affects the intended test, choose the existing mail-diagnostic policy when its scope is clear, or ask one focused clarification.
+
+4.3 Correct "port ping" and "mail ports" interpretation
+
+The phrase port ping in this context means a TCP-port connectivity check, not an ICMP Echo request.
+
+The phrase ping mail ports not ICMP is an explicit correction of the previous wrong action. It must be resolved using the current target and recent task context.
+
+Required behavior:
+
+Interpret an explicit port check as a TCP-port test.
+
+Interpret not ICMP as a prohibition against ICMP for this operation.
+
+Preserve the current, verified mail-server target.
+
+Do not ask for the target again if the recent conversation provides it unambiguously.
+
+Do not run ICMP first and then run unrelated TCP checks.
+
+Do not silently use port 443 as a replacement for mail-service ports.
+
+Report which ports were actually tested and their real outcomes.
+
+When the user requests a mail-port check without specifying particular ports, use the existing mail-diagnostic policy to test a bounded, relevant list of common TCP mail ports when supported:
+
+SMTP: 25, 465, 587.
+
+IMAP: 143, 993.
+
+POP3: 110, 995.
+
+Use the existing capability registry and avoid duplicate tests. Prefer explicitly requested ports when supplied. Keep execution time bounded, apply normal authorization and target validation, and report exactly what was tested.
+
+Do not test these ports through a generic TCP checker if the implementation actually interprets the arguments as UDP or does not support those protocols. Verify the real tool contract.
+
+A raw TCP connection test can establish that a port accepts or rejects a connection at the time of the test. It does not prove that a complete authenticated email service works.
+
+A more specific protocol test or TLS handshake may be performed only if the existing capability supports it and the selected workflow requires it. Do not attempt account login, authentication, or credential discovery.
+
+Interpret observed outcomes correctly:
+
+OPEN: the TCP connection was established.
+
+CLOSED or connection refused: the target actively rejected the connection.
+
+TIMEOUT or no response: the result is inconclusive; filtering is one possible explanation.
+
+NOT_RUN or UNKNOWN: the check was not successfully completed.
+
+Do not turn a timeout into a definitive claim that the port is filtered or that the server is down.
+
+4.4 Specific acceptance sequence
+
+Exercise the actual chat interface with this conversation:
+
+ping mail server
+
+mail taxes gov az
+
+port ping for mail.taxes.gov.az
+
+ping mail ports not ICMP
+
+Verify that:
+
+The pending mail task is preserved.
+
+The target is resolved safely and accurately.
+
+The explicit TCP-port request never launches an ICMP ping.
+
+The correction not ICMP changes the execution decision.
+
+The final test uses the relevant mail ports or requests only a genuinely necessary clarification.
+
+No unrelated port 443 check is silently injected.
+
+The assistant does not return generic networking assistance while the mail task is pending.
+
+The answer accurately reflects actual results.
+
+Add a second test where no hostname has been supplied. In that case, clarification is appropriate and no probes should run.
+
+PART 5 — DHCP SERVER IP DISCOVERY: READ CONFIGURATION, NOT RANDOM PORTS
+
+The latest transcript shows:
+
+User: what is my dhcp server ip
+
+Assistant: a generic explanation of DNS, ICMP, TCP, TLS, and HTTP.
+
+User: find the ip of dhcp
+
+Assistant: asks for a hostname, IP, or URL.
+
+These are incorrect intent selections.
+
+The request is to identify the DHCP server used by the relevant network connection, not to learn general networking concepts or test a remote web host.
+
+5.1 Correct intent recognition
+
+Recognize equivalent natural requests:
+
+What is my DHCP server IP?
+
+Find the IP of DHCP.
+
+Which DHCP server assigned my IP?
+
+Show the DHCP server for this network.
+
+Where is my DHCP server?
+
+Which server gave me this address?
+
+Check the DHCP server connection.
+
+Is DHCP working?
+
+These examples define expected semantics; do not hardcode each phrase as an isolated response.
+
+The intended operation should be a local network-configuration or DHCP-lease inspection when the user asks about their current DHCP server.
+
+The phrase what is my DHCP server IP is a request for a specific configuration value. It must not be routed to a generic explanatory answer merely because it contains technical vocabulary.
+
+Prioritize this more specific operational intent over a generic information-question classifier when the user is requesting the actual server address or current lease information.
+
+5.2 Discover the server from real OS evidence
+
+A DHCP server address should be obtained from relevant DHCP client configuration, lease information, or supported operating-system telemetry.
+
+Inspect the real environment and use the existing host-inspection capability or improve it using supported native mechanisms.
+
+Potential OS-specific approaches include:
+
+Windows: ipconfig /all and appropriate network-adapter configuration APIs.
+
+Linux: supported NetworkManager, systemd-networkd, DHCP-client lease/configuration, and interface status information.
+
+macOS: the actual active interface's DHCP packet or lease configuration where accessible.
+
+Use safe, bounded, read-only methods. Adapt to the real platform and installed commands.
+
+Do not presume that every OS exposes the same fields or that every environment uses DHCP.
+
+A server container, overlay network, static configuration, link-local address, or metadata network may not expose the physical workstation's DHCP server.
+
+Do not confuse:
+
+The local interface's IP.
+
+The default gateway.
+
+The DHCP server identifier.
+
+The DNS resolver.
+
+A container or virtual-network service.
+
+A user-entered address.
+
+Do not assume the DHCP server is the gateway. They can be different devices.
+
+5.3 Never treat ports 67/68 as a DHCP-server discovery substitute
+
+The current semantic path includes DHCP handling that supplies [67, 68] as ports. Inspect how those ports are used.
+
+DHCP is not a generic TCP service that can be validated through an arbitrary TCP port-check operation. DHCP uses its own UDP-based client/server protocol and broadcast/relay behavior.
+
+Do not claim that a TCP test of ports 67 and 68 identifies the DHCP server or proves that DHCP works.
+
+If the existing application supports actual DHCP-client or lease inspection, use it.
+
+If DHCP functionality is unavailable, implement a proper, scoped read-only inspection capability only if it fits the existing architecture.
+
+If the backend can see only a remote server or container, do not claim that it inspected the DHCP configuration of the user's browser workstation.
+
+Explain the limitation concisely. Provide the exact command the user can run on their operating system, or use an existing supported local agent if one is available.
+
+Do not fabricate a DHCP server address. Do not ask for a hostname when the correct issue is that the relevant local network configuration is not accessible.
+
+5.4 DHCP acceptance cases
+
+Exercise:
+
+what is my DHCP server IP
+
+find the IP of DHCP
+
+which DHCP server assigned my address
+
+check DHCP server connection
+
+Verify that each case selects the appropriate DHCP/local-configuration operation or provides an honest capability limitation.
+
+It must never produce an unrelated protocol-layer lecture as the answer to a DHCP address request.
+
+When test fixtures provide a DHCP server identifier, verify that the reported address matches that evidence. When the collector cannot observe it, verify that the answer remains unknown and clearly states the scope limitation.
+
+PART 6 — GATEWAY DISCOVERY: FIX THE COLLECTION PATH WITHOUT INVENTING VALUES
+
+The current live transcript reports:
+
+No verified 0.0.0.0/0 default route exposed in routing table (os_routing_table_unavailable)
+
+The application explains that it did not guess a gateway address or send a ping.
+
+That restraint is correct. However, the route discovery and its reporting must be accurate and as capable as the actual environment allows.
+
+6.1 Distinguish collection failure from a missing route
+
+os_routing_table_unavailable must not automatically mean that no default route exists.
+
+Determine whether:
+
+The platform does not support the chosen collection method.
+
+A required command is missing.
+
+Permission is insufficient.
+
+The command timed out.
+
+Output parsing failed.
+
+The process runs in a restricted namespace/container.
+
+No IPv4 default route was actually present.
+
+An IPv6 default route exists instead.
+
+Multiple routes, interfaces, policy routes, or VPN routes affect selection.
+
+These are different states.
+
+Use distinct statuses such as:
+
+ROUTE_FOUND
+
+NO_DEFAULT_ROUTE_OBSERVED
+
+COLLECTOR_UNAVAILABLE
+
+PERMISSION_DENIED
+
+COLLECTION_TIMED_OUT
+
+PARSE_FAILED
+
+ENVIRONMENT_SCOPE_UNKNOWN
+
+Use the existing result schema where practical, but preserve this distinction.
+
+6.2 Improve genuine route discovery
+
+Inspect the current route collector and improve its supported-platform coverage.
+
+Potential sources, only where supported, include:
+
+Linux routing APIs or ip route output, plus available routing-table files.
+
+Windows routing APIs, Get-NetRoute, Get-NetIPConfiguration, or route print.
+
+macOS routing commands and routing-table facilities.
+
+Existing native host/runtime telemetry in EJII.
+
+Use a bounded set of read-only, platform-appropriate methods. Do not call shell commands with user-controlled command text, and do not execute arbitrary shell input from the LLM.
+
+Select the active default route based on actual route metadata, destination prefix, metric, route state, and interface association. Keep IPv4 and IPv6 routes distinct.
+
+Do not infer the gateway from an interface address ending in .1 or .254.
+
+Do not assume that a link-local route is invalid without examining the actual platform and topology.
+
+If the existing runtime genuinely prevents access to the system route table, preserve that fact rather than inventing a successful fallback.
+
+6.3 Remove all false gateway fallbacks
+
+Inspect every gateway-related path, including:
+
+Gateway check.
+
+Gateway IP query.
+
+Contextual follow-ups.
+
+Frustration-recovery logic.
+
+Summary generation.
+
+Incident correlation.
+
+Test fixtures and defaults.
+
+The published knowledge-base implementation had a fallback equivalent to:
+
+session?.lastGatewayIp || '169.254.8.254'
+
+Remove any production path that reports a hardcoded address as an observed gateway when no evidence supports it.
+
+Do not substitute 192.168.1.1, 10.0.0.1, or any other assumed router address.
+
+Example addresses may appear in clearly labeled documentation, but never be presented as actual observations without corresponding evidence.
+
+A frustration-recovery response must not hallucinate a gateway simply to give the user an answer.
+
+6.4 Attribute gateway values correctly
+
+A gateway discovered by the server process is a gateway observed in the EJII runtime environment.
+
+It is not automatically the user's personal workstation router.
+
+When asking about "my gateway", EJII should inspect the relevant host if it genuinely runs locally with host access. If it is operating as a remote server/container, explain that scope accurately.
+
+A website's server cannot generally inspect a visitor's DHCP lease or private routing table through ordinary browser APIs alone.
+
+If local workstation data is not available, do not pretend that the server-side route is the user's local route.
+
+Give the user the relevant native command to verify their own machine, or use an existing supported local-agent capability.
+
+Do not repeat a generic disclaimer after every answer. State the distinction only where it matters.
+
+PART 7 — COMPOSITE LOCAL-CONNECTION AND ISP DIAGNOSTICS
+
+The user's latest explicit request is:
+
+check layer by layer my connection to gateway and ISP
+
+EJII replies:
+
+Which hostname, IP address, or URL would you like me to check?
+
+This is the wrong clarification.
+
+The user has not requested a website check. They have requested a layered local-network and upstream connectivity investigation.
+
+Implement or connect an appropriate existing capability for a local-path diagnostic. Reuse existing route, interface, neighbor, ICMP, DNS, TCP, traceroute, TLS, and HTTP capabilities as appropriate. Do not build duplicate diagnostic engines if existing capabilities can be orchestrated correctly.
+
+7.1 Interpret the request without requiring an arbitrary hostname
+
+Recognize requests such as:
+
+Check my connection layer by layer.
+
+Check my gateway and ISP connection.
+
+Analyze my local connection and internet path.
+
+Is my router reachable and can I reach the internet?
+
+Check from my network adapter through the gateway to the internet.
+
+Find where my connection fails, from the local interface to the ISP.
+
+Check my network hop by hop.
+
+Analyze gateway-to-ISP connectivity.
+
+These are operational requests with a defined local-path scope, even when the user has not specified a website.
+
+Use an existing registered local-path or multi-layer diagnostic capability. If one does not exist, add a cohesive capability through the existing registry and execution architecture.
+
+Do not route the user into the generic hostname/URL clarification branch solely because the request contains check.
+
+7.2 Layer-by-layer diagnostic scope
+
+Where supported by the actual environment and permitted by the existing execution policy, examine:
+
+Layer 1 — Local interfaces
+
+Actual interface names, status, configured addresses, and relevant scope.
+
+Whether the observed runtime corresponds to the local workstation or a server/container.
+
+Layer 2 — Local link and neighbor information
+
+Relevant ARP or IPv6 Neighbor Discovery entries when accessible.
+
+Gateway MAC/address association where genuinely observable.
+
+Report unavailable neighbor information as unavailable, not failed.
+
+Layer 3 — Routing and gateway
+
+The active IPv4/IPv6 default route.
+
+The actual next hop and interface, if verified.
+
+The gateway's reachability where a valid gateway address is available.
+
+Whether route collection or reachability checking is unavailable.
+
+Layer 3/4 — Upstream reachability
+
+Whether an outbound route and actual external connections can be established.
+
+Use approved, configured connectivity targets or the existing safe diagnostic target policy.
+
+Do not automatically inherit Google or a prior mail-server target merely because it was previously tested.
+
+DNS — Name resolution
+
+Verify a relevant system resolver or known test name using the actual DNS capability.
+
+Keep resolver configuration, successful DNS lookup, and general DNS health distinct.
+
+TCP/TLS/HTTP — External service tests
+
+Use existing supported probes against suitable approved targets to establish external service reachability.
+
+Report exactly which endpoints and ports were tested.
+
+Do not claim the entire ISP link is healthy just because a single HTTPS endpoint responds.
+
+Path trace — When supported
+
+Use an existing traceroute or equivalent capability if it is useful and permitted.
+
+Preserve intermediate hop observations and timeouts.
+
+Do not conclude that the ISP connection failed solely because a router does not answer traceroute probes.
+
+Do not run every possible probe by default. Choose the smallest set of appropriate checks that can answer the request, and explain any relevant omitted layer.
+
+7.3 ISP attribution must be evidence-based
+
+The assistant can investigate local routing and external connectivity. It must not claim to have identified an ISP outage merely because one target times out.
+
+A blocked gateway ping may coexist with working upstream traffic. An unresponsive intermediate traceroute hop may simply suppress ICMP replies. A restricted container may not expose the host's actual network path.
+
+Use conclusions such as:
+
+Local routing information is available/unavailable.
+
+The gateway responded/did not respond to the selected probe.
+
+An external target was reachable/unreachable by the tested method.
+
+DNS resolved/failed for the specific tested name.
+
+The ISP boundary could not be conclusively identified from the accessible evidence.
+
+More evidence is required to determine whether the ISP is responsible.
+
+If no route is visible from the runtime, continue only those checks that can meaningfully run from that environment, label the unavailable layer, and avoid claiming that the user's own ISP has been tested.
+
+Do not fabricate a gateway, ISP IP, public IP, or traceroute hop.
+
+7.4 Acceptance for the layered path request
+
+The exact prompt:
+
+check layer by layer my connection to gateway and ISP
+
+must not return the generic request for a hostname.
+
+It must either:
+
+Run the supported local-path diagnostics with clearly labeled scope, or
+
+State a genuine execution-scope limitation and identify exactly what cannot be inspected from the current environment.
+
+The response must contain the actual tested layers, their results, and the missing evidence. It must not claim all layers passed when a layer was not inspected.
+
+PART 8 — FIX "WHO AM I?" AND ACCOUNT IDENTITY
+
+The latest transcript shows:
+
+User: who am i?
+
+Assistant: Your name is admin.
+
+This is incorrect unless admin is genuinely a verified personal/display name, which the current context does not establish.
+
+The current public knowledge-base code can choose session.username as the remembered name as long as it is not a small set of excluded usernames. Therefore, an account called admin can be mistaken for the person's real name.
+
+Separate these concepts:
+
+Authenticated account username.
+
+Verified profile display name.
+
+Name the user explicitly supplied in the current session.
+
+Unknown personal identity.
+
+Use trusted authentication/profile metadata if available. Treat user-supplied conversational names separately and respect the applicable session and persistence policy.
+
+Examples:
+
+who are you?
+Explain EJII's actual role and capabilities.
+
+who am i?
+Answer using the verified identity information that the current application is authorized to expose. If the session only provides the username admin, say that admin is the account username and that a separate personal/display name is not known—unless a verified profile name is available.
+
+what is my name? after the user said I am Eldar in the same session
+Recall Eldar from the actual session memory.
+
+what is my name? in a new session with no personal-name record
+Do not infer the name from the role or account username. State that the name has not been provided in that session.
+
+my name is Elvin after previously saying Eldar
+Respect the correction and update the intended name in the relevant contextual scope.
+
+Do not use model-generated guesses as personal identity facts. Do not leak information from another user or session.
+
+Do not address users by their login or personal name in every message.
+
+PART 9 — PRIORITIZE SPECIFIC INTENT OVER GENERIC TECHNICAL EXPLANATION
+
+The latest transcript contains:
+
+what is my dhcp server ip
+
+EJII answers with a general explanation about DNS, ICMP, TCP, TLS, and HTTP.
+
+That is a clear semantic and dispatch failure.
+
+A broad technical-question classifier must not capture a more specific operational request for a real configuration value.
+
+Inspect precedence among:
+
+isInformationalTechnicalQuestion.
+
+classifyConversationalTurn.
+
+DHCP and gateway handlers.
+
+DNS handling.
+
+Mail and port-check handlers.
+
+Generic target extraction.
+
+Context resolution.
+
+The final default intent.
+
+Prioritize the actual semantic request before selecting a generic explanatory path.
+
+Required distinction:
+
+What is DHCP?
+Explain the concept. No probes.
+
+What is my DHCP server IP?
+Find the actual DHCP server identifier from relevant local network configuration or explain why that data is inaccessible.
+
+What does port 587 do?
+Explain the concept. No probes.
+
+Test port 587 on mail.taxes.gov.az.
+Run the explicit TCP-port check if supported and authorized.
+
+What is a default gateway?
+Explain the concept. No probes.
+
+Check my default gateway.
+Inspect real route information.
+
+Can you explain why my gateway check failed without running anything else?
+Use previous evidence, with zero new probes.
+
+Check layer by layer my connection to gateway and ISP.
+Use the local-path diagnostic, not a generic hostname question.
+
+The application must be able to distinguish a question about a concept from a request to inspect a value on a system.
+
+This must generalize to unseen wording. Do not add only the exact phrases from the transcript to the knowledge base.
+
+PART 10 — REAL EVIDENCE, CORRECT STATUSES, AND NO INVENTED NETWORK FACTS
+
+Preserve and extend the existing evidence-driven reporting model.
+
+Every operational answer must distinguish:
+
+Current observed data.
+
+Historical data.
+
+User-supplied data.
+
+Model-generated interpretation.
+
+Assumptions.
+
+Unknown or unavailable evidence.
+
+Do not invent:
+
+Gateway addresses.
+
+DHCP server IPs.
+
+ISP addresses.
+
+Mail hostnames.
+
+TCP port statuses.
+
+DNS timings.
+
+HTTP response times.
+
+Personal names.
+
+Successful model invocations.
+
+Successful diagnostics.
+
+Missing values must remain unknown or unavailable. A failed collector must not become a successful empty result.
+
+A timeout does not prove a server is down. An ICMP timeout does not prove TCP ports are closed. A TCP connection does not prove authentication or application-level mail functionality. DNS resolution does not prove that the whole network is healthy.
+
+Ensure that the final response matches the raw structured evidence. Do not summarize a mix of successful and unavailable layers as "all checks passed."
+
+If a required measurement is missing, report the result as partial or unknown.
+
+Preserve real measurement timings and their meanings. Do not mix:
+
+Whole-workflow duration.
+
+ICMP RTT.
+
+TCP connect duration.
+
+TLS handshake duration.
+
+HTTP TTFB.
+
+DNS lookup duration.
+
+Never turn missing timing into synthetic latency.
+
+PART 11 — THE EXACT ACCEPTANCE TESTS THAT MUST BE ADDED
+
+Update the existing test suite. Use the exact failed conversation and the actual backend/frontend path. Do not test only a standalone parser.
+
+Create instrumentation or safe test doubles that let the tests verify the tools actually invoked, parameters passed, result statuses, and final rendered answer.
+
+Test cases must not require the live public internet for deterministic unit-test success. Separate fixture-based regression tests from real-provider and live-network tests.
+
+A. Mail-task continuation
+
+Run a multi-turn test:
+
+ping mail server
+
+mail taxes gov az
+
+port ping for mail.taxes.gov.az
+
+ping mail ports not ICMP
+
+Verify:
+
+The target is correctly resolved in context.
+
+The mail task is continued rather than forgotten.
+
+No generic response appears between target supply and execution.
+
+The TCP-port instruction is not converted to ICMP.
+
+The corrective not ICMP instruction is obeyed.
+
+No arbitrary port 443 test is added.
+
+Relevant mail ports are tested according to the actual selected scope.
+
+The final response reflects the actual port results.
+
+No port is claimed open/closed/filtered unless that result came from the relevant test.
+
+Also test a missing hostname, an ambiguous hostname, an explicit port list, and a different pending task. Verify that context does not leak between sessions.
+
+B. DHCP discovery
+
+Test:
+
+what is my DHCP server IP
+
+find the IP of DHCP
+
+which DHCP server assigned my address
+
+check DHCP server connection
+
+what is DHCP?
+
+test TCP port 67 on 192.0.2.10
+
+Verify:
+
+DHCP-server IP inquiries select local configuration/lease discovery.
+
+A conceptual DHCP question produces an explanation and zero probes.
+
+A deliberate TCP-port request remains a TCP-port operation, but is not misrepresented as DHCP protocol verification.
+
+Actual DHCP server addresses come from collected evidence.
+
+Missing workstation data is reported honestly.
+
+No generic hostname clarification appears for a DHCP-server IP query.
+
+The application does not label gateway, DHCP server, and DNS resolver as interchangeable values.
+
+C. Gateway discovery
+
+Test:
+
+check my gateway
+
+default gateway check
+
+what is the default gateway IP?
+
+okay what ip after discussing the gateway.
+
+what is my gateway IP? when a verified route exists.
+
+The same question when route collection is unavailable.
+
+wtf after a failed gateway response.
+
+A session with no gateway observation.
+
+A session with multiple possible gateway observations.
+
+Verify:
+
+Route collection is performed through the actual supported collector.
+
+The route source and environment scope are accurately identified.
+
+Collector failure is not reported as proof that no route exists.
+
+Missing gateway IP remains unknown.
+
+No hardcoded 169.254.8.254, 192.168.1.1, or 10.0.0.1 is used as an observed gateway fallback.
+
+A frustration-recovery message uses actual history and does not manufacture an address.
+
+The final answer distinguishes the EJII runtime route from the user's workstation when they differ.
+
+Use injected collector results for stable unit tests. Run actual OS-level collection tests only in the appropriate environment.
+
+D. Layer-by-layer gateway and ISP connection
+
+Test:
+
+check layer by layer my connection to gateway and ISP
+
+check my connection layer by layer
+
+is my gateway reachable and can I reach the internet?
+
+show the path from the local interface to the internet
+
+An explicit user request not to run further probes.
+
+An environment where route data is unavailable.
+
+An environment where gateway ICMP is blocked but outbound TCP works.
+
+An environment where one external test endpoint fails and another succeeds.
+
+Verify:
+
+The intended local-path workflow is selected.
+
+The assistant does not request a hostname when the user has clearly asked for local-path testing and the required approved targets are available.
+
+No unsupported host or ISP identity is invented.
+
+Each layer is reported independently.
+
+An unreachable gateway ICMP response is not automatically treated as proof of total internet failure.
+
+One failed endpoint does not become a definitive ISP outage.
+
+Unavailable layers remain unknown.
+
+The response explicitly states whether measurements were taken from the user's actual host or the EJII server/container.
+
+E. Identity
+
+Test:
+
+who am i? with username: admin and no display name.
+
+who am i? with a verified profile display name.
+
+I am Eldar followed by what is my name?
+
+A second session with the same login username but no conversational name.
+
+A genuine name correction.
+
+Verify:
+
+An account username is not mistaken for the user's personal name.
+
+The assistant distinguishes login identity from profile identity.
+
+Session/user isolation is preserved.
+
+No identity fact is fabricated.
+
+F. Real model invocation
+
+Test a novel natural-language formulation not hardcoded into the phrase dictionary.
+
+Verify:
+
+The actual configured provider is called on the intended semantic path.
+
+Model output is validated before execution.
+
+The final response uses the model interpretation and real evidence.
+
+Provider failure is visible and does not trigger an unrelated operation.
+
+A deterministic test double is counted as a mock, not as a real provider call.
+
+The tests must validate behavior through the actual chat service and API where possible.
+
+PART 12 — BUILD, RUN, AND VERIFY HONESTLY
+
+Inspect the current package.json and use the actual root project scripts.
+
+The previously published version had:
+
+npm run build → tsc
+
+npm test → node tests/run-all-tests.js
+
+pretest → tsc
+
+Confirm the current versions and execute the project's actual commands.
+
+Run:
+
+The actual root build.
+
+Core chat regression tests.
+
+The complete existing repository test suite.
+
+New mail, DHCP, gateway, identity, and local-path tests.
+
+Relevant security, API, and frontend tests.
+
+Real-provider semantic integration tests when the configured provider is available.
+
+Actual UI/API scenarios for the failed transcript.
+
+A final working-tree and diff review.
+
+A compile_applet success does not replace the root build unless it demonstrably executes the same project build.
+
+Do not remove or weaken existing tests to create green results.
+
+If a live route collector or provider cannot be tested in the current environment, state exactly what was unavailable. Do not fake a route result or provider response and call it production verification.
+
+Keep the final change set focused. Preserve authentication, authorization, SSRF protection, session ownership, cancellation, persistence, and existing diagnostic capabilities.
+
+PART 13 — FINAL ACCEPTANCE GATE
+
+This phase is complete only when:
+
+The real configured model is invoked on the required semantic path.
+
+Mail clarification replies preserve and complete the pending mail task.
+
+port ping and ping mail ports not ICMP perform TCP-port checks rather than ICMP.
+
+Mail-port selection is appropriate, bounded, and accurately reported.
+
+DHCP IP questions invoke relevant local DHCP configuration/lease discovery instead of generic information handling.
+
+DHCP results are not fabricated or inferred from a gateway address.
+
+The route collector distinguishes missing route information from collector failure.
+
+Gateway addresses are never fabricated as observed facts.
+
+who am I? distinguishes login username from personal/display name.
+
+The local-path request triggers an appropriate layered diagnostic or an honest environment limitation.
+
+The user does not need to repeat an unambiguous target or pending operation.
+
+Every tool invocation is justified by the user's actual intent and validated by trusted backend code.
+
+All measured outcomes and uncertainty are faithfully reflected in the final answer.
+
+The actual root build and regression tests have been run and reported.
+
+Mock-based and real-provider verification are clearly distinguished.
+
+Existing product functionality and security controls remain intact.
+
+PART 14 — FINAL REPORT
+
+At the end, report:
+
+1. Root causes found — specific source paths and the mechanisms responsible for each observed failure.
+
+2. Files changed — exact paths, actual fixes, and any deliberate schema changes.
+
+3. Real AI integration — the invocation path, evidence that the configured model was called, and what happens when it fails.
+
+4. Mail-server outcomes — actual verification of follow-up continuation and TCP mail-port dispatch.
+
+5. DHCP outcomes — whether the server identifier was genuinely discovered, which environment was inspected, and any limitations.
+
+6. Gateway and ISP outcomes — route-discovery methods, current environment scope, and the behavior when route information is unavailable.
+
+7. Identity handling — proof that admin is no longer automatically treated as a personal name.
+
+8. Verification — exact build/test commands and results; identify live provider tests, mocks, skipped tests, and unresolved failures separately.
+
+9. Final verdict — clearly identify what was implemented, what was tested successfully, and what remains unverified.
+
+FINAL ORDER
+
+Do not add another list of exact phrases while leaving the underlying operations disconnected.
+
+Do not let the word "ping" override "port" or "not ICMP."
+
+Do not let a question about DHCP become an unrelated networking lecture.
+
+Do not let a login username become a personal name.
+
+Do not ask for a hostname when the user has clearly requested a local gateway-to-ISP investigation.
+
+Do not invent a route when the collector cannot observe one.
+
+Do not claim to know what the configured AI understood unless the actual model call and validated interpretation can be verified.
+
+Fix the intent-to-execution pipeline, connect the real model, preserve context between turns, use actual OS evidence for DHCP and gateway information, and demonstrate the corrected behavior in EJII itself.

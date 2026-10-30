@@ -665,7 +665,7 @@ function renderView(viewName = 'chat') {
   }
 
   // Enforce mutual exclusivity across workstations: clean up background batching and dismiss dangling modals
-  if (typeof window.stopPacketBatchFlusher === 'function' && target !== 'packet-sniffer' && target !== 'topology') {
+  if (typeof window.stopPacketBatchFlusher === 'function' && target !== 'packet-sniffer' && target !== 'topology' && target !== 'noc-dashboard') {
     window.stopPacketBatchFlusher();
   }
   if (typeof window.stopCoreDiagnosticsRefresh === 'function' && target !== 'core-diagnostics') {
@@ -677,9 +677,21 @@ function renderView(viewName = 'chat') {
   const danglingModals = document.querySelectorAll('.modal-backdrop, #deepInspectHostModal, #officeDeviceDiagnoseModal, #troubleshootEndpointModal');
   danglingModals.forEach(m => { if (m.style.display !== 'none') m.style.display = 'none'; });
 
-  // Highlight active nav link
+  // Highlight active nav link and update topbar page context
+  const viewMetaMap = {
+    'chat': { eyebrow: 'Conversational Intelligence', title: 'AI Diagnostic Assistant' },
+    'ai-operator': { eyebrow: 'Autonomous Operations', title: 'AI Infrastructure Operator' },
+    'topology': { eyebrow: 'Infrastructure Fabric', title: 'Network overview' },
+    'noc-dashboard': { eyebrow: 'Operations Center', title: 'NOC Dual-Pane Dashboard' },
+    'packet-sniffer': { eyebrow: 'Wire & Socket Forensics', title: 'Packet analysis' },
+    'ultra-ip-scanner': { eyebrow: 'Fleet Discovery', title: 'IP & asset discovery' },
+    'pc-automation': { eyebrow: 'Governed Remediation', title: 'Automation library' },
+    'core-diagnostics': { eyebrow: 'Host & Kernel Telemetry', title: 'Diagnostics & recovery' },
+    'learning-center': { eyebrow: 'Engineering Academy', title: 'Sovereign Learning Center' }
+  };
+
   document.querySelectorAll('.nav-link').forEach(link => {
-    const linkView = link.dataset.view;
+    const linkView = link.dataset.view || link.dataset.targetView;
     const isActive = linkView === target ||
       (linkView === 'ultra-ip-scanner' && target === 'ip-scanner') ||
       (linkView === 'ip-scanner' && target === 'ultra-ip-scanner') ||
@@ -687,6 +699,12 @@ function renderView(viewName = 'chat') {
       (linkView === 'learning-center' && (target === 'learning' || target === 'learning-center'));
     link.classList.toggle('active', isActive);
   });
+
+  const meta = viewMetaMap[target] || viewMetaMap['topology'];
+  const titleSpan = document.querySelector('#pageTitle .page-name') || document.querySelector('#topbarPageTitle > span') || document.getElementById('pageTitle');
+  const eyebrowEl = document.querySelector('.page-eyebrow');
+  if (titleSpan && meta) titleSpan.textContent = meta.title;
+  if (eyebrowEl && meta) eyebrowEl.textContent = meta.eyebrow;
 
   if (target === 'chat') {
     if (typeof window.renderChatWorkspaceView === 'function') {
@@ -697,6 +715,12 @@ function renderView(viewName = 'chat') {
   } else if (target === 'ai-operator') {
     if (typeof window.renderAiOperatorView === 'function') {
       window.renderAiOperatorView();
+    }
+  } else if (target === 'noc-dashboard') {
+    if (typeof window.renderNocView === 'function') {
+      window.renderNocView();
+    } else if (typeof window.renderTopologyStandaloneView === 'function') {
+      window.renderTopologyStandaloneView();
     }
   } else if (target === 'topology') {
     if (typeof window.renderTopologyStandaloneView === 'function') {

@@ -20,7 +20,7 @@ const { checkPort } = require('../../protocols/tcp-port');
 const { resolveRecord, getRealSystemDns, checkDnsConnectivityHealth } = require('../../protocols/dns-diag');
 const { probeHttp } = require('../../protocols/http-probe');
 const { auditTls } = require('../../protocols/tls-audit');
-const { getVerifiedDefaultGateway, inspectLocalNetworkConfiguration } = require('../../protocols/host-metrics');
+const { getVerifiedDefaultGateway, discoverLocalDhcpServer, inspectLocalNetworkConfiguration } = require('../../protocols/host-metrics');
 const { processSocketCorrelator } = require('../../network/process-socket-correlator');
 const { isSafeNetworkTarget, resolveAndValidateTarget } = require('../security');
 const { crossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
@@ -201,6 +201,7 @@ class ChatOperatorService {
           userId: row.user_id || caller.userId,
           username: row.username || caller.username,
           role: caller.role || (row.role || 'ANALYST').toUpperCase(),
+          pendingTask: ctx.pendingTask || null,
           lastTarget: ctx.lastTarget || null,
           lastValidTarget: ctx.lastValidTarget || ctx.lastTarget || null,
           targetHistory: Array.isArray(ctx.targetHistory) ? ctx.targetHistory : [],
@@ -235,6 +236,7 @@ class ChatOperatorService {
       userId: caller.userId,
       username: caller.username,
       role: caller.role,
+      pendingTask: null,
       lastTarget: null,
       lastValidTarget: null,
       targetHistory: [],
@@ -389,6 +391,7 @@ class ChatOperatorService {
       const contextJson = JSON.stringify({
         lastTarget: session.lastTarget,
         lastValidTarget: session.lastValidTarget,
+        pendingTask: session.pendingTask || null,
         targetHistory: session.targetHistory || [],
         entityMemory: session.entityMemory || {},
         socketSnapshots: (session.socketSnapshots || []).slice(-MAX_SOCKET_SNAPSHOTS),
@@ -504,6 +507,117 @@ class ChatOperatorService {
         Object.keys(session.entityMemory || {}).length > 0 ||
         (session.socketSnapshots && session.socketSnapshots.length > 0))
     );
+
+    // 00A. Multi-turn Pending Task Continuation (e.g. Mail Server Inspection domain supply)
+    const isMailServerCommand =
+      /\b(check (?:the |my )?mail server|ping (?:the |my )?mail server|test (?:the |my )?mail server|mail server connection|email server|smtp server)\b/i.test(lower);
+    if (session?.pendingTask?.type === 'mail_server_inspection' && !isMailServerCommand) {
+      const strippedCandidate = raw
+        .replace(/^(?:it'?s|it is|check|test|ping|try|for|the domain is|the server is|domain is|server is)\s+/i, '')
+        .replace(/[;,!?]+$/, '')
+        .trim();
+      const candidateTokens = strippedCandidate.split(/\s+/);
+      const nonTldWords = new Set(['server', 'host', 'domain', 'mail', 'email', 'smtp', 'imap', 'pop3', 'connection', 'status', 'check', 'ping', 'test']);
+      let normalizedDomain = null;
+      if (candidateTokens.length >= 2 && candidateTokens.every((t) => /^[a-zA-Z0-9-]+$/.test(t))) {
+        const last = candidateTokens[candidateTokens.length - 1].toLowerCase();
+        if (/^[a-z]{2,24}$/.test(last) && !nonTldWords.has(last)) {
+          normalizedDomain = candidateTokens.join('.').toLowerCase();
+        }
+      } else if (/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(strippedCandidate)) {
+        const parts = strippedCandidate.toLowerCase().split('.');
+        if (!nonTldWords.has(parts[parts.length - 1])) {
+          normalizedDomain = strippedCandidate.toLowerCase();
+        }
+      }
+
+      if (normalizedDomain && isSafeNetworkTarget(normalizedDomain)) {
+        session.pendingTask = null;
+        session.lastValidTarget = normalizedDomain;
+        session.lastTarget = normalizedDomain;
+        const mailPorts = [25, 465, 587, 143, 993, 110, 995];
+        return {
+          intent: 'port_check',
+          mode: 'operational',
+          target: normalizedDomain,
+          explicitTarget: normalizedDomain,
+          ports: mailPorts,
+          isMailTaskContinuation: true,
+          usedFollowUpTarget: false
+        };
+      }
+    }
+
+    // 00B. Explicit "port ping" / "ping mail ports not ICMP" (Explicit TCP Port Check, Never ICMP Ping)
+    const isExplicitPortPing =
+      /\bport\s+ping\b/i.test(lower) ||
+      /\bping\s+(?:mail\s+)?ports?\b/i.test(lower) ||
+      /\bnot\s+icmp\b/i.test(lower);
+
+    if (isExplicitPortPing) {
+      let domainTarget = null;
+      const domainMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})\b/);
+      if (domainMatch) {
+        domainTarget = domainMatch[1];
+      }
+      const effectiveTarget = domainTarget || priorTarget;
+      if (!effectiveTarget) {
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'MISSING_PORT_PING_TARGET',
+          clarificationPrompt: 'Which mail server hostname or IP address would you like me to test?',
+          target: null,
+          explicitTarget: null,
+          ports: [25, 465, 587, 143, 993, 110, 995],
+          preserveContextOnly: true
+        };
+      }
+
+      const isMailRequest = /\bmail\b/i.test(lower) || effectiveTarget.toLowerCase().includes('mail') || (session?.lastPorts && session.lastPorts.includes(25));
+      const targetPorts = isMailRequest ? [25, 465, 587, 143, 993, 110, 995] : [80, 443];
+
+      return {
+        intent: 'port_check',
+        mode: 'operational',
+        target: effectiveTarget,
+        explicitTarget: domainTarget || null,
+        ports: targetPorts,
+        prohibitIcmp: Boolean(/\bnot\s+icmp\b/i.test(lower)),
+        usedFollowUpTarget: !domainTarget
+      };
+    }
+
+    // 00C. Composite Local-Path / Layer-by-Layer Gateway & ISP Diagnostic (Never asks for a hostname)
+    const isLocalPathPrompt =
+      /\b(check (?:layer by layer|layer-by-layer|hop by hop|hop-by-hop|step by step)|check (?:my )?connection layer by layer|is (?:my )?(?:router|gateway) reachable and can i reach the internet|connection to gateway and isp|gateway to isp|local connection and internet path|network adapter through the gateway to the internet|where my connection fails,? from (?:the )?local interface to (?:the )?isp)\b/i.test(lower);
+    if (isLocalPathPrompt) {
+      return {
+        intent: 'local_path_diagnostic',
+        mode: 'operational',
+        target: 'local_path_gateway_isp',
+        explicitTarget: null,
+        ports: [53, 443],
+        usedFollowUpTarget: false,
+        preserveLastRemoteTarget: true
+      };
+    }
+
+    // 00D. DHCP Server IP Discovery vs Conceptual Question
+    const isDhcpIpDiscovery =
+      /\b(what is my dhcp server ip|what's my dhcp server ip|whats my dhcp server ip|find the ip of dhcp|which dhcp server assigned my (?:ip|address)|where is my dhcp server|which server gave me this address|dhcp server ip|ip of dhcp)\b/i.test(lower) ||
+      (/\b(dhcp server|dhcp)\b/i.test(lower) && /\b(ip|ip address|server address|assigned my)\b/i.test(lower) && !/\b(what is dhcp|how does dhcp work)\b/i.test(lower));
+    if (isDhcpIpDiscovery) {
+      return {
+        intent: 'dhcp_check',
+        mode: 'operational',
+        target: 'local_dhcp_service',
+        explicitTarget: null,
+        ports: [],
+        usedFollowUpTarget: false,
+        preserveLastRemoteTarget: true
+      };
+    }
 
     // 0A. Negative Execution Constraints ("Explain why this happens, but don't run anything yet", "Don't run anything; just explain the concept")
     if (hasNegativeExecutionConstraint(raw)) {
@@ -660,8 +774,9 @@ class ChatOperatorService {
       };
     }
 
-    // 0E-2. Gateway IP Query ("okay what ip", "what ip is default gateway in my network", "what is the gateway ip")
+    // 0E-2. Gateway IP Query ("okay what ip", "what ip is default gateway in my network", "what is the default gateway ip")
     const isGatewayIpQuery =
+      /\b(what is (?:the |my )?(?:default )?gateway(?:'s)? ip|what's (?:the |my )?(?:default )?gateway(?:'s)? ip|whats (?:the |my )?(?:default )?gateway(?:'s)? ip|which ip is (?:the |my )?(?:default )?gateway|ip (?:address )?of (?:the |my )?(?:default )?gateway|default gateway ip)\b/i.test(lower) ||
       (/\b(what ip|which ip|what is the ip|whats the ip|what address|which address)\b/i.test(lower) &&
         (/\b(gateway|default route|router|local network|my network)\b/i.test(lower) ||
           session?.lastIntent === 'gateway_check' ||
@@ -881,6 +996,16 @@ class ChatOperatorService {
     const isMailServerPrompt =
       /\b(check (?:the |my )?mail server|ping (?:the |my )?mail server|test (?:the |my )?mail server|mail server connection|email server|smtp server)\b/i.test(lower);
     if (isMailServerPrompt && !explicitTarget) {
+      if (session) {
+        session.pendingTask = {
+          type: 'mail_server_inspection',
+          originalRequest: raw,
+          missingSlots: ['domain'],
+          requestedPorts: [25, 465, 587, 143, 993, 110, 995],
+          serviceType: 'mail',
+          createdAt: new Date().toISOString()
+        };
+      }
       return {
         intent: 'clarification_needed',
         mode: 'conversational',
@@ -903,7 +1028,7 @@ class ChatOperatorService {
         mode: 'operational',
         target: 'local_dhcp_service',
         explicitTarget: null,
-        ports: [67, 68],
+        ports: [],
         usedFollowUpTarget: false,
         preserveLastRemoteTarget: true
       };
@@ -1291,6 +1416,7 @@ class ChatOperatorService {
             targetHistory: session.targetHistory,
             lastIntent: session.lastIntent,
             lastPorts: session.lastPorts,
+            pendingTask: session.pendingTask || null,
             defaultPlan: plan
           });
           if (override && typeof override === 'object' && override.intent) {
@@ -1400,6 +1526,7 @@ class ChatOperatorService {
         'gateway_check',
         'gateway_ip_query',
         'dhcp_check',
+        'local_path_diagnostic',
         'active_connections'
       ]);
 
@@ -1452,7 +1579,7 @@ class ChatOperatorService {
           executionOutcome = this._executeGreetingScenario(cleanPrompt, plan, session);
           break;
         case 'informational_question':
-          executionOutcome = this._executeInformationalQuestionScenario(cleanPrompt, session);
+          executionOutcome = this._executeInformationalQuestionScenario(cleanPrompt, session, plan);
           break;
         case 'clarification_needed':
           executionOutcome = this._executeClarificationScenario(plan, session);
@@ -1468,6 +1595,9 @@ class ChatOperatorService {
           break;
         case 'dhcp_check':
           executionOutcome = await this._executeDhcpCheckScenario(plan, session, abortController.signal);
+          break;
+        case 'local_path_diagnostic':
+          executionOutcome = await this._executeLocalPathDiagnosticScenario(plan, session, abortController.signal);
           break;
         case 'active_connections':
           executionOutcome = await this._executeActiveConnectionsScenario(plan, session, abortController.signal);
@@ -1707,7 +1837,7 @@ class ChatOperatorService {
       session.entityMemory.user_name = conv.name;
     }
     const effectiveType = conv.type || conv.subtype || plan.conversationalType || 'greeting';
-    let reply = conv.reply || null;
+    let reply = conv.reply || plan.naturalReply || null;
 
     if (!reply) {
       switch (effectiveType) {
@@ -1775,16 +1905,17 @@ class ChatOperatorService {
   /**
    * Case P: Informational / Conceptual Technical Question Mode (0 network probes, natural prose without forced Result/Meaning/Next step template)
    */
-  _executeInformationalQuestionScenario(promptText, session) {
+  _executeInformationalQuestionScenario(promptText, session, plan = null) {
     const kb = answerInformationalQuestion(promptText);
+    const modelReply = plan?.naturalReply && kb.topic === 'general_technical' ? plan.naturalReply : null;
     const structuredAnswer = {
-      result: kb.result,
+      result: modelReply || kb.result,
       meaning: kb.meaning,
       nextStep: kb.nextStep,
       layerFailedFirst: null,
       uncertainty: null
     };
-    const reply = kb.naturalReply || `${kb.result}\n\n${kb.meaning}`;
+    const reply = modelReply || kb.naturalReply || `${kb.result}\n\n${kb.meaning}`;
 
     return {
       reply,
@@ -1795,6 +1926,7 @@ class ChatOperatorService {
         mode: 'informational_explanation',
         liveProbesExecuted: 0,
         topic: kb.topic,
+        modelInterpreted: Boolean(plan?.modelInterpreted),
         preservedSessionTarget: session.lastValidTarget || null,
         observedAt: new Date().toISOString()
       }
@@ -1935,58 +2067,248 @@ class ChatOperatorService {
     this._checkAborted(signal);
     const t0 = performance.now();
     const configData = inspectLocalNetworkConfiguration();
+    const dhcpCollector = plan?.dhcpCollectorFn || this.dhcpCollectorFn || discoverLocalDhcpServer;
+    const dhcpDiscovery = dhcpCollector();
     const durationMs = Number((performance.now() - t0).toFixed(1));
 
-    let dhcpStatus = 'UNAVAILABLE';
+    const dhcpStatus = dhcpDiscovery.status;
+    const dhcpServerIp = dhcpDiscovery.dhcpServerIp;
     let dhcpDetails = '';
-    let dhcpServerIp = null;
 
-    if (configData.isContainer) {
-      dhcpStatus = 'STATIC_CONTAINER_NAMESPACE';
-      dhcpDetails = 'In this containerized environment, network interfaces use container network namespace bridging with statically assigned IP addressing. No local DHCP client daemon (such as dhclient or systemd-networkd) is running.';
+    if (dhcpDiscovery.observed && dhcpServerIp) {
+      dhcpDetails = `DHCP server identifier **\`${dhcpServerIp}\`** was discovered from the local operating system lease configuration (${dhcpDiscovery.collectionMethod}${dhcpDiscovery.interfaceName ? ` on interface \`${dhcpDiscovery.interfaceName}\`` : ''}).`;
+    } else if (dhcpDiscovery.isContainer) {
+      dhcpDetails = 'In this containerized environment, network interfaces use container virtual bridge networking with static IP assignments. No active DHCP client lease file (/run/systemd/netif/leases or /var/lib/dhcp) was found.';
     } else {
-      dhcpStatus = 'STATIC_OR_UNOBSERVED';
-      dhcpDetails = 'No active DHCP lease file or DHCP server endpoint was observed on the local network interfaces.';
+      dhcpDetails = dhcpDiscovery.limitationReason || 'No active DHCP lease file or DHCP server endpoint was observed on the local network interfaces.';
     }
 
     const steps = [
       {
         stepNumber: 1,
         label: 'Inspecting local network interface configuration and DHCP client leases…',
-        tool: 'inspectDhcpConfiguration',
-        status: 'WARN',
-        summary: `DHCP state: ${dhcpStatus} · Scope: ${configData.executionScope}`,
+        tool: 'discoverLocalDhcpServer',
+        status: dhcpDiscovery.observed ? 'PASS' : 'WARN',
+        summary: `DHCP state: ${dhcpStatus} · Scope: ${configData.executionScope}${dhcpServerIp ? ` · Server IP: ${dhcpServerIp}` : ''}`,
         durationMs
       }
     ];
 
     const structuredAnswer = {
-      result: `DHCP Server Connection: ${dhcpStatus}. ${dhcpDetails}`,
-      meaning: 'DHCP operates at Layer 2/UDP (ports 67/68) to dynamically assign IP addresses and network options upon joining a network. In containerized or statically configured server environments, addresses are pre-assigned and DHCP broadcasts are disabled.',
-      nextStep: 'You can test the verified default gateway ("Ping my default gateway") or inspect local interfaces ("Check my IP").',
+      result: dhcpDiscovery.observed
+        ? `DHCP server IP on this system is ${dhcpServerIp} (discovered via ${dhcpDiscovery.collectionMethod}).`
+        : `DHCP Server Connection: ${dhcpStatus}. ${dhcpDetails}`,
+      meaning: dhcpDiscovery.observed
+        ? `The operating system received its network configuration and IP lease from DHCP server ${dhcpServerIp}.`
+        : 'DHCP operates at Layer 2/UDP (ports 67/68) upon joining a network. In containerized or statically configured server environments, addresses are pre-assigned and DHCP broadcasts/leases are disabled.',
+      nextStep: dhcpDiscovery.observed
+        ? 'You can test the verified default gateway ("Ping my default gateway") or inspect local interfaces ("Check my IP").'
+        : 'To check the DHCP server that assigned your personal machine\'s IP, open a terminal on your computer and run "ipconfig /all" (Windows: look for "DHCP Server") or "nmcli dev show" (Linux: look for "DHCP4.OPTION").',
       layerFailedFirst: null,
-      uncertainty: 'Raw DHCP broadcast packets (DISCOVER) cannot be emitted without root/CAP_NET_RAW privileges inside an isolated container namespace.'
+      uncertainty: dhcpDiscovery.observed
+        ? null
+        : 'EJII inspects its own execution runtime. It cannot directly observe the physical DHCP server on your workstation without local agent access.'
     };
 
-    const reply =
-      `**DHCP Server Inspection:** ${dhcpStatus}\n\n` +
-      `${dhcpDetails}\n\n` +
-      `Because this environment runs in a **\`${configData.executionScope}\`**, IP addressing is managed at the container bridge level rather than via DHCP leases. If you want to check local network reachability, I can inspect your configured default gateway or test DNS resolution.`;
+    const reply = dhcpDiscovery.observed
+      ? `**DHCP Server Discovered:** \`${dhcpServerIp}\`\n\n${dhcpDetails}\n\nNote that this is the DHCP server observed by the EJII runtime environment.`
+      : `**DHCP Server Inspection:** ${dhcpStatus}\n\n` +
+        `${dhcpDetails}\n\n` +
+        `Because this environment runs in a **\`${configData.executionScope}\`**, IP addressing is managed at the container bridge level rather than via DHCP leases. To check the DHCP server on your personal workstation, open PowerShell/Command Prompt and run \`ipconfig /all\` (look for "DHCP Server") or on Linux run \`nmcli dev show\`.`;
 
     return {
       reply,
       structuredAnswer,
       steps,
       findings: [
-        { label: 'DHCP State', value: dhcpStatus, tone: 'warn' },
+        { label: 'DHCP State', value: dhcpStatus, tone: dhcpDiscovery.observed ? 'ok' : 'warn' },
         { label: 'Execution Scope', value: configData.executionScope, tone: 'neutral' },
-        { label: 'DHCP Server IP', value: dhcpServerIp || 'None (Statically Managed)', tone: 'neutral' }
+        { label: 'DHCP Server IP', value: dhcpServerIp || 'None (Statically Managed / Container)', tone: dhcpDiscovery.observed ? 'ok' : 'neutral' }
       ],
       technicalEvidence: {
         mode: 'dhcp_check',
+        dhcpDiscovery,
         dhcpStatus,
         isContainer: configData.isContainer,
         executionScope: configData.executionScope,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Composite Local-Path / Layer-by-Layer Gateway & ISP Connection Diagnostic
+   * Layer 1: Local Interfaces & status
+   * Layer 2: Local link & neighbor / ARP table
+   * Layer 3: OS Default gateway routing & gateway ICMP ping (if verified)
+   * Layer 4: Upstream IP transport & system DNS resolver reachability (1.1.1.1:53 TCP)
+   * Layer 7: External internet service reachability (dns.google:443 HTTPS)
+   * Never asks for a hostname, never invents an ISP outage, and attributes server container vs workstation scope honestly.
+   */
+  async _executeLocalPathDiagnosticScenario(plan, session, signal) {
+    this._checkAborted(signal);
+    const steps = [];
+    const findings = [];
+
+    // Layer 1: Interfaces
+    const t0 = performance.now();
+    const configData = inspectLocalNetworkConfiguration();
+    const l1Duration = Number((performance.now() - t0).toFixed(1));
+    const l1Pass = configData.interfaces && configData.interfaces.some((i) => i.status === 'UP');
+    steps.push({
+      stepNumber: 1,
+      label: 'Layer 1: Inspecting physical/virtual network adapters and addresses…',
+      tool: 'inspectLocalNetworkConfiguration',
+      status: l1Pass ? 'PASS' : 'FAIL',
+      summary: `Layer 1 (Physical/Link): ${configData.primaryIpv4Label} is UP (Scope: ${configData.executionScope})`,
+      durationMs: l1Duration
+    });
+    findings.push({ label: 'Layer 1 Interfaces', value: configData.primaryIpv4Label, tone: l1Pass ? 'ok' : 'danger' });
+
+    // Layer 2: Neighbor / ARP
+    this._checkAborted(signal);
+    const fs = require('fs');
+    let l2Status = 'UNAVAILABLE';
+    let l2Summary = 'Layer 2 (Neighbor/ARP): ARP cache not exposed in isolated container namespace (unavailable, not failed)';
+    try {
+      if (fs.existsSync('/proc/net/arp')) {
+        const arpLines = fs.readFileSync('/proc/net/arp', 'utf8').trim().split('\n').slice(1);
+        if (arpLines.length > 0) {
+          l2Status = 'PASS';
+          l2Summary = `Layer 2 (Neighbor/ARP): ${arpLines.length} active ARP/neighbor cache entries observed`;
+        }
+      }
+    } catch (_) {}
+    steps.push({
+      stepNumber: 2,
+      label: 'Layer 2: Inspecting local link neighbor cache (ARP entries)…',
+      tool: 'neighbor_discovery',
+      status: l2Status === 'PASS' ? 'PASS' : 'WARN',
+      summary: l2Summary,
+      durationMs: 0.5
+    });
+    findings.push({ label: 'Layer 2 Neighbor (ARP)', value: l2Status === 'PASS' ? 'Observed' : 'Unavailable (Container)', tone: 'neutral' });
+
+    // Layer 3: Routing & Gateway
+    this._checkAborted(signal);
+    const tGw = performance.now();
+    const gw = getVerifiedDefaultGateway();
+    const gwDuration = Number((performance.now() - tGw).toFixed(1));
+    let gwPingRes = null;
+    let l3Status = 'WARN';
+    let l3Summary = `Layer 3 (Routing/Gateway): ${gw.limitationReason || 'No default route (0.0.0.0/0) found in routing table'}`;
+
+    if (gw.verified && gw.gatewayIp) {
+      session.lastGatewayIp = gw.gatewayIp;
+      const tPing = performance.now();
+      gwPingRes = await realPing(gw.gatewayIp, 2, 800);
+      const pingMs = Number((performance.now() - tPing).toFixed(1));
+      if (gwPingRes.success) {
+        l3Status = 'PASS';
+        l3Summary = `Layer 3 (Routing/Gateway): Default route to ${gw.gatewayIp} via ${gw.collectionMethod} responded to ICMP ping (${gwPingRes.avgRttMs} ms)`;
+      } else {
+        l3Status = 'WARN';
+        l3Summary = `Layer 3 (Routing/Gateway): Default route to ${gw.gatewayIp} present; ICMP echo unreplied (container or gateway firewall policy)`;
+      }
+      steps.push({
+        stepNumber: 3,
+        label: `Layer 3: Inspecting routing table and testing gateway ${gw.gatewayIp}…`,
+        tool: 'getVerifiedDefaultGateway',
+        status: l3Status,
+        summary: l3Summary,
+        durationMs: gwDuration + (gwPingRes ? pingMs : 0)
+      });
+      findings.push({
+        label: 'Layer 3 Gateway Route',
+        value: `${gw.gatewayIp} (${gwPingRes?.success ? `${gwPingRes.avgRttMs} ms` : 'No ICMP reply'})`,
+        tone: gwPingRes?.success ? 'ok' : 'warn'
+      });
+    } else {
+      steps.push({
+        stepNumber: 3,
+        label: 'Layer 3: Inspecting routing table for verified 0.0.0.0/0 default gateway…',
+        tool: 'getVerifiedDefaultGateway',
+        status: 'WARN',
+        summary: l3Summary,
+        durationMs: gwDuration
+      });
+      findings.push({ label: 'Layer 3 Gateway Route', value: 'Unobserved in server routing table', tone: 'warn' });
+    }
+
+    // Layer 4 & DNS: Upstream Reachability & Resolver
+    this._checkAborted(signal);
+    const tDnsPort = performance.now();
+    const dnsPortRes = await checkPort('1.1.1.1', 53, 1500);
+    const dnsPortMs = Number((performance.now() - tDnsPort).toFixed(1));
+    const l4Pass = dnsPortRes.status === 'OPEN';
+    steps.push({
+      stepNumber: 4,
+      label: 'Layer 4: Testing upstream Layer 4 IP transport to Anycast resolver (1.1.1.1:53 TCP)…',
+      tool: 'checkPort',
+      status: l4Pass ? 'PASS' : 'WARN',
+      summary: l4Pass
+        ? `Layer 4 (Transport): Upstream reachability to 1.1.1.1:53 established (${dnsPortRes.connectLatencyMs || dnsPortMs} ms)`
+        : `Layer 4 (Transport): 1.1.1.1:53 returned ${dnsPortRes.status} (${dnsPortRes.errorCode || 'Timeout'})`,
+      durationMs: dnsPortRes.connectLatencyMs || dnsPortMs
+    });
+    findings.push({
+      label: 'Layer 4 Upstream Reachability',
+      value: l4Pass ? `Connected (${dnsPortRes.connectLatencyMs || dnsPortMs} ms)` : 'Timed out / Filtered',
+      tone: l4Pass ? 'ok' : 'warn'
+    });
+
+    // Layer 7: External Internet Service Reachability (Approved public probe)
+    this._checkAborted(signal);
+    const tHttp = performance.now();
+    const httpsRes = await checkPort('dns.google', 443, 2000);
+    const httpsMs = Number((performance.now() - tHttp).toFixed(1));
+    const l7Pass = httpsRes.status === 'OPEN';
+    steps.push({
+      stepNumber: 5,
+      label: 'Layer 7: Testing application-layer external internet connectivity (dns.google:443 HTTPS)…',
+      tool: 'checkPort',
+      status: l7Pass ? 'PASS' : 'WARN',
+      summary: l7Pass
+        ? `Layer 7 (Application): External HTTPS connection to dns.google:443 established (${httpsRes.connectLatencyMs || httpsMs} ms)`
+        : `Layer 7 (Application): External HTTPS connection returned ${httpsRes.status}`,
+      durationMs: httpsRes.connectLatencyMs || httpsMs
+    });
+    findings.push({
+      label: 'Layer 7 External Reachability',
+      value: l7Pass ? `Connected (${httpsRes.connectLatencyMs || httpsMs} ms)` : 'Inconclusive / No reply',
+      tone: l7Pass ? 'ok' : 'warn'
+    });
+
+    const isConnectedToInternet = l4Pass || l7Pass;
+    const reply =
+      `### Layer-by-Layer Network & Upstream Path Diagnostic\n\n` +
+      `Here is the step-by-step diagnostic breakdown for the **\`${configData.executionScope}\`**:\n\n` +
+      `1. **Layer 1 (Physical / Local Interfaces):** ${l1Pass ? `UP · Primary interface: **\`${configData.primaryIpv4Label}\`**` : 'DOWN · No network interface with IPv4 was observed.'}\n` +
+      `2. **Layer 2 (Neighbor / Data Link):** ${l2Status === 'PASS' ? 'Active neighbor cache entries observed.' : 'Neighbor/ARP cache is isolated in container runtime.'}\n` +
+      `3. **Layer 3 (Default Gateway Route):** ${gw.verified && gw.gatewayIp ? `Route to **\`${gw.gatewayIp}\`** present via \`${gw.collectionMethod}\`${gwPingRes?.success ? ` (ICMP replied in ${gwPingRes.avgRttMs} ms)` : ' (ICMP echo unreplied, but route is configured)'}.` : `No 0.0.0.0/0 route in server routing table (${gw.collectionMethod}).`}\n` +
+      `4. **Layer 4 (Transport / Upstream):** ${l4Pass ? `Connected to upstream Anycast DNS (\`1.1.1.1:53\`) in **${dnsPortRes.connectLatencyMs || dnsPortMs} ms**.` : 'Could not establish connection to upstream test resolver.'}\n` +
+      `5. **Layer 7 (External Internet Reachability):** ${l7Pass ? `Outbound HTTPS connectivity to \`dns.google:443\` succeeded (**${httpsRes.connectLatencyMs || httpsMs} ms**).` : 'Outbound HTTPS connection did not complete within timeout.'}\n\n` +
+      `**Summary:** ${isConnectedToInternet ? 'Outbound internet connectivity is active and operating. Upstream traffic can be dispatched and external endpoints are reachable.' : 'Local network path exhibited timeouts reaching external targets.'}\n\n` +
+      `*(Note: This diagnostic was executed from the EJII server environment. To check the physical router connection from your personal computer, run \`ipconfig\` or \`traceroute 1.1.1.1\` on your workstation).*`;
+
+    const structuredAnswer = {
+      result: `Layer-by-layer check: Layer 1 is UP (${configData.primaryIpv4Label}), Layer 3 gateway is ${gw.gatewayIp || 'unobserved in server table'}, and Layer 4/7 external reachability is ${isConnectedToInternet ? 'ACTIVE' : 'DEGRADED'}.`,
+      meaning: 'Evaluated the local network stack from local network adapters through default route, upstream transport, and external application connectivity.',
+      nextStep: 'If a specific service or host is experiencing issues, test that destination host directly (e.g. "Check port 443 on <target>").',
+      layerFailedFirst: !isConnectedToInternet ? 'L4 Upstream Transport' : null,
+      uncertainty: 'The test ran from the EJII server container environment; intermediate ISP hops and user workstation physical Wi-Fi/Ethernet link cannot be directly observed from a server container.'
+    };
+
+    return {
+      reply,
+      structuredAnswer,
+      steps,
+      findings,
+      technicalEvidence: {
+        configData,
+        gateway: gw,
+        dnsPortRes,
+        httpsRes,
         observedAt: new Date().toISOString()
       }
     };
@@ -1998,42 +2320,50 @@ class ChatOperatorService {
   async _executeGatewayCheckScenario(plan, session, signal) {
     this._checkAborted(signal);
     const t0 = performance.now();
-    const gw = getVerifiedDefaultGateway();
+    const gwCollector = plan?.gatewayCollectorFn || this.gatewayCollectorFn || getVerifiedDefaultGateway;
+    const gw = gwCollector();
     const lookupMs = Number((performance.now() - t0).toFixed(1));
 
     if (!gw.verified || !gw.gatewayIp) {
+      const isCollectorUnavailable = gw.status === 'COLLECTOR_UNAVAILABLE';
       const steps = [
         {
           stepNumber: 1,
           label: 'Inspecting OS kernel routing table for 0.0.0.0/0 default gateway…',
           tool: 'getVerifiedDefaultGateway',
           status: 'WARN',
-          summary: `No verified 0.0.0.0/0 default route exposed in routing table (${gw.collectionMethod})`,
+          summary: isCollectorUnavailable
+            ? `Routing table collector unavailable (${gw.collectionMethod})`
+            : `No verified 0.0.0.0/0 default route exposed in routing table (${gw.collectionMethod})`,
           durationMs: lookupMs
         }
       ];
       const structuredAnswer = {
-        result: 'Cannot ping default gateway: no verified default gateway route (0.0.0.0/0) was found in the local OS or container routing table.',
+        result: isCollectorUnavailable
+          ? `Cannot inspect default gateway: routing table collector is unavailable (${gw.collectionMethod}).`
+          : 'Cannot ping default gateway: no verified default gateway route (0.0.0.0/0) was found in the local OS or container routing table.',
         meaning: `${gw.limitationReason} EJII does not guess a ".1" address from the local IP or substitute a previous remote target.`,
         nextStep: 'If you know the specific gateway IP address on your network, ask "Ping <gateway-ip>" directly, or run "Check my IP" to inspect active network interfaces.',
         layerFailedFirst: null,
         uncertainty: 'Containerized and sandboxed network namespaces frequently omit a host-visible 0.0.0.0/0 gateway entry.'
       };
       const reply =
-        `No verified default gateway route (\`0.0.0.0/0\`) was found in the local routing table (${gw.collectionMethod}).\n\n` +
-        `${gw.limitationReason} Rather than guessing a \`.1\` address or reusing an earlier target, no ping probe was sent. If you know your router's IP address, you can ask me to ping that IP directly.`;
+        `${isCollectorUnavailable ? `Routing table collector is unavailable (${gw.collectionMethod}).` : `No verified default gateway route (\`0.0.0.0/0\`) was found in the local routing table (${gw.collectionMethod}).`}\n\n` +
+        `${gw.limitationReason} EJII never guesses a \`.1\` address or reuses an earlier target, so no ping probe was sent. If you know your router's IP address, you can ask me to ping that IP directly.`;
       return {
         reply,
         structuredAnswer,
         steps,
         findings: [
-          { label: 'Default Gateway', value: 'Unverified in Routing Table', tone: 'warn' },
+          { label: 'Default Gateway', value: isCollectorUnavailable ? 'Collector Unavailable' : 'Unverified in Routing Table', tone: 'warn' },
           { label: 'Collection Method', value: gw.collectionMethod, tone: 'neutral' },
           { label: 'Safety Policy', value: 'No guessed .1 address', tone: 'ok' }
         ],
         technicalEvidence: { gatewayInfo: gw, pingExecuted: false, observedAt: new Date().toISOString() }
       };
     }
+
+    session.lastGatewayIp = gw.gatewayIp;
 
     const pingStart = performance.now();
     const pingRes = await realPing(gw.gatewayIp, 2, 1000);
@@ -2102,24 +2432,26 @@ class ChatOperatorService {
    * Distinguishes the EJII server container runtime environment from the user's client workstation network.
    */
   _executeGatewayIpQuery(plan, session) {
-    const gw = getVerifiedDefaultGateway();
-    const runtimeGatewayIp = gw.verified && gw.gatewayIp ? gw.gatewayIp : (session?.lastGatewayIp || '169.254.8.254 (or on-link interface route)');
+    const gwCollector = plan?.gatewayCollectorFn || this.gatewayCollectorFn || getVerifiedDefaultGateway;
+    const gw = gwCollector();
+    const runtimeGatewayIp = gw.verified && gw.gatewayIp ? gw.gatewayIp : (session?.lastGatewayIp || null);
     const collectionMethod = gw.collectionMethod || 'OS kernel routing table';
 
     const reply =
       `### Default Gateway IP & Network Attribution\n\n` +
       `**1. In this EJII server environment (cloud container runtime):**\n` +
-      `- **Gateway IP:** \`${gw.verified && gw.gatewayIp ? gw.gatewayIp : '169.254.8.254 (virtual container bridge)'}\`\n` +
-      `- **Route status:** ${gw.verified ? `Discovered via \`${collectionMethod}\`${gw.interfaceName ? ` on interface \`${gw.interfaceName}\`` : ''}` : `The container uses an on-link virtual interface route (point-to-point /32 or cloud hypervisor link-local gateway \`169.254.8.254\` / \`169.254.169.254\`).`}\n\n` +
+      `- **Gateway IP:** \`${runtimeGatewayIp ? runtimeGatewayIp : 'Unobserved (no default route exposed in server routing table)'}\`\n` +
+      `- **Route status:** ${gw.verified ? `Discovered via \`${collectionMethod}\`${gw.interfaceName ? ` on interface \`${gw.interfaceName}\`` : ''}` : `No verified 0.0.0.0/0 default route was found in the server routing table (${collectionMethod}).`}\n\n` +
       `**2. On your personal computer / client workstation:**\n` +
-      `Because EJII runs inside a remote server container, it cannot directly inspect your physical workstation's local router. Your home or office network typically assigns:\n` +
-      `- Most common home/office gateway IP: **\`192.168.1.1\`** or **\`192.168.0.1\`** (or **\`10.0.0.1\`** / **\`172.16.0.1\`**)\n` +
+      `Because EJII runs inside a remote server container, it cannot directly inspect your physical workstation's local router. Your home or office network assigns a private router IP on your LAN.\n` +
       `- **How to verify on Windows:** Open Command Prompt or PowerShell and type \`ipconfig\` — look for **"Default Gateway"**.\n` +
       `- **How to verify on macOS / Linux:** Open Terminal and type \`ip route show default\` or \`netstat -nr | grep default\`.\n\n` +
       `If you'd like me to probe reachability to a specific gateway IP or check external internet connectivity from here, just let me know!`;
 
     const structuredAnswer = {
-      result: `The EJII server container runtime uses gateway ${runtimeGatewayIp} (${collectionMethod}), while your client workstation typically uses a local router address such as 192.168.1.1 or 10.0.0.1.`,
+      result: runtimeGatewayIp
+        ? `The EJII server container runtime uses gateway ${runtimeGatewayIp} (${collectionMethod}).`
+        : `No default gateway was observed in the server routing table (${collectionMethod}).`,
       meaning: 'Distinction between the server container runtime network namespace and the user client workstation network.',
       nextStep: 'Check "ipconfig" (Windows) or "ip route" (Linux/macOS) on your local machine to find your workstation\'s gateway IP.',
       layerFailedFirst: null,
@@ -2809,12 +3141,20 @@ class ChatOperatorService {
     const findings = [{ label: 'Target', value: `${target}${probeHost !== target ? ` (${probeHost})` : ''}`, tone: 'neutral' }];
     const evidenceIds = [];
 
-    for (let i = 0; i < ports.length; i++) {
+    const perPortTimeoutMs = ports.length > 3 ? 1100 : 1800;
+    const rawPortOutcomes = await Promise.all(
+      ports.map(async (port) => {
+        this._checkAborted(signal);
+        const stepStart = performance.now();
+        const rawRes = await checkPort(probeHost, port, perPortTimeoutMs);
+        const durationMs = Number((performance.now() - stepStart).toFixed(1));
+        return { port, rawRes, durationMs };
+      })
+    );
+
+    for (let i = 0; i < rawPortOutcomes.length; i++) {
       this._checkAborted(signal);
-      const port = ports[i];
-      const stepStart = performance.now();
-      const rawRes = await checkPort(probeHost, port, 1800);
-      const durationMs = Number((performance.now() - stepStart).toFixed(1));
+      const { port, rawRes, durationMs } = rawPortOutcomes[i];
       const measuredLatencyMs = typeof rawRes.connectLatencyMs === 'number'
         ? rawRes.connectLatencyMs
         : (typeof rawRes.latencyMs === 'number' ? rawRes.latencyMs : null);

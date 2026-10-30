@@ -15,7 +15,8 @@
   const STARTER_PROMPTS = [
     'Check whether port 3000 is open on localhost',
     'Check DNS for example.com',
-    'Investigate why 127.0.0.1:8080 is not responding'
+    'Check my internet connection from local adapter to ISP',
+    'Show active network connections and listening ports'
   ];
 
   const chatState = {
@@ -472,27 +473,10 @@
 
   window.switchToAdvancedToolView = function (viewName) {
     document.body.classList.remove('ejii-chat-first-active');
-    ensureBackToChatTopbarButton();
     if (typeof window.renderView === 'function') {
       window.renderView(viewName);
     }
   };
-
-  function ensureBackToChatTopbarButton() {
-    const topbarLeft = document.querySelector('.topbar-left');
-    if (!topbarLeft || document.getElementById('btnBackToChatWorkspace')) return;
-    const btn = document.createElement('button');
-    btn.id = 'btnBackToChatWorkspace';
-    btn.type = 'button';
-    btn.className = 'topbar-action';
-    btn.style.marginRight = '10px';
-    btn.style.fontWeight = '600';
-    btn.innerHTML = '← Back to Chat';
-    btn.onclick = function () {
-      window.renderView('chat');
-    };
-    topbarLeft.insertBefore(btn, topbarLeft.firstChild);
-  }
 
   window.renderChatWorkspaceView = function () {
     const main = document.getElementById('mainContent');
@@ -506,17 +490,17 @@
 
     main.innerHTML = `
       <div class="ejii-chat-shell" id="ejiiChatWorkspace">
-        <!-- Region 1: Compact Top Header -->
+        <!-- Region 1: Compact Workspace Subheader -->
         <header class="ejii-minimal-header" id="ejiiMinimalHeader">
           <div class="ejii-minimal-brand">
-            <span class="ejii-minimal-mark">EJII</span>
-            <span class="ejii-minimal-title">Eldar Jamiyev's Infrastructure Intelligence</span>
+            <span class="ejii-minimal-mark">AI BRAIN v7.0</span>
+            <span class="ejii-minimal-title">Conversational Infrastructure &amp; Protocol Investigator</span>
           </div>
 
           <div class="ejii-minimal-header-right">
             <div class="ejii-connection-indicator" id="ejiiChatConnectionStatus" title="Connected to local diagnostic engine">
               <span class="ejii-connection-dot" aria-hidden="true"></span>
-              <span>Connected</span>
+              <span>Live Probes Ready</span>
             </div>
 
             <button type="button" class="ejii-header-btn" id="btnChatNewConversation" onclick="window.resetEjiiChatSession()" title="Start a new diagnostic conversation">
@@ -525,11 +509,17 @@
 
             <details class="ejii-tools-dropdown" id="ejiiAdvancedToolsDropdown">
               <summary class="ejii-header-btn" title="Open specialist network and host views">
-                Tools ▾
+                Workstations ▾
               </summary>
               <div class="ejii-tools-menu" role="menu">
+                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ai-operator')">
+                  <span>AI Operator Console</span><span>→</span>
+                </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('topology')">
                   <span>Network Topology</span><span>→</span>
+                </button>
+                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('noc-dashboard')">
+                  <span>NOC Dual-Pane Center</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('packet-sniffer')">
                   <span>Packet Analysis</span><span>→</span>
@@ -542,9 +532,6 @@
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('pc-automation')">
                   <span>Host Automation</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ai-operator')">
-                  <span>Autonomous Operator Console</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('learning-center')">
                   <span>Learning Center</span><span>→</span>
@@ -559,10 +546,6 @@
             <span class="ejii-connection-indicator" id="ejiiChatUserBadge" style="padding:0 4px;">
               ${esc(username)} (${esc(userRole)})
             </span>
-
-            <button type="button" class="ejii-header-btn" id="btnChatSignOut" onclick="document.getElementById('btnLogout') && document.getElementById('btnLogout').click()" title="Sign out">
-              Sign out
-            </button>
           </div>
         </header>
 

@@ -25,6 +25,7 @@
   "author": "Eldar Jamiyev",
   "license": "UNLICENSED",
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "express": "^4.21.2",
     "net-snmp": "^3.9.4",
     "ws": "^8.18.0"

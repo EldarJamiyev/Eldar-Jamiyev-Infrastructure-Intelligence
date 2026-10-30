@@ -196,30 +196,52 @@ function classifyConversationalTurn(rawText, session = null) {
   const raw = String(rawText || '').trim();
   const clean = raw.replace(/[!?.]+$/, '').trim().toLowerCase();
 
-  // 1. Name Query: "my name is what", "what is my name?", "who am I?", "do you know my name?"
-  if (/^(?:what is my name|what's my name|whats my name|who am i|do you know my name|tell me my name|my name is what)\??$/i.test(clean)) {
-    const rememberedName = session?.entityMemory?.userName || (session?.username && session.username !== 'operator' && session.username !== 'op-1' ? session.username : null);
-    if (rememberedName) {
+  // 1. Identity & Name Query: "who am I?", "what is my name?", "do you know my name?"
+  if (/^(?:who am i|what is my identity)\??$/i.test(clean)) {
+    const personalName = session?.entityMemory?.userName || session?.userName || session?.displayName || null;
+    const accountUser = session?.username || 'admin';
+    const roleStr = session?.role ? ` (role: ${session.role})` : '';
+    if (personalName) {
+      return {
+        matched: true,
+        subtype: 'identity_query',
+        type: 'identity_query',
+        reply: `You are ${personalName}. You are authenticated as \`${accountUser}\`${roleStr}.`,
+        summary: `Identified user as ${personalName} (account: ${accountUser}).`
+      };
+    }
+    return {
+      matched: true,
+      subtype: 'identity_query',
+      type: 'identity_query',
+      reply: `You are signed in as \`${accountUser}\` (account username${roleStr}). You haven't shared your personal display name in this conversation.`,
+      summary: `Identified account username as ${accountUser}; personal name unknown.`
+    };
+  }
+
+  if (/^(?:what is my name|what's my name|whats my name|do you know my name|tell me my name|my name is what)\??$/i.test(clean)) {
+    const personalName = session?.entityMemory?.userName || session?.userName || session?.displayName || null;
+    if (personalName) {
       return {
         matched: true,
         subtype: 'name_query',
         type: 'name_query',
-        reply: `Your name is ${rememberedName}. What can I help you investigate or explain today?`,
-        summary: `Recalled user name: ${rememberedName}`
+        reply: `Your name is ${personalName}. What can I help you investigate or explain today?`,
+        summary: `Recalled user personal name: ${personalName}`
       };
     }
     return {
       matched: true,
       subtype: 'name_query',
       type: 'name_query',
-      reply: "You haven't told me your name yet. What would you like me to call you?",
-      summary: "Informed user no name is on record."
+      reply: "You haven't told me your personal name yet in this session. What would you like me to call you?",
+      summary: "Informed user no personal name is on record."
     };
   }
 
-  // 2. Name Correction: "I'm not Eldar; I'm Elvin", "my name is not Eldar, call me Elvin"
+  // 2. Name Correction: "I'm not Eldar; I'm Elvin", "my name is not Eldar, call me Elvin", "actually my name is Elvin", "my name is Elvin"
   const corrMatch = clean.match(/(?:i'm not|i am not|my name is not)\s+([a-z0-9_-]+)[;,.]?\s*(?:i'm|i am|it's|it is|my name is|call me)\s+([a-z0-9_-]+)/i) ||
-                    clean.match(/(?:actually|correction),?\s*(?:my name is|i'm|call me)\s+([a-z0-9_-]+)/i);
+                    clean.match(/(?:actually|correction|wait|no),?\s*(?:my name is|i'm|call me)\s+([a-z0-9_-]+)/i);
   if (corrMatch) {
     const rawCorrected = (corrMatch[2] || corrMatch[1] || '').trim();
     if (rawCorrected && !NON_NAME_TOKENS.has(rawCorrected.toLowerCase())) {
@@ -227,6 +249,7 @@ function classifyConversationalTurn(rawText, session = null) {
       if (session) {
         if (!session.entityMemory) session.entityMemory = {};
         session.entityMemory.userName = name;
+        session.userName = name;
       }
       return {
         matched: true,
@@ -252,6 +275,7 @@ function classifyConversationalTurn(rawText, session = null) {
         if (session) {
           if (!session.entityMemory) session.entityMemory = {};
           session.entityMemory.userName = name;
+          session.userName = name;
         }
         return {
           matched: true,
@@ -377,13 +401,21 @@ function classifyConversationalTurn(rawText, session = null) {
       (session?.messages && session.messages.slice(-3).some((m) => /\bgateway\b/i.test(m.content)));
 
     if (wasDiscussingGateway) {
-      const gw = session?.lastGatewayIp || '169.254.8.254';
+      if (session?.lastGatewayIp) {
+        return {
+          matched: true,
+          subtype: 'frustration_repair',
+          type: 'frustration_repair',
+          reply: `You're right — I apologize for the generic reply. We were discussing the default gateway. The default gateway observed in the EJII runtime environment is **\`${session.lastGatewayIp}\`** (discovered via OS routing table). Please note that this is the gateway of the EJII server/container, which may differ from the router address on your personal workstation.`,
+          summary: "Repaired context for default gateway question after user confusion."
+        };
+      }
       return {
         matched: true,
         subtype: 'frustration_repair',
         type: 'frustration_repair',
-        reply: `You're right — I apologize for the generic reply. We were discussing the default gateway. The default gateway observed in the EJII runtime environment is **\`${gw}\`** (discovered via OS routing table). Please note that this is the gateway of the EJII server/container, which may differ from the router address on your personal workstation.`,
-        summary: "Repaired context for default gateway question after user confusion."
+        reply: "You're right — I apologize for the generic reply. We were discussing the default gateway. In this environment, no verified 0.0.0.0/0 default route was observed in the server routing table. To find the default gateway on your personal machine, run `ipconfig` (Windows) or `ip route show default` (Linux/macOS).",
+        summary: "Repaired context for default gateway question with honest route status."
       };
     }
     return {
@@ -504,6 +536,14 @@ function isInformationalTechnicalQuestion(rawText) {
     return true;
   }
 
+  // Operational requests for specific system configuration values or multi-layer checks
+  if (
+    /\b(dhcp server ip|ip of dhcp|assigned my (?:ip|address)|my dhcp|my gateway ip|gateway ip|layer by layer|layer-by-layer|gateway and isp|router reachable)\b/i.test(lower) ||
+    /\b(what is my|what's my|find the ip of|which server assigned)\s+(?:dhcp|gateway)\b/i.test(lower)
+  ) {
+    return false;
+  }
+
   // If the user explicitly asks for a specific brand or domain's live IP ("What's Google's IP?", "IP of google.com"), that's a DNS lookup, not conceptual
   if (/\b(what's|what is|find|show|get)\s+(?:the\s+)?(?:ip|address)\s+(?:of|for)\b/i.test(lower) || /\b[a-z0-9-]+\.[a-z]{2,}\b/i.test(lower) && /\b(ip|resolve|lookup)\b/i.test(lower)) {
     return false;
@@ -519,9 +559,9 @@ function isInformationalTechnicalQuestion(rawText) {
     return true;
   }
 
-  // Conceptual questions about DNS, gateway, TCP/UDP, timeout vs refused, commands, checklists
+  // Conceptual questions about DNS, gateway, DHCP, TCP/UDP, timeout vs refused, commands, checklists
   if (
-    /\b(what (?:exactly )?is a default gateway|what is default gateway|difference between tcp and udp|tcp vs\.? udp|difference between (?:a )?connection refused and (?:a )?timeout|is a timeout the same(?: thing)? as connection refused|timeout vs\.? connection refused|connection refused vs\.? timeout|what does (?:this|the) (?:powershell|bash|linux|ss|netstat|ipconfig) command do|prepare a troubleshooting checklist|troubleshooting checklist for|can you explain what dns (?:actually )?does|what does dns (?:actually )?do|how does (?:dns|tls|https|arp|nat|traceroute|icmp|tcp handshake|dhcp) work|what is (?:nat|arp|dns|icmp|tls|ssl|mtu|cidr|subnet mask|loopback|localhost|econnrefused|etimedout|nxdomain|apipa|bgp|ospf|quic))\b/i.test(lower)
+    /\b(what (?:exactly )?is a default gateway|what is default gateway|what (?:exactly )?is dhcp|what does dhcp do|difference between tcp and udp|tcp vs\.? udp|difference between (?:a )?connection refused and (?:a )?timeout|is a timeout the same(?: thing)? as connection refused|timeout vs\.? connection refused|connection refused vs\.? timeout|what does (?:this|the) (?:powershell|bash|linux|ss|netstat|ipconfig) command do|prepare a troubleshooting checklist|troubleshooting checklist for|can you explain what dns (?:actually )?does|what does dns (?:actually )?do|how does (?:dns|tls|https|arp|nat|traceroute|icmp|tcp handshake|dhcp) work|what is (?:nat|arp|dns|icmp|tls|ssl|mtu|cidr|subnet mask|loopback|localhost|econnrefused|etimedout|nxdomain|apipa|bgp|ospf|quic))\b/i.test(lower)
   ) {
     return true;
   }
@@ -533,7 +573,7 @@ function isInformationalTechnicalQuestion(rawText) {
 
   if (
     /^(what is|what are|what exactly is|can you explain|explain|how does|how do|describe|define|is a |why can a |why does a |why do )\b/i.test(lower) &&
-    !/\b(my ip|my gateway|my network|my dns|active connections|running applications|talking to|what happened|what changed|previous test|previous result|last check|same host|that host|google's ip)\b/i.test(lower)
+    !/\b(my ip|my gateway|my network|my dns|my dhcp|active connections|running applications|talking to|what happened|what changed|previous test|previous result|last check|same host|that host|google's ip)\b/i.test(lower)
   ) {
     return true;
   }
@@ -547,6 +587,21 @@ function isInformationalTechnicalQuestion(rawText) {
 function answerInformationalQuestion(rawText) {
   const lower = String(rawText || '').toLowerCase();
   const clean = lower.replace(/[!?.]+$/, '').trim();
+
+  // Conceptual question about DHCP
+  if (clean === 'what is dhcp' || clean === 'what is dhcp?' || /\b(what (?:exactly )?is dhcp|how does dhcp work|what does dhcp do|explain dhcp)\b/i.test(lower)) {
+    const result = 'DHCP (Dynamic Host Configuration Protocol) is a network management protocol that automatically assigns IP addresses and network configuration parameters to client devices on a local subnet.';
+    const meaning =
+      'When a computer connects to a network, it broadcasts a DHCP DISCOVER message. A DHCP server replies with an OFFER (IP address, subnet mask, default gateway, and DNS servers). The client issues a REQUEST for that lease, and the server returns an ACK (Acknowledgment). This 4-step "DORA" handshake eliminates manual static IP configuration and avoids duplicate address collisions.';
+    const nextStep = 'If you want to discover the DHCP server that assigned this system\'s lease, ask "What is my DHCP server IP?".';
+    return {
+      topic: 'DHCP (Dynamic Host Configuration Protocol)',
+      result,
+      meaning,
+      nextStep,
+      naturalReply: `${result}\n\n${meaning}`
+    };
+  }
 
   // Open-ended query: "What is Google?"
   if (clean === 'what is google' || (clean.startsWith('what is google') && !clean.includes('ip'))) {

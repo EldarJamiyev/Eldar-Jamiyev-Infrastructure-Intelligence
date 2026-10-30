@@ -413,8 +413,8 @@ class AIModelOrchestrator {
       },
       google_gemini: {
         id: 'google_gemini',
-        name: 'Google Gemini 2.0',
-        model: 'gemini-2.0-flash',
+        name: 'Google Gemini 3.8 Flash',
+        model: 'gemini-3.8-flash',
         isLocal: false,
         configured: Boolean(process.env.GEMINI_API_KEY)
       }
@@ -524,13 +524,14 @@ class AIModelOrchestrator {
    * Executes a real bounded HTTP completion against Local Ollama, OpenAI, Claude, or Gemini
    * using strictly redacted context and RAG citations, falling back cleanly if offline.
    */
-  async invokeModelProvider(providerName, promptText, { timeoutMs = 4500 } = {}) {
+  async invokeModelProvider(providerName, promptText, options = {}) {
+    const timeoutMs = options.timeoutMs || 4500;
+    const allowRedactedCloudFallback = Boolean(options.allowRedactedCloudFallback);
     const http = require('http');
-    const https = require('https');
     const normProvider = String(providerName || '').toUpperCase();
 
     if (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA') {
-      return new Promise((resolve) => {
+      const ollamaRes = await new Promise((resolve) => {
         try {
           const parsedUrl = new URL('/api/generate', this.ollamaUrl || 'http://127.0.0.1:11434');
           const body = JSON.stringify({
@@ -546,7 +547,7 @@ class AIModelOrchestrator {
               path: parsedUrl.pathname,
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-              timeout: timeoutMs
+              timeout: Math.min(timeoutMs, 1200)
             },
             (res) => {
               let data = '';
@@ -555,7 +556,7 @@ class AIModelOrchestrator {
                 if (res.statusCode === 200) {
                   try {
                     const parsed = JSON.parse(data);
-                    return resolve({ liveResponse: true, provider: 'OLLAMA', text: parsed.response || '' });
+                    return resolve({ liveResponse: true, isMock: false, provider: 'OLLAMA', text: parsed.response || '' });
                   } catch (_) {}
                 }
                 resolve({ liveResponse: false, provider: 'OLLAMA', reason: `HTTP ${res.statusCode}` });
@@ -570,15 +571,70 @@ class AIModelOrchestrator {
           resolve({ liveResponse: false, provider: 'OLLAMA', reason: err.message, status: 'OFFLINE' });
         }
       });
+
+      if (ollamaRes.liveResponse || !allowRedactedCloudFallback) {
+        return ollamaRes;
+      }
+      // If allowRedactedCloudFallback is true and Ollama is offline, fall through to Gemini if GEMINI_API_KEY is configured
     }
 
-    // For external cloud providers (OPENAI, CLAUDE, GEMINI), enforce localOnlyPolicy check first
-    if (this.localOnlyPolicy) {
+    // For external cloud providers (OPENAI, CLAUDE, GEMINI), enforce localOnlyPolicy check first unless allowRedactedCloudFallback is explicitly requested
+    if (this.localOnlyPolicy && !allowRedactedCloudFallback) {
       return {
         liveResponse: false,
         provider: providerName,
         reason: 'BLOCKED_BY_LOCAL_ONLY_PRIVACY_POLICY'
       };
+    }
+
+    const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
+    if (
+      geminiKey &&
+      (normProvider === 'GEMINI' ||
+        normProvider === 'GOOGLE_GEMINI' ||
+        (allowRedactedCloudFallback && (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA')))
+    ) {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({
+          apiKey: geminiKey,
+          httpOptions: {
+            headers: { 'User-Agent': 'aistudio-build' },
+            timeout: Math.max(10000, timeoutMs)
+          }
+        });
+        const redactedPrompt = redactTelemetryForExternalModel({ prompt: String(promptText || '') }).prompt;
+        const response = await ai.models.generateContent({
+          model: options.model || 'gemini-3.1-flash-lite',
+          contents: redactedPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.1
+          }
+        });
+        const text = response && response.text ? String(response.text).trim() : '';
+        if (text) {
+          if (this.providerTelemetry.OPENAI) {
+            this.providerTelemetry.OPENAI.callsCount = (this.providerTelemetry.OPENAI.callsCount || 0) + 1;
+            this.providerTelemetry.OPENAI.successCount = (this.providerTelemetry.OPENAI.successCount || 0) + 1;
+            this.providerTelemetry.OPENAI.status = 'OPERATIONAL';
+          }
+          return {
+            liveResponse: true,
+            isMock: false,
+            provider: 'GOOGLE_GEMINI',
+            model: options.model || 'gemini-3.1-flash-lite',
+            text
+          };
+        }
+      } catch (err) {
+        return {
+          liveResponse: false,
+          provider: 'GOOGLE_GEMINI',
+          status: 'OFFLINE',
+          reason: err.message || 'GEMINI_API_ERROR'
+        };
+      }
     }
 
     return {

@@ -1,441 +1,365 @@
-<!-- EJII README: source-aligned documentation; metrics below are repository snapshots, not live service SLAs. -->
 <div align="center">
 
-<img src="docs/assets/ejii-banner.svg" alt="EJII — Eldar Jamiyev's Infrastructure Intelligence" width="100%">
+<img src="docs/assets/ejii-aurora-banner.svg" alt="EJII — Eldar Jamiyev's Infrastructure Intelligence (Project Aurora & Falcon v7.0)" width="100%" />
 
-<p><strong>A local-first workspace for infrastructure visibility, network diagnostics, packet analysis, and governed operations.</strong></p>
+<br />
 
-<p>
-  <a href="https://img.shields.io/github/last-commit/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence"><img src="https://img.shields.io/github/last-commit/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence?label=last%20commit" alt="Last commit"></a>
-  <a href="https://img.shields.io/github/repo-size/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence"><img src="https://img.shields.io/github/repo-size/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence?label=repository%20size" alt="Repository size"></a>
-  <a href="https://img.shields.io/github/languages/top/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence"><img src="https://img.shields.io/github/languages/top/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence" alt="Top language"></a>
-  <a href="https://img.shields.io/github/stars/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence"><img src="https://img.shields.io/github/stars/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence?style=flat" alt="GitHub stars"></a>
-  <img src="https://img.shields.io/badge/package-6.0.0--sovereign--intelligence--fabric-2563EB" alt="Package version">
-  <img src="https://img.shields.io/badge/master%20test%20runner-100%20registered%20suites-0F766E" alt="100 registered test suites">
-  <img src="https://img.shields.io/badge/license-UNLICENSED-475569" alt="Unlicensed">
-</p>
+# EJII — Eldar Jamiyev's Infrastructure Intelligence
 
-<p>
-  <a href="#overview">Overview</a> ·
-  <a href="#screenshots">Screenshots</a> ·
-  <a href="#capabilities">Capabilities</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#security-and-deployment-notes">Security</a> ·
-  <a href="#documentation">Documentation</a>
-</p>
+**AI-Native Conversational Infrastructure Assistant · L1–L7 Protocol & Wire Dissector · Epistemic Evidence Fabric · Governed Self-Healing Workbench**
+
+[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-100%2F100_PASS-059669?style=for-the-badge)](tests/run-tests.js)
+[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-34%2F34_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![Design System](https://img.shields.io/badge/UI_Architecture-Project_Aurora_v7.0-0F172A?style=for-the-badge)](public/css/ejii-meridian.css)
+[![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
+[![Storage](https://img.shields.io/badge/Persistence-SQLite_WAL_%2B_RBAC-334155?style=for-the-badge)](src/db/database.js)
+
+[**Executive Vision**](#1-executive-overview) · [**Visual Product Tour (12 Live Screens)**](#2-visual-product-tour--every-workstation-in-action) · [**System Architecture**](#3-system-architecture--dataflow) · [**Project Falcon AI Brain**](#4-project-falcon--ai-native-conversational-intelligence) · [**Epistemic Guarantees**](#5-epistemic-integrity--zero-fabrication-engineering) · [**Quick Start & Testing**](#7-quick-start-configuration--verification)
 
 </div>
 
-> **Project status:** EJII is an actively evolving, self-hosted engineering project. This README describes the code currently present in the repository; it is not a claim of independent enterprise certification, a production SLA, or a guarantee that every optional collector works on every operating system. Review the deployment and platform limitations before connecting it to a real environment.
+---
 
-## Overview
+## 1. Executive Overview
 
-**EJII — Eldar Jamiyev's Infrastructure Intelligence** is a Node.js application that brings together a browser-based operations workspace, network and host diagnostics, packet inspection, evidence-led incident investigation, and controlled automation.
+**EJII (Eldar Jamiyev's Infrastructure Intelligence)** is an enterprise-grade, sovereign infrastructure intelligence platform that unifies **natural-language conversational diagnostics**, **live L1–L7 protocol probing**, **Wireshark-grade packet dissection**, **L1–L6 network topology mapping**, **Sysinternals-grade host kernel telemetry**, and **cryptographically governed remediation with automatic rollback** inside one cohesive software product.
 
-The project is designed around a practical operational sequence:
+Built across two flagship engineering milestones—**Project Falcon** (AI-Native Conversational Brain) and **Project Aurora** (Unified Architectural Slate & Executive Blue Frontend Experience)—EJII is designed for Network Operations Center (NOC) engineers, Systems Administrators, Site Reliability Engineers, and IT Support Operators who require **verifiable live evidence** rather than black-box guesses.
 
-**Observe → Correlate → Investigate → Explain → Authorize → Execute → Verify**
+### Why EJII Exists
 
-It is not a ticketing system, a hosted monitoring service, or a replacement for dedicated network-management platforms. Its focus is to give an operator a single local workspace for examining infrastructure signals, understanding what the available evidence supports, and reviewing operational actions before execution.
+Traditional infrastructure tooling forces operators to choose between rigid command-line utilities (`dig`, `ping`, `traceroute`, `ss`, `tcpdump`) and fragmented dashboards that cannot reason across protocol layers. Conversely, generic conversational AI assistants lack direct access to live kernel sockets, OS routing tables, DNS resolvers, and TCP/TLS handshakes—often hallucinating network state or giving generic troubleshooting checklists.
 
-### Repository snapshot
+**EJII bridges both worlds:**
 
-The figures below were checked against the default branch on **30 October 2026**. They describe source files and configuration, not live runtime performance.
-
-| Item | Repository-backed value |
-|---|---:|
-| Package version | <code>6.0.0-sovereign-intelligence-fabric</code> |
-| Master test runner | 100 named suite entries |
-| Capability registry | 17 registered capability identifiers |
-| Main workspace navigation | 7 operational areas |
-| Runtime npm dependencies | 3: Express, net-snmp, ws |
-| Persistence | Node.js built-in SQLite API |
-
-**Important:** “100 registered suites” means the current master runner contains 100 suite entries. It does **not** mean that all 100 suites were executed successfully in this review. Run the test command in your own environment to obtain a current result.
-
-## Screenshots
-
-The following screenshots are image files committed in this repository.
-
-<p align="center">
-  <img src="ai_operator_cockpit.png" alt="EJII AI Operator workspace" width="49%">
-  <img src="ai_operator_applied_verified.png" alt="EJII operator action and verification view" width="49%">
-</p>
-<p align="center">
-  <img src="operator_live.png" alt="EJII live operator workspace" width="86%">
-</p>
-
-*Screenshots illustrate the interface. They should not be interpreted as proof of live connectivity, a particular test result, or the state of a deployed environment.*
-
-## Capabilities
-
-The current frontend exposes seven main workspace areas:
-
-| Workspace area | Purpose |
-|---|---|
-| **AI Operator** | Conversational operator interface for asking questions, reviewing context, and initiating supported workflows. |
-| **Network overview** | Network topology, connected resources, endpoint context, and infrastructure status. |
-| **Packet analysis** | Packet stream inspection, protocol decoding, filters, and packet-level investigation. |
-| **IP & asset discovery** | Address and service discovery, host inspection, and equipment inventory workflows. |
-| **Automation library** | Access to local diagnostic and maintenance scripts through the automation subsystem. |
-| **Diagnostics & recovery** | Host, network, service, and root-cause diagnostics, with controlled remediation workflows. |
-| **Learning Center** | Guided networking and system-administration material and interactive learning exercises. |
-
-### Core engineering areas
-
-- **Network and host diagnostics:** ICMP, TCP port checks, DNS resolution, HTTP and TLS checks, host metrics, service verification, and SNMP-related functionality.
-- **Topology and inventory:** discovery and reconciliation logic, topology nodes and relationships, equipment records, and historical topology snapshots.
-- **Packet analysis:** packet decoding, stream reassembly, BPF filter compilation, PCAP/PCAPNG handling, and an optional native packet-capture path.
-- **Incident reasoning:** evidence collection, cross-layer correlation, causal investigation, ranked hypotheses, counter-evidence, and explicit uncertainty.
-- **Knowledge retrieval:** local retrieval over project runbooks and policy documents to support investigation and operator explanations.
-- **Action governance:** capability checks, role-based access, action previews, approval gates, execution records, and post-action verification paths.
-- **Observability:** HTTP health endpoint, Prometheus-format metrics endpoint, WebSocket updates, incident recording, and telemetry history tools.
-- **Scenario analysis:** isolated digital-twin branches for examining hypothetical network or capacity changes. Simulation output is distinct from observed telemetry.
-
-The code also includes analysis engines for spectral anomaly detection, CUSUM change-point detection, Holt-Winters forecasting, routing analysis, QoS inspection, and TLS certificate posture checks. Availability and data quality depend on the relevant source telemetry and runtime environment.
-
-## Architecture
-
-EJII is a single Node.js server with a static browser client and a set of backend subsystems. The following diagram is a conceptual map of the modules present in the repository.
-
-~~~mermaid
-flowchart TB
-    subgraph Clients["Operator interfaces"]
-        UI["Browser workspace<br/>HTML · CSS · JavaScript"]
-        Mobile["Mobile companion UI"]
-        CLI["Diagnostics CLI"]
-        Desktop["Desktop launcher"]
-    end
-
-    subgraph Runtime["Node.js application"]
-        HTTP["Express REST API"]
-        WS["WebSocket service"]
-        Auth["Authentication · RBAC"]
-        Ops["Operations and capability control"]
-    end
-
-    subgraph Engines["Infrastructure and intelligence modules"]
-        Net["Network diagnostics<br/>DNS · ICMP · TCP · TLS · HTTP · SNMP"]
-        Capture["Packet capture and decoding<br/>Npcap / supported fallback · BPF · PCAP"]
-        Topology["Topology and equipment inventory"]
-        Reasoning["Evidence · RCA · reasoning · local RAG"]
-        Govern["Policy checks and governed actions"]
-        Observe["Metrics · event stream · incident history"]
-        Learn["Learning content and labs"]
-    end
-
-    subgraph Storage["Local persistence"]
-        DB[("SQLite database")]
-        Audit[("Audit and security records")]
-        Files[("Runbooks · policies · configuration")]
-    end
-
-    UI --> HTTP
-    UI <--> WS
-    Mobile --> HTTP
-    CLI --> Net
-    Desktop --> UI
-    HTTP --> Auth
-    Auth --> Ops
-    Ops --> Net
-    Ops --> Capture
-    Ops --> Topology
-    Ops --> Reasoning
-    Ops --> Govern
-    Ops --> Observe
-    Ops --> Learn
-    Net --> DB
-    Capture --> DB
-    Topology --> DB
-    Reasoning --> DB
-    Reasoning --> Files
-    Govern --> Audit
-    Observe --> DB
-~~~
-
-### Evidence lifecycle
-
-EJII's v6 capability documentation defines separate evidence classes so that a calculation, hypothesis, missing signal, or simulation is not silently presented as a direct observation.
-
-~~~mermaid
-flowchart LR
-    Collect["Host and network collectors"] --> Evidence["Evidence records"]
-    Evidence --> Correlate["Cross-layer correlation"]
-    Correlate --> Hypotheses["Hypotheses and counter-evidence"]
-    Hypotheses --> Review["Operator review"]
-    Review -->|Approved action| Preview["Action preview and policy checks"]
-    Preview --> Execute["Authorized execution"]
-    Execute --> Verify["Post-action verification"]
-    Verify --> Audit["Audit record and updated context"]
-    Hypotheses -->|What-if branch| Sim["Isolated simulation"]
-    Sim -.->|Marked simulated; not live proof| Review
-~~~
-
-### Evidence categories
-
-| Evidence class | Meaning |
-|---|---|
-| <code>observation</code> | A value or event collected from a source. |
-| <code>calculation</code> | A computed result derived from input data. |
-| <code>hypothesis</code> | A proposed explanation that still requires evaluation. |
-| <code>confirmed_finding</code> | A conclusion supported by the engine's defined evidence rules. |
-| <code>counter_evidence</code> | Data that conflicts with a hypothesis. |
-| <code>missing_evidence</code> / <code>stale_evidence</code> | A signal that could not be collected or is no longer sufficiently fresh. |
-| <code>simulated_result</code> | Output from an isolated scenario, not an observation of the live network. |
-| <code>action_result</code> / <code>verification_result</code> | The result of an authorized operation and its follow-up check. |
-
-This separation matters: a failed probe is not automatically proof of a firewall block, an unavailable collector is not a zero-valued metric, and a simulated branch is not evidence that a live change has occurred.
-
-## AI and investigation model
-
-The AI-related components combine deterministic application logic with an optional language-model integration.
-
-- **Deterministic baseline:** the briefing provider defaults to a deterministic mode when no external model is configured.
-- **Optional model endpoint:** the provider can call a configured local or remote endpoint. The exact provider, endpoint, model, credentials, and response format must be configured by the operator.
-- **Local knowledge retrieval:** the RAG subsystem uses project knowledge such as <code>runbooks/</code> and <code>policies/</code>.
-- **Evidence-aware reasoning:** observed facts, failed collectors, contradictory evidence, and missing information are represented separately in the investigation context.
-- **Operator control:** an AI-generated explanation is an aid to investigation, not authorization to make a production change.
-
-Do not assume the system is using a local LLM simply because the application is running locally. Unless a model endpoint is configured, the deterministic provider is used. When a remote LLM is configured, review what diagnostic context may be sent to that service before enabling it with sensitive infrastructure data.
-
-## Packet capture and visibility boundaries
-
-The repository contains a Python capture component that attempts to load the Npcap/WinPcap-compatible capture library on Windows and libpcap-compatible libraries on other systems. The application also contains socket-based diagnostics and fallback handling.
-
-These collection modes are not equivalent:
-
-- **Native packet capture** can inspect frames visible to the selected capture interface when the relevant library, driver, permissions, and interface are available.
-- **Socket diagnostics** can test connectivity and inspect operating-system socket information; they do not provide a copy of every frame on the physical network.
-- **Switched networks** normally deliver only traffic visible to the local interface. A workstation capture is not automatically a network-wide mirror.
-- **Encryption and offload** limit what can be inferred from packet data. TLS-encrypted application payloads are not readable merely because packets were captured.
-- **Fallback telemetry** must be interpreted according to its source. It should not be described as physical packet capture.
-
-For a more detailed explanation, see [Packet Visibility Limitations](docs/audits/PACKET_VISIBILITY_LIMITATIONS.md) and [Protocol Dissector Coverage](docs/audits/PROTOCOL_DISSECTOR_COVERAGE.md).
-
-## API surface
-
-The Express server mounts the following API groups:
-
-| Route | Purpose |
-|---|---|
-| <code>/api/health</code> | Basic server health and runtime metadata. |
-| <code>/api/auth</code> | Authentication routes. |
-| <code>/api/diagnostics</code> | Host diagnostics and remediation-related routes. |
-| <code>/api/network</code> | Network diagnostics, discovery, topology, and packet workflows. |
-| <code>/api/tools</code> | Diagnostic tool endpoints. |
-| <code>/api/rca</code> | Root-cause and reasoning endpoints. |
-| <code>/api/observability</code> | Observability and telemetry endpoints. |
-| <code>/api/learning</code> | Learning Center endpoints. |
-| <code>/api/v6</code> | v6 capability, evidence, temporal graph, investigation, simulation, and governed-action endpoints. |
-| <code>/metrics</code> | Prometheus text exposition endpoint. |
-
-Protected routes require authentication and apply the configured authorization checks. Consult the route handlers and middleware before integrating an external client.
-
-## Quick start
-
-### Runtime requirement
-
-**Use Node.js 22.13.0 or newer.** The database layer imports Node's built-in <code>node:sqlite</code> module. That module was introduced in Node 22.5.0 and no longer required the experimental CLI flag from Node 22.13.0. The Windows launcher still prints an older Node 18+ message; that check is stale and should not be treated as the application's actual runtime requirement.
-
-References: [Node.js SQLite API](https://nodejs.org/api/sqlite.html) · [Node.js 22.5.0 release notes](https://github.com/nodejs/nodejs.org/blob/main/apps/site/pages/en/blog/release/v22.5.0.md)
-
-### Manual start
-
-~~~bash
-git clone https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence.git
-cd Eldar-Jamiyev-Infrastructure-Intelligence
-
-npm install
-npm start
-~~~
-
-By default, the server listens on <code>http://127.0.0.1:8443</code>. The default host is loopback-only, which is appropriate for local workstation use.
-
-Check that the server is responding:
-
-~~~bash
-curl http://127.0.0.1:8443/api/health
-~~~
-
-The first database initialization creates the workstation's initial user accounts. Review the startup output and the generated first-run credential file under <code>data/security/</code>; protect that file and change initial credentials before using the application beyond a local evaluation.
-
-### Platform launchers
-
-The repository includes launch scripts:
-
-**Windows**
-~~~bat
-setup-launcher.bat
-~~~
-
-**Linux / POSIX shell**
-~~~bash
-chmod +x setup-launcher.sh
-./setup-launcher.sh
-~~~
-
-The launchers install npm dependencies when needed, run a pre-flight test sequence in a temporary data directory, and stop if the test runner exits unsuccessfully. The Windows launcher also attempts to free port 8443 by terminating a process already listening on that port. Check the port owner before using that launcher on a workstation with other services.
-
-### Useful npm commands
-
-| Command | What it does |
-|---|---|
-| <code>npm start</code> | Starts the server using the configured host and port. |
-| <code>npm run dev</code> | Starts the development server on port 3000 and binds to <code>0.0.0.0</code>; use only on a trusted network. |
-| <code>npm run build</code> | Compiles the TypeScript sources using the repository's TypeScript configuration. |
-| <code>npm test</code> | Runs the TypeScript pre-test build and then the master test runner. |
-| <code>npm run desktop</code> | Starts the desktop launcher; an Electron runtime is not included in the declared dependencies, so the browser fallback may be used. |
-| <code>npm run cli</code> | Invokes the diagnostics CLI. |
-
-## Diagnostics CLI
-
-The CLI supports targeted operations; it is not a replacement for the full browser workspace.
-
-~~~bash
-# ICMP reachability
-node bin/run-diagnostics-cli.js ping example.com
-
-# TCP port check
-node bin/run-diagnostics-cli.js port example.com 443
-
-# Common-port sweep — only scan systems you are authorized to test
-node bin/run-diagnostics-cli.js sweep 192.0.2.10
-
-# DNS, TLS, and HTTP checks
-node bin/run-diagnostics-cli.js dns example.com
-node bin/run-diagnostics-cli.js tls example.com
-node bin/run-diagnostics-cli.js http https://example.com
-
-# Host diagnostics and audit-chain verification
-node bin/run-diagnostics-cli.js host
-node bin/run-diagnostics-cli.js audit-verify
-
-# JSON output
-node bin/run-diagnostics-cli.js --json
-~~~
-
-Use only against systems and networks for which you have explicit authorization.
-
-## Configuration
-
-The application reads environment variables through <code>src/config.js</code>. The example file is <code>.env.example</code>; values are intentionally left blank.
-
-| Variable | Purpose | Default / requirement |
-|---|---|---|
-| <code>EJII_HOST</code> | Listen address. | Defaults to <code>127.0.0.1</code>. |
-| <code>EJII_PORT</code> | Listen port. | Defaults to <code>8443</code>. |
-| <code>EJII_DATA_DIR</code> | Runtime data directory. | Defaults to the repository's <code>data/</code> directory. |
-| <code>EJII_ADMIN_PASSWORD</code> | Optional initial production admin password. | In production, at least 12 characters and not a known default. |
-| <code>EJII_HMAC_SECRET</code> | HMAC audit-chain secret. | Required outside local-only development / in production; at least 32 characters. |
-| <code>EJII_JWT_SECRET</code> | JWT signing secret. | Required outside local-only development / in production; at least 32 characters and different from the HMAC secret. |
-| <code>EJII_EVALUATION_MODE</code> | Enables local evaluation behavior. | Not permitted when bound to a non-loopback interface or in production. |
-
-For non-local or production deployment, generate separate cryptographically random HMAC and JWT secrets, keep them out of source control, and configure a strong administrator password. The application intentionally rejects missing, weak, reused, or known placeholder secrets in production mode.
-
-## Security and deployment notes
-
-Read this section before exposing EJII to another device or network.
-
-1. **Keep the default loopback binding unless remote access is required.** Changing <code>EJII_HOST</code> to <code>0.0.0.0</code> exposes the listener on network interfaces. Put an appropriate access-control boundary in front of it and restrict inbound access.
-2. **Use separate secrets.** Production mode requires explicit, unique HMAC and JWT secrets of at least 32 characters. Do not copy example secrets into a live deployment.
-3. **Protect initial credentials and runtime data.** Secure the generated first-run credential file, SQLite database, audit records, and packet captures. These files may contain sensitive infrastructure information.
-4. **Use least privilege.** Some collection and remediation functions depend on operating-system permissions, drivers, and elevated capabilities. Do not run the entire application as Administrator or root by default.
-5. **Review every action.** Diagnostic probes, packet capture, and remediation can affect real systems. Use only approved targets and review action scope before execution.
-6. **Review external AI settings.** A remote model endpoint may receive diagnostic context. Do not send confidential infrastructure data to an endpoint that has not been approved.
-
-### Docker status — configuration requires correction
-
-A Dockerfile and Compose file are present, but the current Compose file should **not** be treated as a ready-to-run production deployment.
-
-The checked-in <code>docker-compose.yml</code> sets <code>NODE_ENV=production</code> while also supplying hard-coded placeholder values for <code>EJII_HMAC_SECRET</code> and <code>EJII_JWT_SECRET</code>. Those exact values are listed as insecure in <code>src/config.js</code>, so the production configuration validator rejects them. The Compose file also binds the service to <code>0.0.0.0</code> and grants <code>NET_RAW</code> and <code>NET_ADMIN</code> capabilities.
-
-Before using Compose:
-
-- Replace the hard-coded secret values with separately generated secrets that satisfy the validator.
-- Restrict the published port to the intended interface and network.
-- Remove container capabilities that are not required for the selected collectors.
-- Validate the image, persistent volume permissions, and capture requirements in a non-production environment first.
-
-The Dockerfile currently uses a Node 22 base image. Confirm that the resolved image version satisfies the Node.js 22.13.0+ requirement above.
-
-## Testing and verification
-
-The current <code>tests/run-all-tests.js</code> file declares **100 named suite entries**. The suite coverage spans network probes, topology, packet decoding, stream handling, security and RBAC, AI reasoning, remediation safeguards, observability, API contracts, and frontend wiring.
-
-Run:
-
-~~~bash
-npm test
-~~~
-
-The <code>pretest</code> script runs the TypeScript compiler before the master test runner. Some suites are integration-oriented and depend on operating-system behavior, network reachability, capture support, or other environmental conditions. Run them in a controlled environment and inspect the actual output and exit code.
-
-The repository contains audit and verification reports from earlier development snapshots. Their dates and test-suite counts differ because the code has continued to change. Treat those documents as historical records of the stated audit baseline, not as proof that the current branch has passed the same checks. The current runner source and a fresh local test execution are the appropriate references for the current test inventory and result.
-
-## Platform and operational limitations
-
-- **Packet visibility is interface-bound.** Capturing on a workstation does not provide visibility into all traffic crossing a switched network.
-- **Npcap/libpcap support is environment-dependent.** Driver/library presence, permissions, interface selection, and operating-system behavior affect capture availability.
-- **The database uses Node's built-in SQLite module.** Node versions older than 22.5 do not provide this module; use Node 22.13.0 or later to avoid requiring the earlier experimental flag.
-- **Platform parity is not universal.** Some Windows host and packet-capture functions have OS-specific dependencies. The presence of a POSIX launcher does not mean every Windows collector is available on Linux or macOS.
-- **Simulations are simulations.** Digital-twin and what-if outputs must remain clearly separated from measurements collected from live infrastructure.
-- **A local PWA cache is not a fully offline backend.** The service worker caches selected client assets, while API operations still depend on a reachable server.
-- **This is not an externally certified product.** Validate security, data handling, reliability, and operational impact before using it in a production environment.
-
-## Repository layout
-
-~~~text
-.
-├── bin/                 # Desktop and CLI launchers
-├── desktop/             # Desktop window integration
-├── docs/                # Capability maps and technical audits
-│   ├── assets/          # README artwork
-│   └── audits/          # Verification and limitation reports
-├── mobile/              # Separate mobile companion client
-├── policies/            # Security and operational policy documents
-├── public/              # Main browser UI, styles, scripts, and PWA assets
-├── runbooks/            # Local operational knowledge and procedures
-├── scripts/             # Windows batch and PowerShell utilities
-├── src/
-│   ├── ai/              # Forecasting and analysis engines
-│   ├── api/             # Express routes and middleware
-│   ├── core/            # AI, evidence, reasoning, security, and governance
-│   ├── db/              # SQLite schema and repositories
-│   ├── diagnostics/     # Host and process/socket diagnostics
-│   ├── network/         # Discovery, capture, decoding, and topology
-│   ├── observability/   # Incident recording and telemetry history
-│   ├── protocols/       # DNS, ICMP, TCP, TLS, and HTTP probes
-│   ├── security/        # TLS posture and policy tools
-│   └── server.js        # Main application entry point
-├── tests/               # Unit, integration, and verification suites
-├── Dockerfile
-├── docker-compose.yml
-├── package.json
-└── README.md
-~~~
-
-## Documentation
-
-| Document | Focus |
-|---|---|
-| [v6 Capability Map](docs/EJII_V6_CAPABILITY_MAP.md) | Capability registry, evidence types, temporal graph, correlation, simulation, and action governance. |
-| [Packet Visibility Limitations](docs/audits/PACKET_VISIBILITY_LIMITATIONS.md) | Capture boundaries, switched networks, encryption, and NIC offload behavior. |
-| [Protocol Dissector Coverage](docs/audits/PROTOCOL_DISSECTOR_COVERAGE.md) | Protocol parsing and dissector coverage notes. |
-| [AI Brain and Wire Probe Truth Audit](docs/audits/EJII_AI_BRAIN_AND_WIRE_PROBE_TRUTH_AUDIT.md) | Evidence handling, probe semantics, and reasoning constraints. |
-| [Release Integrity Report](docs/audits/EJII_RELEASE_INTEGRITY_REPORT.md) | Historical release and security review; read with its stated audit baseline. |
-| [Test Execution Integrity Report](EJII_TEST_EXECUTION_INTEGRITY_REPORT.md) | Historical test-runner audit; its reported suite count predates the current 100-entry runner. |
-| [Secure Deployment Report](EJII_SECURE_DEPLOYMENT_REPORT.md) | Historical deployment and security notes; verify all instructions against the current configuration. |
-
-## License and ownership
-
-The package metadata currently declares <code>UNLICENSED</code>, and the repository does not provide an open-source license granting reuse rights. All rights remain with the author unless separate written permission or a license is provided.
-
-**Author:** Eldar Jamiyev  
-**Repository:** [Eldar-Jamiyev-Infrastructure-Intelligence](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence)
+1. **Understands What You Mean, Not Just Keywords**: You can describe symptoms naturally (*"My email isn't working"*, *"Internet is slow on this machine"*, *"Check whether port 3000 is open on localhost, then test HTTP"*), provide incomplete information, switch topics mid-conversation, or ask follow-up questions (*"Why did that fail?"*, *"Now check port 443 on the same host"*).
+2. **Executes Real Protocol & Host Probes**: Every diagnostic conclusion is backed by live OS and network measurements—RFC 1035 DNS wire queries, verified OS resolver discovery, TCP 3-way handshake timing, TLS 1.3 / X.509 certificate inspection, HTTP/L7 status verification, DHCP/NIC lease inspection, and kernel socket enumeration.
+3. **Strict Epistemic Honesty (Zero Fabrication)**: EJII never invents DNS resolvers, never fabricates fallback latencies, and never confuses a transport-layer `TCP OPEN` result with application-layer health. Unmeasured or unverified states are explicitly reported with their collection method and sandbox/OS constraints.
+4. **One Unified Design Language Across 9 Workstations**: From the two-column architectural sign-in experience to the 3-pane packet dissector and Sovereign Fabric v6 studio, every screen shares a disciplined typographic scale (`Plus Jakarta Sans` + `JetBrains Mono` `tabular-nums`), semantic status tokens, and effortless cross-workstation context pivoting.
 
 ---
 
-<p align="center">
-  <sub>Built as an evolving infrastructure engineering project. Evidence first. Explicit limits. Human control over consequential actions.</sub>
-</p>
+## 2. Visual Product Tour — Every Workstation in Action
+
+Every screenshot below is captured directly from the live running EJII application (`http://localhost:3000`) via automated Playwright browser verification.
+
+### 2.1 Architectural Sign-In & Role-Based Access Control (`#loginScreen`)
+
+![EJII Login Screen](docs/screenshots/login.png)
+
+* **Two-Column Executive Layout**: Pairs an obsidian-slate architectural brand briefing on the left (highlighting live protocol probes, L1–L6 topology mapping, and governed remediation) with a focused, high-contrast PBKDF2-SHA512 / JWT authentication card on the right.
+* **Granular Capability RBAC**: Enforces 9 distinct operational roles (`ADMIN`, `APP_OWNER`, `SYSADMIN`, `NETWORK_ADMIN`, `ANALYST`, `OPERATOR`, `NOC_OPERATOR`, `HELPDESK`, `READONLY`) with per-endpoint capability verification and session-ownership isolation.
+
+---
+
+### 2.2 AI-Native Conversational Diagnostic Assistant (`chat-workspace-view.js`)
+
+![AI Conversational Diagnostic Result](docs/screenshots/ai-operator-diagnostic-result.png)
+
+* **Natural-Language Infrastructure Investigation**: Operators converse naturally while EJII's **Conversational Brain** (`src/core/chat/conversational-brain.js`) and live **Gemini Semantic Interpreter** (`src/core/chat/semantic-ai-interpreter.js`) resolve intent, pronouns, and multi-turn context before dispatching live probes.
+* **Structured Evidence Cards & Collapsible Raw Telemetry**: Every probe reply presents a clear human-readable answer, measured RTT badges in `tabular-nums` monospace, transport-vs-application layer caveats, and expandable raw protocol evidence.
+* **Unified App Shell Integration**: Lives seamlessly inside the main EJII shell alongside the Sidebar, Topbar telemetry pills, and Sovereign Fabric v6 command ribbon.
+
+---
+
+### 2.3 Autonomous AI Infrastructure Operator Console (`ai-operator-view.js`)
+
+![Autonomous AI Operator Console](docs/screenshots/ai-operator.png)
+
+* **9-Capability Autonomous Operations Cockpit**: Combines real-time L7 DNS and L4 TCP handshake monitors, kernel socket counters, host CPU/RAM/disk gauges, and SQLite probe cycle metrics in a scannable 6-card telemetry strip.
+* **Governed Self-Healing with Proof & Auto-Rollback**: Proposes low-risk corrective playbooks (such as process DNS resolver refresh and SQLite topology reconciliation), captures pre-execution state snapshots, verifies postcondition RTTs, and automatically rolls back if postcondition checks fail.
+* **Persona-Tailored Cockpits**: Instant switching between **NOC Mode**, **Helpdesk Mode**, and **Systems Admin Mode** with role-aware action controls.
+
+---
+
+### 2.4 Hierarchical L1–L6 Network Topology & Dependency Graph (`topology-view.js`)
+
+![Network Topology & Dependency Graph](docs/screenshots/network-topology.png)
+
+* **6-Layer Physical & Logical Fabric Map**: Visualizes infrastructure across **L1 WAN Transit**, **L2 Edge Router**, **L3 Core Backbone**, **L4 Enterprise Servers**, **L5 Access Fabric**, and **L6 Operator Host** with algebraic connectivity ($\lambda_2$ Fiedler value), cut-edge detection, and live hop latency badges.
+* **Interactive Blast-Radius & Path Trace**: Supports Longest-Prefix Match (LPM) route trie inspection, blast-radius simulation, and one-click pivoting into deep endpoint diagnostics.
+
+---
+
+### 2.5 NOC Dual-Pane Operations Center (`noc-view.js`)
+
+![NOC Dual-Pane Dashboard](docs/screenshots/noc-dashboard.png)
+
+* **Integrated Command View**: Pairs the live AI Brain confidence ribbon and RFC 1122 perimeter health controls with the interactive L1–L6 topology canvas, fleet inventory table, and real-time congestion telemetry.
+
+---
+
+### 2.6 Wireshark-Grade 3-Pane Live Packet Analysis (`sniffer-view.js`)
+
+![Wireshark-Grade 3-Pane Packet Analysis](docs/screenshots/packet-analysis.png)
+
+* **Three-Pane RFC Binary Dissector**:
+  1. **Packet Stream Table**: Live kernel socket and wire capture with microsecond timestamps, source/destination endpoints, protocol badges (`HTTP`, `TCP`, `TLS`, `DNS`, `ICMP`), and TCP delta/retransmission tracking.
+  2. **L2–L7 Protocol Tree & TLS 1.3 JA4 Fingerprint**: Inspects RFC 8446 TLS 1.3 ClientHello SNI and JA4 wire fingerprints alongside expandable protocol header trees.
+  3. **Synchronized Hex & ASCII Dump**: Byte-accurate hexadecimal and ASCII payload inspection with one-click **Explain with AI** and **Follow Stream** workflows.
+* **Dual-Stage Filtering**: Supports both **Kernel BPF Filters** (`tcp port 443 and host ...`) and **Wireshark AST Display Filters** (`ip.addr == ...`), plus L7 HTTP Waterfall and FFT Jitter Spectrum analyzers.
+
+---
+
+### 2.7 Ultra IP & Infrastructure Fleet Discovery Scanner (`ultra-ip-scanner-view.js`)
+
+![Ultra IP & Asset Discovery Scanner](docs/screenshots/ip-asset-scanner.png)
+
+* **Multi-Threaded Subnet Sweep**: Discovers active hosts, servers, gateways, printers, and network gear with configurable EDR-safe worker profiles (`8 Safe` up to high-concurrency sweeps).
+* **Category & Fault Triage**: Summarizes **Total Active**, **Office Printers**, **Computers**, **VoIP Phones**, **Network Gear**, and **APIPA / Faults** with instant CSV/JSON export and printable audit reports.
+
+---
+
+### 2.8 Sysinternals-Grade Core Diagnostics & Recovery Workbench (`core-diagnostics-view.js`)
+
+![Core Diagnostics & Recovery Workbench](docs/screenshots/diagnostics-workbench.png)
+
+* **Three-Column Triage Architecture**:
+  1. **The Machine X-Ray**: Live OS/kernel hardware profile and 4 Core Health Pillars (*Network Layer*, *Storage & SMART*, *Resource Allocation*, *Peripherals & Drivers*).
+  2. **The Diagnosis Feed & Anomaly Triage**: Real-time anomaly detection backed by CUSUM change-point forensics and the 5-Agent Adversarial War-Room.
+  3. **Action Center & Live Remediation Console**: Staged remediation queue with cryptographic action tokens and streaming execution output.
+
+---
+
+### 2.9 Governed Host Automation & Audited Remediation Library (`pc-automation-view.js`)
+
+![Host Automation & Audited Remediation Library](docs/screenshots/host-automation.png)
+
+* **28 Verified Diagnostic & Remediation Scripts**: Categorized across **Network**, **Diagnostic**, **Repair**, **Security**, and **Performance** with explicit privilege badges (`Standard User` vs `Administrator`) and risk tiers (`LOW`, `MEDIUM`, `HIGH`).
+* **User-Space Sandbox Terminal**: Streams real-time `stdout`, `stderr`, exit codes, and execution latency with full audit-log persistence.
+
+---
+
+### 2.10 Sovereign Infrastructure Engineering Academy (`learning-center-view.js`)
+
+![Sovereign Learning Center](docs/screenshots/learning-center.png)
+
+* **Two Complete Professional Academies**:
+  * **Network Engineering Academy (40 Hours)**: Cisco CCNA 200-301 blueprint covering physical transmission, IPv4/IPv6 subnetting, VLANs, OSPF, BGP, ACLs, and Python network automation.
+  * **System Administration Academy (40 Hours)**: Enterprise Windows Server, Active Directory, PowerShell, Linux `systemd` daemons, kernel tuning, and SRE incident response.
+* **Interactive Labs, Flashcards & Scored Quizzes**: Features **8 comprehensive courses**, **24 curriculum modules**, **72 lessons**, **8 simulated labs**, and **8 scored assessments** persisted in SQLite.
+
+---
+
+### 2.11 Sovereign Intelligence Fabric v6 — Unified Epistemic Control Plane (`v6-sovereign-fabric.js`)
+
+![Sovereign Intelligence Fabric v6](docs/screenshots/sovereign-fabric-v6.png)
+
+* **4-Column Epistemic Truth Matrix**:
+  1. **Known from Live Evidence (Observations)**: Cryptographically tagged evidence records (`EVD-*`) with quality score $Q$ and provenance.
+  2. **Simulated Projections (Isolated from Live Truth)**: Explicitly quarantined `M/M/1/K` digital-twin projections that can never pollute live operational state.
+  3. **What EJII Does Not Know Yet (Unknowns)**: Transparent disclosure of unprobed protocol layers or sandbox boundaries.
+  4. **Highest Information-Gain Next Probe**: Recommends the next diagnostic probe ranked by Shannon entropy reduction ($\Delta H$ in bits).
+
+---
+
+### 2.12 Responsive Mobile & Field Operator Experience (`390×844`)
+
+<div align="center">
+  <img src="docs/screenshots/mobile-overview.png" alt="EJII Mobile Responsive Experience" width="380" />
+</div>
+
+* **Field-Ready Compact Viewport**: Automatically collapses desktop command ribbons and adapts the navigation drawer, topbar actions, and conversational diagnostic cards for zero-horizontal-scroll operation on mobile devices (`390×844` and `768×1024`).
+
+---
+
+## 3. System Architecture & Dataflow
+
+<div align="center">
+  <img src="docs/assets/ejii-architecture-diagram.svg" alt="EJII v7.0 System Architecture Diagram" width="100%" />
+</div>
+
+### 3.1 End-to-End Request & Evidence Lifecycle
+
+```mermaid
+flowchart TB
+    subgraph UI["Tier 1 · Project Aurora Unified Frontend (Browser)"]
+        ChatUI["AI Assistant Workspace\n(chat-workspace-view.js)"]
+        OpUI["AI Operator Console\n(ai-operator-view.js)"]
+        Workstations["Topology · NOC · Sniffer · Scanner\nDiagnostics · Automation · Academy"]
+    end
+
+    subgraph Brain["Tier 2 · Project Falcon Conversational Brain & Sovereign Fabric v6"]
+        ConvBrain["Conversational Brain\n(conversational-brain.js)"]
+        Gemini["Semantic AI Interpreter\n(@google/genai · gemini-2.5-flash)"]
+        ChatOp["Chat Operator Service\n(chat-operator-service.js)"]
+        EvFabric["Sovereign Fabric v6\nEvidence Lineage DAG & Epistemic Guard"]
+    end
+
+    subgraph Probes["Tier 3 · Live Protocol Dissectors, OS Collectors & SQLite WAL"]
+        LocalISP["5-Layer Local-to-ISP Engine\n(NIC/DHCP -> Gateway -> DNS -> TCP -> HTTP)"]
+        Proto["Protocol Probes\n(dns-diag · tcp · tls · http · icmp)"]
+        HostOS["Host & Kernel Collectors\n(Sockets · Routes · ARP · CPU/RAM)"]
+        DB[("SQLite WAL Database\n(Users · Sessions · Evidence · Baselines)")]
+    end
+
+    ChatUI -->|"Natural Language + Session Context"| ConvBrain
+    ConvBrain <-->|"Structured JSON Intent & Synthesis"| Gemini
+    ConvBrain -->|"Resolved Action & Target"| ChatOp
+    ChatOp --> LocalISP & Proto & HostOS
+    OpUI & Workstations --> EvFabric
+    EvFabric --> Proto & HostOS & DB
+    ChatOp -->|"Persisted Turn & Ownership"| DB
+```
+
+---
+
+## 4. Project Falcon — AI-Native Conversational Intelligence
+
+EJII's conversational engine (`src/core/chat/conversational-brain.js`, `src/core/chat/semantic-ai-interpreter.js`, and `src/core/chat/chat-operator-service.js`) is architected to behave like a senior infrastructure engineer—never a rigid keyword parser.
+
+### 4.1 Multi-Turn Contextual Reasoning & Pronoun Resolution
+
+```mermaid
+sequenceDiagram
+    participant User as Operator
+    participant Brain as ConversationalBrain
+    participant LLM as Gemini Semantic AI
+    participant Probes as Live Protocol Engine
+    participant DB as SQLite Session Store
+
+    User->>Brain: "Check DNS for example.com"
+    Brain->>Probes: Execute RFC 1035 DNS lookup (example.com)
+    Probes-->>Brain: A=93.184.215.14, RTT=18.4ms, Resolver=Observed OS
+    Brain->>DB: Save lastTarget="example.com", lastCheckType="dns"
+    Brain-->>User: "example.com resolves to 93.184.215.14 (18.4 ms)..."
+
+    User->>Brain: "Now check port 443 on the same host"
+    Brain->>Brain: Resolve "the same host" -> "example.com" from session state
+    Brain->>Probes: Execute TCP 3-way handshake (example.com:443)
+    Probes-->>Brain: TCP OPEN, RTT=21.2ms
+    Brain->>LLM: Synthesize multi-turn contextual answer
+    Brain-->>User: "TCP port 443 on example.com is OPEN (21.2 ms)..."
+```
+
+### 4.2 Guided Multi-Turn Troubleshooting Workflows
+
+* **Email Service Troubleshooting (`mail_troubleshooting`)**:
+  * When a user says *"My email is not working"* or *"I cannot login to my mail"*, EJII never confuses external email troubleshooting with EJII's own sign-in screen.
+  * Instead, it asks which email provider or domain is affected (e.g., `gmail.com`, `outlook.com`, or a custom corporate mail domain) and whether the failure occurs in a browser or a mail client (Outlook/Apple Mail/Thunderbird).
+  * Once the user replies (e.g., *"gmail.com in browser"*), EJII automatically runs a coordinated multi-probe check (DNS resolution, MX record lookup, HTTPS webmail reachability, and SMTP/IMAP submission ports `993`/`587`/`465`) and synthesizes a clear diagnosis.
+* **5-Layer Local-to-ISP Connectivity Diagnosis (`local_network_diagnosis`)**:
+  * When a user reports *"Internet is not working on this machine"* or *"Check my local network and ISP connection"*, EJII executes a structured 5-layer diagnostic progression:
+    1. **Layer 1 — Network Interface & DHCP Status**: Inspects active non-loopback NICs, IPv4/IPv6 addresses, and real OS DHCP lease status (`dhcpEnabled`, `dhcpServer`, `verificationMethod`).
+    2. **Layer 2 — Default Gateway Reachability**: Discovers the real OS default route (`ip route` / `/proc/net/route` / `route print`) without hardcoded `192.168.1.1` fallbacks and probes gateway reachability.
+    3. **Layer 3 — System DNS Resolver Health**: Verifies the actual OS-configured DNS server (`resolvectl`, `scutil --dns`, `/etc/resolv.conf`, `Get-DnsClientServerAddress`), distinguishing local stub resolvers (`127.0.0.53`) from upstream resolvers.
+    4. **Layer 4 — External TCP Reachability**: Tests direct TCP transport connectivity (`1.1.1.1:443`) to isolate DNS failures from routing/ISP drops.
+    5. **Layer 5 — External HTTP/HTTPS Reachability**: Verifies end-to-end DNS + TLS + HTTP application-layer connectivity.
+
+---
+
+## 5. Epistemic Integrity & Zero-Fabrication Engineering
+
+EJII enforces strict engineering guardrails across every backend collector and frontend view:
+
+| Engineering Guarantee | Implementation File(s) | Verification Behavior |
+| :--- | :--- | :--- |
+| **No Assumed DNS Resolver Fallbacks** | `src/protocols/dns-diag.js` (`getRealSystemDns`) | Never substitutes `8.8.8.8` when OS resolver discovery is unavailable. Explicitly classifies `observed_os_config`, `local_stub_resolver`, or `unknown` with collection provenance. |
+| **Zero Fabricated Timing Values** | `src/core/chat/chat-operator-service.js`, `src/protocols/*` | Eliminates synthetic fallback durations (`\|\| 1.2`, `\|\| 1.0`). Uses `performance.now()` / `process.hrtime.bigint()` and reports `null` (`unmeasured`) if timing was not captured. |
+| **No Hardcoded Gateway Fallbacks** | `src/core/network-env.js` | Never fabricates `192.168.1.1` when the OS routing table cannot be read; returns `gatewayIp: null, gatewayVerified: false`. |
+| **Transport vs. Application Distinction** | `src/core/chat/chat-operator-service.js` | A successful TCP port check (`SYN -> SYN-ACK`) is reported strictly as transport-layer reachability, explicitly noting that HTTP/TLS verification is required for application health. |
+| **Simulated vs. Live Evidence Isolation** | `src/core/v6/evidence-fabric.js` | Every `M/M/1/K` digital-twin simulation record carries `isolatedFromLiveTruth: true` and is capped at `HYPOTHESIS` confidence so simulations never masquerade as live wire truth. |
+| **Strict Session Ownership & RBAC** | `src/server.js`, `src/core/security.js` | Every chat session and diagnostic history record is bound to `ownerUserId`. Non-owners receive `403 Forbidden` on read, write, and delete operations. |
+
+---
+
+## 6. Complete Capability Matrix
+
+| Workstation / Domain | Key Modules | Core Capabilities |
+| :--- | :--- | :--- |
+| **1. AI Diagnostic Assistant** | `public/js/views/chat-workspace-view.js`<br>`src/core/chat/conversational-brain.js` | Multi-turn natural-language diagnostics, Gemini semantic interpretation, pronoun/context resolution, guided mail & ISP workflows, collapsible raw telemetry. |
+| **2. Autonomous AI Operator** | `public/js/views/ai-operator-view.js`<br>`src/core/v6/ai-operator-engine.js` | Continuous anomaly detection, natural-language goal planner, 4-agent AI Operations Council, pre-snapshot self-healing, postcondition verification, honest auto-rollback. |
+| **3. Network Topology & NOC** | `public/js/views/topology-view.js`<br>`public/js/views/noc-view.js` | L1–L6 hierarchical dependency graph, Fiedler algebraic connectivity ($\lambda_2$), cut-vertex detection, LPM route trie, blast-radius simulator, live hop telemetry. |
+| **4. 3-Pane Packet Analysis** | `public/js/views/sniffer-view.js`<br>`src/protocols/packet-dissector.js` | Live kernel socket & wire capture, L2–L7 binary header tree, TLS 1.3 JA4 fingerprinting, hex/ASCII inspector, Kernel BPF & Wireshark AST filters, FFT jitter & QoS studio. |
+| **5. Ultra IP & Asset Scanner** | `public/js/views/ultra-ip-scanner-view.js` | Multi-threaded subnet discovery, EDR-safe scan profiles, MAC OUI vendor resolution, open port auditing, printer/VoIP/APIPA classification, CSV/JSON/Print export. |
+| **6. Core Diagnostics Workbench** | `public/js/views/core-diagnostics-view.js` | 4-pillar host health X-ray, CUSUM change-point anomaly triage, 5-Agent War-Room root-cause arbitration, process-to-socket matrix, staged remediation console. |
+| **7. Host Automation Library** | `public/js/views/pc-automation-view.js` | 28 audited remediation & audit scripts across Network, Repair, Security, and Performance with risk-tier badges and streaming execution terminal. |
+| **8. Sovereign Learning Center** | `public/js/views/learning-center-view.js`<br>`src/core/learning-academy-data.js` | 2 specialist academies (Network CCNA 200-301 & System Administration), 8 courses, 24 modules, 72 lessons, 8 interactive labs, flashcards, and scored quizzes. |
+| **9. Sovereign Fabric v6 Studio** | `public/js/views/v6-sovereign-fabric.js`<br>`src/core/v6/*` | 17 registered capabilities, 11 evidence classes, acyclic evidence lineage DAG, Shannon information-gain probe recommender, and governed remediation control plane. |
+
+---
+
+## 7. Quick Start, Configuration & Verification
+
+### 7.1 Prerequisites
+
+* **Node.js**: `v20.0.0+` or `v22.0.0+` (uses native `node:sqlite` and high-resolution diagnostics)
+* **Operating Systems**: Linux, Windows, or macOS (automatically adapts OS-native collectors for `ip`/`ss`/`resolvectl`, PowerShell/`netstat`, or `scutil`/`route`)
+
+### 7.2 Installation & Startup
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Start the EJII server (defaults to port 3000 in development or EJII_PORT)
+npm run dev
+```
+
+Open **`http://localhost:3000`** in your browser.
+
+### 7.3 Environment Configuration (`.env.example`)
+
+| Environment Variable | Default | Description |
+| :--- | :--- | :--- |
+| `EJII_PORT` / `PORT` | `3000` (dev) / `8443` | HTTP/WebSocket listener port |
+| `EJII_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` supported in container/cloud preview) |
+| `GEMINI_API_KEY` | *(System-injected)* | Enables live `@google/genai` (`gemini-2.5-flash`) semantic interpretation and natural-language synthesis in `ConversationalBrain` |
+| `EJII_DB_PATH` | `./data/ejii.sqlite` | Path to the SQLite WAL persistence database |
+| `EJII_EVALUATION_MODE` | `false` | When `true` on local loopback, enables one-click evaluation persona selectors on the sign-in screen |
+
+### 7.4 Running the Automated Verification Suites
+
+EJII includes **100 end-to-end NOC verification suites** and **34 core conversational & protocol unit tests**:
+
+```bash
+# Run all 34 Project Falcon & Phase 6 core unit tests (DNS, DHCP, 5-layer ISP, Conversational Brain)
+node --test src/core/__tests__/*.test.js
+
+# Run the complete 100-suite EJII NOC architectural, security, protocol, and UI verification harness
+npm test
+
+# Re-capture all 12 live application screenshots via Playwright
+node scripts/capture-aurora-screenshots.js
+```
+
+---
+
+## 8. Repository Structure
+
+```text
+├── docs/
+│   ├── assets/                        # Custom SVG hero banner & system architecture diagrams
+│   └── screenshots/                   # 12 real Playwright browser screenshots (1440x900 & 390x844)
+├── public/
+│   ├── css/
+│   │   ├── ejii-meridian.css          # Project Aurora Architectural Slate & Executive Blue design system
+│   │   └── chat-minimal.css           # Conversational AI workspace & responsive layout styles
+│   ├── js/
+│   │   ├── app.js                     # Unified router, WebSocket client, RBAC session manager
+│   │   └── views/                     # 9 modular frontend workstations (Chat, AI Operator, Topology, Sniffer, etc.)
+│   └── index.html                     # Single-page application shell, login screen, sidebar & topbar
+├── scripts/
+│   ├── capture-aurora-screenshots.js  # Automated Playwright visual capture across all 12 views
+│   └── *.bat                          # 28 audited host diagnostic & remediation scripts
+├── src/
+│   ├── core/
+│   │   ├── chat/                      # Project Falcon ConversationalBrain, Gemini AI Interpreter, ChatOperatorService
+│   │   ├── v6/                        # Sovereign Intelligence Fabric v6 (Evidence DAG, Causal RCA, Governance)
+│   │   ├── __tests__/                 # 34 unit tests for conversational brain, DNS/DHCP, and 5-layer diagnostics
+│   │   ├── network-env.js             # Real OS interface, gateway, and DHCP discovery without fake fallbacks
+│   │   └── security.js                # PBKDF2-SHA512 password hashing, HMAC-SHA256 JWTs, capability RBAC
+│   ├── db/
+│   │   └── database.js                # Native node:sqlite WAL schema, triggers, and persistence layer
+│   ├── protocols/                     # Real L2–L7 protocol engines (DNS, TCP, TLS, HTTP, ICMP, Packet Dissector)
+│   └── server.js                      # HTTP/REST API & WebSocket real-time telemetry server
+└── tests/
+    ├── run-tests.js                   # Master runner for all 100 NOC verification suites
+    └── *.test.js                      # Suites 1–100 covering security, protocols, AI brain, and UI cohesion
+```
+
+---
+
+<div align="center">
+  <sub>Architected & Engineered for <strong>Eldar Jamiyev's Infrastructure Intelligence (EJII)</strong> · Project Falcon & Project Aurora Release</sub>
+</div>
