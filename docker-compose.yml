@@ -6,19 +6,22 @@ services:
     container_name: ejii-platform
     restart: unless-stopped
     ports:
-      - "8443:8443"
+      - "127.0.0.1:${EJII_PORT:-3000}:3000"
     volumes:
       - ejii_data:/app/data
     environment:
       - NODE_ENV=production
-      - EJII_PORT=8443
+      - EJII_PORT=3000
       - EJII_HOST=0.0.0.0
       - EJII_DATA_DIR=/app/data
-      - EJII_HMAC_SECRET=EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026
-      - EJII_JWT_SECRET=EJII-ENTERPRISE-TOKEN-KEY-98471298471928471
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
+      - EJII_HMAC_SECRET=${EJII_HMAC_SECRET:?Set EJII_HMAC_SECRET in .env before starting container}
+      - EJII_JWT_SECRET=${EJII_JWT_SECRET:?Set EJII_JWT_SECRET in .env before starting container}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - EJII_GEMINI_MODEL=${EJII_GEMINI_MODEL:-gemini-3.8-flash}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   ejii_data:

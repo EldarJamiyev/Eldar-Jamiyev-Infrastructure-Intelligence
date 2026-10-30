@@ -951,26 +951,55 @@ router.post('/chat/stream', authenticate, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
+  const streamAbortController = new AbortController();
+  let clientClosed = false;
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientClosed = true;
+      try {
+        streamAbortController.abort(new Error('CLIENT_DISCONNECTED'));
+      } catch (_) {}
+    }
+  });
+
   const sendSse = (eventName, payload) => {
+    if (clientClosed || res.writableEnded) return;
     try {
       res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
     } catch (_) {}
   };
 
   const body = req.body || {};
-  sendSse('stage', { stage: 'INTERPRETING_INTENT', label: 'Analyzing intent and session context…', timestamp: new Date().toISOString() });
+  const streamedSteps = new Set();
 
   const outcome = await chatOperatorService.processMessage({
     sessionId: body.sessionId,
     message: body.message || body.prompt,
     user: authCheck.user,
     requestId: body.requestId || req.requestId,
-    simulateTimeout: Boolean(body.simulateTimeout)
+    signal: streamAbortController.signal,
+    simulateTimeout: Boolean(body.simulateTimeout),
+    onProgress: (progressEvt) => {
+      if (!progressEvt) return;
+      if (progressEvt.stage === 'PROBE_COMPLETED' && progressEvt.step) {
+        const key = `${progressEvt.step.stepNumber}:${progressEvt.step.summary}`;
+        if (!streamedSteps.has(key)) {
+          streamedSteps.add(key);
+          sendSse('step', progressEvt.step);
+        }
+      } else {
+        sendSse('stage', progressEvt);
+      }
+    }
   });
 
   if (outcome?.data?.steps && Array.isArray(outcome.data.steps)) {
     for (const step of outcome.data.steps) {
-      sendSse('step', step);
+      const key = `${step.stepNumber}:${step.summary}`;
+      if (!streamedSteps.has(key)) {
+        streamedSteps.add(key);
+        sendSse('step', step);
+      }
     }
   }
 
@@ -983,7 +1012,42 @@ router.post('/chat/stream', authenticate, async (req, res) => {
     data: outcome.data || null,
     ...(outcome.error ? { error: outcome.error } : {})
   }));
-  res.end();
+  if (!res.writableEnded) {
+    res.end();
+  }
+});
+
+router.get('/chat/sessions', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req);
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.sessions_list',
+      status: 'denied',
+      error: { code: 'AUTH_REQUIRED', message: authCheck.error }
+    }));
+  }
+  try {
+    const { db } = require('../db/database');
+    const userId = String(authCheck.user.id || authCheck.user.userId || authCheck.user.username || 'op-1');
+    const username = String(authCheck.user.username || 'operator');
+    const rows = db.prepare(
+      'SELECT session_id, username, role, created_at, updated_at FROM ejii_chat_sessions WHERE user_id = ? OR username = ? ORDER BY updated_at DESC LIMIT 20'
+    ).all(userId, username);
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.chat.sessions_list',
+      status: 'ok',
+      data: { sessions: rows }
+    }));
+  } catch (err) {
+    res.json(createEjiiResult({
+      success: true,
+      capabilityId: 'ejii.chat.sessions_list',
+      status: 'ok',
+      data: { sessions: [] }
+    }));
+  }
 });
 
 router.get('/chat/session/:sessionId', authenticate, (req, res) => {

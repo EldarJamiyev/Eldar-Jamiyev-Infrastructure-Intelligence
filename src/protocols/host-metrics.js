@@ -13,18 +13,64 @@ let lastHostMetricsTime = 0;
 const CACHE_TTL_MS = 30000;
 let isRefreshingBackground = false;
 
+let previousCpuTickSample = null;
+
+function readAggregateCpuTicks(cpusInput = null) {
+  const cpus = Array.isArray(cpusInput) && cpusInput.length > 0 ? cpusInput : os.cpus();
+  let busy = 0;
+  let idle = 0;
+  for (const core of cpus || []) {
+    const t = core.times || {};
+    busy += (Number(t.user) || 0) + (Number(t.nice) || 0) + (Number(t.sys) || 0) + (Number(t.irq) || 0);
+    idle += Number(t.idle) || 0;
+  }
+  return { busy, idle, total: busy + idle, timestampMs: Date.now() };
+}
+
+// Seed initial CPU tick snapshot at module load so subsequent calls have a true delta window
+previousCpuTickSample = readAggregateCpuTicks();
+
+function computePosixCpuLoadPercentage(cpus) {
+  try {
+    const current = readAggregateCpuTicks(cpus);
+    if (previousCpuTickSample && current.total > previousCpuTickSample.total) {
+      const busyDelta = Math.max(0, current.busy - previousCpuTickSample.busy);
+      const totalDelta = Math.max(1, current.total - previousCpuTickSample.total);
+      const pct = Number(Math.min(100, Math.max(0, (busyDelta / totalDelta) * 100)).toFixed(1));
+      if (current.timestampMs - previousCpuTickSample.timestampMs >= 25) {
+        previousCpuTickSample = current;
+      }
+      return pct;
+    }
+    previousCpuTickSample = current;
+    if (current.total > 0) {
+      return Number(Math.min(100, Math.max(0, (current.busy / current.total) * 100)).toFixed(1));
+    }
+  } catch (_) {}
+  return 0;
+}
+
+async function sampleCpuTickDeltaPercentage(windowMs = 50) {
+  const startSample = readAggregateCpuTicks();
+  await new Promise((resolve) => setTimeout(resolve, Math.max(10, Math.min(250, windowMs))));
+  const endSample = readAggregateCpuTicks();
+  previousCpuTickSample = endSample;
+  const totalDelta = endSample.total - startSample.total;
+  if (totalDelta > 0) {
+    const busyDelta = Math.max(0, endSample.busy - startSample.busy);
+    return Number(Math.min(100, Math.max(0, (busyDelta / totalDelta) * 100)).toFixed(1));
+  }
+  return computePosixCpuLoadPercentage();
+}
+
 function createBaselineHostMetrics() {
   const cpus = os.cpus();
   const totalMemBytes = os.totalmem();
   const freeMemBytes = os.freemem();
   const usedMemBytes = totalMemBytes - freeMemBytes;
   const memUsedPct = parseFloat(((usedMemBytes / totalMemBytes) * 100).toFixed(1));
-  const loadAvg = os.loadavg();
-  const cpuLoad = !IS_WINDOWS
-    ? computePosixCpuLoadPercentage(cpus)
-    : ((loadAvg && loadAvg[0] && loadAvg[0] > 0)
-        ? Math.round(Math.min(100, (loadAvg[0] / Math.max(1, cpus.length)) * 100))
-        : 15);
+  const loadAvg = os.loadavg() || [0, 0, 0];
+  const cpuUsagePct = !IS_WINDOWS ? computePosixCpuLoadPercentage(cpus) : null;
   const posixDisks = !IS_WINDOWS ? collectPosixDiskMetrics() : null;
   const posixAdapters = !IS_WINDOWS ? collectPosixNetworkAdapters() : [];
 
@@ -37,8 +83,13 @@ function createBaselineHostMetrics() {
     cpu: {
       model: cpus[0] ? cpus[0].model.trim() : 'Generic Processor',
       cores: cpus.length,
-      speedMHz: cpus[0] ? cpus[0].speed : 2400,
-      loadPercentage: cpuLoad
+      speedMHz: cpus[0] ? cpus[0].speed : 0,
+      usagePercentage: cpuUsagePct,
+      loadPercentage: cpuUsagePct,
+      loadAverage1m: !IS_WINDOWS ? Number((loadAvg[0] || 0).toFixed(2)) : null,
+      loadAverage5m: !IS_WINDOWS ? Number((loadAvg[1] || 0).toFixed(2)) : null,
+      loadAverage15m: !IS_WINDOWS ? Number((loadAvg[2] || 0).toFixed(2)) : null,
+      measurementMethod: !IS_WINDOWS ? 'posix_cpu_tick_delta' : 'windows_cim_pending'
     },
     memory: {
       totalBytes: totalMemBytes,
@@ -53,55 +104,25 @@ function createBaselineHostMetrics() {
       usedFormatted: `${(usedMemBytes / (1024 ** 3)).toFixed(2)} GB`,
       freeFormatted: `${(freeMemBytes / (1024 ** 3)).toFixed(2)} GB`
     },
-    disks: posixDisks && posixDisks.length > 0 ? posixDisks : (IS_WINDOWS ? [
-      {
-        mount: 'C:',
-        drive: 'C:',
-        volumeName: 'System Primary',
-        totalBytes: 512 * 1024 * 1024 * 1024,
-        usedBytes: 180 * 1024 * 1024 * 1024,
-        freeBytes: 332 * 1024 * 1024 * 1024,
-        usedPercentage: 35.1,
-        usedPercent: 35.1,
-        usedGb: 180.0,
-        totalGb: 512.0,
-        freeGb: 332.0,
-        totalFormatted: '512.0 GB',
-        usedFormatted: '180.0 GB',
-        freeFormatted: '332.0 GB'
-      }
-    ] : []),
+    disks: posixDisks && posixDisks.length > 0 ? posixDisks : [],
+    diskCollectionStatus: !IS_WINDOWS
+      ? {
+          available: Boolean(posixDisks && posixDisks.length > 0),
+          status: posixDisks && posixDisks.length > 0 ? 'OBSERVED' : 'NO_DISKS_OBSERVED',
+          collectionMethod: posixDisks?.[0]?.collectionMethod || 'posix_df_statfs'
+        }
+      : {
+          available: false,
+          status: 'PENDING_CIM_QUERY',
+          collectionMethod: 'windows_cim_logicaldisk',
+          error: null
+        },
     networkAdapters: posixAdapters,
     osDetails: {
       caption: `${os.type()} ${os.release()}`,
       version: os.release()
     }
   };
-}
-
-function computePosixCpuLoadPercentage(cpus) {
-  const coreCount = Array.isArray(cpus) && cpus.length > 0 ? cpus.length : 1;
-  try {
-    const load1m = os.loadavg()[0] || 0;
-    if (load1m > 0) {
-      return Number(Math.min(100, Math.max(0.5, (load1m / coreCount) * 100)).toFixed(1));
-    }
-  } catch (_) {}
-  try {
-    let busyTicks = 0;
-    let totalTicks = 0;
-    for (const core of cpus || []) {
-      const t = core.times || {};
-      const busy = (Number(t.user) || 0) + (Number(t.nice) || 0) + (Number(t.sys) || 0) + (Number(t.irq) || 0);
-      const idle = Number(t.idle) || 0;
-      busyTicks += busy;
-      totalTicks += busy + idle;
-    }
-    if (totalTicks > 0) {
-      return Number(Math.min(100, Math.max(0.5, (busyTicks / totalTicks) * 100)).toFixed(1));
-    }
-  } catch (_) {}
-  return 0;
 }
 
 function collectPosixDiskMetrics() {
@@ -255,8 +276,10 @@ async function getHostMetrics(forceRefresh = false) {
   const freeMemBytes = os.freemem();
   const usedMemBytes = totalMemBytes - freeMemBytes;
   const memUsedPct = parseFloat(((usedMemBytes / totalMemBytes) * 100).toFixed(1));
+  const loadAvg = os.loadavg() || [0, 0, 0];
   const posixDisks = !IS_WINDOWS ? collectPosixDiskMetrics() : null;
   const posixAdapters = !IS_WINDOWS ? collectPosixNetworkAdapters() : [];
+  const posixCpuUsage = !IS_WINDOWS ? await sampleCpuTickDeltaPercentage(35) : null;
 
   let hostData = {
     hostname: os.hostname(),
@@ -268,7 +291,12 @@ async function getHostMetrics(forceRefresh = false) {
       model: cpus[0] ? cpus[0].model.trim() : 'Unknown CPU',
       cores: cpus.length,
       speedMHz: cpus[0] ? cpus[0].speed : 0,
-      loadPercentage: !IS_WINDOWS ? computePosixCpuLoadPercentage(cpus) : 0
+      usagePercentage: posixCpuUsage,
+      loadPercentage: posixCpuUsage,
+      loadAverage1m: !IS_WINDOWS ? Number((loadAvg[0] || 0).toFixed(2)) : null,
+      loadAverage5m: !IS_WINDOWS ? Number((loadAvg[1] || 0).toFixed(2)) : null,
+      loadAverage15m: !IS_WINDOWS ? Number((loadAvg[2] || 0).toFixed(2)) : null,
+      measurementMethod: !IS_WINDOWS ? 'posix_cpu_tick_delta' : 'windows_cim_processor'
     },
     memory: {
       totalBytes: totalMemBytes,
@@ -283,24 +311,20 @@ async function getHostMetrics(forceRefresh = false) {
       usedFormatted: `${(usedMemBytes / (1024 ** 3)).toFixed(2)} GB`,
       freeFormatted: `${(freeMemBytes / (1024 ** 3)).toFixed(2)} GB`
     },
-    disks: posixDisks && posixDisks.length > 0 ? posixDisks : (IS_WINDOWS ? [
-      {
-        mount: 'C:',
-        drive: 'C:',
-        volumeName: 'System Primary',
-        totalBytes: 512 * 1024 * 1024 * 1024,
-        usedBytes: 180 * 1024 * 1024 * 1024,
-        freeBytes: 332 * 1024 * 1024 * 1024,
-        usedPercentage: 35.1,
-        usedPercent: 35.1,
-        usedGb: 180.0,
-        totalGb: 512.0,
-        freeGb: 332.0,
-        totalFormatted: '512.0 GB',
-        usedFormatted: '180.0 GB',
-        freeFormatted: '332.0 GB'
-      }
-    ] : []),
+    disks: posixDisks && posixDisks.length > 0 ? posixDisks : [],
+    diskCollectionStatus: !IS_WINDOWS
+      ? {
+          available: Boolean(posixDisks && posixDisks.length > 0),
+          status: posixDisks && posixDisks.length > 0 ? 'OBSERVED' : 'NO_DISKS_OBSERVED',
+          collectionMethod: posixDisks?.[0]?.collectionMethod || 'posix_df_statfs',
+          error: null
+        }
+      : {
+          available: false,
+          status: 'COLLECTION_FAILED',
+          collectionMethod: 'windows_cim_logicaldisk',
+          error: 'Windows LogicalDisk CIM collection did not complete.'
+        },
     networkAdapters: posixAdapters,
     osDetails: {
       caption: `${os.type()} ${os.release()}`,
@@ -324,7 +348,9 @@ async function getHostMetrics(forceRefresh = false) {
       }
 
       if (cpuInfo.status === 'fulfilled' && cpuInfo.value && cpuInfo.value.Average !== undefined) {
-        hostData.cpu.loadPercentage = Math.round(cpuInfo.value.Average);
+        const avgCpu = Math.round(cpuInfo.value.Average);
+        hostData.cpu.usagePercentage = avgCpu;
+        hostData.cpu.loadPercentage = avgCpu;
       }
 
       if (diskInfo.status === 'fulfilled' && diskInfo.value) {
@@ -351,9 +377,24 @@ async function getHostMetrics(forceRefresh = false) {
             freeGb: freeGbVal,
             totalFormatted: `${totalGbVal} GB`,
             usedFormatted: `${usedGbVal} GB`,
-            freeFormatted: `${freeGbVal} GB`
+            freeFormatted: `${freeGbVal} GB`,
+            collectionMethod: 'windows_cim_logicaldisk'
           };
         });
+        hostData.diskCollectionStatus = {
+          available: hostData.disks.length > 0,
+          status: hostData.disks.length > 0 ? 'OBSERVED' : 'NO_DISKS_OBSERVED',
+          collectionMethod: 'windows_cim_logicaldisk',
+          error: null
+        };
+      } else if (diskInfo.status === 'rejected') {
+        hostData.disks = [];
+        hostData.diskCollectionStatus = {
+          available: false,
+          status: 'COLLECTION_FAILED',
+          collectionMethod: 'windows_cim_logicaldisk',
+          error: diskInfo.reason?.message || 'Win32_LogicalDisk query failed'
+        };
       }
 
       if (netInfo.status === 'fulfilled' && netInfo.value) {
@@ -366,7 +407,13 @@ async function getHostMetrics(forceRefresh = false) {
         }));
       }
     } catch (e) {
-      // Fallback already populated with os.* primitives
+      hostData.disks = [];
+      hostData.diskCollectionStatus = {
+        available: false,
+        status: 'COLLECTION_FAILED',
+        collectionMethod: 'windows_cim_logicaldisk',
+        error: e.message || 'Windows CIM collection failed'
+      };
     }
   }
 

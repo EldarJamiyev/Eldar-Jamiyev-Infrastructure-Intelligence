@@ -19,6 +19,7 @@ const {
   extractBrandHostnameShorthand
 } = require('./technical-knowledge-base');
 const {
+  EJII_FUNCTION_DECLARATIONS,
   isEpistemicOrSovereignFabricQuestion,
   buildApplicationEpistemicContext,
   mapFunctionCallToExecutionPlan
@@ -90,12 +91,13 @@ async function semanticAiInterpreter(promptText, context = {}) {
   const isCustomProviderHook = Object.prototype.hasOwnProperty.call(aiModelOrchestrator, 'invokeModelProvider');
 
   try {
-    // 0. If pending mail task continuation was already validated by ChatOperatorService, preserve it directly
-    if (context.defaultPlan?.isMailTaskContinuation || context.defaultPlan?.prohibitIcmp) {
-      deterministicFastPathCount++;
-      successfulInterpretations++;
-      return null;
-    }
+    if (!context.forceModelInterpretation) {
+      // 0. If pending mail task continuation was already validated by ChatOperatorService, preserve it directly
+      if (context.defaultPlan?.isMailTaskContinuation || context.defaultPlan?.prohibitIcmp) {
+        deterministicFastPathCount++;
+        successfulInterpretations++;
+        return null;
+      }
 
     // 0B. Sovereign Fabric v6 / Bayesian Truth Matrix / Shannon Information-Gain / Epistemic Queries (0 hostname prompts)
     if (isEpistemicOrSovereignFabricQuestion(raw)) {
@@ -387,87 +389,93 @@ async function semanticAiInterpreter(promptText, context = {}) {
       !dp ||
       (dp.intent === 'greeting' && dp.conversationalType === 'general_conversation');
 
-    if (!isUnhandledOrNovel) {
-      deterministicFastPathCount++;
-      successfulInterpretations++;
-      return null;
+      if (!isUnhandledOrNovel) {
+        deterministicFastPathCount++;
+        successfulInterpretations++;
+        return null;
+      }
     }
 
     // 10. Actual Configured LLM Brain Invocation for novel / unhandled natural-language queries
-    const provider = aiModelOrchestrator.preferredProvider || 'OLLAMA';
+    const provider =
+      !isCustomProviderHook && context.allowCloudFallback && process.env.GEMINI_API_KEY
+        ? 'GOOGLE_GEMINI'
+        : (aiModelOrchestrator.preferredProvider || 'OLLAMA');
     modelInvocationsAttempted++;
     lastModelProvider = provider;
 
-    let epistemicSummary = null;
-    try {
-      const epCtx = await buildApplicationEpistemicContext(context);
-      epistemicSummary = {
-        environmentScope: epCtx.observedEvidence.environmentScopeCategory,
-        defaultGateway: epCtx.observedEvidence.defaultGateway,
-        dhcpAddressing: epCtx.observedEvidence.dhcpAddressing,
-        shannonEntropyBits: epCtx.sovereignFabricV6TruthMatrix.shannonEntropyBits,
-        topRecommendedProbe: epCtx.shannonInformationGainRecommendations[0]
-      };
-    } catch (_) {}
-
-    const promptForModel = `You are EJII Semantic Brain (Project Falcon), a senior network and infrastructure engineering assistant.
-The user said: "${raw}".
-Session Context: ${JSON.stringify({
-      lastTarget: context.lastTarget || null,
-      lastIntent: context.lastIntent || null,
-      lastPorts: context.lastPorts || [],
-      pendingTask: context.pendingTask || null,
-      epistemicState: epistemicSummary
-    })}
-Classify the user's intent from this exact allowed list:
-[ping, port_check, dns, website_check, traceroute, local_ip_config, gateway_check, gateway_ip_query, dhcp_check, local_path_diagnostic, epistemic_fabric_query, mail_troubleshooting_intake, informational_question, greeting, clarification_needed]
-Rules:
-- Never invent a hostname or IP address that the user did not state or reference from session context.
-- If the user is asking a conceptual or networking question (e.g., whether an open TCP port proves L7 application health), set intent to "informational_question", set target to null, and provide a clear, accurate "naturalReply".
-- If the user asks about the Sovereign Fabric v6 truth matrix, Bayesian hypotheses, or highest information-gain next probe, set intent to "epistemic_fabric_query" and target to null.
-- If the user specifies a DNS record type (MX, AAAA, TXT, NS, CNAME, SOA, PTR, SRV), preserve it in "recordType".
-- If the user is chatting or greeting, set intent to "greeting" and provide a natural, helpful "naturalReply".
-- If a diagnostic action needs a target hostname/IP that is missing, set intent to "clarification_needed" and provide a specific "clarificationPrompt".
-- Output JSON ONLY:
-{"intent": "intent_name", "target": "hostname_or_null", "recordType": "A_or_MX_or_AAAA_or_TXT_or_NS", "ports": [], "clarificationPrompt": "string_or_null", "naturalReply": "string_or_null"}`;
+    const promptForModel = [
+      'You are EJII Semantic Brain (Project Falcon), a senior network and infrastructure engineering assistant.',
+      `User message: ${JSON.stringify(raw)}`,
+      `Session context: ${JSON.stringify({
+        lastTarget: context.lastTarget || null,
+        lastIntent: context.lastIntent || null,
+        lastPorts: context.lastPorts || []
+      })}`,
+      'If the user is asking for a live network or host diagnostic probe and the target is known (or local), invoke the matching diagnostic tool function.',
+      'If a remote diagnostic action is requested without any target in the message or session context, do NOT invent a target; instead reply with JSON: {"intent": "clarification_needed", "target": null, "ports": [], "clarificationPrompt": "Which hostname, IP address, or URL would you like me to check?", "naturalReply": null}.',
+      'If the user is asking a conceptual/informational question or chatting, do NOT call a tool and reply with JSON: {"intent": "informational_question", "target": null, "ports": [], "clarificationPrompt": null, "naturalReply": "your concise technical explanation"}.'
+    ].join('\n');
 
     try {
       const modelRes = await aiModelOrchestrator.invokeWithBoundedRetry(provider, promptForModel, {
-        model: 'gemini-3.8-flash',
-        timeoutMs: 4000,
-        maxRetries: 1,
-        allowRedactedCloudFallback: Boolean(context.allowCloudFallback || !aiModelOrchestrator.localOnlyPolicy)
+        model: process.env.EJII_GEMINI_MODEL || 'gemini-3.1-flash-lite',
+        timeoutMs: 10000,
+        maxRetries: 0,
+        allowRedactedCloudFallback: Boolean(context.allowCloudFallback || !aiModelOrchestrator.localOnlyPolicy),
+        tools: [{ functionDeclarations: EJII_FUNCTION_DECLARATIONS }]
       });
 
       if (modelRes && modelRes.liveResponse) {
-        // Support native Gemini functionCalls if returned
+        // Support native Gemini functionCalls (single or multi-tool sequence)
         if (Array.isArray(modelRes.functionCalls) && modelRes.functionCalls.length > 0) {
-          const fcPlan = mapFunctionCallToExecutionPlan(modelRes.functionCalls[0]);
+          const mappedPlans = modelRes.functionCalls
+            .map((fc) => mapFunctionCallToExecutionPlan(fc, context))
+            .filter(Boolean);
+          const fcPlan = mappedPlans[0] || null;
           if (fcPlan) {
             modelInvocationsSucceeded++;
-            realModelInvocationsSucceeded++;
+            if (modelRes.isMock || isCustomProviderHook) mockModelInvocationsCount++;
+            else realModelInvocationsSucceeded++;
             successfulInterpretations++;
-            lastModelStatus = 'LIVE_SUCCESS';
+            lastModelStatus = modelRes.isMock || isCustomProviderHook ? 'MOCK_SUCCESS' : 'LIVE_SUCCESS';
             lastModelProvider = modelRes.provider || provider;
             return {
-              intent: fcPlan.intent === 'dns_check' ? 'dns' : fcPlan.intent,
-              mode: fcPlan.intent === 'epistemic_fabric_query' ? 'informational' : 'operational',
+              intent: fcPlan.intent,
+              mode: fcPlan.mode || (fcPlan.intent === 'epistemic_fabric_query' ? 'informational' : 'operational'),
               target: fcPlan.target || context.lastTarget || null,
-              explicitTarget: fcPlan.target || null,
+              explicitTarget: fcPlan.explicitTarget || fcPlan.target || null,
               recordType: fcPlan.recordType || 'A',
               ports: fcPlan.ports || [],
+              preserveLastRemoteTarget: Boolean(fcPlan.preserveLastRemoteTarget),
+              preserveContextOnly: Boolean(fcPlan.preserveContextOnly),
+              connectionFilter: fcPlan.connectionFilter || null,
+              invokedToolName: fcPlan.invokedToolName || modelRes.functionCalls[0].name,
+              secondaryToolPlans: mappedPlans.slice(1),
               modelInterpreted: true,
               modelProvider: modelRes.provider || provider,
-              isMockModel: false
+              executedModel: modelRes.executedModel || modelRes.model || 'gemini-3.1-flash-lite',
+              isMockModel: Boolean(modelRes.isMock || isCustomProviderHook)
             };
           }
         }
 
         if (modelRes.text) {
-          let jsonStr = String(modelRes.text).trim();
-          const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          const parsed = JSON.parse(jsonStr);
+          let parsed = null;
+          try {
+            let jsonStr = String(modelRes.text).trim();
+            const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+            if (jsonMatch) jsonStr = jsonMatch[0];
+            parsed = JSON.parse(jsonStr);
+          } catch (_) {
+            parsed = {
+              intent: isInformationalTechnicalQuestion(raw) ? 'informational_question' : 'greeting',
+              target: null,
+              ports: [],
+              clarificationPrompt: null,
+              naturalReply: String(modelRes.text).trim()
+            };
+          }
 
           if (parsed && typeof parsed === 'object' && VALID_INTENTS.has(parsed.intent)) {
             const validatedPorts = Array.isArray(parsed.ports)

@@ -633,37 +633,76 @@ class AIModelOrchestrator {
         (allowRedactedCloudFallback && (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA')))
     ) {
       const startTime = Date.now();
-      const targetModel = options.model || 'gemini-3.8-flash';
-      const wireModel = process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.1-flash-lite';
+      const requestedModel = options.model || process.env.EJII_GEMINI_MODEL || process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.1-flash-lite';
+      const fallbackModel = process.env.EJII_GEMINI_FALLBACK_MODEL || 'gemini-flash-latest';
+      let executedModel = requestedModel;
       try {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({
           apiKey: geminiKey,
           httpOptions: {
             headers: { 'User-Agent': 'aistudio-build' },
-            timeout: Math.max(10000, timeoutMs)
+            timeout: Math.max(15000, timeoutMs)
           }
         });
-        const redactedPrompt = redactTelemetryForExternalModel(
-          { prompt: String(promptText || '') },
-          { piiRedaction: options.piiRedaction !== false, anonymizeInfrastructure: Boolean(options.anonymizeInfrastructure) }
-        ).prompt;
+        const redactedPrompt = options.contents
+          ? redactTelemetryForExternalModel(
+              { contents: options.contents },
+              { piiRedaction: options.piiRedaction !== false, anonymizeInfrastructure: Boolean(options.anonymizeInfrastructure) }
+            ).contents
+          : redactTelemetryForExternalModel(
+              { prompt: String(promptText || '') },
+              { piiRedaction: options.piiRedaction !== false, anonymizeInfrastructure: Boolean(options.anonymizeInfrastructure) }
+            ).prompt;
         const generationConfig = {
           temperature: typeof options.temperature === 'number' ? options.temperature : 0.1
         };
+        if (options.systemInstruction) {
+          generationConfig.systemInstruction = options.systemInstruction;
+        }
         if (options.tools && Array.isArray(options.tools) && options.tools.length > 0) {
           generationConfig.tools = options.tools;
-        } else {
+        } else if (options.responseMimeType !== null) {
           generationConfig.responseMimeType = options.responseMimeType || 'application/json';
         }
-        const response = await ai.models.generateContent({
-          model: wireModel,
-          contents: redactedPrompt,
-          config: generationConfig
-        });
+
+        let response;
+        try {
+          response = await ai.models.generateContent({
+            model: requestedModel,
+            contents: redactedPrompt,
+            config: generationConfig
+          });
+        } catch (primaryErr) {
+          const errStr = String(primaryErr?.message || primaryErr || '');
+          if (
+            /not found|404|not supported|invalid model|504|503|DEADLINE_EXCEEDED|UNAVAILABLE|timeout/i.test(errStr) &&
+            fallbackModel &&
+            fallbackModel !== requestedModel
+          ) {
+            executedModel = fallbackModel;
+            response = await ai.models.generateContent({
+              model: executedModel,
+              contents: redactedPrompt,
+              config: generationConfig
+            });
+          } else {
+            throw primaryErr;
+          }
+        }
+
         const latencyMs = Date.now() - startTime;
-        const text = response && response.text ? String(response.text).trim() : '';
         const functionCalls = response && Array.isArray(response.functionCalls) ? response.functionCalls : [];
+        let text = '';
+        if (functionCalls.length > 0 && Array.isArray(response?.candidates?.[0]?.content?.parts)) {
+          text = response.candidates[0].content.parts
+            .filter((p) => typeof p.text === 'string')
+            .map((p) => p.text)
+            .join('')
+            .trim();
+        } else if (response && response.text) {
+          text = String(response.text).trim();
+        }
         if (text || functionCalls.length > 0) {
           if (this.providerTelemetry.GOOGLE_GEMINI) {
             this.providerTelemetry.GOOGLE_GEMINI.callsCount = (this.providerTelemetry.GOOGLE_GEMINI.callsCount || 0) + 1;
@@ -671,13 +710,17 @@ class AIModelOrchestrator {
             this.providerTelemetry.GOOGLE_GEMINI.status = 'OPERATIONAL';
             this.providerTelemetry.GOOGLE_GEMINI.lastLatencyMs = latencyMs;
             this.providerTelemetry.GOOGLE_GEMINI.lastHttpStatus = 200;
+            this.providerTelemetry.GOOGLE_GEMINI.lastModel = executedModel;
+            this.providerTelemetry.GOOGLE_GEMINI.requestedModel = requestedModel;
             this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
           }
           return {
             liveResponse: true,
             isMock: false,
             provider: 'GOOGLE_GEMINI',
-            model: targetModel,
+            model: executedModel,
+            requestedModel,
+            executedModel,
             latencyMs,
             functionCalls,
             text
@@ -689,6 +732,8 @@ class AIModelOrchestrator {
           this.providerTelemetry.GOOGLE_GEMINI.failureCount = (this.providerTelemetry.GOOGLE_GEMINI.failureCount || 0) + 1;
           this.providerTelemetry.GOOGLE_GEMINI.status = 'DEGRADED';
           this.providerTelemetry.GOOGLE_GEMINI.lastError = err.message || 'GEMINI_API_ERROR';
+          this.providerTelemetry.GOOGLE_GEMINI.lastModel = executedModel;
+          this.providerTelemetry.GOOGLE_GEMINI.requestedModel = requestedModel;
           this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
         }
         return {
@@ -1468,12 +1513,19 @@ class AIModelOrchestrator {
       },
       {
         id: 'gemini_cloud',
-        providerId: 'GEMINI',
+        providerId: 'GOOGLE_GEMINI',
         name: 'Google Gemini Pro / Flash Enterprise API',
         type: 'CLOUD_HYPERSCALE',
         tier: 'TIER_2_CLOUD_FAILOVER',
-        status: hasGeminiKey ? 'CONFIGURED' : 'KEY_ABSENT',
-        callsCount: this.providerTelemetry.OPENAI?.callsCount || 0,
+        status: hasGeminiKey
+          ? (this.providerTelemetry.GOOGLE_GEMINI?.status !== 'UNPROBED' ? this.providerTelemetry.GOOGLE_GEMINI.status : 'CONFIGURED')
+          : 'KEY_ABSENT',
+        model: this.providerTelemetry.GOOGLE_GEMINI?.lastModel || process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
+        latencyMs: this.providerTelemetry.GOOGLE_GEMINI?.lastLatencyMs || null,
+        callsCount: this.providerTelemetry.GOOGLE_GEMINI?.callsCount || 0,
+        successCount: this.providerTelemetry.GOOGLE_GEMINI?.successCount || 0,
+        failureCount: this.providerTelemetry.GOOGLE_GEMINI?.failureCount || 0,
+        lastError: this.providerTelemetry.GOOGLE_GEMINI?.lastError || null,
         privacyBoundary: 'SECRET_AND_PII_REDACTED'
       },
       {
@@ -1493,6 +1545,7 @@ class AIModelOrchestrator {
       activeRoutingPolicy: 'LOCAL_FIRST_WITH_BAYESIAN_BYPASS',
       timestamp: new Date().toISOString(),
       OLLAMA: ollamaTelemetry,
+      GOOGLE_GEMINI: this.providerTelemetry.GOOGLE_GEMINI,
       OPENAI: this.providerTelemetry.OPENAI,
       ANTHROPIC: this.providerTelemetry.ANTHROPIC,
       providers

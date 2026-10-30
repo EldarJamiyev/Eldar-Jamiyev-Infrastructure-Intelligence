@@ -40,7 +40,8 @@ const {
 const {
   isEpistemicOrSovereignFabricQuestion,
   answerEpistemicOrFabricQuestion,
-  buildApplicationEpistemicContext
+  buildApplicationEpistemicContext,
+  runAgenticToolLoop
 } = require('./conversational-brain');
 
 const MAX_WORKING_MEMORY_MESSAGES = 40;
@@ -218,6 +219,8 @@ class ChatOperatorService {
           lastIntent: ctx.lastIntent || null,
           lastUrl: ctx.lastUrl || null,
           lastToolResults: ctx.lastToolResults || null,
+          lastProbeResult: ctx.lastProbeResult || ctx.lastToolResults || null,
+          probeHistory: Array.isArray(ctx.probeHistory) ? ctx.probeHistory : [],
           lastSteps: Array.isArray(ctx.lastSteps) ? ctx.lastSteps : [],
           lastStructuredAnswer: ctx.lastStructuredAnswer || null,
           turnCount: Number(ctx.turnCount) || 0,
@@ -253,6 +256,8 @@ class ChatOperatorService {
       lastIntent: null,
       lastUrl: null,
       lastToolResults: null,
+      lastProbeResult: null,
+      probeHistory: [],
       lastSteps: [],
       lastStructuredAnswer: null,
       turnCount: 0,
@@ -406,6 +411,8 @@ class ChatOperatorService {
         lastIntent: session.lastIntent,
         lastUrl: session.lastUrl,
         lastToolResults: session.lastToolResults,
+        lastProbeResult: session.lastProbeResult || session.lastToolResults || null,
+        probeHistory: (session.probeHistory || []).slice(-25),
         lastSteps: session.lastSteps,
         lastStructuredAnswer: session.lastStructuredAnswer,
         turnCount: session.turnCount
@@ -539,35 +546,61 @@ class ChatOperatorService {
         session.pendingTask = null;
       } else {
         const strippedCandidate = raw
-          .replace(/^(?:it'?s|it is|check|test|ping|try|for|the domain is|the server is|domain is|server is)\s+/i, '')
+          .replace(/^(?:it'?s|it is|we use|using|via|in|on|check|test|ping|try|for|the domain is|the server is|domain is|server is)\s+/i, '')
           .replace(/[;,!?]+$/, '')
           .trim();
-        const candidateTokens = strippedCandidate.split(/\s+/);
+
+        const validMailTlds = new Set([
+          'com', 'net', 'org', 'io', 'co', 'edu', 'gov', 'mil', 'int', 'dev', 'app', 'cloud',
+          'ai', 'tech', 'info', 'biz', 'me', 'us', 'uk', 'de', 'fr', 'ca', 'au', 'jp', 'eu',
+          'ru', 'az', 'tr', 'ch', 'nl', 'se', 'no', 'fi', 'dk', 'pl', 'it', 'es', 'br', 'in',
+          'sg', 'kr', 'cn', 'local', 'internal', 'lan', 'corp'
+        ]);
+        const mailClientWords = new Set([
+          'outlook', 'desktop', 'client', 'clients', 'webmail', 'browser', 'apple', 'thunderbird',
+          'mobile', 'iphone', 'android', 'windows', 'mac', 'macos', 'app', 'office', 'users', 'imap', 'pop3', 'smtp'
+        ]);
         const nonTldWords = new Set([
           'server', 'host', 'domain', 'mail', 'email', 'smtp', 'imap', 'pop3',
           'connection', 'status', 'check', 'ping', 'test', 'port', 'ports',
-          'for', 'to', 'on', 'with', 'from', 'youtube', 'google', 'why', 'what', 'how', 'find', 'out'
+          'for', 'to', 'on', 'with', 'from', 'youtube', 'google', 'why', 'what', 'how', 'find', 'out',
+          ...mailClientWords
         ]);
-        const commandDisqualifiers = new Set(['port', 'ports', 'ping', 'for', 'check', 'test', 'resolve', 'lookup', 'why', 'what', 'how', 'youtube']);
+        const commandDisqualifiers = new Set([
+          'port', 'ports', 'ping', 'for', 'check', 'test', 'resolve', 'lookup', 'why', 'what', 'how', 'youtube',
+          ...mailClientWords
+        ]);
+
+        // Extract an explicit dotted domain if present inside the reply (e.g. "Outlook desktop on mail.company.com" or "company.com in browser")
+        const explicitDottedMatch = strippedCandidate.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})\b/);
         let normalizedDomain = null;
-        if (
-          candidateTokens.length >= 2 &&
-          candidateTokens.length <= 5 &&
-          candidateTokens.every((t) => /^[a-zA-Z0-9-]+$/.test(t)) &&
-          !candidateTokens.some((t) => commandDisqualifiers.has(t.toLowerCase()))
-        ) {
-          const last = candidateTokens[candidateTokens.length - 1].toLowerCase();
-          if (/^[a-z]{2,24}$/.test(last) && !nonTldWords.has(last)) {
-            normalizedDomain = candidateTokens.join('.').toLowerCase();
+
+        if (explicitDottedMatch) {
+          const candidateDotted = explicitDottedMatch[1].toLowerCase();
+          const parts = candidateDotted.split('.');
+          const tld = parts[parts.length - 1];
+          if (validMailTlds.has(tld) && !nonTldWords.has(tld)) {
+            normalizedDomain = candidateDotted;
           }
-        } else if (/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(strippedCandidate)) {
-          const parts = strippedCandidate.toLowerCase().split('.');
-          if (!nonTldWords.has(parts[parts.length - 1])) {
-            normalizedDomain = strippedCandidate.toLowerCase();
+        } else {
+          const candidateTokens = strippedCandidate.split(/\s+/);
+          if (
+            candidateTokens.length >= 2 &&
+            candidateTokens.length <= 4 &&
+            candidateTokens.every((t) => /^[a-zA-Z0-9-]+$/.test(t)) &&
+            !candidateTokens.some((t) => commandDisqualifiers.has(t.toLowerCase()))
+          ) {
+            const last = candidateTokens[candidateTokens.length - 1].toLowerCase();
+            if (validMailTlds.has(last) && !nonTldWords.has(last)) {
+              normalizedDomain = candidateTokens.join('.').toLowerCase();
+            }
           }
         }
 
+        const mentionsMailClientContext = /\b(outlook|desktop|webmail|browser|apple\s*mail|thunderbird|mobile|imap\s+client|office\s*365)\b/i.test(lower);
+
         if (normalizedDomain && isSafeNetworkTarget(normalizedDomain)) {
+          const clientContext = mentionsMailClientContext ? raw : (session.pendingTask.clientContext || null);
           session.pendingTask = null;
           session.lastValidTarget = normalizedDomain;
           session.lastTarget = normalizedDomain;
@@ -577,9 +610,37 @@ class ChatOperatorService {
             mode: 'operational',
             target: normalizedDomain,
             explicitTarget: normalizedDomain,
+            recordType: 'MX',
             ports: mailPorts,
+            clientContext,
             isMailTaskContinuation: true,
+            secondaryToolPlans: [
+              {
+                intent: 'dns',
+                mode: 'operational',
+                target: normalizedDomain,
+                recordType: 'MX',
+                ports: []
+              }
+            ],
             usedFollowUpTarget: false
+          };
+        }
+
+        // If the user supplied the client type (e.g., "Outlook desktop" or "webmail") without a domain, record the client slot and ask for the domain!
+        if (mentionsMailClientContext && !normalizedDomain) {
+          session.pendingTask.clientContext = strippedCandidate;
+          session.pendingTask.missingSlots = ['domain'];
+          return {
+            intent: 'clarification_needed',
+            mode: 'conversational',
+            clarificationReason: 'MISSING_MAIL_DOMAIN_AFTER_CLIENT_CONTEXT',
+            clarificationPrompt:
+              `Got it — users are connecting via **${strippedCandidate}**. Which **email domain** (e.g., \`company.com\`) or **mail server hostname** (e.g., \`mail.company.com\`) should I inspect for \`MX\` records and mail transport ports (\`25, 465, 587, 993, 995\`)?`,
+            target: null,
+            explicitTarget: null,
+            ports: [25, 465, 587, 143, 993, 110, 995],
+            preserveContextOnly: true
           };
         }
       }
@@ -1496,7 +1557,10 @@ class ChatOperatorService {
     user = { id: 'op-1', username: 'operator', role: 'ANALYST' },
     requestId = null,
     signal = null,
-    simulateTimeout = false
+    simulateTimeout = false,
+    onProgress = null,
+    allowCloudFallback = false,
+    modelReflectionFn = null
   } = {}) {
     const startWall = performance.now();
     const cleanPrompt = String(message || '').trim();
@@ -1559,7 +1623,21 @@ class ChatOperatorService {
       startedAt: new Date().toISOString()
     });
 
+    const emitProgress = (evt) => {
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(evt);
+        } catch (_) {}
+      }
+    };
+
     try {
+      emitProgress({
+        stage: 'INTERPRETING_INTENT',
+        label: 'Analyzing natural-language intent, session context, and epistemic state…',
+        timestamp: new Date().toISOString()
+      });
+
       let plan = this.parseIntentAndEntities(cleanPrompt, session);
 
       // Optional external LLM brain interpreter hook (safe fallback if unavailable or throws)
@@ -1571,6 +1649,9 @@ class ChatOperatorService {
             lastIntent: session.lastIntent,
             lastPorts: session.lastPorts,
             pendingTask: session.pendingTask || null,
+            lastProbeResult: session.lastProbeResult || session.lastToolResults || null,
+            probeHistory: session.probeHistory || [],
+            allowCloudFallback: Boolean(allowCloudFallback || process.env.EJII_ALLOW_CLOUD_FALLBACK === 'true'),
             defaultPlan: plan
           });
           if (override && typeof override === 'object' && override.intent) {
@@ -1580,6 +1661,16 @@ class ChatOperatorService {
           // Safe fallback to built-in semantic plan
         }
       }
+
+      emitProgress({
+        stage: 'TOOL_SELECTED',
+        intent: plan.intent,
+        mode: plan.mode || 'operational',
+        target: plan.target || null,
+        ports: plan.ports || [],
+        label: `Selected workflow: ${plan.intent}${plan.target ? ` (${plan.target})` : ''}`,
+        timestamp: new Date().toISOString()
+      });
 
       const userMsgRecord = {
         id: `MSG-U-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
@@ -1729,72 +1820,79 @@ class ChatOperatorService {
 
       this._checkAborted(abortController.signal);
 
-      let executionOutcome;
-      switch (plan.intent) {
-        case 'greeting':
-          executionOutcome = this._executeGreetingScenario(cleanPrompt, plan, session);
-          break;
-        case 'informational_question':
-          executionOutcome = this._executeInformationalQuestionScenario(cleanPrompt, session, plan);
-          break;
-        case 'epistemic_fabric_query':
-          executionOutcome = await this._executeEpistemicFabricQueryScenario(cleanPrompt, session, plan);
-          break;
-        case 'mail_troubleshooting_intake':
-          executionOutcome = this._executeMailTroubleshootingIntakeScenario(cleanPrompt, session, plan);
-          break;
-        case 'clarification_needed':
-          executionOutcome = this._executeClarificationScenario(plan, session);
-          break;
-        case 'local_ip_config':
-          executionOutcome = this._executeLocalIpConfigScenario(plan, session, abortController.signal);
-          break;
-        case 'gateway_check':
-          executionOutcome = await this._executeGatewayCheckScenario(plan, session, abortController.signal);
-          break;
-        case 'gateway_ip_query':
-          executionOutcome = this._executeGatewayIpQuery(plan, session);
-          break;
-        case 'dhcp_check':
-          executionOutcome = await this._executeDhcpCheckScenario(plan, session, abortController.signal);
-          break;
-        case 'local_path_diagnostic':
-          executionOutcome = await this._executeLocalPathDiagnosticScenario(plan, session, abortController.signal);
-          break;
-        case 'active_connections':
-          executionOutcome = await this._executeActiveConnectionsScenario(plan, session, abortController.signal);
-          break;
-        case 'dns':
-          executionOutcome = await this._executeDnsScenario(plan, session, abortController.signal);
-          break;
-        case 'ping':
-          executionOutcome = await this._executePingScenario(plan, session, abortController.signal);
-          break;
-        case 'port_check':
-          executionOutcome = await this._executePortCheckScenario(plan, session, abortController.signal);
-          break;
-        case 'website_check':
-          executionOutcome = await this._executeWebsiteCheckScenario(plan, session, abortController.signal);
-          break;
-        case 'traceroute':
-          executionOutcome = await this._executeTracerouteScenario(plan, session, abortController.signal);
-          break;
-        case 'host_health':
-          executionOutcome = await this._executeHostHealthScenario(plan, abortController.signal);
-          break;
-        case 'follow_up_explanation':
-          executionOutcome = await this._executeFollowUpExplanation(plan, session, cleanPrompt);
-          break;
-        case 'remediation':
-          executionOutcome = await this._executeRemediationScenario(plan, user, abortController.signal);
-          break;
-        case 'multi_step_investigation':
-        default:
-          executionOutcome = await this._executeMultiStepInvestigation(plan, session, cleanPrompt, abortController.signal);
-          break;
-      }
+      const executeSinglePlan = async (stepPlan) => {
+        if (!nonRemoteProbeIntents.has(stepPlan.intent) && !stepPlan.targetValidation) {
+          if (!isSafeNetworkTarget(stepPlan.target)) {
+            throw new Error(`Target '${stepPlan.target}' rejected by SSRF guard.`);
+          }
+          stepPlan.targetValidation = await resolveAndValidateTarget(stepPlan.target);
+        }
+        switch (stepPlan.intent) {
+          case 'greeting':
+            return this._executeGreetingScenario(cleanPrompt, stepPlan, session);
+          case 'informational_question':
+            return this._executeInformationalQuestionScenario(cleanPrompt, session, stepPlan);
+          case 'epistemic_fabric_query':
+            return await this._executeEpistemicFabricQueryScenario(cleanPrompt, session, stepPlan);
+          case 'mail_troubleshooting_intake':
+            return this._executeMailTroubleshootingIntakeScenario(cleanPrompt, session, stepPlan);
+          case 'clarification_needed':
+            return this._executeClarificationScenario(stepPlan, session);
+          case 'local_ip_config':
+            return this._executeLocalIpConfigScenario(stepPlan, session, abortController.signal);
+          case 'gateway_check':
+            return await this._executeGatewayCheckScenario(stepPlan, session, abortController.signal);
+          case 'gateway_ip_query':
+            return this._executeGatewayIpQuery(stepPlan, session);
+          case 'dhcp_check':
+            return await this._executeDhcpCheckScenario(stepPlan, session, abortController.signal);
+          case 'local_path_diagnostic':
+            return await this._executeLocalPathDiagnosticScenario(stepPlan, session, abortController.signal);
+          case 'active_connections':
+            return await this._executeActiveConnectionsScenario(stepPlan, session, abortController.signal);
+          case 'dns':
+            return await this._executeDnsScenario(stepPlan, session, abortController.signal);
+          case 'ping':
+            return await this._executePingScenario(stepPlan, session, abortController.signal);
+          case 'port_check':
+            return await this._executePortCheckScenario(stepPlan, session, abortController.signal);
+          case 'website_check':
+            return await this._executeWebsiteCheckScenario(stepPlan, session, abortController.signal);
+          case 'traceroute':
+            return await this._executeTracerouteScenario(stepPlan, session, abortController.signal);
+          case 'host_health':
+            return await this._executeHostHealthScenario(stepPlan, abortController.signal);
+          case 'follow_up_explanation':
+            return await this._executeFollowUpExplanation(stepPlan, session, cleanPrompt);
+          case 'remediation':
+            return await this._executeRemediationScenario(stepPlan, user, abortController.signal);
+          case 'multi_step_investigation':
+          default:
+            return await this._executeMultiStepInvestigation(stepPlan, session, cleanPrompt, abortController.signal);
+        }
+      };
+
+      const executionOutcome = await runAgenticToolLoop({
+        promptText: cleanPrompt,
+        initialPlan: plan,
+        sessionContext: {
+          ...session,
+          modelReflectionFn
+        },
+        executeSinglePlan,
+        onProgress: emitProgress,
+        signal: abortController.signal,
+        maxSteps: 3,
+        allowCloudReflection: Boolean(allowCloudFallback || process.env.EJII_ALLOW_CLOUD_FALLBACK === 'true')
+      });
 
       this._checkAborted(abortController.signal);
+
+      emitProgress({
+        stage: 'SYNTHESIZING_RESPONSE',
+        label: 'Synthesizing final verified diagnostic explanation…',
+        timestamp: new Date().toISOString()
+      });
 
       // If an unambiguous domain typo was auto-corrected (e.g. google.ocm -> google.com), prepend the auto-correction step with measured DNS timing (never hardcoded 1.2)
       if (plan.originalTypoTarget && executionOutcome) {
@@ -1876,6 +1974,37 @@ class ChatOperatorService {
   }) {
     const totalDurationMs = Number((performance.now() - startWall).toFixed(1));
     const nowIso = new Date().toISOString();
+
+    // Record probe history & lastProbeResult whenever an operational probe ran
+    if (plan.mode === 'operational' && technicalEvidence) {
+      const derivedStatus =
+        technicalEvidence.status ||
+        (Array.isArray(steps) && steps.some((s) => s.status === 'FAIL')
+          ? 'FAIL'
+          : Array.isArray(steps) && steps.some((s) => s.status === 'PASS' || s.status === 'OPEN')
+            ? 'PASS'
+            : 'COMPLETED');
+      session.lastProbeResult = {
+        intent: plan.intent,
+        target: plan.target || null,
+        ports: plan.ports || [],
+        status: derivedStatus,
+        summary: structuredAnswer?.result || reply || '',
+        observedAt: nowIso,
+        ...technicalEvidence
+      };
+      if (!Array.isArray(session.probeHistory)) session.probeHistory = [];
+      session.probeHistory.push({
+        intent: plan.intent,
+        target: plan.target || null,
+        ports: plan.ports || [],
+        status: derivedStatus,
+        observedAt: nowIso
+      });
+      if (session.probeHistory.length > 25) {
+        session.probeHistory = session.probeHistory.slice(-25);
+      }
+    }
 
     // Preserve previous diagnostic target & tool results on greeting, informational, clarification, or local-only turns
     if (!plan.preserveContextOnly && !plan.preserveLastRemoteTarget) {
@@ -2158,7 +2287,7 @@ class ChatOperatorService {
 
     const result = 'I can help isolate the office email outage across DNS, mail transport ports, and TLS authentication.';
     const meaning =
-      'When office users canneither send nor receive email, the fault typically lies in one of four layers:\n' +
+      'When office users can neither send nor receive email, the fault typically lies in one of four layers:\n' +
       '1. **DNS `MX` & `Autodiscover` Resolution:** If the mail domain\'s `MX` records or `smtp`/`imap` hostnames fail to resolve, both inbound and outbound mail stop.\n' +
       '2. **Outbound SMTP Submission (`TCP 587` STARTTLS / `TCP 465` Implicit TLS) & Relay (`TCP 25`):** ISP or firewall blocks on ports `587`, `465`, or `25` prevent sending.\n' +
       '3. **Inbound Mail Retrieval (`TCP 993` IMAPS / `TCP 143` IMAP / `TCP 995` POP3S):** If the mailbox daemon or TLS listener is down, clients cannot sync incoming messages.\n' +

@@ -55,7 +55,6 @@
     if (!sessionId || chatState.messages.length > 0 || chatState.restoredSessionId === sessionId) {
       return;
     }
-    chatState.restoredSessionId = sessionId;
     try {
       const token = (window.state && window.state.token) || localStorage.getItem('ejii_token');
       const headers = {};
@@ -66,6 +65,7 @@
         credentials: 'same-origin'
       });
       if (!res.ok) return;
+      chatState.restoredSessionId = sessionId;
       const envelope = await res.json().catch(() => null);
       const data = envelope && envelope.data ? envelope.data : null;
       if (data && Array.isArray(data.messages) && data.messages.length > 0 && chatState.messages.length === 0) {
@@ -85,7 +85,9 @@
         }
         updateThreadDom();
       }
-    } catch (_) {}
+    } catch (_) {
+      // Transient fetch failure: do not lock restoredSessionId so subsequent render can retry
+    }
   }
 
   function formatStructuredMarkdown(text) {
@@ -357,10 +359,10 @@
 
     try {
       const token = (window.state && window.state.token) || localStorage.getItem('ejii_token');
-      const headers = { 'Content-Type': 'application/json' };
+      const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' };
       if (token) headers.Authorization = 'Bearer ' + token;
 
-      const res = await fetch('/api/v6/chat/message', {
+      let res = await fetch('/api/v6/chat/stream', {
         method: 'POST',
         headers,
         credentials: 'same-origin',
@@ -372,7 +374,56 @@
         })
       });
 
-      const envelope = await res.json().catch(() => ({}));
+      let envelope = null;
+      const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+
+      if (res.ok && contentType.includes('text/event-stream') && res.body && typeof res.body.getReader === 'function') {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let currentEvent = 'message';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+
+          for (const frame of frames) {
+            const lines = frame.split('\n');
+            currentEvent = 'message';
+            let dataLine = '';
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                currentEvent = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                dataLine += line.slice(5).trim();
+              }
+            }
+            if (!dataLine) continue;
+            try {
+              const parsed = JSON.parse(dataLine);
+              if (currentEvent === 'stage' && parsed.label) {
+                stopProgressStepTicker();
+                chatState.liveProgressStepText = parsed.label;
+                const lbl = document.getElementById('ejiiChatProgressLabel');
+                if (lbl) lbl.textContent = parsed.label;
+              } else if (currentEvent === 'step' && (parsed.summary || parsed.label)) {
+                stopProgressStepTicker();
+                chatState.liveProgressStepText = parsed.summary || parsed.label;
+                const lbl = document.getElementById('ejiiChatProgressLabel');
+                if (lbl) lbl.textContent = chatState.liveProgressStepText;
+              } else if (currentEvent === 'result') {
+                envelope = parsed;
+              }
+            } catch (_) {}
+          }
+        }
+      } else {
+        envelope = await res.json().catch(() => ({}));
+      }
+
       stopProgressStepTicker();
 
       if (res.ok && envelope && envelope.data) {
