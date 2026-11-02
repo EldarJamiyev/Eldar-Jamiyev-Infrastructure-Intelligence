@@ -142,8 +142,25 @@ class CrossLayerIncidentCorrelator {
   _evaluateStructuredHypotheses(target, evidenceList, context = {}) {
     const hasDnsFailure = evidenceList.some((e) => e.domain === 'dns' && (e.anomaly || String(e.normalizedValue).includes('ENOTFOUND') || String(e.normalizedValue).includes('NXDOMAIN') || String(e.normalizedValue).includes('TIMEOUT')));
     const hasDnsSuccess = evidenceList.some((e) => e.domain === 'dns' && !e.anomaly && String(e.normalizedValue).includes('RESOLVED'));
-    const hasGatewaySuccess = evidenceList.some((e) => (e.subject.includes('gateway') || String(e.claim).toLowerCase().includes('gateway')) && !e.anomaly);
-    const hasGatewayFailure = evidenceList.some((e) => (e.subject.includes('gateway') || String(e.claim).toLowerCase().includes('gateway')) && e.anomaly);
+    const isGatewayProbeSuccess = (e) => {
+      const subject = String(e.subject || '').toLowerCase();
+      const claim = String(e.claim || '').toLowerCase();
+      const normalized = String(e.normalizedValue || '').toUpperCase();
+      const raw = e.rawValue && typeof e.rawValue === 'object' ? e.rawValue : {};
+      const refersToGateway = subject.includes('gateway') || claim.includes('gateway') || normalized.includes('GATEWAY');
+      return Boolean(refersToGateway && !e.anomaly && (
+        /(?:GATEWAY_REACHABLE|ICMP_REPLY|PING_REPLY|ARP_RESOLVED)/.test(normalized) ||
+        raw.gatewayReachable === true ||
+        raw.reachable === true ||
+        raw.arpResolved === true
+      ));
+    };
+    // GATEWAY_OBSERVED means a route exists; it is not proof the gateway replied.
+    const hasGatewaySuccess = evidenceList.some(isGatewayProbeSuccess);
+    const hasGatewayFailure = evidenceList.some((e) =>
+      (String(e.subject || '').toLowerCase().includes('gateway') ||
+       String(e.claim || '').toLowerCase().includes('gateway')) && e.anomaly
+    );
     const hasTcpRst = evidenceList.some((e) => e.domain === 'tcp' && (String(e.normalizedValue).includes('ECONNREFUSED') || String(e.normalizedValue).includes('CLOSED') || String(e.claim).includes('RST')));
     const hasTcpTimeout = evidenceList.some((e) => e.domain === 'tcp' && (String(e.normalizedValue).includes('TIMEOUT') || String(e.normalizedValue).includes('FILTERED')));
     const hasTcpOpen = evidenceList.some((e) => e.domain === 'tcp' && String(e.normalizedValue).includes('OPEN'));
@@ -174,7 +191,7 @@ class CrossLayerIncidentCorrelator {
         causalMechanism: 'Physical NIC link drop, VLAN mismatch, or default gateway outage prevents L2 frame forwarding off the local broadcast domain.',
         priorProbability: 0.16,
         matchSupporting: (e) => (e.domain === 'dhcp_apipa_arp' || e.domain === 'topology_blast_radius') && e.anomaly,
-        matchContradicting: (e) => (e.subject.includes('gateway') || String(e.claim).toLowerCase().includes('gateway') || (e.domain === 'icmp_pmtu' && !e.anomaly)) && !e.anomaly,
+        matchContradicting: (e) => isGatewayProbeSuccess(e) || (e.domain === 'icmp_pmtu' && !e.anomaly),
         deterministicConfirm: hasGatewayFailure && !hasGatewaySuccess,
         missingEvidenceNeeded: hasGatewaySuccess || hasGatewayFailure ? [] : ['Direct ICMP/ARP probe to active default gateway'],
         assumptions: ['Target resides beyond local link-local broadcast or requires L3 routing'],
@@ -417,9 +434,9 @@ class CrossLayerIncidentCorrelator {
     steps.push({
       stepNumber: 1,
       layer: 'L1/L2 Local NIC & Subnet State',
-      status: observedLocalIp ? 'PASS' : 'WARN',
+      status: observedLocalIp && !isApipa ? 'PASS' : 'WARN',
       summary: observedLocalIp
-        ? `Interface ${observedAdapterName || 'unknown adapter'} bound to ${observedLocalIp} (${observedSubnetCidr || 'subnet unavailable'})`
+        ? `Interface ${observedAdapterName || 'unknown adapter'} has IP ${observedLocalIp} (${observedSubnetCidr || 'subnet unavailable'}); physical link state was not independently verified`
         : 'Local interface address and subnet could not be verified from OS telemetry',
       details: { adapter: observedAdapterName, localIp: observedLocalIp, subnetCidr: observedSubnetCidr, isApipa, verified: Boolean(observedLocalIp) }
     });
@@ -430,7 +447,7 @@ class CrossLayerIncidentCorrelator {
         ? `Observed local interface ${observedAdapterName || 'unknown'} configured with IP ${observedLocalIp} (${observedSubnetCidr || 'subnet unavailable'})`
         : 'Local interface address could not be verified by the OS network detector',
       rawValue: { localIp: observedLocalIp, subnetCidr: observedSubnetCidr, verified: Boolean(observedLocalIp) },
-      normalizedValue: observedLocalIp ? (isApipa ? 'APIPA_ADDRESS' : 'NIC_UP') : 'UNKNOWN',
+      normalizedValue: observedLocalIp ? (isApipa ? 'APIPA_ADDRESS' : 'IP_CONFIGURED') : 'UNKNOWN',
       anomaly: Boolean(isApipa),
       collectionMethod: 'os_route_table',
       correlationGroup: 'local_l2'
@@ -441,11 +458,11 @@ class CrossLayerIncidentCorrelator {
     steps.push({
       stepNumber: 2,
       layer: 'L2/L3 Default Gateway & ARP Resolution',
-      status: gwIp ? 'PASS' : 'WARN',
+      status: 'WARN',
       summary: gwIp
-        ? `Default gateway ${gwIp} (${netInfo.gatewayVendor || 'vendor unknown'})`
+        ? `Default route points to ${gwIp}; route presence observed, gateway reachability and ARP response were not tested`
         : 'Default gateway could not be verified from the active OS routing table',
-      details: { gatewayIp: gwIp, gatewayMac: hasVerifiedNetworkInfo ? netInfo.gatewayMac : null, gatewayVendor: hasVerifiedNetworkInfo ? netInfo.gatewayVendor : null, verified: Boolean(gwIp) }
+      details: { gatewayIp: gwIp, gatewayMac: hasVerifiedNetworkInfo ? netInfo.gatewayMac : null, gatewayVendor: hasVerifiedNetworkInfo ? netInfo.gatewayVendor : null, routeObserved: Boolean(gwIp), reachabilityTested: false }
     });
     signals.push({
       domain: 'topology_blast_radius',
@@ -469,7 +486,7 @@ class CrossLayerIncidentCorrelator {
     steps.push({
       stepNumber: 3,
       layer: 'L3 Binary Radix Longest-Prefix Match',
-      status: lpmMatch && lpmMatch.matched ? 'PASS' : (gwIp ? 'PASS' : 'WARN'),
+      status: lpmMatch && lpmMatch.matched ? 'PASS' : 'WARN',
       summary: lpmMatch && lpmMatch.matched
         ? `Longest-prefix match selected route ${lpmMatch.prefix}/${lpmMatch.prefixLen} via ${lpmMatch.nextHop}`
         : gwIp ? `Default gateway ${gwIp} was observed; detailed longest-prefix match was unavailable`

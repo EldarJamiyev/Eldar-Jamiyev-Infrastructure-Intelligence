@@ -14,6 +14,7 @@ const { chatOperatorService } = require('../chat/chat-operator-service');
 const v6Router = require('../../api/routes-v6-fabric');
 const { generateToken } = require('../security');
 const { temporalInfrastructureGraph } = require('../topology/temporal-graph-engine');
+const { CrossLayerIncidentCorrelator } = require('../correlation/incident-correlator');
 
 describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardening', () => {
   let server;
@@ -411,6 +412,65 @@ describe('EJII Chat-First Conversational Diagnostic Engine & v6 Security Hardeni
     assert.equal(denied.success, false);
     assert.equal(denied.statusCode, 404);
     assert.equal(denied.error.code, 'CHAT_SESSION_ACCESS_DENIED');
+  });
+
+
+  it('Scenario M: explanatory questions and explicit hosts are isolated from stale diagnostic context', () => {
+    const session = {
+      lastTarget: 'google.com', lastValidTarget: 'google.com', lastIntent: 'ping',
+      lastPorts: [443], lastUrl: null,
+      lastToolResults: { target: 'google.com', status: 'previous-real-result' },
+      lastSteps: [{ summary: 'previous result' }],
+      lastStructuredAnswer: { result: 'previous result' },
+      entityMemory: {}, targetHistory: ['google.com']
+    };
+    for (const prompt of [
+      'Can you explain what ping does?',
+      'Can you explain how DNS resolution works?',
+      'What are active connections?',
+      'Explain TCP handshakes'
+    ]) {
+      const plan = chatOperatorService.parseIntentAndEntities(prompt, session);
+      assert.equal(plan.intent, 'conversation', `Informational prompt must not trigger a probe: ${prompt}`);
+      assert.equal(plan.target, null, `Informational prompt must not inherit the previous host: ${prompt}`);
+    }
+    const explicitContextQuestion = chatOperatorService.parseIntentAndEntities('What is happening on 10.20.30.40?', session);
+    assert.notEqual(explicitContextQuestion.intent, 'follow_up_explanation');
+    assert.equal(explicitContextQuestion.explicitTarget, '10.20.30.40');
+    assert.equal(chatOperatorService.parseIntentAndEntities('list active connections', session).intent, 'active_connections');
+    assert.equal(chatOperatorService.parseIntentAndEntities('Can you ping the default gateway?', session).intent, 'gateway_ping');
+    assert.equal(chatOperatorService.parseIntentAndEntities('what is my IP?', session).intent, 'local_network_info');
+  });
+
+  it('Scenario N: an ID-owned chat session cannot be accessed through username-only identity', () => {
+    const sessionId = 'TEST-SESSION-OWNER-ID-N';
+    const owner = { id: 'u-owner-id', username: 'shared_name', role: 'ADMIN' };
+    chatOperatorService.getOrCreateSession(sessionId, owner);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, owner).allowed, true);
+    assert.equal(chatOperatorService.checkSessionAccess(sessionId, { username: 'shared_name', role: 'ADMIN' }).allowed, false);
+  });
+
+  it('Scenario O: route-table observation alone is not evidence that a gateway replied', () => {
+    const correlator = new CrossLayerIncidentCorrelator();
+    const routeObservation = {
+      id: 'route-only', domain: 'topology_blast_radius', subject: 'gateway:192.0.2.1',
+      claim: 'Default gateway 192.0.2.1 observed in OS network telemetry',
+      normalizedValue: 'GATEWAY_OBSERVED', rawValue: { gatewayIp: '192.0.2.1', verified: true },
+      anomaly: false, correlationGroup: 'gateway_l3'
+    };
+    const routeOnly = correlator._evaluateStructuredHypotheses('203.0.113.20', [routeObservation], {});
+    const routeHypothesis = routeOnly.find((h) => h.id === 'HYP-LOCAL-GATEWAY-OR-L2-ARP-SEVERANCE');
+    assert.ok(routeHypothesis);
+    assert.ok(routeHypothesis.missingEvidenceNeeded.includes('Direct ICMP/ARP probe to active default gateway'));
+    assert.equal(routeHypothesis.contradictingEvidenceIds.length, 0);
+    const reachable = correlator._evaluateStructuredHypotheses('203.0.113.20', [{
+      ...routeObservation, id: 'gateway-ping', normalizedValue: 'GATEWAY_REACHABLE',
+      rawValue: { gatewayIp: '192.0.2.1', gatewayReachable: true }
+    }], {});
+    const reachableHypothesis = reachable.find((h) => h.id === 'HYP-LOCAL-GATEWAY-OR-L2-ARP-SEVERANCE');
+    assert.ok(reachableHypothesis);
+    assert.deepEqual(reachableHypothesis.missingEvidenceNeeded, []);
+    assert.equal(reachableHypothesis.contradictingEvidenceIds.length, 1);
   });
 
 });

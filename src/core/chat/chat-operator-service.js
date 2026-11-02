@@ -183,9 +183,17 @@ class ChatOperatorService {
     const requestedId = user && user.id != null ? String(user.id) : null;
     const requestedUsername = user && user.username ? String(user.username) : null;
     const matchesOwner = (ownerId, ownerUsername) => {
-      if (requestedId && ownerId) return String(ownerId) === requestedId;
-      if (requestedUsername && ownerUsername) return String(ownerUsername) === requestedUsername;
-      return !ownerId && !ownerUsername;
+      // When a session has a stable owner ID, require the caller's stable ID.
+      // Username-only fallback is retained solely for legacy rows without an owner ID.
+      if (ownerId !== null && ownerId !== undefined && String(ownerId).trim() !== '') {
+        return requestedId !== null && String(ownerId) === requestedId;
+      }
+      if (requestedId !== null) return false;
+      return Boolean(
+        requestedUsername &&
+        ownerUsername &&
+        String(ownerUsername) === requestedUsername
+      );
     };
 
     const inMemory = this.sessions.get(cleanId);
@@ -485,24 +493,11 @@ class ChatOperatorService {
       };
     }
 
-    // 1. Check if the user is asking for an explanation, summary, memory recall, or comparison of previous findings
+    // 1. Detect contextual questions, but do not let them override an explicitly named host.
     const isExplanationFollowUp =
       /^(why did (that|it) fail|which layer failed|explain the results?|summarize what you|give me a concise incident report|what does that mean|what should i do next|tell me the next step|what happened|what is happening|what is going on|what is the problem|what is wrong|what have we (tested|found)|show memory|compare (all )?hosts)/i.test(lower) ||
       ((lower.includes('summarize') || lower.includes('incident report') || lower.includes('which layer failed') || lower.includes('why did that fail') || lower.includes('explain the result') || lower.includes('what have we tested') || lower.includes('compare hosts')) &&
         !lower.includes('ping ') && !lower.includes('check port') && !lower.includes('test port'));
-
-    if (isExplanationFollowUp && session && (session.lastToolResults || Object.keys(session.entityMemory || {}).length > 0)) {
-      return {
-        intent: 'follow_up_explanation',
-        target: session.lastValidTarget || session.lastTarget || 'localhost',
-        explicitTarget: null,
-        ports: session.lastPorts.length ? session.lastPorts : [3000],
-        url: session.lastUrl || null,
-        recordType: 'A',
-        usedFollowUpTarget: true,
-        isSystemDnsHealthCheck: false
-      };
-    }
 
     // 2. Extract explicit URL if present (e.g. https://example.com:8443/health)
     let extractedUrl = null;
@@ -566,6 +561,23 @@ class ChatOperatorService {
       }
     }
 
+    // A contextual follow-up may use prior evidence only when the user did not name
+    // a different target in this message. Never let stale session state win over an
+    // explicit host or URL.
+    if (isExplanationFollowUp && !explicitTarget && session &&
+        (session.lastToolResults || Object.keys(session.entityMemory || {}).length > 0)) {
+      return {
+        intent: 'follow_up_explanation',
+        target: session.lastValidTarget || session.lastTarget || null,
+        explicitTarget: null,
+        ports: Array.isArray(session.lastPorts) && session.lastPorts.length ? session.lastPorts : [],
+        url: session.lastUrl || null,
+        recordType: 'A',
+        usedFollowUpTarget: Boolean(session.lastValidTarget || session.lastTarget),
+        isSystemDnsHealthCheck: false
+      };
+    }
+
     // 4. Extract ports from prompt
     const extractedPorts = [];
     if (explicitHostPort && explicitHostPort >= 1 && explicitHostPort <= 65535) {
@@ -626,13 +638,21 @@ class ChatOperatorService {
       usedFollowUpTarget = true;
     }
 
-    // 7. Determine primary intent. Local-host queries are distinct from remote-host diagnostics.
-    const isGatewayPingPrompt = /\b(ping|check|test|reachability of)\b.{0,35}\b(default )?gateway\b|\b(default )?gateway\b.{0,35}\b(ping|check|test|reachable)\b/i.test(lower);
-    const isLocalNetworkInfoPrompt = /\b(check my ip|what is my ip|show (?:me )?(?:my )?(?:local )?ip|local ip address|my network (?:configuration|interfaces)|network interface addresses)\b/i.test(lower);
-    const isActiveConnectionsPrompt = /\b(active (?:tcp )?(?:connections|sockets)|current(?:ly)? (?:open )?connections|destination ip|dest ip|destination ports?|dest ports?|remote ips?|remote ports?|netstat|which apps? (?:are )?(?:connected|connecting)|what .*apps?.*(?:ip|port)|apps?.{0,45}(?:destination|dest|remote).{0,20}(?:ip|port))\b/i.test(lower);
-    const isHostHealthPrompt = /\b(local host health|system health|host diagnostics|cpu and memory|local system|workstation health)\b/i.test(lower);
-    const isConceptQuestion = /^(what is (?!happening\b|going on\b|wrong\b|the (?:problem|issue|failure)\b)|what are|what does|what do|why does|why do|how does|how do|how can i|how do i|explain|tell me about|define)\b/i.test(lower);
+    // 7. Determine primary intent. Information requests must not become live probes
+    // merely because they mention a technical term such as DNS, ping, or sockets.
+    const isConceptQuestion =
+      /^(?:please\s+)?(?:what is (?!happening\b|going on\b|wrong\b|the (?:problem|issue|failure)\b)|what are (?!my\b|(?:the )?current\b|currently\b)|what does|what do|why does|why do|how does|how do|how can i|how do i|can you explain|could you explain|would you explain|tell me what|explain|tell me about|define)\b/i.test(lower);
     const isDirectCommand = /^(?:please\s+)?(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|capture|inspect|verify|monitor|retry|open)\b|^can you\s+(?:check|test|ping|diagnose|investigate|trace|resolve|scan|measure|run|list|show|find|inspect|verify|monitor)\b/i.test(lower);
+    const isGatewayPingPrompt =
+      /\b(ping|check|test|reachability of)\b.{0,35}\b(default )?gateway\b|\b(default )?gateway\b.{0,35}\b(ping|check|test|reachable)\b/i.test(lower) &&
+      (!isConceptQuestion || isDirectCommand);
+    const isLocalNetworkInfoPrompt =
+      /\b(check my ip|what is my ip|show (?:me )?(?:my )?(?:local )?ip|local ip address|my network (?:configuration|interfaces)|network interface addresses)\b/i.test(lower) &&
+      (!isConceptQuestion || /\b(?:check|show|display|list|get|find|what is my|what's my|my current)\b/i.test(lower));
+    const isActiveConnectionsPrompt =
+      /\b(active (?:tcp )?(?:connections|sockets)|current(?:ly)? (?:open )?connections|destination ip|dest ip|destination ports?|dest ports?|remote ips?|remote ports?|netstat|which apps? (?:are )?(?:connected|connecting)|what .*apps?.*(?:ip|port)|apps?.{0,45}(?:destination|dest|remote).{0,20}(?:ip|port))\b/i.test(lower) &&
+      (!isConceptQuestion || /\b(?:show|list|display|inspect|check|capture|currently|current|now|destination|dest|remote|which apps?|my active|my current)\b/i.test(lower));
+    const isHostHealthPrompt = /\b(local host health|system health|host diagnostics|cpu and memory|local system|workstation health)\b/i.test(lower);
     const isLikelyDiagnosticRequest = /\b(check|test|ping|diagnos(?:e|is)|investigat(?:e|ion)|trace|resolve|scan|port|dns|website|web site|network|connection|slow|unreachable|not responding|not working|can't access|cannot access|timeout|gateway|socket|printer|ip address)\b/i.test(lower);
     let intent = 'multi_step_investigation';
 
@@ -2322,7 +2342,9 @@ class ChatOperatorService {
 
   async _executeActiveConnectionsScenario(signal) {
     this._checkAborted(signal);
+    const collectionStartedAt = performance.now();
     const matrix = ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix();
+    const collectionDurationMs = Number((performance.now() - collectionStartedAt).toFixed(1));
     this._checkAborted(signal);
     if (!matrix || matrix.collectionStatus !== 'LIVE_OS_TELEMETRY') {
       const details = matrix?.collectionErrors?.length ? matrix.collectionErrors.join('; ') : 'No supported OS socket collector completed successfully.';
@@ -2330,7 +2352,7 @@ class ChatOperatorService {
       return {
         reply,
         structuredAnswer: { result: 'Active socket collection unavailable.', meaning: 'Collection failed; no zero-connection conclusion was made.', nextStep: 'Check OS command availability and permissions.' },
-        steps: [{ stepNumber: 1, label: 'Collect active OS sockets', tool: 'ProcessSocketCorrelatorEngine', status: 'FAIL', summary: 'OS socket collector unavailable', durationMs: 0 }],
+        steps: [{ stepNumber: 1, label: 'Collect active OS sockets', tool: 'ProcessSocketCorrelatorEngine', status: 'FAIL', summary: 'OS socket collector unavailable', durationMs: collectionDurationMs }],
         findings: [{ label: 'Collection', value: 'Unavailable', tone: 'danger' }],
         technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix?.collectionStatus || 'UNAVAILABLE', errors: matrix?.collectionErrors || [], observedAt: new Date().toISOString() }
       };
@@ -2341,41 +2363,45 @@ class ChatOperatorService {
       s.remoteAddress && !['0.0.0.0', '::', '::0', '*', '127.0.0.1', '::1'].includes(String(s.remoteAddress))
       && Number(s.remotePort) > 0
     );
-    const established = sockets.filter((s) => {
-      const protocol = String(s.protocol || 'TCP').toUpperCase();
-      const state = String(s.state || '').toUpperCase();
-      return isUsableRemoteEndpoint(s) && (
-        (protocol === 'TCP' && state === 'ESTABLISHED') ||
-        (protocol === 'UDP' && !['UDP_STATELESS', 'UNCONN', 'LISTENING'].includes(state))
-      );
-    });
-    const sorted = established.sort((a, b) => String(a.processName || '').localeCompare(String(b.processName || ''))
+    const tcpEstablished = sockets.filter((s) =>
+      String(s.protocol || 'TCP').toUpperCase() === 'TCP' &&
+      String(s.state || '').toUpperCase() === 'ESTABLISHED' &&
+      isUsableRemoteEndpoint(s)
+    );
+    const udpConnected = sockets.filter((s) =>
+      String(s.protocol || '').toUpperCase() === 'UDP' &&
+      ['UDP_CONNECTED', 'ESTABLISHED'].includes(String(s.state || '').toUpperCase()) &&
+      isUsableRemoteEndpoint(s)
+    );
+    const connectedEndpoints = [...tcpEstablished, ...udpConnected];
+    const sorted = connectedEndpoints.sort((a, b) => String(a.processName || '').localeCompare(String(b.processName || ''))
       || String(a.remoteAddress).localeCompare(String(b.remoteAddress)) || Number(a.remotePort) - Number(b.remotePort));
     const maxRows = 40;
     const visible = sorted.slice(0, maxRows);
     const lines = visible.map((s) => `- ${s.processName || 'Unknown process'} (PID ${s.pid ?? 'n/a'}): ${(s.protocol || 'TCP').toUpperCase()} ${s.remoteAddress}:${s.remotePort} [local ${s.localAddress}:${s.localPort}]`);
-    const resultText = established.length
-      ? `Observed ${established.length} connected remote endpoint(s) at ${new Date().toISOString()}.\n${lines.join('\n')}${established.length > maxRows ? `\n...and ${established.length - maxRows} more endpoint(s).` : ''}`
+    const resultText = connectedEndpoints.length
+      ? `Observed ${tcpEstablished.length} established TCP connection(s) and ${udpConnected.length} connected UDP endpoint(s) at ${new Date().toISOString()}.\n${lines.join('\n')}${connectedEndpoints.length > maxRows ? `\n...and ${connectedEndpoints.length - maxRows} more endpoint(s).` : ''}`
       : 'The OS collector completed successfully, but no connected remote TCP/UDP endpoints were present in this snapshot.';
     const reply = `**Result:** ${resultText}\n\n**Meaning:** These are current OS-visible remote endpoints, including established TCP connections and connected UDP endpoints when the operating system exposes them. The destination IP and destination port are the remote address and remote port; connections can change while applications run. Process names may be unavailable when OS permissions restrict attribution.\n\n**Next step:** Ask EJII to filter by application name, destination IP, or port.`;
     return {
       reply,
       structuredAnswer: {
-        result: `${established.length} connected remote TCP/UDP endpoint(s) observed.`,
+        result: `${tcpEstablished.length} established TCP connection(s) and ${udpConnected.length} connected UDP endpoint(s) observed.`,
         meaning: 'Remote endpoints were taken from the host OS socket table, not inferred from recent website checks.',
         nextStep: 'Filter the live list by an application, remote address, or port if needed.',
         layerFailedFirst: null,
         uncertainty: matrix.collectionNote || null
       },
       steps: [{
-        stepNumber: 1, label: 'Read the current TCP socket table', tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix',
-        status: 'PASS', summary: `${established.length} connected remote endpoint(s) observed`, durationMs: 0
+        stepNumber: 1, label: 'Read the current TCP/UDP socket table', tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix',
+        status: 'PASS', summary: `${connectedEndpoints.length} connected remote endpoint(s) observed`, durationMs: collectionDurationMs
       }],
       findings: [
-        { label: 'Established TCP', value: String(established.length), tone: 'neutral' },
+        { label: 'Established TCP', value: String(tcpEstablished.length), tone: 'neutral' },
+        { label: 'Connected UDP', value: String(udpConnected.length), tone: 'neutral' },
         { label: 'OS collector', value: matrix.collectionMethod || 'unknown', tone: 'ok' }
       ],
-      technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix.collectionStatus, collectionMethod: matrix.collectionMethod, collectionNote: matrix.collectionNote, sockets: visible, totalEstablished: established.length, observedAt: new Date().toISOString() },
+      technicalEvidence: { tool: 'ProcessSocketCorrelatorEngine.collectLiveHostSocketMatrix', collectionStatus: matrix.collectionStatus, collectionMethod: matrix.collectionMethod, collectionDurationMs, collectionNote: matrix.collectionNote, sockets: visible, tcpEstablishedCount: tcpEstablished.length, connectedUdpCount: udpConnected.length, totalConnectedEndpoints: connectedEndpoints.length, observedAt: new Date().toISOString() },
       clearTargetContext: true
     };
   }
@@ -2598,7 +2624,7 @@ class ChatOperatorService {
   async _executeFollowUpExplanation(plan, session, promptText) {
     const prevAns = session.lastStructuredAnswer || {};
     const prevSteps = session.lastSteps || [];
-    const prevTarget = session.lastValidTarget || session.lastTarget || 'localhost';
+    const prevTarget = session.lastValidTarget || session.lastTarget || 'the previous investigation';
     const prevPorts = session.lastPorts || [];
     const lower = promptText.toLowerCase();
     const entities = Object.values(session.entityMemory || {});
