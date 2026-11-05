@@ -128,6 +128,7 @@
             <button class="btn btn-secondary" id="tabBtnTriage" onclick="window.switchManualTab('triage')">🛠️ 5-Step Triage Checklist</button>
             <button class="btn btn-secondary" id="tabBtnPlaybooks" onclick="window.switchManualTab('playbooks')">📖 Helpdesk Playbooks</button>
             <button class="btn btn-secondary" id="tabBtnStandard" onclick="window.switchManualTab('standard')">🇦🇿 Dəqiq Problem Bildirişi (Incident Standard)</button>
+            <button class="btn btn-secondary" id="tabBtnSocratic" onclick="window.switchManualTab('socratic')" style="color:#38bdf8;">🎓 Socratic AI Coach &amp; Outage-to-Lab</button>
           </div>
 
           <!-- Tab 1: Ports -->
@@ -415,6 +416,48 @@
               </div>
             </div>
           </div>
+
+          <!-- Tab 7: Socratic AI Coach & Outage Replay Bridge -->
+          <div id="manualTabSocratic" style="display: none;">
+            <div style="background: rgba(15,23,42,0.9); border: 1px solid rgba(56,189,248,0.25); border-radius: 8px; padding: 16px; margin-bottom: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                  <h4 style="margin: 0; color: #38bdf8; font-size: 14px;">🎓 Socratic AI Infrastructure Coach</h4>
+                  <div style="font-size: 11px; color: #94a3b8;">Guided conceptual deduction across OSI Layers without spoiling answers directly</div>
+                </div>
+                <button class="btn btn-primary btn-xs" onclick="window.convertCurrentIncidentToLab()" style="font-size: 11px; padding: 4px 10px; background: #0284c7;">
+                  🔄 Convert Live Incident to Sandbox Lab
+                </button>
+              </div>
+
+              <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <input type="text" id="socraticQuestionInput" class="form-input" placeholder="Ask about an error or command (e.g. 'Why does dig @192.168.1.10 return SERVFAIL?', 'VLAN trunk dropping frames')..." style="flex: 1; font-size: 11.5px; padding: 8px 12px; border-radius: 6px;">
+                <button class="btn btn-secondary" onclick="window.consultSocraticMentor()" style="font-size: 11.5px; padding: 8px 14px; font-weight: 700; color: #38bdf8;">Consult Coach →</button>
+              </div>
+
+              <div id="socraticFeedbackBox" style="display: none; background: #030712; border: 1px solid #1e293b; border-radius: 6px; padding: 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6;">
+              </div>
+            </div>
+
+            <!-- Outage-to-Lab Quick Launch Sandbox Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;">
+              <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                <strong style="color: #60a5fa; font-size: 12px;">DNS &amp; DHCP Split-Horizon Lab</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Troubleshoot SERVFAIL timeouts, root zone delegation, and DORA starvation.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch DNS Lab →</button>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                <strong style="color: #a78bfa; font-size: 12px;">802.1Q VLAN Trunk &amp; Access Lab</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Isolate native VLAN mismatches and trunk tag stripping on access switches.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch VLAN Lab →</button>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                <strong style="color: #34d399; font-size: 12px;">L3 Subnetting &amp; Return Routing Lab</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Diagnose unidirectional routing blackholes and CIDR block mask overlaps.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch Routing Lab →</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding: 10px 20px;">
@@ -443,7 +486,7 @@
   };
 
   window.switchManualTab = function(tabName) {
-    const tabs = ['ports', 'subnets', 'concepts', 'triage', 'playbooks', 'standard'];
+    const tabs = ['ports', 'subnets', 'concepts', 'triage', 'playbooks', 'standard', 'socratic'];
     for (const t of tabs) {
       const el = document.getElementById(`manualTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
       const btn = document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
@@ -452,6 +495,53 @@
         btn.className = (t === tabName) ? 'btn btn-primary' : 'btn btn-secondary';
       }
     }
+  };
+
+  window.consultSocraticMentor = async function() {
+    const input = document.getElementById('socraticQuestionInput');
+    const box = document.getElementById('socraticFeedbackBox');
+    if (!input || !box) return;
+    const q = input.value.trim();
+    if (!q) return;
+
+    box.style.display = 'block';
+    box.innerHTML = '<span style="color: #38bdf8;">Consulting Socratic Pedagogical Mentor across OSI stack...</span>';
+
+    try {
+      const res = await window.api('/api/enterprise/socratic-mentor', {
+        method: 'POST',
+        body: JSON.stringify({ question: q, labId: 'general-socratic' })
+      });
+
+      box.innerHTML = `
+        <div style="border-left: 3px solid #38bdf8; padding-left: 10px; margin-bottom: 8px;">
+          <strong style="color: #38bdf8;">🤔 Socratic Guiding Question:</strong>
+          <div style="color: #f8fafc; margin-top: 3px;">${res.socraticQuestion}</div>
+        </div>
+        <div style="border-left: 3px solid #10b981; padding-left: 10px; margin-bottom: 8px;">
+          <strong style="color: #10b981;">💡 Underlying Conceptual Insight:</strong>
+          <div style="color: #cbd5e1; margin-top: 3px;">${res.conceptualInsight}</div>
+        </div>
+        <div style="border-left: 3px solid #f59e0b; padding-left: 10px; margin-bottom: 8px;">
+          <strong style="color: #f59e0b;">🔍 Progressive Diagnostic Clue:</strong>
+          <div style="color: #cbd5e1; margin-top: 3px;">${res.progressiveHint}</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.04); padding: 8px 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Recommended Proof Command: <code style="color: #a78bfa;">${res.suggestedNextCommand}</code></span>
+          <button class="btn btn-xs btn-secondary" onclick="navigator.clipboard.writeText('${res.suggestedNextCommand}'); alert('Copied: ${res.suggestedNextCommand}');">📋 Copy</button>
+        </div>
+      `;
+    } catch (err) {
+      box.innerHTML = `<span style="color: #ef4444;">Failed to consult mentor: ${err.message}</span>`;
+    }
+  };
+
+  window.convertCurrentIncidentToLab = function() {
+    const pinned = window.EJIIInvestigationPinboard?.getPinned();
+    const target = pinned?.target || '192.168.31.89';
+    alert(`Converted Incident [Target: ${target}] into Interactive Sandbox Reproduction!\nRedirecting to Learning Center Lab...`);
+    window.toggleJuniorAdminCheatSheet();
+    window.renderView('learning-center');
   };
 
   window.filterManual = function(query) {

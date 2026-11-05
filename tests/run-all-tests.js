@@ -142,7 +142,8 @@ const COMPANION_TEST_MODULES = [
   './mobile-and-webauthn-dual-custody.test',
   './ceo-directive-intelligence-leap.test',
   './enterprise-infrastructure-evolution.test',
-  './upstream-downstream-specialist-consensus.test'
+  './upstream-downstream-specialist-consensus.test',
+  './autonomous-cognitive-core-evolution.test'
 ];
 
 async function runAllTests() {

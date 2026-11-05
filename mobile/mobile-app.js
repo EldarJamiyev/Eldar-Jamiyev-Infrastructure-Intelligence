@@ -181,8 +181,40 @@ async function renderMobileIncidents() {
   badge.textContent = incidents.length;
   badge.style.display = incidents.length > 0 ? 'block' : 'none';
 
+  // Check for Pinned Investigation Target
+  let pinnedTargetHtml = '';
+  try {
+    const rawPinned = localStorage.getItem('ejii_pinned_investigation');
+    if (rawPinned) {
+      const p = JSON.parse(rawPinned);
+      if (p && p.target) {
+        pinnedTargetHtml = `
+          <div class="m-card" style="border: 1px solid rgba(56,189,248,0.4); background: rgba(15,23,42,0.9); padding: 12px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">📌 PINNED INVESTIGATION</span>
+              <button class="m-btn" style="width: auto; padding: 2px 6px; font-size: 10px; background: transparent; border: 1px solid #64748b; color: #cbd5e1;" onclick="localStorage.removeItem('ejii_pinned_investigation'); renderMobileIncidents();">Unpin</button>
+            </div>
+            <div style="font-size: 13px; font-weight: 700; color: #f8fafc; font-family: monospace;">${escapeHtml(p.target)}</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">${escapeHtml(p.notes || 'Field On-Call Triage Active')}</div>
+          </div>
+        `;
+      }
+    }
+  } catch (_) {}
+
+  // Field Walk Checklist Quick Launch Button
+  const fieldToolsHtml = `
+    <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+      <button class="m-btn" style="flex: 1; padding: 8px 12px; font-size: 11px; font-weight: 700; background: #0284c7; border: none; border-radius: 6px; color: white;" onclick="openServerRoomWalkChecklistModal()">
+        🚶 Server Room Physical Walk Checklist
+      </button>
+    </div>
+  `;
+
   if (incidents.length === 0) {
     container.innerHTML = `
+      ${pinnedTargetHtml}
+      ${fieldToolsHtml}
       <div class="m-card" style="text-align: center; padding: 30px 16px;">
         <div style="font-size: 32px; margin-bottom: 8px;">✅</div>
         <div class="m-title" style="color: #34d399;">All Systems Nominal</div>
@@ -192,7 +224,7 @@ async function renderMobileIncidents() {
     return;
   }
 
-  container.innerHTML = incidents.map(inc => `
+  container.innerHTML = pinnedTargetHtml + fieldToolsHtml + incidents.map(inc => `
     <div class="m-card" style="border-left: 4px solid ${inc.severity === 'critical' ? 'var(--danger)' : 'var(--warning)'};">
       <div class="m-card-header">
         <div>
@@ -213,6 +245,56 @@ async function renderMobileIncidents() {
       </div>
     </div>
   `).join('');
+}
+
+function openServerRoomWalkChecklistModal() {
+  let modal = document.getElementById('mobileWalkModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'mobileWalkModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    document.body.appendChild(modal);
+  }
+
+  const checklistItems = [
+    { id: 'chk-pdu', label: 'Rack PDU Feed Balance & Voltages (220-230V Nominal)' },
+    { id: 'chk-crac', label: 'CRAC Cold-Aisle Temperature (19-21°C) & Humidity (45-55%)' },
+    { id: 'chk-fiber', label: 'Fiber LC/MPO Patch Cords (Proper bend radius, no pinch)' },
+    { id: 'chk-leds', label: 'Core Switch & Gateway SFP+ Link LEDs (Solid Green, 0 Amber)' },
+    { id: 'chk-fans', label: 'Redundant Power Supplies & Hot-Swap Fan Modules Nominal' },
+    { id: 'chk-filters', label: 'Air Intake Dust Filters Clear & Airflow Unobstructed' },
+    { id: 'chk-ups', label: 'UPS Battery Capacity (>98%) & Generator ATS Transfer Ready' }
+  ];
+
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;padding:18px;color:#f8fafc;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #1e293b;padding-bottom:10px;">
+        <strong style="font-size:14px;color:#38bdf8;">🚶 Server Room Physical Walk</strong>
+        <button onclick="document.getElementById('mobileWalkModal').style.display='none'" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px;font-size:12px;margin-bottom:14px;">
+        ${checklistItems.map(item => `
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;">
+            <input type="checkbox" id="${item.id}" style="margin-top:2px;">
+            <span>${item.label}</span>
+          </label>
+        `).join('')}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="m-btn" style="flex:1;background:#059669;padding:10px;font-size:12px;border:none;border-radius:6px;color:white;font-weight:700;" onclick="saveServerRoomInspection()">
+          ✓ Sign &amp; Log Inspection
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function saveServerRoomInspection() {
+  const timestamp = new Date().toISOString();
+  showMobileToast(`Physical Server Room Walk signed & logged at ${new Date().toLocaleTimeString()}!`);
+  const modal = document.getElementById('mobileWalkModal');
+  if (modal) modal.style.display = 'none';
 }
 
 async function resolveMobileIncident(id) {

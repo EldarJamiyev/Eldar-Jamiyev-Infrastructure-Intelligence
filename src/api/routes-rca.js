@@ -1039,10 +1039,22 @@ router.get('/spectral-fft', (req, res) => {
  * POST /api/rca/war-room/execute
  * Executes 5-Agent SRE War-Room Pipeline
  */
+const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
+const sharedAutonomousWarRoom = new AutonomousWarRoomOrchestrator();
+
+function getWarRoomInstance(req) {
+  if (req?.app?.locals) {
+    if (!req.app.locals.autonomousWarRoom) {
+      req.app.locals.autonomousWarRoom = sharedAutonomousWarRoom;
+    }
+    return req.app.locals.autonomousWarRoom;
+  }
+  return sharedAutonomousWarRoom;
+}
+
 router.post('/war-room/execute', (req, res) => {
   try {
-    const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
-    const warRoom = req.app?.locals?.autonomousWarRoom || new AutonomousWarRoomOrchestrator();
+    const warRoom = getWarRoomInstance(req);
     const payload = req.body || {};
 
     const result = warRoom.execute(payload);
@@ -1061,12 +1073,72 @@ router.post('/war-room/execute', (req, res) => {
  */
 router.get('/war-room/latest', (req, res) => {
   try {
-    const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
-    const warRoom = req.app?.locals?.autonomousWarRoom || new AutonomousWarRoomOrchestrator();
+    const warRoom = getWarRoomInstance(req);
     let result = warRoom.getLatestResult();
     if (!result) {
       result = warRoom.execute();
     }
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/war-room/sessions
+ * Returns all active War-Room deliberation sessions
+ */
+router.get('/war-room/sessions', (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const sessions = warRoom.getAllSessions();
+    res.json({
+      success: true,
+      count: sessions.length,
+      sessions
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/rca/war-room/sessions/:sessionId
+ * Returns specific session by ID
+ */
+router.get('/war-room/sessions/:sessionId', (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const session = warRoom.getSession(req.params.sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'War Room session not found.' });
+    }
+    res.json({
+      success: true,
+      ...session
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/war-room/reevaluate
+ * Re-evaluates an existing session under operator steering constraints
+ */
+router.post('/war-room/reevaluate', (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const { sessionId, constraints, forbiddenRemediations, requiredRemediations, requireDualApproval } = req.body || {};
+    const effectiveConstraints = constraints || {
+      forbiddenRemediations,
+      requiredRemediations,
+      requireDualApproval
+    };
+    const result = warRoom.reevaluateWithConstraint(sessionId || '', effectiveConstraints);
     res.json({
       success: true,
       ...result

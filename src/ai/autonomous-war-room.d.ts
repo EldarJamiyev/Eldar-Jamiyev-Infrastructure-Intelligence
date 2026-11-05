@@ -65,10 +65,37 @@ export interface Agent5SafetySignoffReport {
     readonly proofChain: string;
     readonly verdict: string;
 }
+export interface DebateChallenge {
+    readonly roundNumber: number;
+    readonly challengerAgent: string;
+    readonly challengedAgent: string;
+    readonly challengeTopic: string;
+    readonly argument: string;
+    readonly rebuttal: string;
+    readonly resolution: string;
+    readonly confidenceImpactPct: number;
+}
+export interface ActiveProbeDispatchProposal {
+    readonly probeId: string;
+    readonly probeType: 'ICMP_PMTU_DISCOVERY' | 'TCP_HALF_OPEN_PROBE' | 'SNMP_INTERFACE_OCTETS' | 'DNS_ROOT_SOA_TEST' | 'HTTP_HEAD_TRACER';
+    readonly target: string;
+    readonly dispatchedByAgent: string;
+    readonly rationale: string;
+    readonly safetyGuardClassification: 'READ_ONLY_SAFE_POL_01';
+    readonly simulatedOutcome: string;
+}
+export interface OperatorSteeringConstraints {
+    readonly forbiddenRemediations?: readonly string[];
+    readonly requiredRemediations?: readonly string[];
+    readonly requireDualApproval?: boolean;
+    readonly targetVlan?: number;
+    readonly maxAllowableDowntimeSeconds?: number;
+    readonly operatorNotes?: string;
+}
 export interface WarRoomExecutionResult {
     readonly warRoomSessionId: string;
     readonly executedAt: string;
-    readonly status: 'RESOLVED_REMEDIATION_SIGNED' | 'INCIDENT_ESCALATED' | 'STABILIZED_MONITORING';
+    readonly status: 'RESOLVED_REMEDIATION_SIGNED' | 'INCIDENT_ESCALATED' | 'STABILIZED_MONITORING' | 'RE_EVALUATED_WITH_CONSTRAINTS';
     readonly agent1: Agent1TriageReport;
     readonly agent2: Agent2TopologicalReport;
     readonly agent3: Agent3WireForensicsReport;
@@ -77,14 +104,25 @@ export interface WarRoomExecutionResult {
     readonly executiveSummary: string;
     readonly unresolvedUncertainties?: readonly string[];
     readonly contradictingSignals?: readonly string[];
+    readonly adversarialDebates?: readonly DebateChallenge[];
+    readonly autonomousActiveProbes?: readonly ActiveProbeDispatchProposal[];
+    readonly appliedConstraints?: OperatorSteeringConstraints;
+    readonly parentSessionId?: string;
 }
 export declare class AutonomousWarRoomOrchestrator {
     private readonly hmacSecret;
     private latestResult;
+    private readonly sessions;
     constructor(secret?: string);
     getLatestResult(): WarRoomExecutionResult | null;
+    getSession(sessionId: string): WarRoomExecutionResult | undefined;
+    getAllSessions(): WarRoomExecutionResult[];
     /**
      * Executes the 5-Agent SRE War-Room Pipeline
      */
     execute(payload?: WarRoomTelemetryPayload): WarRoomExecutionResult;
+    /**
+     * Interactive Operator Steering: Re-evaluates an existing session with runtime constraints
+     */
+    reevaluateWithConstraint(sessionId: string, constraints?: OperatorSteeringConstraints): WarRoomExecutionResult;
 }

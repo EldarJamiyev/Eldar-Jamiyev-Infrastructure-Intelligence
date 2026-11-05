@@ -238,8 +238,69 @@ export interface CognitiveFusionResult {
   };
 }
 
+export interface OperatorFeedbackEntry {
+  feedbackId: string;
+  incidentId: string;
+  hypothesisId: string;
+  operatorAction: 'CONFIRMED' | 'REJECTED' | 'EDITED';
+  recordedAt: string;
+  operatorNotes?: string;
+  domainAffected: string;
+  priorWeightBefore: number;
+  priorWeightAfter: number;
+}
+
+export interface DynamicCausalNode {
+  id: string;
+  anomalyType: string;
+  layer: 'L1_PHYSICAL' | 'L2_DATA_LINK' | 'L3_NETWORK' | 'L4_TRANSPORT' | 'L7_APPLICATION';
+  observedTimestampMs: number;
+  severityScore: number;
+  description: string;
+}
+
+export interface DynamicCausalEdge {
+  fromNodeId: string;
+  toNodeId: string;
+  causalityWeight: number;
+  delayMs: number;
+  layerHopDistance: number;
+  rationale: string;
+}
+
+export interface DynamicCausalDiscoveryResult {
+  nodes: DynamicCausalNode[];
+  edges: DynamicCausalEdge[];
+  patientZeroNodeId: string;
+  patientZeroLayer: string;
+  rootCauseCertaintyPct: number;
+  synthesizedRootCause: string;
+  isNovelZeroDayTopology: boolean;
+  blastRadiusNodeIds: string[];
+  recommendedMitigationStrategy: string;
+}
+
+export interface InfrastructureEntropyResult {
+  entropyIndex: number;
+  stabilityRegime: 'STABLE_EQUILIBRIUM' | 'ELEVATED_DRIFT' | 'CRITICAL_ENTROPY_COLLAPSE';
+  adaptiveCusumSensitivitySigma: number;
+  dominantEntropyDrivers: string[];
+  systemFreeEnergy: number;
+}
+
+export interface PreOutageTtcPrediction {
+  resourceType: 'DHCP_POOL' | 'DISK_STORAGE' | 'BANDWIDTH_EGRESS' | 'TLS_CERT_EXPIRY' | 'MEMORY_LEAK' | 'NAT_TABLE' | string;
+  currentUsagePct: number;
+  burnRatePerMinute: number;
+  timeToCriticalFailureSeconds: number;
+  formattedCountdown: string;
+  urgency: 'STABLE' | 'WARNING' | 'IMMINENT_OUTAGE';
+  proactiveRemediationAdvice: string;
+}
+
 export class EpisodicCausalMemoryEngine {
   private static episodes: EpisodicIncidentRecord[] = [...SEEDED_EPISODES];
+  private static feedbackLedger: OperatorFeedbackEntry[] = [];
   private static learnedDomainWeights: Record<string, number> = {
     PHYSICAL_L2_L3: 1.0,
     TRANSPORT_L4: 1.0,
@@ -781,5 +842,248 @@ export class EpisodicCausalMemoryEngine {
         policyClassification: 'POL-01-Compliant / Safe Diagnostic Probe'
       }
     };
+  }
+
+  /**
+   * Unsupervised Dynamic Causal Graph Discovery (Beyond static RB templates)
+   * Builds real-time directed acyclic graph (DAG) across arbitrary observed telemetry events,
+   * factoring temporal lead-lag and L1-L7 protocol layer hierarchy.
+   */
+  public static discoverDynamicCausalGraph(
+    observations: Array<{ anomalyType: string; layer: string; timestampMs: number; metrics?: Record<string, number>; description?: string }>,
+    topologyNodes: TopologyCausalNode[] = []
+  ): DynamicCausalDiscoveryResult {
+    if (!observations || observations.length === 0) {
+      return {
+        nodes: [],
+        edges: [],
+        patientZeroNodeId: 'NONE',
+        patientZeroLayer: 'L3_NETWORK',
+        rootCauseCertaintyPct: 100,
+        synthesizedRootCause: 'System telemetry nominal. No anomaly co-occurrences observed.',
+        isNovelZeroDayTopology: false,
+        blastRadiusNodeIds: [],
+        recommendedMitigationStrategy: 'Maintain normal continuous telemetry monitoring.'
+      };
+    }
+
+    const layerRank: Record<string, number> = {
+      L1_PHYSICAL: 1,
+      L2_DATA_LINK: 2,
+      L3_NETWORK: 3,
+      L4_TRANSPORT: 4,
+      L7_APPLICATION: 5
+    };
+
+    const graphNodes: DynamicCausalNode[] = observations.map((obs, idx) => {
+      const validLayer = (obs.layer as any) || 'L3_NETWORK';
+      const severity = obs.metrics?.severity || (validLayer === 'L1_PHYSICAL' || validLayer === 'L3_NETWORK' ? 8.5 : 6.0);
+      return {
+        id: `node-${idx}-${obs.anomalyType}`,
+        anomalyType: obs.anomalyType,
+        layer: validLayer,
+        observedTimestampMs: obs.timestampMs || Date.now(),
+        severityScore: severity,
+        description: obs.description || `Observed ${obs.anomalyType} on ${validLayer}`
+      };
+    });
+
+    const sorted = [...graphNodes].sort((a, b) => {
+      const timeDiff = a.observedTimestampMs - b.observedTimestampMs;
+      if (Math.abs(timeDiff) > 200) return timeDiff;
+      const rankA = layerRank[a.layer] || 3;
+      const rankB = layerRank[b.layer] || 3;
+      return rankA - rankB;
+    });
+
+    const patientZero = sorted[0];
+    const edges: DynamicCausalEdge[] = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const from = sorted[i];
+        const to = sorted[j];
+        const rankFrom = layerRank[from.layer] || 3;
+        const rankTo = layerRank[to.layer] || 3;
+        if (rankFrom <= rankTo) {
+          const delay = Math.max(0, to.observedTimestampMs - from.observedTimestampMs);
+          const weight = Math.max(0.4, Math.min(0.98, 0.95 - (delay / 10000) * 0.2));
+          edges.push({
+            fromNodeId: from.id,
+            toNodeId: to.id,
+            causalityWeight: Number(weight.toFixed(3)),
+            delayMs: delay,
+            layerHopDistance: Math.max(1, rankTo - rankFrom),
+            rationale: `Temporal & Layer Propagation: ${from.anomalyType} (${from.layer}) -> ${to.anomalyType} (${to.layer})`
+          });
+        }
+      }
+    }
+
+    const blastRadius = sorted.slice(1).map(n => n.id);
+    const hasNovelPattern = !['MTU_BLACKHOLE', 'DNS_TIMEOUT', 'TCP_RST'].includes(patientZero.anomalyType);
+
+    return {
+      nodes: graphNodes,
+      edges,
+      patientZeroNodeId: patientZero.id,
+      patientZeroLayer: patientZero.layer,
+      rootCauseCertaintyPct: Math.min(95, Math.round(75 + edges.length * 4)),
+      synthesizedRootCause: `Autonomous Causal Graph pinpointed ${patientZero.anomalyType} at ${patientZero.layer} as origin of ${blastRadius.length} downstream symptom(s).`,
+      isNovelZeroDayTopology: hasNovelPattern,
+      blastRadiusNodeIds: blastRadius,
+      recommendedMitigationStrategy: `Execute targeted remediation at ${patientZero.layer} layer to quench downstream cascades across ${blastRadius.join(', ') || 'fleet'}.`
+    };
+  }
+
+  /**
+   * Multi-dimensional Infrastructure Entropy Index
+   */
+  public static computeInfrastructureEntropyIndex(metrics: {
+    rttMs?: number;
+    packetLossPct?: number;
+    dnsLatencyMs?: number;
+    cpuSaturationPct?: number;
+    tcpRetransmitRate?: number;
+    cusumSigma?: number;
+  }): InfrastructureEntropyResult {
+    const rtt = Math.min(1.0, (metrics.rttMs || 15) / 200);
+    const loss = Math.min(1.0, (metrics.packetLossPct || 0) / 20);
+    const dns = Math.min(1.0, (metrics.dnsLatencyMs || 10) / 300);
+    const cpu = Math.min(1.0, (metrics.cpuSaturationPct || 25) / 100);
+    const retx = Math.min(1.0, (metrics.tcpRetransmitRate || 0.01) / 0.15);
+    const cusum = Math.min(1.0, (metrics.cusumSigma || 0.5) / 6.0);
+
+    const probs = [rtt, loss, dns, cpu, retx, cusum];
+    const sum = probs.reduce((a, b) => a + b, 0);
+    const normalized = sum > 0 ? probs.map(p => p / sum) : probs.map(() => 1 / probs.length);
+
+    let entropy = 0;
+    for (const p of normalized) {
+      if (p > 0.0001) {
+        entropy -= p * (Math.log2(p) / Math.log2(probs.length));
+      }
+    }
+    const entropyIndex = Number(Math.max(0, Math.min(1.0, entropy * (sum / probs.length))).toFixed(3));
+
+    let regime: 'STABLE_EQUILIBRIUM' | 'ELEVATED_DRIFT' | 'CRITICAL_ENTROPY_COLLAPSE' = 'STABLE_EQUILIBRIUM';
+    if (entropyIndex > 0.65) {
+      regime = 'CRITICAL_ENTROPY_COLLAPSE';
+    } else if (entropyIndex > 0.35) {
+      regime = 'ELEVATED_DRIFT';
+    }
+
+    const drivers: string[] = [];
+    if (loss > 0.3) drivers.push('Packet Loss');
+    if (rtt > 0.3) drivers.push('RTT Latency');
+    if (retx > 0.3) drivers.push('TCP Retransmissions');
+    if (dns > 0.3) drivers.push('DNS Latency');
+    if (cpu > 0.3) drivers.push('Host CPU Saturation');
+
+    const adaptiveCusum = regime === 'STABLE_EQUILIBRIUM' ? 2.5 : (regime === 'ELEVATED_DRIFT' ? 3.5 : 5.0);
+
+    return {
+      entropyIndex,
+      stabilityRegime: regime,
+      adaptiveCusumSensitivitySigma: adaptiveCusum,
+      dominantEntropyDrivers: drivers.length > 0 ? drivers : ['Normal Stochastic Variations'],
+      systemFreeEnergy: Number((1.0 - entropyIndex).toFixed(3))
+    };
+  }
+
+  /**
+   * Reinforcement Learning from Human Feedback (RLHF) Loop
+   */
+  public static recordOperatorFeedback(params: {
+    incidentId: string;
+    hypothesisId: string;
+    operatorAction: 'CONFIRMED' | 'REJECTED' | 'EDITED';
+    operatorNotes?: string;
+    domainAffected?: string;
+  }): OperatorFeedbackEntry {
+    const domain = params.domainAffected || 'PHYSICAL_L2_L3';
+    const currentWeight = this.learnedDomainWeights[domain] || 1.0;
+    let newWeight = currentWeight;
+
+    if (params.operatorAction === 'CONFIRMED') {
+      newWeight = Math.min(2.0, currentWeight + 0.15);
+    } else if (params.operatorAction === 'REJECTED') {
+      newWeight = Math.max(0.4, currentWeight - 0.20);
+    } else if (params.operatorAction === 'EDITED') {
+      newWeight = Math.max(0.6, Math.min(1.8, currentWeight + 0.05));
+    }
+
+    this.learnedDomainWeights[domain] = Number(newWeight.toFixed(3));
+
+    const entry: OperatorFeedbackEntry = {
+      feedbackId: `fb-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+      incidentId: params.incidentId,
+      hypothesisId: params.hypothesisId,
+      operatorAction: params.operatorAction,
+      recordedAt: new Date().toISOString(),
+      operatorNotes: params.operatorNotes,
+      domainAffected: domain,
+      priorWeightBefore: currentWeight,
+      priorWeightAfter: Number(newWeight.toFixed(3))
+    };
+
+    this.feedbackLedger.unshift(entry);
+    if (this.feedbackLedger.length > 200) {
+      this.feedbackLedger.pop();
+    }
+    return entry;
+  }
+
+  public static getFeedbackLedger(): OperatorFeedbackEntry[] {
+    return [...this.feedbackLedger];
+  }
+
+  /**
+   * Predictive Pre-Outage Horizon ("Time-to-Critical-Failure" Engine)
+   */
+  public static predictTimeToFailure(resources: Array<{
+    resourceType: string;
+    currentUsagePct: number;
+    burnRatePerMinute: number;
+    capacityUnit?: string;
+  }>): PreOutageTtcPrediction[] {
+    return (resources || []).map(r => {
+      const remainingPct = Math.max(0, 100 - r.currentUsagePct);
+      const burn = Math.max(0.01, r.burnRatePerMinute || 0.1);
+      const minutesRemaining = remainingPct / burn;
+      const secondsRemaining = Math.round(minutesRemaining * 60);
+
+      let urgency: 'STABLE' | 'WARNING' | 'IMMINENT_OUTAGE' = 'STABLE';
+      if (secondsRemaining < 1800 || r.currentUsagePct > 90) {
+        urgency = 'IMMINENT_OUTAGE';
+      } else if (secondsRemaining < 7200 || r.currentUsagePct > 75) {
+        urgency = 'WARNING';
+      }
+
+      const hours = Math.floor(secondsRemaining / 3600);
+      const mins = Math.floor((secondsRemaining % 3600) / 60);
+      const formatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m ${secondsRemaining % 60}s`;
+
+      let advice = 'Continuous capacity monitoring active.';
+      if (r.resourceType.includes('DHCP')) {
+        advice = 'Expand DHCP lease scope or reduce lease duration to reclaim expired client IPs (RB-07).';
+      } else if (r.resourceType.includes('DISK')) {
+        advice = 'Initiate automated WAL log vacuuming and purge old diagnostic archives.';
+      } else if (r.resourceType.includes('CERT')) {
+        advice = 'Automated ACME / Let\'s Encrypt certificate renewal recommended before trust revocation (RB-06).';
+      } else if (r.resourceType.includes('BANDWIDTH')) {
+        advice = 'Apply DSCP QoS traffic shaping and rate-limit bulk egress backups.';
+      }
+
+      return {
+        resourceType: r.resourceType,
+        currentUsagePct: r.currentUsagePct,
+        burnRatePerMinute: r.burnRatePerMinute,
+        timeToCriticalFailureSeconds: secondsRemaining,
+        formattedCountdown: `${formatted} until critical threshold`,
+        urgency,
+        proactiveRemediationAdvice: advice
+      };
+    });
   }
 }

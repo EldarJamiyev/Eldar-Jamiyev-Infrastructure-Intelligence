@@ -152,8 +152,63 @@ export interface CognitiveFusionResult {
         policyClassification: string;
     };
 }
+export interface OperatorFeedbackEntry {
+    feedbackId: string;
+    incidentId: string;
+    hypothesisId: string;
+    operatorAction: 'CONFIRMED' | 'REJECTED' | 'EDITED';
+    recordedAt: string;
+    operatorNotes?: string;
+    domainAffected: string;
+    priorWeightBefore: number;
+    priorWeightAfter: number;
+}
+export interface DynamicCausalNode {
+    id: string;
+    anomalyType: string;
+    layer: 'L1_PHYSICAL' | 'L2_DATA_LINK' | 'L3_NETWORK' | 'L4_TRANSPORT' | 'L7_APPLICATION';
+    observedTimestampMs: number;
+    severityScore: number;
+    description: string;
+}
+export interface DynamicCausalEdge {
+    fromNodeId: string;
+    toNodeId: string;
+    causalityWeight: number;
+    delayMs: number;
+    layerHopDistance: number;
+    rationale: string;
+}
+export interface DynamicCausalDiscoveryResult {
+    nodes: DynamicCausalNode[];
+    edges: DynamicCausalEdge[];
+    patientZeroNodeId: string;
+    patientZeroLayer: string;
+    rootCauseCertaintyPct: number;
+    synthesizedRootCause: string;
+    isNovelZeroDayTopology: boolean;
+    blastRadiusNodeIds: string[];
+    recommendedMitigationStrategy: string;
+}
+export interface InfrastructureEntropyResult {
+    entropyIndex: number;
+    stabilityRegime: 'STABLE_EQUILIBRIUM' | 'ELEVATED_DRIFT' | 'CRITICAL_ENTROPY_COLLAPSE';
+    adaptiveCusumSensitivitySigma: number;
+    dominantEntropyDrivers: string[];
+    systemFreeEnergy: number;
+}
+export interface PreOutageTtcPrediction {
+    resourceType: 'DHCP_POOL' | 'DISK_STORAGE' | 'BANDWIDTH_EGRESS' | 'TLS_CERT_EXPIRY' | 'MEMORY_LEAK' | 'NAT_TABLE' | string;
+    currentUsagePct: number;
+    burnRatePerMinute: number;
+    timeToCriticalFailureSeconds: number;
+    formattedCountdown: string;
+    urgency: 'STABLE' | 'WARNING' | 'IMMINENT_OUTAGE';
+    proactiveRemediationAdvice: string;
+}
 export declare class EpisodicCausalMemoryEngine {
     private static episodes;
+    private static feedbackLedger;
     private static learnedDomainWeights;
     private static normalizeVector;
     static computeCosineSimilarity(a: TelemetrySignatureVector, b: TelemetrySignatureVector): number;
@@ -216,4 +271,47 @@ export declare class EpisodicCausalMemoryEngine {
         nodes?: TopologyCausalNode[];
         slaThresholdMs?: number;
     }): CognitiveFusionResult;
+    /**
+     * Unsupervised Dynamic Causal Graph Discovery (Beyond static RB templates)
+     * Builds real-time directed acyclic graph (DAG) across arbitrary observed telemetry events,
+     * factoring temporal lead-lag and L1-L7 protocol layer hierarchy.
+     */
+    static discoverDynamicCausalGraph(observations: Array<{
+        anomalyType: string;
+        layer: string;
+        timestampMs: number;
+        metrics?: Record<string, number>;
+        description?: string;
+    }>, topologyNodes?: TopologyCausalNode[]): DynamicCausalDiscoveryResult;
+    /**
+     * Multi-dimensional Infrastructure Entropy Index
+     */
+    static computeInfrastructureEntropyIndex(metrics: {
+        rttMs?: number;
+        packetLossPct?: number;
+        dnsLatencyMs?: number;
+        cpuSaturationPct?: number;
+        tcpRetransmitRate?: number;
+        cusumSigma?: number;
+    }): InfrastructureEntropyResult;
+    /**
+     * Reinforcement Learning from Human Feedback (RLHF) Loop
+     */
+    static recordOperatorFeedback(params: {
+        incidentId: string;
+        hypothesisId: string;
+        operatorAction: 'CONFIRMED' | 'REJECTED' | 'EDITED';
+        operatorNotes?: string;
+        domainAffected?: string;
+    }): OperatorFeedbackEntry;
+    static getFeedbackLedger(): OperatorFeedbackEntry[];
+    /**
+     * Predictive Pre-Outage Horizon ("Time-to-Critical-Failure" Engine)
+     */
+    static predictTimeToFailure(resources: Array<{
+        resourceType: string;
+        currentUsagePct: number;
+        burnRatePerMinute: number;
+        capacityUnit?: string;
+    }>): PreOutageTtcPrediction[];
 }

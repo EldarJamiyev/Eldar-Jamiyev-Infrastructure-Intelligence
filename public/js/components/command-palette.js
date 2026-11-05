@@ -17,6 +17,40 @@
     { id: 'view-diagnostics', category: 'Navigation', title: 'Go to 4-Pillar Host Diagnostics & AI Brain (Pillar 4)', icon: '🧠', action: () => window.renderView('core-diagnostics') },
     { id: 'view-scanner', category: 'Navigation', title: 'Go to Ultra IP & Fleet Scanner (Pillar 6)', icon: '🔍', action: () => window.renderView('ultra-ip-scanner') },
     { id: 'view-automation', category: 'Navigation', title: 'Go to Local PC Automation & Safe BAT Execution (Pillar 7)', icon: '⚙️', action: () => window.renderView('pc-automation') },
+    { id: 'view-war-room', category: 'AI & Cognitive', title: 'Convene 5-Agent SRE Autonomous War Room Deliberation', icon: '🏛️', action: () => {
+      if (typeof window.triageHostInWarRoom === 'function') {
+        const target = window.EJIIInvestigationPinboard?.getPinned()?.target || '127.0.0.1';
+        window.triageHostInWarRoom(target);
+      } else {
+        window.renderView('ai-operator');
+      }
+    }},
+    { id: 'act-chaos-simulator', category: 'Topology & Physics', title: 'Launch Interactive Multi-Wave Chaos & Blast-Radius Simulator', icon: '⚡', action: () => {
+      if (typeof window.openWhatIfChaosSimulatorModal === 'function') window.openWhatIfChaosSimulatorModal();
+    }},
+    { id: 'act-pinboard-inspect', category: 'Investigation', title: 'Inspect Pinned Investigation Context & Pivots', icon: '📌', action: () => {
+      const pinned = window.EJIIInvestigationPinboard?.getPinned();
+      if (pinned) {
+        alert(`📌 Active Pinned Target: ${pinned.target}\nIncident: ${pinned.incidentId || 'None'}\nNotes: ${pinned.notes || ''}`);
+      } else {
+        alert('No target currently pinned. Use the 📌 Pin button on any view table.');
+      }
+    }},
+    { id: 'act-solo-escalation', category: 'Escalation Copilot', title: 'Solo Secondment: Generate L1-to-L3 Escalation Dossier (EN/AZ/RU)', icon: '📋', action: () => {
+      if (typeof window.openEscalationTicketModal === 'function') window.openEscalationTicketModal();
+    }},
+    { id: 'act-shift-handover', category: 'Operations Command', title: 'Generate Autonomous Shift Handover Briefing Report', icon: '🔄', action: () => {
+      if (typeof window.openEscalationTicketModal === 'function') {
+        window.openEscalationTicketModal();
+        if (typeof window.generateAutonomousShiftHandover === 'function') window.generateAutonomousShiftHandover();
+      }
+    }},
+    { id: 'act-socratic-coach', category: 'Learning Center', title: 'Consult Socratic Pedagogical AI Coach (Ctrl+H)', icon: '🎓', action: () => {
+      if (typeof window.toggleJuniorAdminCheatSheet === 'function') {
+        window.toggleJuniorAdminCheatSheet();
+        if (typeof window.switchManualTab === 'function') window.switchManualTab('socratic');
+      }
+    }},
 
     // Real Operational Actions
     { id: 'act-gitops-reconcile', category: 'Action', title: 'GitOps IaC Drift Detection & Autonomous Reconciliation', icon: '🔄', action: () => {

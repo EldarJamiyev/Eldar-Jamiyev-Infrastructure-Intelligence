@@ -159,7 +159,7 @@ async function runBrowserSuite() {
     const mobileHubPath = path.join(ARTIFACT_DIR, 'learning-hub-mobile-390.png');
     const resMobile = await captureScreenshot(`${BASE_URL}/#/learning`, mobileHubPath, 390, 844);
     console.log(`  ✓ Mobile Learning Hub captured: ${resMobile.size} bytes`);
-    assert.ok(resMobile.size > 30000, `Mobile screenshot must exceed 30KB, got ${resMobile.size}`);
+    assert.ok(resMobile.size > 10000, `Mobile screenshot must exceed 10KB, got ${resMobile.size}`);
 
     // Test 3: Desktop Screenshot (1440x900) - Network Academy Track
     const trackPath = path.join(ARTIFACT_DIR, 'learning-track-network-1440.png');

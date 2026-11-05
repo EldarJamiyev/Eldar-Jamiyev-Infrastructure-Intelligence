@@ -676,6 +676,84 @@ router.post('/ai/recalibrate', (req, res) => {
   }
 });
 
+// Dynamic DAG Causal Graph Discovery (Step 1 AI Engine)
+router.post('/ai/causal-graph', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const observations = Array.isArray(req.body?.observations) ? req.body.observations : [];
+    const topologyNodes = Array.isArray(req.body?.topologyNodes) ? req.body.topologyNodes : [];
+    const causalGraph = EpisodicCausalMemoryEngine.discoverDynamicCausalGraph(observations, topologyNodes);
+    res.json({ success: true, causalGraph });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Multi-dimensional Infrastructure Entropy Index (Step 1 AI Engine)
+router.post('/ai/entropy-index', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const entropyRes = EpisodicCausalMemoryEngine.computeInfrastructureEntropyIndex(req.body || {});
+    const entropyIndex = {
+      ...entropyRes,
+      shannonEntropy: entropyRes.entropyIndex,
+      adaptiveCusumSensitivityMultiplier: entropyRes.adaptiveCusumSensitivitySigma,
+      diagnosticSummary: `Entropy: ${entropyRes.entropyIndex} (${entropyRes.stabilityRegime}), CUSUM sigma: ${entropyRes.adaptiveCusumSensitivitySigma}`
+    };
+    res.json({ success: true, entropyIndex });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Operator Reinforcement Feedback Ledger (RLHF / Step 1 AI Engine)
+router.post('/ai/operator-feedback', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const { incidentId, hypothesisId, feedback, operatorAction, operatorNotes, overrideRootCause, timestampMs } = req.body || {};
+    const action = (operatorAction || feedback || '').toUpperCase();
+    if (!incidentId || !action) {
+      return res.status(400).json({ success: false, error: 'incidentId and feedback (CONFIRMED|REJECTED|EDITED) are required.' });
+    }
+    const entry = EpisodicCausalMemoryEngine.recordOperatorFeedback({
+      incidentId: String(incidentId),
+      hypothesisId: String(hypothesisId || 'hypo-default'),
+      operatorAction: action,
+      operatorNotes: operatorNotes ? String(operatorNotes) : undefined,
+      domainAffected: overrideRootCause ? String(overrideRootCause) : undefined
+    });
+    const enriched = {
+      ...entry,
+      feedback: entry.operatorAction
+    };
+    res.json({ success: true, feedback: enriched });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/ai/learning-ledger', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const ledger = EpisodicCausalMemoryEngine.getFeedbackLedger();
+    res.json({ success: true, count: ledger.length, ledger });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Pre-Outage Time-To-Failure Predictive Horizon (Step 1 AI Engine)
+router.post('/ai/predictive-horizon', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const resources = Array.isArray(req.body?.resources) ? req.body.resources : [];
+    const predictions = EpisodicCausalMemoryEngine.predictTimeToFailure(resources);
+    res.json({ success: true, count: predictions.length, predictions });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 12. Interactive AI-Executable Operational Runbooks (RB-01 through RB-08)
 const RUNBOOK_CATALOG = [
   { id: 'RB-01', file: 'RB-01-unknown-application-endpoint-discovery.md', title: 'Unknown Application Endpoint & Shadow Service Discovery', domain: 'APPLICATION_L7', labRoute: '#/learning/lab/linux-sandbox', stages: ['Passive ARP/Socket Enumeration', 'PID-to-Socket Lineage Correlation', 'Banner & TLS SNI Fingerprinting', 'Zero-Trust Policy Classification'] },

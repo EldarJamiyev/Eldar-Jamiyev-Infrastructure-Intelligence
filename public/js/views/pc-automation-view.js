@@ -86,6 +86,30 @@
       discoveredScripts = rawScripts;
     }
 
+    const pinnedItem = (typeof window.EJIIInvestigationPinboard?.getPinned === 'function')
+      ? window.EJIIInvestigationPinboard.getPinned()
+      : null;
+    const pinnedTargetHtml = pinnedItem?.target ? `
+      <div class="card" style="margin-bottom:8px; padding:10px 16px; border:1px solid rgba(56,189,248,0.4); background:rgba(15,23,42,0.9); border-radius:6px; flex-shrink:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">📌</span>
+            <div>
+              <span style="font-size:12px; font-weight:700; color:#38bdf8;">TARGET HOST REMEDIATION DISPATCH:</span>
+              <span class="badge" style="background:rgba(56,189,248,0.2); border:1px solid #38bdf8; color:#e0f2fe; padding:2px 8px; border-radius:4px; font-family:var(--font-mono); font-size:11px; margin-left:4px;">${escapeHtml(pinnedItem.target)}</span>
+              <span style="font-size:11px; color:#94a3b8; margin-left:8px;">(${escapeHtml(pinnedItem.notes || 'Audited Remediation Ready')})</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button class="btn btn-xs btn-secondary" onclick="if(window.launchRunbookWizardModal)window.launchRunbookWizardModal('RB-04')" style="font-size:11px; padding:2px 8px; color:#60a5fa;">⚡ DNS Resolver Recovery</button>
+            <button class="btn btn-xs btn-secondary" onclick="if(window.launchRunbookWizardModal)window.launchRunbookWizardModal('RB-08')" style="font-size:11px; padding:2px 8px; color:#a78bfa;">⚡ Spooler Reset (RB-08)</button>
+            <button class="btn btn-xs btn-secondary" onclick="if(window.launchRunbookWizardModal)window.launchRunbookWizardModal('RB-07')" style="font-size:11px; padding:2px 8px; color:#34d399;">⚡ DHCP Scope (RB-07)</button>
+            <button class="btn btn-xs btn-secondary" onclick="window.EJIIInvestigationPinboard.unpin(); renderPcAutomationView();" style="font-size:11px; padding:2px 6px; color:#94a3b8;">✕ Clear</button>
+          </div>
+        </div>
+      </div>
+    ` : '';
+
     try {
       const data = (discoveredScripts.length > 0)
         ? { scripts: discoveredScripts, mountMetadata: window.EJIIStore?.bootstrap?.mountMetadata }
@@ -99,6 +123,7 @@
 
       container.innerHTML = `
         <div class="pc-automation-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">
+          ${pinnedTargetHtml}
           <!-- ONE-BUTTON HOST CARE & SELF-HEAL HERO -->
           <div class="ejii-one-button-hero" id="heroHostAutomation" style="margin-bottom:8px; flex-shrink: 0;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">

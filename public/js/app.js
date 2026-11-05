@@ -180,6 +180,9 @@ window.resolveViewFromHash = resolveViewFromHash;
 const ViewLifecycle = {
   teardownHooks: new Map(),
   activeCleanups: new Set(),
+  activeIntervals: new Set(),
+  activeTimeouts: new Set(),
+  activeAnimationFrames: new Set(),
 
   registerTeardown(viewName, fn) {
     if (typeof fn === 'function') {
@@ -188,6 +191,21 @@ const ViewLifecycle = {
       }
       this.teardownHooks.get(viewName).add(fn);
     }
+  },
+
+  addInterval(id) {
+    this.activeIntervals.add(id);
+    return id;
+  },
+
+  addTimeout(id) {
+    this.activeTimeouts.add(id);
+    return id;
+  },
+
+  addAnimationFrame(id) {
+    this.activeAnimationFrames.add(id);
+    return id;
   },
 
   cleanup(viewName) {
@@ -201,6 +219,21 @@ const ViewLifecycle = {
       try { fn(); } catch (_) {}
     }
     this.activeCleanups.clear();
+
+    for (const id of this.activeIntervals) {
+      try { clearInterval(id); } catch (_) {}
+    }
+    this.activeIntervals.clear();
+
+    for (const id of this.activeTimeouts) {
+      try { clearTimeout(id); } catch (_) {}
+    }
+    this.activeTimeouts.clear();
+
+    for (const id of this.activeAnimationFrames) {
+      try { cancelAnimationFrame(id); } catch (_) {}
+    }
+    this.activeAnimationFrames.clear();
   },
 
   addCleanup(fn) {
@@ -208,6 +241,103 @@ const ViewLifecycle = {
   }
 };
 window.ViewLifecycle = ViewLifecycle;
+
+/**
+ * Universal Investigation Pinboard (Persistent across route transitions & views)
+ */
+window.EJIIInvestigationPinboard = {
+  pinnedItem: null,
+  subscribers: new Set(),
+
+  pin(item = {}) {
+    this.pinnedItem = {
+      target: item.target || item.targetIp || item.hostname || '127.0.0.1',
+      hostname: item.hostname || null,
+      incidentId: item.incidentId || item.warRoomSessionId || null,
+      frameNo: item.frameNo || null,
+      vlan: item.vlan || null,
+      timestamp: item.timestamp || new Date().toISOString(),
+      notes: item.notes || 'Operator Pinned Target'
+    };
+    try {
+      localStorage.setItem('ejii_pinned_investigation', JSON.stringify(this.pinnedItem));
+    } catch (_) {}
+    this._renderPinboardBar();
+    this._notify();
+  },
+
+  unpin() {
+    this.pinnedItem = null;
+    try {
+      localStorage.removeItem('ejii_pinned_investigation');
+    } catch (_) {}
+    this._renderPinboardBar();
+    this._notify();
+  },
+
+  getPinned() {
+    if (!this.pinnedItem) {
+      try {
+        const stored = localStorage.getItem('ejii_pinned_investigation');
+        if (stored) this.pinnedItem = JSON.parse(stored);
+      } catch (_) {}
+    }
+    return this.pinnedItem;
+  },
+
+  subscribe(callback) {
+    if (typeof callback === 'function') {
+      this.subscribers.add(callback);
+      return () => this.subscribers.delete(callback);
+    }
+    return () => {};
+  },
+
+  _notify() {
+    for (const sub of this.subscribers) {
+      try { sub(this.pinnedItem); } catch (_) {}
+    }
+    window.dispatchEvent(new CustomEvent('ejii:pinboard-updated', { detail: this.pinnedItem }));
+  },
+
+  _renderPinboardBar() {
+    let bar = document.getElementById('ejiiGlobalPinboardBar');
+    if (!this.pinnedItem) {
+      if (bar) bar.style.display = 'none';
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'ejiiGlobalPinboardBar';
+      bar.className = 'ejii-global-pinboard-bar';
+      bar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.95); border-bottom:1px solid rgba(56,189,248,0.3); padding:6px 16px; font-size:12px; z-index:900;';
+      const mainHeader = document.querySelector('header') || document.querySelector('.top-navbar') || document.body;
+      if (mainHeader && mainHeader.parentNode) {
+        mainHeader.parentNode.insertBefore(bar, mainHeader.nextSibling);
+      } else {
+        document.body.prepend(bar);
+      }
+    }
+    bar.style.display = 'flex';
+    const escVal = (s) => (typeof window.escapeHtml === 'function' ? window.escapeHtml(s) : String(s || ''));
+    bar.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:#38bdf8;">
+        <span style="font-size:14px;">📌</span>
+        <span>PINNED INVESTIGATION:</span>
+        <span class="badge" style="background:rgba(56,189,248,0.15); border:1px solid #38bdf8; color:#e0f2fe; padding:2px 8px; border-radius:4px; font-family:monospace;">${escVal(this.pinnedItem.target)}</span>
+        ${this.pinnedItem.vlan ? `<span class="badge" style="background:rgba(168,85,247,0.15); border:1px solid #a855f7; color:#f3e8ff; padding:2px 6px; border-radius:4px; font-size:11px;">VLAN ${escVal(this.pinnedItem.vlan)}</span>` : ''}
+        ${this.pinnedItem.frameNo ? `<span style="color:#94a3b8; font-size:11px;">[Frame #${escVal(this.pinnedItem.frameNo)}]</span>` : ''}
+        ${this.pinnedItem.incidentId ? `<span style="color:#94a3b8; font-size:11px;">[${escVal(this.pinnedItem.incidentId)}]</span>` : ''}
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <button type="button" class="btn btn-xs" style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.renderView('virtual-packet-cockpit')">Wire Cockpit</button>
+        <button type="button" class="btn btn-xs" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="if(typeof window.triageHostInWarRoom==='function'){window.triageHostInWarRoom('${this.pinnedItem.target}')}else{window.renderView('ai-operator')}">War Room</button>
+        <button type="button" class="btn btn-xs" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#6ee7b7; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.renderView('topology')">Topology</button>
+        <button type="button" class="btn btn-xs" style="background:transparent; border:none; color:#94a3b8; font-size:14px; cursor:pointer; padding:0 4px;" title="Unpin Investigation" onclick="window.EJIIInvestigationPinboard.unpin()">✕</button>
+      </div>
+    `;
+  }
+};
 
 window.pivotToTargetContext = function(pivotParams = {}) {
   const { targetIp, hostname, macAddress, pid, targetView, port } = pivotParams;
@@ -220,6 +350,14 @@ window.pivotToTargetContext = function(pivotParams = {}) {
     port: port || 443,
     timestamp: new Date().toISOString()
   };
+
+  if (targetIp && window.EJIIInvestigationPinboard) {
+    window.EJIIInvestigationPinboard.pin({
+      target: targetIp,
+      hostname,
+      notes: `Pivoted to ${targetView || 'investigation'}`
+    });
+  }
 
   const destination = ROUTE_ALIASES[String(targetView).toLowerCase()] || 'topology';
   if (typeof window.renderView === 'function') {
@@ -1406,6 +1544,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (typeof window.refreshProactiveOperatorBanner === 'function') {
         window.refreshProactiveOperatorBanner();
       }
+      if (window.EJIIInvestigationPinboard && typeof window.EJIIInvestigationPinboard.getPinned === 'function') {
+        const pinned = window.EJIIInvestigationPinboard.getPinned();
+        if (pinned) window.EJIIInvestigationPinboard._renderPinboardBar();
+      }
       renderView(targetView, { syncHash: true });
     } else {
       if (targetView === 'learning-center') {
@@ -1418,7 +1560,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  await initializeAppSession();
+  window.sessionInitPromise = initializeAppSession();
+  await window.sessionInitPromise;
 
   window.toggleDvrModal = async function () {
     const container = document.getElementById('dvrModalContainer');
