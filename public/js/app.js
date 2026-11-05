@@ -128,6 +128,87 @@ window.EJII_INVESTIGATION_STORE = {
   }
 };
 
+// Universal Unified Route Mapping & View Lifecycle Controller
+const ROUTE_ALIASES = {
+  'chat': 'chat',
+  'ai-operator': 'ai-operator',
+  'operator': 'ai-operator',
+  'topology': 'topology',
+  'noc': 'topology',
+  'noc-dashboard': 'noc-dashboard',
+  'enterprise-noc': 'enterprise-noc',
+  'sovereign-fabric': 'enterprise-noc',
+  'packet-sniffer': 'packet-sniffer',
+  'sniffer': 'packet-sniffer',
+  'packet-cockpit': 'packet-sniffer',
+  'cockpit': 'packet-sniffer',
+  'ultra-ip-scanner': 'ultra-ip-scanner',
+  'scanner': 'ultra-ip-scanner',
+  'ip-scanner': 'ultra-ip-scanner',
+  'pc-automation': 'pc-automation',
+  'automation': 'pc-automation',
+  'core-diagnostics': 'core-diagnostics',
+  'diagnostics': 'core-diagnostics',
+  'learning': 'learning-center',
+  'learning-center': 'learning-center',
+  'academy': 'learning-center'
+};
+
+const VIEW_HASH_MAP = {
+  'chat': '#/chat',
+  'ai-operator': '#/ai-operator',
+  'topology': '#/topology',
+  'noc-dashboard': '#/noc-dashboard',
+  'enterprise-noc': '#/enterprise-noc',
+  'packet-sniffer': '#/packet-sniffer',
+  'ultra-ip-scanner': '#/ultra-ip-scanner',
+  'pc-automation': '#/pc-automation',
+  'core-diagnostics': '#/core-diagnostics',
+  'learning-center': '#/learning'
+};
+
+function resolveViewFromHash(hash = window.location.hash) {
+  if (!hash) return 'chat';
+  const clean = hash.replace(/^#\/?/, '').trim();
+  if (!clean) return 'chat';
+  if (clean.startsWith('learning')) return 'learning-center';
+  const first = clean.split('/')[0].toLowerCase();
+  return ROUTE_ALIASES[first] || 'chat';
+}
+window.resolveViewFromHash = resolveViewFromHash;
+
+const ViewLifecycle = {
+  teardownHooks: new Map(),
+  activeCleanups: new Set(),
+
+  registerTeardown(viewName, fn) {
+    if (typeof fn === 'function') {
+      if (!this.teardownHooks.has(viewName)) {
+        this.teardownHooks.set(viewName, new Set());
+      }
+      this.teardownHooks.get(viewName).add(fn);
+    }
+  },
+
+  cleanup(viewName) {
+    if (viewName && this.teardownHooks.has(viewName)) {
+      const hooks = this.teardownHooks.get(viewName);
+      for (const fn of hooks) {
+        try { fn(); } catch (e) { console.warn(`[Lifecycle] Teardown error for ${viewName}:`, e); }
+      }
+    }
+    for (const fn of this.activeCleanups) {
+      try { fn(); } catch (_) {}
+    }
+    this.activeCleanups.clear();
+  },
+
+  addCleanup(fn) {
+    if (typeof fn === 'function') this.activeCleanups.add(fn);
+  }
+};
+window.ViewLifecycle = ViewLifecycle;
+
 window.pivotToTargetContext = function(pivotParams = {}) {
   const { targetIp, hostname, macAddress, pid, targetView, port } = pivotParams;
 
@@ -140,32 +221,15 @@ window.pivotToTargetContext = function(pivotParams = {}) {
     timestamp: new Date().toISOString()
   };
 
-  const viewAliases = {
-    '1': 'topology',
-    'noc': 'topology',
-    'topology': 'topology',
-    '2': 'packet-sniffer',
-    'sniffer': 'packet-sniffer',
-    'packet-sniffer': 'packet-sniffer',
-    '3': 'ultra-ip-scanner',
-    'scanner': 'ultra-ip-scanner',
-    'ultra-ip-scanner': 'ultra-ip-scanner',
-    '4': 'pc-automation',
-    'automation': 'pc-automation',
-    'pc-automation': 'pc-automation',
-    '5': 'core-diagnostics',
-    'diagnostics': 'core-diagnostics',
-    'core-diagnostics': 'core-diagnostics',
-    'learning': 'learning-center',
-    'learning-center': 'learning-center'
-  };
-
-  const destination = viewAliases[targetView] || 'topology';
+  const destination = ROUTE_ALIASES[String(targetView).toLowerCase()] || 'topology';
   if (typeof window.renderView === 'function') {
     window.renderView(destination);
   }
 
   window.dispatchEvent(new CustomEvent('ejii:pivot-context', {
+    detail: window.EJIIStore.activeInvestigationContext
+  }));
+  window.dispatchEvent(new CustomEvent('ejii:target-context-changed', {
     detail: window.EJIIStore.activeInvestigationContext
   }));
 };
@@ -555,11 +619,11 @@ window.quickNocLogin = async function() {
     updateUserBadge();
     loadTopbarStats();
     if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
-    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
-      renderView('learning-center');
-    } else {
-      renderView('chat');
-    }
+    
+    const savedRedirect = sessionStorage.getItem('ejii_redirect_after_login');
+    sessionStorage.removeItem('ejii_redirect_after_login');
+    const targetView = resolveViewFromHash(savedRedirect || window.location.hash);
+    renderView(targetView, { syncHash: true });
   } catch (err) {
     const errAlert = document.getElementById('loginErrorAlert');
     const errMsg = document.getElementById('loginErrorMessage');
@@ -601,11 +665,11 @@ window.handleLoginFormSubmit = async function(event) {
     updateUserBadge();
     loadTopbarStats();
     if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
-    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
-      renderView('learning-center');
-    } else {
-      renderView('chat');
-    }
+
+    const savedRedirect = sessionStorage.getItem('ejii_redirect_after_login');
+    sessionStorage.removeItem('ejii_redirect_after_login');
+    const targetView = resolveViewFromHash(savedRedirect || window.location.hash);
+    renderView(targetView, { syncHash: true });
   } catch (err) {
     if (errAlert && errMsg) {
       errAlert.style.display = 'flex';
@@ -655,19 +719,48 @@ async function loadWarmBootstrap() {
 window.loadWarmBootstrap = loadWarmBootstrap;
 
 /**
- * Universal View Renderer for the 4 Dedicated Workstations
+ * Universal View Renderer for the Dedicated Workstations
  */
-function renderView(viewName = 'chat') {
-  let target = viewName;
+function renderView(viewName = 'chat', options = {}) {
+  let raw = String(viewName || 'chat').toLowerCase();
+  let target = (typeof ROUTE_ALIASES !== 'undefined' && ROUTE_ALIASES[raw]) ? ROUTE_ALIASES[raw] : raw;
   if (target === 'noc') target = 'topology';
   if (target === 'ip-scanner') target = 'ultra-ip-scanner';
+
+  const previousView = state.currentView;
+  if (window.ViewLifecycle && previousView && previousView !== target) {
+    try { window.ViewLifecycle.cleanup(previousView); } catch (_) {}
+  }
 
   state.currentView = target;
   window.currentRouteGeneration = (window.currentRouteGeneration || 0) + 1;
   const currentGen = window.currentRouteGeneration;
 
+  // Sync window.location.hash for seamless deep-link state preservation and bookmarking
+  if (options.syncHash !== false && typeof VIEW_HASH_MAP !== 'undefined') {
+    if (target === 'learning-center') {
+      if (!window.location.hash || !window.location.hash.startsWith('#/learning')) {
+        try { history.replaceState(null, '', '#/learning'); } catch (_) { window.location.hash = '#/learning'; }
+      }
+    } else if (VIEW_HASH_MAP[target]) {
+      const canonicalHash = VIEW_HASH_MAP[target];
+      if (window.location.hash !== canonicalHash) {
+        try { history.replaceState(null, '', canonicalHash); } catch (_) { window.location.hash = canonicalHash; }
+      }
+    }
+  }
+
   if (target !== 'chat' && document.body && document.body.classList && typeof document.body.classList.remove === 'function') {
     document.body.classList.remove('ejii-chat-first-active');
+  }
+
+  // Manage wire packet streaming: stream when on Packet Sniffer or NOC Dashboard, pause on other views to preserve memory
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    if (target === 'packet-sniffer' || target === 'noc-dashboard') {
+      try { state.ws.send(JSON.stringify({ type: 'START_PACKET_STREAM' })); } catch (_) {}
+    } else if (previousView === 'packet-sniffer' || previousView === 'noc-dashboard') {
+      try { state.ws.send(JSON.stringify({ type: 'STOP_PACKET_STREAM' })); } catch (_) {}
+    }
   }
 
   // Enforce mutual exclusivity across workstations: clean up background batching and dismiss dangling modals
@@ -768,6 +861,12 @@ function renderView(viewName = 'chat') {
       window.renderTopologyStandaloneView();
     }
   }
+
+  try {
+    window.dispatchEvent(new CustomEvent('ejii:view-changed', {
+      detail: { view: target, previousView, generation: currentGen }
+    }));
+  } catch (_) {}
 }
 
 window.switchDeploymentMode = async function(mode) {
@@ -1258,57 +1357,68 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Check existing session or show login
-  if (state.token) {
-    try {
-      const [me] = await Promise.all([
-        api('/api/auth/me'),
-        loadWarmBootstrap()
-      ]);
-      state.user = me.user;
-      hideLoginScreen();
-      updateUserBadge();
-      loadTopbarStats();
-      if (typeof window.refreshProactiveOperatorBanner === 'function') window.refreshProactiveOperatorBanner();
-      if (window.location.hash && window.location.hash.startsWith('#/learning')) {
-        renderView('learning-center');
-      } else {
-        renderView('chat');
-      }
-    } catch (e) {
-      if (window.location.hash && window.location.hash.startsWith('#/learning')) {
-        hideLoginScreen();
-        renderView('learning-center');
-      } else {
-        showLoginScreen();
+  // Resilient Unified Application Bootstrap & Operator Session Hydration
+  async function initializeAppSession() {
+    const targetView = resolveViewFromHash(window.location.hash);
+    let isAuthenticated = false;
+
+    if (state.token) {
+      try {
+        const [me] = await Promise.all([
+          api('/api/auth/me', { silent: true }),
+          loadWarmBootstrap().catch(() => null)
+        ]);
+        if (me && me.user) {
+          state.user = me.user;
+          isAuthenticated = true;
+        }
+      } catch (err) {
+        state.token = null;
+        state.user = null;
+        try { localStorage.removeItem('ejii_token'); } catch (_) {}
       }
     }
-  } else {
-    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
-      // Sovereign Learning Center direct entry: authenticate in evaluation mode or open as guest student
+
+    if (!isAuthenticated) {
       try {
-        const authConfig = await api('/api/auth/config').catch(() => null);
+        const authConfig = await api('/api/auth/config', { silent: true }).catch(() => null);
         if (authConfig && authConfig.evaluationMode !== false) {
           const res = await api('/api/auth/quick-noc', {
             method: 'POST',
-            body: JSON.stringify({})
-          });
-          if (res && res.token) {
+            body: JSON.stringify({}),
+            silent: true
+          }).catch(() => null);
+
+          if (res && res.token && res.user) {
             state.token = res.token;
             state.user = res.user;
-            localStorage.setItem('ejii_token', res.token);
-            initWebSocket();
-            updateUserBadge();
-            loadTopbarStats();
+            try { localStorage.setItem('ejii_token', res.token); } catch (_) {}
+            isAuthenticated = true;
           }
         }
       } catch (_) {}
+    }
+
+    if (isAuthenticated) {
       hideLoginScreen();
-      renderView('learning-center');
+      updateUserBadge();
+      loadTopbarStats();
+      if (typeof window.refreshProactiveOperatorBanner === 'function') {
+        window.refreshProactiveOperatorBanner();
+      }
+      renderView(targetView, { syncHash: true });
     } else {
-      showLoginScreen();
+      if (targetView === 'learning-center') {
+        hideLoginScreen();
+        renderView('learning-center', { syncHash: false });
+      } else {
+        sessionStorage.setItem('ejii_redirect_after_login', window.location.hash || '#/chat');
+        showLoginScreen();
+      }
     }
   }
+
+  await initializeAppSession();
 
   window.toggleDvrModal = async function () {
     const container = document.getElementById('dvrModalContainer');
@@ -1438,13 +1548,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (container) container.style.display = 'none';
   };
 
+  // Universal Reactive Hash Router
   window.addEventListener('hashchange', () => {
-    if (window.location.hash && window.location.hash.startsWith('#/learning')) {
+    const target = resolveViewFromHash(window.location.hash);
+    if (target === 'learning-center') {
       hideLoginScreen();
       if (state.currentView !== 'learning-center') {
-        renderView('learning-center');
+        renderView('learning-center', { syncHash: false });
       } else if (typeof window.renderLearningCenterView === 'function') {
         window.renderLearningCenterView();
+      }
+    } else if (target !== state.currentView) {
+      if (state.token || window.isEvaluationMode) {
+        renderView(target, { syncHash: false });
+      } else {
+        sessionStorage.setItem('ejii_redirect_after_login', window.location.hash);
+        showLoginScreen();
       }
     }
   });

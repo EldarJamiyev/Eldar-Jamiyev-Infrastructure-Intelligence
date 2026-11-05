@@ -766,6 +766,7 @@
           <td class="col-nowrap" style="white-space: nowrap;">
             <div style="display: flex; gap: 4px; align-items: center;">
               <button class="btn btn-secondary" onclick="window.diagnoseOfficeEquipmentModal('${h.ip}', '${h.equipmentProfile?.equipmentType || ''}', '${escapeAttr(h.hostname || '')}', '${h.macAddress || ''}', '${escapeAttr(h.vendor || '')}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: #7C3AED; border-radius: 4px;" title="Plain-language diagnostic & 4-hop visual smart connection map">🩺 Diagnose</button>
+              <button class="btn btn-secondary" onclick="window.triageHostInWarRoom('${h.ip}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #10B981;" title="Initiate 5-Agent SRE War Room triage on host ${h.ip}">🏛️ War-Room</button>
               <button class="btn btn-secondary" onclick="window.inspectHostDeep('${h.ip}')" style="font-size: 10px; padding: 2px 6px; font-weight: 700; color: var(--accent-primary); border-radius: 4px;" title="Execute deep 15-port enterprise inspection, OUI vendor, and OS fingerprint">🔬 Inspect</button>
               <button class="btn btn-secondary exec-btn-secondary" onclick="window.runHostTlsPostureAudit('${h.ip}', 443)" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; color: #2B44B8;" title="Audit TLS 1.3 / X.509 certificate posture & NIST score">🔒 TLS</button>
               <button class="btn btn-secondary" onclick="window.sniffHostOnWire('${h.ip}')" style="font-size: 10px; padding: 2px 6px; border-radius: 4px;" title="Set BPF filter to host ${h.ip} and switch to Live Packet Sniffer">🦈 Sniff</button>
@@ -916,6 +917,20 @@
       }
     } catch (e) {
       console.warn('Auto-detect subnet failed:', e);
+    }
+  };
+
+  window.triageHostInWarRoom = function(ip) {
+    if (typeof window.updateSituationalMemory === 'function') {
+      window.updateSituationalMemory({
+        activeTargetIp: ip,
+        activeHypothesis: `Autonomous War-Room Dispatched for Scanner Asset ${ip}`,
+        activeRunbookId: 'RB-01',
+        sourceWorkspace: 'ultra-ip-scanner'
+      });
+    }
+    if (typeof window.renderView === 'function') {
+      window.renderView('ai-operator');
     }
   };
 

@@ -53,9 +53,15 @@ class DiagnosticReasoningEngine {
     // F-06: Zero hardcoded fake IPs; dynamically derive default gateway
     let dynamicGatewayIp = '127.0.0.1';
     try {
-      const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
-      const netInfo = getPhysicalNetworkInfo();
-      dynamicGatewayIp = netInfo?.gatewayIp || netInfo?.defaultGateway || '127.0.0.1';
+      if (params.gatewayIp) {
+        dynamicGatewayIp = params.gatewayIp;
+      } else if (process.env.NODE_ENV !== 'test' && destIp && !String(destIp).startsWith('127.')) {
+        const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+        const netInfo = getPhysicalNetworkInfo();
+        dynamicGatewayIp = netInfo?.gatewayIp || netInfo?.defaultGateway || '127.0.0.1';
+      } else {
+        dynamicGatewayIp = '127.0.0.1';
+      }
     } catch (_) {}
 
     const effectiveSourceIp = sourceIp || '127.0.0.1';

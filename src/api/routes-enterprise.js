@@ -596,6 +596,86 @@ router.post('/investigation/unified-synthesis', async (req, res) => {
   }
 });
 
+// 11b. Unified Cognitive Fusion & Multi-Hop Causal Reasoning Pipeline (EJII Phase 2 Mandate)
+router.post('/ai/cognitive-synthesis', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const target = String(body.target || persistedSituationalMemory?.activeTarget || '127.0.0.1').trim();
+    if (!isSafeNetworkTarget(target)) {
+      return res.status(400).json({ success: false, error: `Target '${target}' rejected by SSRF guard.` });
+    }
+
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const signature = {
+      cusumShiftSigma: Number(body.cusumShiftSigma || 3.4),
+      spectralFlatness: Number(body.spectralFlatness !== undefined ? body.spectralFlatness : 0.38),
+      rttMs: Number(body.rttMs || 42.5),
+      packetLossPct: Number(body.packetLossPct !== undefined ? body.packetLossPct : 1.2),
+      dnsLatencyMs: Number(body.dnsLatencyMs || 22.0),
+      cpuSaturationPct: Number(body.cpuSaturationPct || 35.0),
+      tcpRetransmitRate: Number(body.tcpRetransmitRate !== undefined ? body.tcpRetransmitRate : 0.04)
+    };
+
+    const cognitiveResult = EpisodicCausalMemoryEngine.executeCognitiveFusion({
+      target,
+      signature,
+      nodes: body.nodes || [],
+      slaThresholdMs: Number(body.slaThresholdMs || 50.0)
+    });
+
+    res.json({ success: true, ...cognitiveResult });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/ai/multihop-cascade', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const target = String(body.target || '127.0.0.1').trim();
+    if (!isSafeNetworkTarget(target)) {
+      return res.status(400).json({ success: false, error: `Target '${target}' rejected by SSRF guard.` });
+    }
+
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const signature = {
+      cusumShiftSigma: Number(body.cusumShiftSigma || 2.8),
+      spectralFlatness: Number(body.spectralFlatness !== undefined ? body.spectralFlatness : 0.42),
+      rttMs: Number(body.rttMs || 38.0),
+      packetLossPct: Number(body.packetLossPct !== undefined ? body.packetLossPct : 0.8),
+      dnsLatencyMs: Number(body.dnsLatencyMs || 18.0),
+      cpuSaturationPct: Number(body.cpuSaturationPct || 25.0),
+      tcpRetransmitRate: Number(body.tcpRetransmitRate !== undefined ? body.tcpRetransmitRate : 0.03)
+    };
+
+    const cascade = EpisodicCausalMemoryEngine.traceMultiHopCascade(target, signature, body.nodes || []);
+    res.json({ success: true, target, cascade });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/ai/episodic-memory', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const episodes = EpisodicCausalMemoryEngine.getAllEpisodes();
+    const domainWeights = EpisodicCausalMemoryEngine.getLearnedDomainWeights();
+    res.json({ success: true, count: episodes.length, episodes, domainWeights });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/ai/recalibrate', (req, res) => {
+  try {
+    const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
+    const outcome = EpisodicCausalMemoryEngine.ingestActionOutcomeAndRecalibrate(req.body || {});
+    res.json({ success: true, outcome });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 12. Interactive AI-Executable Operational Runbooks (RB-01 through RB-08)
 const RUNBOOK_CATALOG = [
   { id: 'RB-01', file: 'RB-01-unknown-application-endpoint-discovery.md', title: 'Unknown Application Endpoint & Shadow Service Discovery', domain: 'APPLICATION_L7', labRoute: '#/learning/lab/linux-sandbox', stages: ['Passive ARP/Socket Enumeration', 'PID-to-Socket Lineage Correlation', 'Banner & TLS SNI Fingerprinting', 'Zero-Trust Policy Classification'] },

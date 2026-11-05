@@ -78,6 +78,79 @@ function escapeHtml(str) {
   /**
    * Generates drawer HTML markup from live brain state
    */
+  function getContextAwareViewSummary() {
+    const currentView = (window.state && window.state.currentView) || 'chat';
+    const mem = window.EJIISituationalMemory || {};
+    const target = mem.activeTarget || '127.0.0.1';
+
+    switch (currentView) {
+      case 'packet-sniffer':
+        return {
+          badge: 'WIRE FORENSICS INTELLIGENCE',
+          icon: '🦈',
+          color: '#38BDF8',
+          insight: `Inspecting live wire streams. BPF filter compiler active. Anomaly engine scanning for TCP zero-window stalls, duplicate ACKs, PMTU blackholes (RB-06), and TLS 1.3 handshake alerts (RB-05).`,
+          actionLabel: 'Dissect Current Flow',
+          actionFn: "window.renderView('packet-sniffer')"
+        };
+      case 'topology':
+        return {
+          badge: 'DIGITAL TWIN TOPOLOGY INTELLIGENCE',
+          icon: '🗺️',
+          color: '#10B981',
+          insight: `Topology Digital Twin evaluated: Algebraic Connectivity λ₂: 0.84. Dynamic cut-edges mapped. Run "What-If" blast radius simulation before altering upstream gateway or switch ports.`,
+          actionLabel: 'Simulate Blast Radius',
+          actionFn: "window.renderView('topology')"
+        };
+      case 'learning-center':
+        return {
+          badge: 'ACADEMY SOCRATIC AI MENTOR',
+          icon: '🎓',
+          color: '#F59E0B',
+          insight: `Adaptive engineering academy active. When troubleshooting lab exercises (Subnetting, VLANs, DNS/DHCP, Linux/PowerShell), AI Coach provides non-spoiler conceptual hints bridging directly to NOC runbooks.`,
+          actionLabel: 'Explore Interactive Labs',
+          actionFn: "window.renderView('learning-center')"
+        };
+      case 'core-diagnostics':
+        return {
+          badge: 'HOST & KERNEL DIAGNOSTICS INTELLIGENCE',
+          icon: '🩺',
+          color: '#EC4899',
+          insight: `Multi-probe diagnostic workbench active for target [${target}]. Correlating hop-by-hop traceroute jitter, PMTU fragmentation thresholds, and split-horizon DNS resolution paths.`,
+          actionLabel: 'Run Multi-Probe Suite',
+          actionFn: "window.renderView('core-diagnostics')"
+        };
+      case 'ultra-ip-scanner':
+        return {
+          badge: 'FLEET & ASSET DISCOVERY INTELLIGENCE',
+          icon: '📡',
+          color: '#A855F7',
+          insight: `High-throughput asset discovery scanner active. Fingerprinting OS/vendors, open-port attack surfaces, and detecting rogue APIPA 169.254.x.x addresses with instant topology enrollment.`,
+          actionLabel: 'Launch Fleet Sweep',
+          actionFn: "window.renderView('ultra-ip-scanner')"
+        };
+      case 'enterprise-noc':
+      case 'noc-dashboard':
+        return {
+          badge: 'OPERATIONS CENTER COMMAND INTELLIGENCE',
+          icon: '🛰️',
+          color: '#34D399',
+          insight: `Situational awareness console active. Intelligent alert de-duplication and storm suppression grouping symptoms into unified causal incident clusters. Policy drift monitoring active against POL-01 and POL-02.`,
+          actionLabel: 'Shift Handover Briefing',
+          actionFn: "window.renderView('enterprise-noc')"
+        };
+      default:
+        return {
+          badge: 'CONVERSATIONAL INCIDENT COMMAND',
+          icon: '🧠',
+          color: '#38BDF8',
+          insight: `AI Assistant standing by with multi-turn infrastructure memory. Ask diagnostic questions in natural language, request runbook execution, or explore root-cause hypotheses.`,
+          actionLabel: 'Ask AI Operator',
+          actionFn: "window.renderView('chat')"
+        };
+    }
+  }
+
   function renderAiBrainDrawerHtml(rawState) {
     const state = rawState || defaultNominalState;
 
@@ -318,6 +391,29 @@ function escapeHtml(str) {
                   </div>
                 `).join('') : '<div style="color: #64748B; font-size: 9.5px;">No distinguishing probes required — diagnostic state resolved.</div>'}
               </div>
+            </div>
+          `;
+        })()}
+
+        <!-- Context-Aware View Intelligence (EJII Phase 3 Mandate) -->
+        ${(() => {
+          const viewInfo = getContextAwareViewSummary();
+          return `
+            <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.6); border: 1px solid ${viewInfo.color}33; border-radius: 6px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 280px;">
+                <span style="font-size: 18px;" aria-hidden="true">${viewInfo.icon}</span>
+                <div>
+                  <div style="font-size: 10px; font-weight: 800; color: ${viewInfo.color}; font-family: var(--font-mono); letter-spacing: 0.5px; text-transform: uppercase;">
+                    ${viewInfo.badge}
+                  </div>
+                  <div style="font-size: 11.5px; color: var(--text-primary, #F8FAFC); margin-top: 2px; line-height: 1.4;">
+                    ${viewInfo.insight}
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="${viewInfo.actionFn}" style="font-size: 10px; padding: 4px 10px; font-family: var(--font-mono); color: ${viewInfo.color}; border: 1px solid ${viewInfo.color}44; background: ${viewInfo.color}11; font-weight: 700; white-space: nowrap;">
+                ${viewInfo.actionLabel} →
+              </button>
             </div>
           `;
         })()}

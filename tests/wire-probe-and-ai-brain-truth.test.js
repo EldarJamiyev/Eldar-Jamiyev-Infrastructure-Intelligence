@@ -159,24 +159,35 @@ async function runWireProbeAndAiBrainTruthTests() {
     assert.ok(dnsErrProbe.rawOutput.includes('c-ares resolver'));
 
     // D. TLS Probe: Negotiated Protocol Version & Cipher Extraction
-    // Generate self-signed certificate and key ephemerally in tmpDir to guarantee 100% deterministic, wire-level TLS handshake verification
+    // Generate self-signed certificate and key ephemerally in tmpDir or load bundled fixture
     const ephemeralKeyPath = path.join(tmpDir, 'ephemeral-key.pem');
     const ephemeralCertPath = path.join(tmpDir, 'ephemeral-cert.pem');
     const opensslBin = fs.existsSync('C:\\Program Files\\Git\\usr\\bin\\openssl.exe')
       ? 'C:\\Program Files\\Git\\usr\\bin\\openssl.exe'
       : 'openssl';
     const { execFileSync } = require('child_process');
-    execFileSync(opensslBin, [
-      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
-      '-subj', '/CN=localhost',
-      '-keyout', ephemeralKeyPath,
-      '-out', ephemeralCertPath,
-      '-days', '1'
-    ], { stdio: 'pipe', windowsHide: true });
+    let tlsServerOptions = null;
+    try {
+      execFileSync(opensslBin, [
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+        '-subj', '/CN=localhost',
+        '-keyout', ephemeralKeyPath,
+        '-out', ephemeralCertPath,
+        '-days', '1'
+      ], { stdio: 'pipe', windowsHide: true });
+      tlsServerOptions = {
+        key: fs.readFileSync(ephemeralKeyPath),
+        cert: fs.readFileSync(ephemeralCertPath)
+      };
+    } catch (_) {
+      const fallbackFixture = require('./fixtures/test-cert');
+      tlsServerOptions = {
+        pfx: fallbackFixture.pfx,
+        passphrase: fallbackFixture.passphrase
+      };
+    }
 
-    const tlsCert = fs.readFileSync(ephemeralCertPath);
-    const tlsKey = fs.readFileSync(ephemeralKeyPath);
-    const localTlsServer = tls.createServer({ key: tlsKey, cert: tlsCert }, (socket) => {
+    const localTlsServer = tls.createServer(tlsServerOptions, (socket) => {
       socket.end();
     });
 

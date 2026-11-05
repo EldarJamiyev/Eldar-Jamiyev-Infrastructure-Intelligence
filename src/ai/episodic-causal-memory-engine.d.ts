@@ -92,6 +92,66 @@ export interface ClosedLoopLearningOutcome {
     pivotedToHypothesisId: string | null;
     updatedDomainPriors: Record<string, number>;
 }
+export interface MultiHopCascadeTrace {
+    primaryRootCause: {
+        nodeId: string;
+        role: string;
+        layer: 'L1_PHYSICAL' | 'L2_DATA_LINK' | 'L3_NETWORK' | 'L4_TRANSPORT' | 'L7_APPLICATION';
+        confidencePct: number;
+        description: string;
+        matchedRunbookId: string;
+        supportingEvidence: string[];
+        decisiveVerificationProbe: {
+            probeType: string;
+            target: string;
+            expectedOutcome: string;
+            actionableCommand: string;
+        };
+    };
+    cascadingSymptoms: Array<{
+        nodeId: string;
+        role: string;
+        symptom: string;
+        layer: string;
+        isRootCause: boolean;
+    }>;
+    rankedAlternativeHypotheses: Array<{
+        hypothesisId: string;
+        title: string;
+        probabilityPct: number;
+        whyRejectedOrRankedLower: string;
+    }>;
+    counterfactualFalsification: {
+        falsificationCondition: string;
+        shannonEntropyBits: number;
+    };
+}
+export interface CognitiveFusionResult {
+    synthesisTimestamp: string;
+    targetScope: string;
+    primaryHypothesis: {
+        id: string;
+        title: string;
+        confidenceScore: number;
+        domain: string;
+        matchedRunbook: string;
+        summary: string;
+        supportingMetrics: Record<string, any>;
+    };
+    multiHopCascade: MultiHopCascadeTrace;
+    episodicPrecedents: SimilarEpisodeMatch[];
+    slaProjection: {
+        slaBreachRiskPct: number;
+        timeToViolationSeconds: number;
+        projectedMetric: string;
+    };
+    decisiveAction: {
+        probeOrRemediation: string;
+        command: string;
+        requiresElevation: boolean;
+        policyClassification: string;
+    };
+}
 export declare class EpisodicCausalMemoryEngine {
     private static episodes;
     private static learnedDomainWeights;
@@ -139,4 +199,21 @@ export declare class EpisodicCausalMemoryEngine {
         };
         operatorObservation?: string;
     }): ClosedLoopLearningOutcome;
+    /**
+     * Genuine Multi-Hop Causal Cascade Tracer:
+     * Traces causal propagation across physical, link, transport, and application layers,
+     * distinguishing root causes (e.g. MTU blackhole RB-06, Core Switch dropped frames)
+     * from downstream symptoms (TLS 1.3 timeouts RB-05, AD replication stalls, application unreachability RB-01).
+     */
+    static traceMultiHopCascade(target: string, sig: TelemetrySignatureVector, nodes?: TopologyCausalNode[]): MultiHopCascadeTrace;
+    /**
+     * Unified Cognitive Fusion Pipeline:
+     * Orchestrates CUSUM, Holt-Winters, Episodic Memory, and Multi-Hop Causal Deductions.
+     */
+    static executeCognitiveFusion(params: {
+        target: string;
+        signature: TelemetrySignatureVector;
+        nodes?: TopologyCausalNode[];
+        slaThresholdMs?: number;
+    }): CognitiveFusionResult;
 }

@@ -213,7 +213,31 @@
       const dstDisplay = `${frame.dstIp || frame.dst || frame.destination || '0.0.0.0'}${frame.dstPort || frame.dport ? ':' + (frame.dstPort || frame.dport) : ''}`;
       const hostDisplay = frame.sniHostName || frame.hostName || frame.host || frame.hostname || (frame.dnsApex ? frame.dnsApex.questions?.[0]?.name : null) || '—';
       const lenVal = frame.wireLength || frame.frameLengthBytes || frame.length || frame.len || 60;
-      const deltaStr = frame.tcpAnalysis?.isRetransmission ? '⚠️ RETRANSMIT' : (frame.timeDelta || '+0.000s');
+      let deltaStr = frame.timeDelta || '+0.000s';
+      let deltaBadgeStyle = '';
+      if (frame.tcpAnalysis?.isRetransmission || frame.isRetransmission) {
+        deltaStr = '⚠️ RETX';
+        deltaBadgeStyle = 'color: #f87171; font-weight: 700;';
+      } else if (frame.tcpAnalysis?.isZeroWindow || frame.windowSize === 0 || (frame.tcp && frame.tcp.windowSize === 0)) {
+        deltaStr = '⚠️ ZERO-WIN';
+        deltaBadgeStyle = 'color: #fb923c; font-weight: 700;';
+      } else if (frame.tcpAnalysis?.isDuplicateAck || frame.isDuplicateAck) {
+        deltaStr = '⚠️ DUP-ACK';
+        deltaBadgeStyle = 'color: #facc15; font-weight: 700;';
+      } else if (frame.isMtuBlackhole || (frame.ipFlags?.df && frame.wireLength > 1400)) {
+        deltaStr = '⚠️ MTU-DROP';
+        deltaBadgeStyle = 'color: #f43f5e; font-weight: 700;';
+      } else if (frame.isTlsAlert || frame.tlsRecordType === 21) {
+        deltaStr = '⚠️ TLS-ALERT';
+        deltaBadgeStyle = 'color: #c084fc; font-weight: 700;';
+      } else if (frame.dnsRcode && frame.dnsRcode > 0) {
+        deltaStr = '⚠️ DNS-ERR';
+        deltaBadgeStyle = 'color: #fbbf24; font-weight: 700;';
+      } else if (frame.tcpFlags?.rst === 1 || (typeof frame.summary === 'string' && frame.summary.includes('[RST]'))) {
+        deltaStr = '⚠️ RST-DROP';
+        deltaBadgeStyle = 'color: #ef4444; font-weight: 700;';
+      }
+
       const summaryStr = frame.summary || frame.info || '';
 
       return `
@@ -225,7 +249,7 @@
           <td style="min-width: 140px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 600;" title="${escapeAttr(hostDisplay)}">${escapeHtml(hostDisplay)}</td>
           <td class="col-proto" style="min-width: 65px; width: 65px; white-space: nowrap;"><span style="font-weight: 700; color: #38bdf8;">${escapeHtml(proto)}</span></td>
           <td class="col-len" style="min-width: 65px; width: 65px; color: #475569; font-weight: 600; white-space: nowrap;">${escapeHtml(lenVal)} B</td>
-          <td class="col-delta" style="min-width: 110px; width: 110px; white-space: nowrap;">${escapeHtml(deltaStr)}</td>
+          <td class="col-delta" style="min-width: 110px; width: 110px; white-space: nowrap; ${deltaBadgeStyle}">${escapeHtml(deltaStr)}</td>
           <td style="min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             <span>${escapeHtml(summaryStr)}</span>
           </td>

@@ -15,10 +15,11 @@
 
 'use strict';
 
-const { describe, it } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 
+const { app } = require('../src/server');
 const { databaseProvider, SqliteStorageProvider } = require('../src/core/storage/database-provider');
 const { multiSiteManager } = require('../src/core/multisite/multisite-manager');
 const { edgeAgentService } = require('../src/core/agent/edge-agent-service');
@@ -30,6 +31,28 @@ const { ROLES, ROLE_CAPABILITIES, hasPermission, generateToken } = require('../s
 const { chatOperatorService } = require('../src/core/chat/chat-operator-service');
 
 describe('EJII Enterprise Infrastructure Evolution Suite', () => {
+  let testServer = null;
+
+  before(async () => {
+    await new Promise((resolve) => {
+      testServer = http.createServer(app);
+      testServer.listen(3000, '127.0.0.1', () => {
+        resolve();
+      });
+      testServer.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          testServer = null;
+          resolve();
+        }
+      });
+    });
+  });
+
+  after(async () => {
+    if (testServer) {
+      await new Promise((resolve) => testServer.close(resolve));
+    }
+  });
 
   describe('1. Pluggable Storage Layer & Telemetry Compaction', () => {
     it('initializes SqliteStorageProvider with WAL mode and health status', () => {
@@ -711,6 +734,7 @@ describe('EJII Enterprise Infrastructure Evolution Suite', () => {
 
     it('propagates leaseEpoch end-to-end in EdgeAgentDaemon and drops STALE_LEASE_EPOCH_IGNORED tasks from queue', async () => {
       const daemon = new EdgeAgentDaemon({ agentId: 'agent-lon-01' });
+      daemon.clearDurableOutbox();
 
       // Simulate offline failure queuing a task with leaseEpoch: 1
       daemon._postTaskResult = async () => {

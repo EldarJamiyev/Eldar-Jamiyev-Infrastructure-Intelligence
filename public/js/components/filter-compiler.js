@@ -828,19 +828,47 @@ function translateNaturalLanguageToFilter(naturalQuery) {
     positiveClauses.push('tcp.window_size == 0');
   }
 
+  // TCP Duplicate ACK / Fast Retransmit
+  if (/\b(dup[- ]?ack|duplicate[- ]?ack|fast[- ]?retransmit)\b/.test(lower)) {
+    positiveClauses.push('tcp.analysis.duplicate_ack');
+  }
+
+  // TCP Retransmissions
+  if (/\b(retransmit|retransmissions|packet drop)\b/.test(lower) && !positiveClauses.includes('tcp.analysis.retransmission')) {
+    positiveClauses.push('tcp.analysis.retransmission');
+  }
+
+  // Path MTU Blackhole (RB-06)
+  if (/\b(mtu[- ]?black[- ]?hole|pmtud|df flag|fragmentation needed)\b/.test(lower)) {
+    positiveClauses.push('(ip.flags.df == 1 && ip.len > 1400) || icmp.type == 3');
+  }
+
+  // DHCP Starvation / DORA Flooding (RB-07)
+  if (/\b(dhcp starvation|dhcp storm|rogue dhcp|dhcp discover flood|dhcp)\b/.test(lower)) {
+    positiveClauses.push('(udp.port == 67 || udp.port == 68)');
+  }
+
   // TCP Keep-Alive
   if (/\b(keep[- ]?alive)\b/.test(lower)) {
     positiveClauses.push('tcp.analysis.keep_alive');
   }
 
-  // DNS / NXDOMAIN / SERVFAIL
+  // DNS / NXDOMAIN / SERVFAIL (RB-04)
   if (/\b(dns|servfail|nxdomain|rcode|lookup|domain)\b/.test(lower)) {
-    positiveClauses.push('dns');
+    if (/\b(servfail|nxdomain)\b/.test(lower)) {
+      positiveClauses.push('(dns && dns.flags.rcode > 0)');
+    } else {
+      positiveClauses.push('dns');
+    }
   }
 
-  // TLS / SSL / Handshake / Alert / Certificate
+  // TLS / SSL / Handshake / Alert / Certificate Mismatch (RB-05)
   if (/\b(tls|ssl|https|handshake|sni|certificate|alert)\b/.test(lower)) {
-    positiveClauses.push('(tls || tcp.port == 443)');
+    if (/\b(alert|bad[- ]?cert|handshake[- ]?failure)\b/.test(lower)) {
+      positiveClauses.push('(tls.record.type == 21 || (tls && tcp.flags.rst == 1))');
+    } else {
+      positiveClauses.push('(tls || tcp.port == 443)');
+    }
   }
 
   // ICMP / Ping / MTU / Fragmentation

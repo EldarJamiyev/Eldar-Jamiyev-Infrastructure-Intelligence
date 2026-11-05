@@ -1267,7 +1267,37 @@ window.escapeAttr = escapeAttr;
             <div><span style="color: #64748B;">Dup ACKs:</span> <strong style="color: #F8FAFC;">${s.duplicateAckCount}</strong></div>
           </div>
           <div style="background: #0B1120; border: 1px solid #1E293B; border-radius: 4px; padding: 8px; font-size: 10px; color: #94A3B8;">
-            <div style="font-weight: 700; color: #38BDF8; margin-bottom: 4px;">Sequence Waterfall Breakdown:</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: 700; color: #38BDF8;">Sequence Waterfall &amp; Ladder:</span>
+              <span style="color: #64748B; font-size: 10px;">${(s.waterfallPoints || []).length} frames in stream</span>
+            </div>
+            <!-- Interactive Visual Sequence Ladder Diagram -->
+            <div style="background: #070D18; border: 1px solid rgba(56,189,248,0.15); border-radius: 4px; padding: 10px; margin-bottom: 8px; font-family: var(--font-mono); font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; font-weight: 700; color: #F8FAFC; border-bottom: 1px solid #1E293B; padding-bottom: 6px; margin-bottom: 8px;">
+                <span style="color: #38BDF8;">[Client] ${escapeHtml(s.streamKey ? s.streamKey.split('->')[0] || 'Client' : 'Client')}</span>
+                <span style="color: #64748B;">L4 Direction &amp; Protocol Wire Sequence</span>
+                <span style="color: #10B981;">[Server] ${escapeHtml(s.streamKey ? s.streamKey.split('->')[1] || 'Server' : 'Server')}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                ${(s.waterfallPoints || []).slice(0, 10).map((pt, pIdx) => {
+                  const isOutbound = pt.direction === 'OUT' || pt.direction === 'C2S' || (pt.type && pt.type.includes('SYN') && !pt.type.includes('ACK'));
+                  const arrowColor = pt.type === 'RETRANSMISSION' ? '#EF4444' : (pt.type === 'HANDSHAKE' ? '#10B981' : (pt.type === 'RESET' ? '#F43F5E' : '#38BDF8'));
+                  const arrowSymbol = isOutbound ? '──────────────────────────────►' : '◄──────────────────────────────';
+                  return `
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; background: ${pIdx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent'};">
+                      <span style="width: 70px; color: #64748B; font-size: 10px;">#${pt.frameNumber || pIdx+1} (+${(pt.relativeTimeMs || 0).toFixed(1)}ms)</span>
+                      <div style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 10px;">
+                        <span style="color: ${arrowColor}; font-weight: 700; letter-spacing: -1px;">${arrowSymbol}</span>
+                        <span style="background: #1E293B; color: ${arrowColor}; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700;">
+                          ${escapeHtml(pt.type || 'DATA')} ${pt.seq !== undefined ? `Seq=${pt.seq}` : ''} ${pt.ack !== undefined ? `Ack=${pt.ack}` : ''}
+                        </span>
+                      </div>
+                      <span style="width: 80px; text-align: right; color: #94A3B8; font-size: 10px;">${pt.payloadLength || 0} bytes</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
             ${(s.waterfallPoints || []).slice(0, 8).map(pt => `
               <div style="display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
                 <span>Frame #${pt.frameNumber} &bull; Δt: ${pt.relativeTimeMs.toFixed(2)}ms &bull; ${pt.direction}</span>

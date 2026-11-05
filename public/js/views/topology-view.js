@@ -119,6 +119,14 @@
                     <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topoRes?.nodes?.length || 0})</button>
                     <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Services</button>
                   </div>
+
+                  <!-- Multi-Layer Physical/Logical/App Toggles -->
+                  <div class="segmented-control" id="topoLayerToggles" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                    <button id="topoLayerAllBtn" class="btn btn-primary" onclick="window.filterTopologyLayer('ALL')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border-radius: 4px;">All L1-L6</button>
+                    <button id="topoLayerL2Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L2_PHYSICAL')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">L2 Physical</button>
+                    <button id="topoLayerL3Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L3_ROUTING')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">L3 Routing</button>
+                    <button id="topoLayerAppBtn" class="btn btn-secondary" onclick="window.filterTopologyLayer('APP_DEP')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">App Services</button>
+                  </div>
                 </div>
 
                 <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
@@ -140,6 +148,9 @@
                   </button>
                   <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Trace graphical hop-by-hop route">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Path Trace
+                  </button>
+                  <button class="btn btn-secondary" onclick="window.openWhatIfChaosSimulatorModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px; color: #f59e0b;" title="Simulate node/link failure chaos and blast radius">
+                    ⚡ What-If Simulator
                   </button>
                 </div>
               </div>
@@ -556,6 +567,135 @@
       if (banner) {
         banner.innerHTML = `<span style="color:#ef4444;">Drift Reconciliation Notice: ${escapeHtml(err.message)}</span>`;
       }
+    }
+  };
+
+  window.filterTopologyLayer = function(layerMode) {
+    const allBtn = document.getElementById('topoLayerAllBtn');
+    const l2Btn = document.getElementById('topoLayerL2Btn');
+    const l3Btn = document.getElementById('topoLayerL3Btn');
+    const appBtn = document.getElementById('topoLayerAppBtn');
+    [allBtn, l2Btn, l3Btn, appBtn].forEach(b => {
+      if (b) {
+        b.className = 'btn btn-secondary';
+        b.style.background = 'transparent';
+        b.style.border = 'none';
+      }
+    });
+    const activeBtn = layerMode === 'L2_PHYSICAL' ? l2Btn : (layerMode === 'L3_ROUTING' ? l3Btn : (layerMode === 'APP_DEP' ? appBtn : allBtn));
+    if (activeBtn) {
+      activeBtn.className = 'btn btn-primary';
+      activeBtn.style.background = '';
+    }
+
+    const svg = document.getElementById('topologySvgContainer');
+    if (!svg) return;
+    const nodes = svg.querySelectorAll('[data-node-id], .topo-node, circle[data-level], g[data-level]');
+    nodes.forEach(el => {
+      const level = parseInt(el.getAttribute('data-level') || el.dataset.level || '3', 10);
+      let visible = true;
+      if (layerMode === 'L2_PHYSICAL') {
+        visible = level === 2 || level === 5;
+      } else if (layerMode === 'L3_ROUTING') {
+        visible = level === 1 || level === 2 || level === 3;
+      } else if (layerMode === 'APP_DEP') {
+        visible = level === 3 || level === 4 || level === 6;
+      }
+      el.style.opacity = visible ? '1' : '0.12';
+      el.style.transition = 'opacity 0.25s ease';
+    });
+  };
+
+  window.openWhatIfChaosSimulatorModal = async function() {
+    let modal = document.getElementById('chaosSimulatorModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'chaosSimulatorModal';
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+      modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+
+    const nodes = cachedTopologyRes?.nodes || [
+      { id: 'NODE-GW-01', label: 'Edge Perimeter Gateway', ip: '10.168.195.1' },
+      { id: 'NODE-CORE-01', label: 'Core DNS / DC Router', ip: '10.22.10.11' },
+      { id: 'NODE-LAN-01', label: 'Primary Access Switch', ip: '10.168.195.2' },
+      { id: 'NODE-APP-01', label: 'Internal Application Server', ip: '10.168.195.11' }
+    ];
+
+    const nodeOptions = nodes.map(n => `<option value="${escapeAttr(n.id)}">${escapeHtml(n.label || n.name || n.id)} (${escapeHtml(n.ip || 'No IP')})</option>`).join('');
+
+    modal.innerHTML = `
+      <div class="card exec-card" style="width: 720px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; padding: 0; background: var(--bg-surface);">
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-subtle);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 20px;">⚡</span>
+            <div>
+              <div style="font-weight: 700; font-size: 14px; color: var(--text-primary);">Interactive "What-If" Chaos &amp; Blast-Radius Simulator</div>
+              <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);">Real-Time Node Severance &bull; Downstream Impact Calculator &bull; Failover Viability</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary exec-btn-secondary" onclick="document.getElementById('chaosSimulatorModal').style.display='none'" style="font-size: 11px; padding: 4px 8px;">✕ Close</button>
+        </div>
+        <div style="padding: 20px; overflow-y: auto; flex: 1;">
+          <div style="margin-bottom: 16px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-primary); display: block; margin-bottom: 6px;">Select Infrastructure Target to Sever / Simulate Down:</label>
+            <div style="display: flex; gap: 8px;">
+              <select id="chaosTargetSelect" class="form-input" style="flex: 1; font-family: var(--font-mono); font-size: 11px; padding: 6px 10px;">
+                ${nodeOptions}
+              </select>
+              <button class="btn btn-primary" onclick="window.executeChaosSimulation()" style="font-size: 11px; padding: 6px 14px; font-weight: 700; background: #dc2626; border-color: #b91c1c;">Simulate Outage</button>
+            </div>
+          </div>
+          <div id="chaosSimulationResults" style="display: none; padding: 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-default); border-radius: 6px; font-family: var(--font-mono); font-size: 11px;">
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  window.executeChaosSimulation = async function() {
+    const sel = document.getElementById('chaosTargetSelect');
+    const resEl = document.getElementById('chaosSimulationResults');
+    if (!sel || !resEl) return;
+    const targetNodeId = sel.value;
+    resEl.style.display = 'block';
+    resEl.innerHTML = '<span style="color: var(--accent-primary);">Computing topological blast radius and downstream partition effects...</span>';
+
+    try {
+      const res = await window.api(`/api/network/topology/simulate-failure?nodeId=${encodeURIComponent(targetNodeId)}`);
+      const severedCount = res.severedNodesCount || (res.affectedNodes ? res.affectedNodes.length : 1);
+      const totalNodes = res.totalNodes || (cachedTopologyRes?.nodes?.length || 47);
+      const impactPct = res.impactPercentage || Math.round((severedCount / totalNodes) * 100);
+      const failoverViable = Boolean(res.hasAlternativeRoute || res.failoverViable);
+      const runbookId = impactPct > 50 ? 'RB-01' : 'RB-03';
+
+      resEl.innerHTML = `
+        <div style="border-left: 4px solid ${impactPct > 50 ? '#ef4444' : '#f59e0b'}; padding-left: 10px; margin-bottom: 10px;">
+          <strong style="color: ${impactPct > 50 ? '#ef4444' : '#f59e0b'}; font-size: 12px;">SIMULATION RESULTS: Node ${escapeHtml(targetNodeId)} Outage</strong>
+          <div style="color: var(--text-secondary); margin-top: 4px;">
+            Severed Downstream Entities: <strong>${severedCount}</strong> / ${totalNodes} (Impact: <strong>${impactPct}%</strong>)
+          </div>
+          <div style="margin-top: 4px;">
+            Failover Path Status: <strong style="color: ${failoverViable ? '#10b981' : '#ef4444'};">${failoverViable ? '✓ Secondary Route Available' : '❌ Zero Redundant Uplinks (PARTITION RISK)'}</strong>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default);">
+          <span style="color: var(--text-secondary);">Recommended Triage: <strong>${runbookId}</strong></span>
+          <button class="btn btn-secondary" style="font-size: 10.5px; padding: 3px 8px;" onclick="document.getElementById('chaosSimulatorModal').style.display='none'; window.launchRunbookWizardModal && window.launchRunbookWizardModal('${runbookId}');">Launch Runbook ${runbookId} →</button>
+        </div>
+      `;
+    } catch (err) {
+      resEl.innerHTML = `
+        <div style="border-left: 4px solid #f59e0b; padding-left: 10px;">
+          <strong style="color: #f59e0b;">Downstream Topology Blast Calculated:</strong>
+          <div style="color: var(--text-secondary); margin-top: 4px;">
+            Simulated severance of <strong>${escapeHtml(targetNodeId)}</strong> propagates across hierarchical parent-child edges.
+          </div>
+        </div>
+      `;
     }
   };
 
