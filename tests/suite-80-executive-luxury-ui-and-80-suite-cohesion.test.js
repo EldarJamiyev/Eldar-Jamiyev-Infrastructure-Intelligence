@@ -1,0 +1,175 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion = runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion;
+// tests/suite-80-executive-luxury-ui-and-80-suite-cohesion.test.ts
+const assert = __importStar(require("node:assert"));
+const fs = __importStar(require("node:fs"));
+const path = __importStar(require("node:path"));
+async function runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion() {
+    console.log('=== [SUITE 80] EXECUTIVE LUXURY UI & 80-SUITE COHESION VERIFICATION ===');
+    const rootDir = path.resolve(__dirname, '..');
+    // 1. Executive Luxury UI Tokens & Design System Verification
+    console.log('[80.1] Verifying Architectural Cashmere & Velvet Graphite tokens in stylesheets...');
+    const premiumCssPath = path.join(rootDir, 'public', 'css', 'eji-premium.css');
+    const styleCssPath = path.join(rootDir, 'public', 'css', 'style.css');
+    assert.ok(fs.existsSync(premiumCssPath), 'eji-premium.css must exist');
+    assert.ok(fs.existsSync(styleCssPath), 'style.css must exist');
+    const premiumCss = fs.readFileSync(premiumCssPath, 'utf-8');
+    const styleCss = fs.readFileSync(styleCssPath, 'utf-8');
+    const combinedCss = premiumCss + '\n' + styleCss;
+    // Verify Architectural Cashmere & Velvet Graphite palette tokens
+    assert.ok(combinedCss.includes('#F4F3EF') || combinedCss.includes('#f4f3ef'), 'Must contain Warm Alabaster canvas token (#F4F3EF)');
+    assert.ok(combinedCss.includes('#141413'), 'Must contain Deep Editorial Ink typography token (#141413)');
+    assert.ok(combinedCss.includes('#2B44B8') || combinedCss.includes('#2b44b8'), 'Must contain Royal Executive Indigo accent token (#2B44B8)');
+    // Verify Executive Component Utility Classes
+    assert.ok(combinedCss.includes('.exec-card'), 'Must define .exec-card luxury card container');
+    assert.ok(combinedCss.includes('.exec-toolbar'), 'Must define .exec-toolbar header bar');
+    assert.ok(combinedCss.includes('.exec-btn-primary'), 'Must define .exec-btn-primary luxury button');
+    assert.ok(combinedCss.includes('.exec-badge'), 'Must define .exec-badge refined chip');
+    assert.ok(combinedCss.includes('.exec-table'), 'Must define .exec-table data grid');
+    // 2. Interactive Engine Workbenches in Views
+    console.log('[80.2] Verifying 6 new engine workbenches across all frontend views...');
+    const viewsDir = path.join(rootDir, 'public', 'js', 'views');
+    // Engine 1: PCAPNG in sniffer-view.js and noc-view.js
+    const snifferView = fs.readFileSync(path.join(viewsDir, 'sniffer-view.js'), 'utf-8');
+    const nocView = fs.readFileSync(path.join(viewsDir, 'noc-view.js'), 'utf-8');
+    assert.ok(snifferView.includes('downloadPcapngExport') || nocView.includes('downloadPcapngExport'), 'PCAPNG binary export workbench must be wired into sniffer or noc view');
+    assert.ok(snifferView.includes('triggerImportPcapng') || snifferView.includes('pcapngFilePicker'), 'PCAPNG binary replay workbench must be wired into sniffer view');
+    // Engine 2: Radix LPM in topology-view.js and noc-view.js
+    const topologyView = fs.readFileSync(path.join(viewsDir, 'topology-view.js'), 'utf-8');
+    assert.ok(topologyView.includes('openRoutingRadixModal') || nocView.includes('openRoutingRadixModal'), 'Routing Radix / LPM modal workbench must be wired into topology/noc view');
+    // Engine 3, 5, 6: Socket Process Matrix, CUSUM Forensics, and Incident Dossier in core-diagnostics-view.js
+    const diagView = fs.readFileSync(path.join(viewsDir, 'core-diagnostics-view.js'), 'utf-8');
+    assert.ok(diagView.includes('openSocketProcessMatrixModal'), 'Process Socket Matrix workbench must be wired in core-diagnostics-view.js');
+    assert.ok(diagView.includes('openCusumChangepointModal'), 'CUSUM Changepoint Forensics workbench must be wired in core-diagnostics-view.js');
+    assert.ok(diagView.includes('exportSignedIncidentDossier'), 'Signed Incident Flight Dossier exporter must be wired in core-diagnostics-view.js');
+    // Engine 4: TLS Posture Audit in ultra-ip-scanner-view.js
+    const ipScannerView = fs.readFileSync(path.join(viewsDir, 'ultra-ip-scanner-view.js'), 'utf-8');
+    assert.ok(ipScannerView.includes('runHostTlsPostureAudit'), 'TLS Posture Auditor action must be wired in ultra-ip-scanner-view.js');
+    // 3. Server Locals & Engine Registration
+    console.log('[80.3] Verifying server.js app.locals registration for all 6 v3 engines...');
+    const serverJs = fs.readFileSync(path.join(rootDir, 'src', 'server.js'), 'utf-8');
+    assert.ok(serverJs.includes('app.locals.pcapngEngine'), 'app.locals.pcapngEngine must be registered');
+    assert.ok(serverJs.includes('app.locals.routingRadixIntelligence'), 'app.locals.routingRadixIntelligence must be registered');
+    assert.ok(serverJs.includes('app.locals.processSocketCorrelator'), 'app.locals.processSocketCorrelator must be registered');
+    assert.ok(serverJs.includes('app.locals.tlsPostureAuditor'), 'app.locals.tlsPostureAuditor must be registered');
+    assert.ok(serverJs.includes('app.locals.cusumChangepointEngine'), 'app.locals.cusumChangepointEngine must be registered');
+    assert.ok(serverJs.includes('app.locals.incidentFlightRecorder'), 'app.locals.incidentFlightRecorder must be registered');
+    // 4. Exact 80 Registered Test Suites Cohesion
+    console.log('[80.4] Verifying canonical master test runner registration of exactly 80 suites...');
+    const runnerJs = fs.readFileSync(path.join(rootDir, 'tests', 'run-all-tests.js'), 'utf-8');
+    // Verify imports of Suites 74-80
+    assert.ok(runnerJs.includes('suite-74-pcapng-binary-engine.test'), 'Runner must import Suite 74');
+    assert.ok(runnerJs.includes('suite-75-routing-radix-trie-intelligence.test'), 'Runner must import Suite 75');
+    assert.ok(runnerJs.includes('suite-76-process-socket-behavioral-matrix.test'), 'Runner must import Suite 76');
+    assert.ok(runnerJs.includes('suite-77-tls-x509-posture-auditor.test'), 'Runner must import Suite 77');
+    assert.ok(runnerJs.includes('suite-78-cusum-changepoint-forensics.test'), 'Runner must import Suite 78');
+    assert.ok(runnerJs.includes('suite-79-incident-flight-recorder-dossier.test'), 'Runner must import Suite 79');
+    assert.ok(runnerJs.includes('suite-80-executive-luxury-ui-and-80-suite-cohesion.test'), 'Runner must import Suite 80');
+    // Count registered suites
+    const suiteMatches = runnerJs.match(/\{\s*name:\s*['"]\d+\./g) || [];
+    assert.ok(suiteMatches.length >= 80, `Expected at least 80 registered test suites in run-all-tests.js, found ${suiteMatches.length}`);
+    // 5. Zero-Simulation Topology Graph Truth & SVG Edge Path Verification
+    console.log('[80.5] Verifying Topology Engine zero-duplicate IP guarantee, edge connectivity & SVG fill="none"...');
+    const { TopologyEngine } = require('../src/network/topology/topology-engine');
+    const topoEngine = new TopologyEngine();
+    const topo = topoEngine.getTopology();
+    assert.ok(Array.isArray(topo.nodes) && topo.nodes.length >= 4, 'Topology must discover at least 4 hierarchical nodes');
+    assert.ok(Array.isArray(topo.edges) && topo.edges.length >= 3, 'Topology must have active connecting edges');
+    // Verify zero duplicate IP addresses in the same hierarchy layer
+    const layerIpTracker = new Set();
+    for (const node of topo.nodes) {
+        const key = `${node.layer_level || node.layer}:${node.hostname_or_ip}`;
+        assert.strictEqual(layerIpTracker.has(key), false, `Duplicate node IP/CIDR found in layer: ${key}`);
+        layerIpTracker.add(key);
+    }
+    // Verify every active node is connected by at least one edge
+    const incidentNodes = new Set();
+    for (const edge of topo.edges) {
+        incidentNodes.add(edge.source_id);
+        incidentNodes.add(edge.target_id);
+    }
+    for (const node of topo.nodes) {
+        assert.ok(incidentNodes.has(node.id), `Node ${node.id} (${node.name}) must be connected by at least one edge in the graph`);
+    }
+    // Verify Fiedler eigenvalue lambda_2 is strictly positive on connected topology
+    assert.ok(topo.algebraicConnectivityLambda2 > 0, `Fiedler eigenvalue lambda_2 must be > 0 on connected topology, received ${topo.algebraicConnectivityLambda2}`);
+    // Verify SVG edge paths explicitly include fill="none"
+    assert.ok(nocView.includes('fill="none" d="${d}"') || nocView.includes('fill="none"'), 'noc-view.js SVG edge path must explicitly specify fill="none"');
+    assert.ok(premiumCss.includes('.topology-light-canvas svg path') && premiumCss.includes('fill: none !important;'), 'eji-premium.css must enforce fill: none !important for all topology SVG paths');
+    // 6. 18-Point Visual & Functional UI Remediation Verification
+    console.log('[80.6] Verifying 18-point visual and functional UI remediation across 7 groups...');
+    const meridianCss = fs.readFileSync(path.join(rootDir, 'public', 'css', 'ejii-meridian.css'), 'utf-8');
+    const indexHtml = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf-8');
+    const appJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'app.js'), 'utf-8');
+    const aiBrainDrawerJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'components', 'ai-brain-drawer.js'), 'utf-8');
+    const pcAutoView = fs.readFileSync(path.join(viewsDir, 'pc-automation-view.js'), 'utf-8');
+    const juniorAdminJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'components', 'junior-admin-guide.js'), 'utf-8');
+    // Group 1: Login Screen layout & immediate defaults
+    assert.ok(meridianCss.includes('justify-content: flex-start !important;'), 'Login card must use justify-content: flex-start to prevent top clipping');
+    assert.ok(meridianCss.includes('padding: 10px 14px 10px 42px !important;'), 'Login input must enforce left padding for icons');
+    assert.ok(indexHtml.includes('LOCAL-WORKSTATION') && indexHtml.includes('192.168.31.1'), 'Login telemetry must provide immediate default values');
+    assert.ok(appJs.includes('LOCAL-WORKSTATION'), 'app.js loadLoginTelemetry must provide immediate default fallback');
+    // Group 2: Topology Map toolbar and node title clipping
+    assert.ok(nocView.includes('nocSpectralHealthPill') && nocView.includes('white-space: nowrap !important;'), 'noc-view.js must enforce white-space: nowrap on spectral pill');
+    assert.ok(nocView.includes('titleClip-${n.id}') && nocView.includes('clip-path'), 'noc-view.js must clip node title to prevent collision with role badge');
+    assert.ok(nocView.includes('colStartY = 56;'), 'noc-view.js must start cards 24px below headers without empty gap');
+    // Group 3: AI Brain Drawer light styling & sniffer table
+    assert.ok(aiBrainDrawerJs.includes('rawProof.clause || rawProof.formula || rawProof.description'), 'ai-brain-drawer.js must format proof objects to prevent Rule: [object Object]');
+    assert.ok(aiBrainDrawerJs.includes('#F0FDF4') && aiBrainDrawerJs.includes('#FFF1F2'), 'ai-brain-drawer.js must render light executive cards');
+    assert.ok(premiumCss.includes('.ai-brain-meta') && premiumCss.includes('flex-wrap: wrap !important;'), 'eji-premium.css must allow ai-brain-meta to wrap cleanly');
+    assert.ok(nocView.includes('hostDisplay = `<div style="display: flex; align-items: center; gap: 4px;'), 'noc-view.js must wrap hostDisplay in flex container to prevent mint-green square clipping');
+    // Group 4: Ultra IP Scanner headers and KPI synchronization
+    assert.ok(ipScannerView.includes('HOSTNAME / NETBIOS') && ipScannerView.includes('OPEN PORTS &amp; SERVICES'), 'ultra-ip-scanner-view.js must use clean non-clipping headers');
+    assert.ok(ipScannerView.includes('countAll.textContent = total;'), 'ultra-ip-scanner-view.js must synchronize chip counts with KPI total');
+    // Group 5: PC Automation terminal word wrap and header title
+    assert.ok(pcAutoView.includes('Host Automation &amp; Audited Remediation Library'), 'pc-automation-view.js must use executive title without fake e:\\Scripts');
+    assert.ok(pcAutoView.includes('overflow-wrap: break-word') && !pcAutoView.includes('word-break: break-all'), 'pc-automation-view.js must not break words in half');
+    // Group 6: Core Diagnostics SYSINTERNALS GRADE and instant fetch
+    assert.ok(diagView.includes('SYSINTERNALS GRADE') && diagView.includes('white-space: nowrap;'), 'core-diagnostics-view.js must format SYSINTERNALS GRADE as compact pill');
+    assert.ok(diagView.includes('fetchHostAudit(false)'), 'core-diagnostics-view.js must immediately fetch host audit on mount');
+    // Group 7: Junior-Admin Field Manual full viewport overlay
+    assert.ok(juniorAdminJs.includes('position: fixed !important; inset: 0 !important;') && juniorAdminJs.includes('backdrop-filter: blur(6px) !important;'), 'junior-admin-guide.js must create full viewport modal overlay');
+    assert.ok(premiumCss.includes('#juniorAdminModal') && premiumCss.includes('position: fixed !important;'), 'eji-premium.css must style #juniorAdminModal as centered fixed overlay');
+    console.log('✓ Suite 80 passed: Executive Luxury UI, Topology Graph Truth & 80-Suite Cohesion 100% verified.\n');
+}
+if (require.main === module) {
+    runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion().then(() => process.exit(0)).catch(err => {
+        console.error(err);
+        process.exit(1);
+    });
+}
+//# sourceMappingURL=suite-80-executive-luxury-ui-and-80-suite-cohesion.test.js.map
