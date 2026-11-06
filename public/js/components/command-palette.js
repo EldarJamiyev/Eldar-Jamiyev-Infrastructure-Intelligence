@@ -128,7 +128,26 @@
     { id: 'act-runbook-rb05', category: 'Interactive Runbook', title: 'Launch RB-05: TLS 1.3 Handshake Alerts & Certificate Audit Wizard', icon: '📘', action: () => window.launchRunbookWizardModal && window.launchRunbookWizardModal('RB-05') },
     { id: 'act-runbook-rb06', category: 'Interactive Runbook', title: 'Launch RB-06: Path MTU Blackhole & TCP Retransmission Wizard', icon: '📘', action: () => window.launchRunbookWizardModal && window.launchRunbookWizardModal('RB-06') },
     { id: 'act-runbook-rb07', category: 'Interactive Runbook', title: 'Launch RB-07: Office Printer APIPA (169.254.x.x) & DHCP Recovery', icon: '📘', action: () => window.launchRunbookWizardModal && window.launchRunbookWizardModal('RB-07') },
-    { id: 'act-runbook-rb08', category: 'Interactive Runbook', title: 'Launch RB-08: Print Spooler & JetDirect TCP/9100 Triage Wizard', icon: '📘', action: () => window.launchRunbookWizardModal && window.launchRunbookWizardModal('RB-08') }
+    { id: 'act-runbook-rb08', category: 'Interactive Runbook', title: 'Launch RB-08: Print Spooler & JetDirect TCP/9100 Triage Wizard', icon: '📘', action: () => window.launchRunbookWizardModal && window.launchRunbookWizardModal('RB-08') },
+    // Step 11: Omniscient Live Entity Search & Quad-Quadrant Command Grid
+    { id: 'act-quad-grid', category: 'Unified Workstation', title: 'Open 4-Quadrant Tactical Command Grid (NetworkTrafficView + TCPView + Port Scanner + Daily_Automation)', icon: '🪟', action: () => window.openQuadQuadrantCommandGrid && window.openQuadQuadrantCommandGrid() },
+    { id: 'entity-lms-5428', category: 'Live Process / Socket (TCPView)', title: 'Inspect Process LMS.exe (PID 5428) Listening on TCP Port 623 (Intel AMT Out-of-Band httpd)', icon: '🔌', action: () => {
+      if (window.EJIIInvestigationPinboard) window.EJIIInvestigationPinboard.setContext({ ip: '172.29.192.1', subnet: '172.29.192.0/20', mac: '00:15:5D:DF:E5:56', processName: 'LMS.exe', pid: 5428, port: 623, serviceBanner: 'Intel Active Management Technology User Notification Service httpd' });
+      window.renderView('packet-sniffer');
+    }},
+    { id: 'entity-vmms-10336', category: 'Live Process / Socket (TCPView)', title: 'Inspect Process vmms.exe (PID 10336) Listening on TCP Port 2179 (Hyper-V VMConnect)', icon: '🔌', action: () => {
+      if (window.EJIIInvestigationPinboard) window.EJIIInvestigationPinboard.setContext({ ip: '172.29.192.1', subnet: '172.29.192.0/20', mac: '00:15:5D:DF:E5:56', processName: 'vmms.exe', pid: 10336, port: 2179, serviceBanner: 'Hyper-V VMConnect Service' });
+      window.renderView('packet-sniffer');
+    }},
+    { id: 'entity-hyperv-172-29-192-1', category: 'Discovered Host (Port Scanner)', title: 'Inspect Host 172.29.192.1 & 172.29.224.1 (MAC 00:15:5D:DF:E5:56 · Ports 135/139/445/623/2179 · Share Users)', icon: '📡', action: () => {
+      if (window.EJIIInvestigationPinboard) window.EJIIInvestigationPinboard.setContext({ ip: '172.29.192.1', subnet: '172.29.192.0/20', mac: '00:15:5D:DF:E5:56', vendor: 'Microsoft Corporation', port: 445, serviceBanner: 'SMB Share Users' });
+      window.renderView('ultra-ip-scanner');
+    }},
+    { id: 'entity-flow-10-22-10-153', category: 'Conversation Flow (NetworkTrafficView)', title: 'Inspect Cleartext HTTP Flow 10.168.195.33:50008 -> 10.22.10.153:80 (1,179 Bytes)', icon: '🌊', action: () => {
+      if (window.EJIIInvestigationPinboard) window.EJIIInvestigationPinboard.setContext({ ip: '10.22.10.153', subnet: '10.22.10.0/24', port: 80, flowId: 'FLOW-11', serviceBanner: 'Cleartext HTTP TCP 80' });
+      window.renderView('packet-sniffer');
+    }},
+    { id: 'act-convert-telemetry-lab', category: 'Socratic Lab Synthesis', title: 'Convert Active Socket, Flow & Port Telemetry into Interactive Lab Scenario', icon: '🎓', action: () => window.convertActiveTelemetryToLab && window.convertActiveTelemetryToLab('SCENARIO_A_AMT_HYPERV') }
   ];
 
   function buildNaturalLanguageIntentCommand(rawQuery) {

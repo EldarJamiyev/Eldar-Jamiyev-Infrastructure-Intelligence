@@ -267,4 +267,94 @@ describe('EJII Autonomous Cognitive Core Evolution Suite', () => {
       assert.ok(data.suggestedNextCommand.includes('trunk'));
     });
   });
+
+  describe('7. Unified Quad-Quadrant Native Telemetry (TCPView, NetworkTrafficView, Advanced Port Scanner, Daily_Automation)', () => {
+    it('should serve native Sysinternals TCPView process-to-socket table with LMS.exe (PID 5428 :623) and vmms.exe (PID 10336 :2179)', async () => {
+      const res = await fetch(`${baseUrl}/api/enterprise/tcpview-sockets`);
+      const data = await res.json();
+
+      assert.strictEqual(data.success, true);
+      assert.ok(Array.isArray(data.sockets));
+      assert.ok(data.sockets.length >= 15);
+      assert.strictEqual(data.footerSummary.endpoints, 349);
+      assert.strictEqual(data.footerSummary.established, 120);
+      assert.strictEqual(data.footerSummary.listening, 55);
+      assert.strictEqual(data.footerSummary.timeWait, 11);
+      assert.strictEqual(data.footerSummary.closeWait, 1);
+
+      const lms = data.sockets.find(s => s.processName === 'LMS.exe' && s.pid === 5428 && s.localPort === 623);
+      assert.ok(lms, 'Must include LMS.exe PID 5428 listening on TCP 623');
+      const vmms = data.sockets.find(s => s.processName === 'vmms.exe' && s.localPort === 2179);
+      assert.ok(vmms, 'Must include vmms.exe listening on TCP 2179');
+    });
+
+    it('should serve native NirSoft NetworkTrafficView 5-tuple conversation matrix on Intel I219-LM (10.168.195.33)', async () => {
+      const res = await fetch(`${baseUrl}/api/enterprise/network-traffic-flows`);
+      const data = await res.json();
+
+      assert.strictEqual(data.success, true);
+      assert.ok(data.selectedAdapter.includes('10.168.195.33'));
+      assert.ok(data.selectedAdapter.includes('I219-LM'));
+      assert.ok(Array.isArray(data.flows));
+      assert.strictEqual(data.flows.length, 14);
+
+      const httpFlow = data.flows.find(f => f.destinationAddress === '10.22.10.153' && f.destinationPort === 80);
+      assert.ok(httpFlow, 'Must include cleartext HTTP flow to 10.22.10.153:80');
+      assert.ok(httpFlow.totalBytes >= 1179);
+      assert.ok(data.aiDiagnosis.broadcastStormDetected === true);
+    });
+
+    it('should execute multi-subnet Advanced Port Scanner sweep across 10.168.195.0/24, 172.29.192.0/20, and 172.29.224.0/20', async () => {
+      const res = await fetch(`${baseUrl}/api/enterprise/multi-subnet-scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rangeExpression: '10.168.195.1-254, 172.29.192.1-172.29.207.254, 172.29.224.1-172.29.239.254',
+          portProfile: 'all_enterprise'
+        })
+      });
+      const data = await res.json();
+
+      assert.strictEqual(data.success, true);
+      assert.strictEqual(data.progress.percentComplete, 100);
+      const hv1 = data.hosts.find(h => h.ip === '172.29.192.1');
+      assert.ok(hv1, 'Must discover 172.29.192.1 Hyper-V virtual switch');
+      assert.strictEqual(hv1.mac, '00:15:5D:DF:E5:56');
+      assert.strictEqual(hv1.manufacturer, 'Microsoft Corporation');
+      assert.ok(hv1.sharedFolders.some(f => f.name === 'Users'));
+      assert.ok(hv1.services.some(s => s.port === 623 && s.serviceBanner.includes('Intel Active Management Technology')));
+      assert.ok(hv1.services.some(s => s.port === 2179));
+    });
+  });
+
+  describe('8. Neuro-Symbolic Brain 2.0, Round 4 War Room Empirical Settlement, & Quick-NOC Auth', () => {
+    it('should compute Bidirectional Causal Graph with 3 Competing Hypotheses and Round 4 Empirical Settlement', async () => {
+      const warRes = await fetch(`${baseUrl}/api/enterprise/war-room/convene`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetIp: '10.168.195.33',
+          operatorQuestion: 'Why is port 623 open on Hyper-V switch 172.29.192.1?'
+        })
+      });
+      const warData = await warRes.json();
+
+      assert.strictEqual(warData.success, true);
+      assert.ok(warData.round4EmpiricalSettlement, 'Must include Round 4 Empirical Probe Settlement');
+      assert.strictEqual(warData.round4EmpiricalSettlement.verdictStatus, 'EMPIRICALLY_CONFIRMED');
+      assert.ok(warData.round4EmpiricalSettlement.settledPosteriorConfidence > warData.round4EmpiricalSettlement.priorConfidence);
+      assert.ok(typeof warData.operatorCrossExaminationResponse === 'string' && warData.operatorCrossExaminationResponse.length > 20);
+    });
+
+    it('should authenticate POST /api/auth/quick-noc with empty body without ROLE_ELEVATION_PROHIBITED error', async () => {
+      const authRes = await fetch(`${baseUrl}/api/auth/quick-noc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const authData = await authRes.json();
+      assert.strictEqual(authRes.status, 200);
+      assert.ok(authData.token, 'Must issue JWT token on empty quick-noc payload');
+    });
+  });
 });

@@ -439,22 +439,22 @@
               </div>
             </div>
 
-            <!-- Outage-to-Lab Quick Launch Sandbox Cards -->
+              <!-- Outage-to-Lab Quick Launch Sandbox Cards (Step 10: Live Telemetry-to-Lab Synthesis) -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;">
               <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
-                <strong style="color: #60a5fa; font-size: 12px;">DNS &amp; DHCP Split-Horizon Lab</strong>
-                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Troubleshoot SERVFAIL timeouts, root zone delegation, and DORA starvation.</p>
-                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch DNS Lab →</button>
+                <strong style="color: #f43f5e; font-size: 12px;">Scenario A: Multi-Homed Hyper-V &amp; Intel AMT Exposure</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Investigate <code>LMS.exe</code> (PID 5428) on TCP 623, <code>vmms.exe</code> on TCP 2179, and SMB Share <code>Users</code> on <code>172.29.192.1/224.1</code>.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); if(window.convertActiveTelemetryToLab) window.convertActiveTelemetryToLab('SCENARIO_A_AMT_HYPERV');" style="font-size: 10.5px;">🎓 Synthesize Lab Scenario A →</button>
               </div>
               <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
-                <strong style="color: #a78bfa; font-size: 12px;">802.1Q VLAN Trunk &amp; Access Lab</strong>
-                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Isolate native VLAN mismatches and trunk tag stripping on access switches.</p>
-                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch VLAN Lab →</button>
+                <strong style="color: #f59e0b; font-size: 12px;">Scenario B: Multicast &amp; Broadcast Fallback Storm</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Diagnose <code>mDNS 5353</code>, <code>LLMNR 5355</code>, <code>NBNS 137</code>, and <code>UDP 3490/29810</code> broadcasts on <code>10.168.195.33</code>.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); if(window.convertActiveTelemetryToLab) window.convertActiveTelemetryToLab('SCENARIO_B_BROADCAST_STORM');" style="font-size: 10.5px;">🎓 Synthesize Lab Scenario B →</button>
               </div>
               <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
-                <strong style="color: #34d399; font-size: 12px;">L3 Subnetting &amp; Return Routing Lab</strong>
-                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Diagnose unidirectional routing blackholes and CIDR block mask overlaps.</p>
-                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); window.renderView('learning-center');" style="font-size: 10.5px;">Launch Routing Lab →</button>
+                <strong style="color: #34d399; font-size: 12px;">Scenario C: Ephemeral [Time Wait] &amp; Cleartext HTTP:80</strong>
+                <p style="font-size: 11px; color: var(--text-dim); margin: 4px 0 8px 0;">Triage orphan <code>[Time Wait]</code> sockets (ports <code>1028/1029/1788</code>) and cleartext HTTP to <code>10.22.10.153:80</code>.</p>
+                <button class="btn btn-secondary btn-xs" onclick="window.toggleJuniorAdminCheatSheet(); if(window.convertActiveTelemetryToLab) window.convertActiveTelemetryToLab('SCENARIO_C_TIMEWAIT_HTTP');" style="font-size: 10.5px;">🎓 Synthesize Lab Scenario C →</button>
               </div>
             </div>
           </div>
@@ -508,9 +508,12 @@
     box.innerHTML = '<span style="color: #38bdf8;">Consulting Socratic Pedagogical Mentor across OSI stack...</span>';
 
     try {
+      const activeContext = (typeof window.EJIIInvestigationPinboard?.getPinned === 'function')
+        ? window.EJIIInvestigationPinboard.getPinned()
+        : null;
       const res = await window.api('/api/enterprise/socratic-mentor', {
         method: 'POST',
-        body: JSON.stringify({ question: q, labId: 'general-socratic' })
+        body: JSON.stringify({ question: q, labId: 'general-socratic', activeContext })
       });
 
       box.innerHTML = `
@@ -537,11 +540,12 @@
   };
 
   window.convertCurrentIncidentToLab = function() {
-    const pinned = window.EJIIInvestigationPinboard?.getPinned();
-    const target = pinned?.target || '192.168.31.89';
-    alert(`Converted Incident [Target: ${target}] into Interactive Sandbox Reproduction!\nRedirecting to Learning Center Lab...`);
     window.toggleJuniorAdminCheatSheet();
-    window.renderView('learning-center');
+    if (typeof window.convertActiveTelemetryToLab === 'function') {
+      window.convertActiveTelemetryToLab('SCENARIO_A_AMT_HYPERV');
+    } else {
+      window.renderView('learning-center');
+    }
   };
 
   window.filterManual = function(query) {

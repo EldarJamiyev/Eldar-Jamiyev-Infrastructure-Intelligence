@@ -454,7 +454,54 @@ All operational views—**AI Operator Cockpit**, **Chat Workspace**, **NOC Dual-
 
 ---
 
+## 10. Unified Quad-Quadrant Workstation, Native Desktop Tool Parity & Neuro-Symbolic Brain 2.0
+
+### 10.1 Unified 4-Quadrant Tactical Command Grid (`NetworkTrafficView` + `TCPView` + `Advanced Port Scanner` + `Daily_Automation`)
+
+EJII natively replaces external desktop utilities (`NirSoft NetworkTrafficView`, `Sysinternals TCPView`, and `Advanced Port Scanner`) inside a synchronized **4-Quadrant Tactical Command Grid** (`window.openQuadQuadrantCommandGrid`) and dedicated workstation panes:
+
+* **Quadrant 1 — Native Live Process-to-Socket Telemetry Engine (`Sysinternals TCPView` Parity, `/api/enterprise/tcpview-sockets`):**
+  * Maps every `Listen`, `Established`, `Time Wait`, and `Close Wait` socket directly to its owning `Process Name`, `PID`, `Protocol`, `Local Address/Port`, `Remote Address/Port`, and `Module Name` (`svchost.exe`, `System` PID 4, `LMS.exe` PID 5428 on TCP `623`, `vmms.exe` PID 10336 on TCP `2179`, `chrome.exe` PID 18112, `SimpleX.exe`, and `[Time Wait]` ports `1028, 1029, 1788`).
+  * Real-time status footer: `Endpoints: 349 | Established: 120 | Listening: 55 | Time Wait: 11 | Close Wait: 1 | Update: 2 sec | States: (All)`.
+* **Quadrant 2 — Live Conversation, Multicast & Broadcast Traffic Flow Matrix (`NirSoft NetworkTrafficView` Parity, `/api/enterprise/network-traffic-flows`):**
+  * Stateful 5-tuple conversation table bound to `Ethernet, 10.168.195.33, Intel(R) Ethernet Connection (17) I219-LM` tracking all 14 reference flows (`mdns 5353`, `https 34.143.78.2:443` 111,013 Bytes, `UDP 3490/29810 broadcast`, `netbios-ns 137`, `https 140.82.114.26:443`, `http 10.22.10.153:80` 1,179 Bytes, `llmnr 5355`, `ws-discovery 3702`, `https www.googleapis.com:443`) with Ethernet II `0x0800` / IP Protocol (`1`, `6`, `17`) metadata and AI Broadcast Fallback Storm detection.
+* **Quadrant 3 — Multi-Subnet Port, Service, SMB Share & Out-of-Band Hardware Scanner (`Advanced Port Scanner` Parity, `/api/enterprise/multi-subnet-scan`):**
+  * Parses multi-subnet expressions (`10.168.195.1-254, 172.29.192.1-172.29.207.254, 172.29.224.1-172.29.239.254`), renders a Split-Pane Master-Detail Host & Service Inspector (`Status: Alive`, `Operating system: Windows`, `IP: 172.29.192.1`, `MAC: 00:15:5D:DF:E5:56`, `Manufacturer: Microsoft Corporation`, `Shared folder: Users`, `Port 135 RPC`, `Port 139 netbios-ssn`, `Port 445 SMB`, `Port 623 Intel Active Management Technology User Notification Service httpd`, `Port 2179 Hyper-V VMConnect`), and correlates multi-homed host identity across physical NIC and Hyper-V virtual switches.
+* **Quadrant 4 — Closed-Loop `Daily_Automation` & Host Hardening Convergence Deck (`/api/enterprise/daily-automation/execute`):**
+  * Executes `DAILY_HYGIENE_SUITE`, `HARDEN_AMT_623_HYPERV_2179`, `HARDEN_BROADCAST_LLMNR_NBNS`, and `AUDIT_SMB_SHARE_USERS` under `POL-02` OS Process Shield protection (`System PID 4`, `svchost.exe`, `vmms.exe`) with verified Before/After Telemetry Delta Proof.
+
+### 10.2 Bidirectional Causal Graph, Multi-Scale Entropy Attribution & 4-Round War Room Settlement
+
+* **Bidirectional Cross-Layer Causal Discovery:** Evaluates `BOTTOM_UP` (L1/L2 $\rightarrow$ L7), `TOP_DOWN_HOST_INDUCED` (Process/Socket $\rightarrow$ Wire), and `LATERAL_CONTROL_PLANE` (mDNS/LLMNR/NBNS fallback storms) with Top 3 Competing Hypotheses and Discriminating Probes.
+* **Multi-Scale Infrastructure Entropy Attribution ($E_{\text{infra}}$):** Decomposes system entropy into `transport`, `dnsControlPlane`, `hostSocketProcess`, `routingTopology`, and `securityPolicy` subsystem attribution percentages with per-subnet adaptive baselines (`10.168.195.0/24`, `10.22.10.0/24`, `172.29.192.0/20`, `172.29.224.0/20`) and Non-Linear Regime-Aware TTCF 2.0 (`EXPONENTIAL_SURGE`, `PIECEWISE_STABLE`, `PERIODIC_BURST`).
+* **Round 4 Empirical Probe Settlement (`round4EmpiricalSettlement`):** Executes autonomous verification probes after Rounds 1–3 debate to empirically settle competing hypotheses, supports interactive operator cross-examination, and generates 4-mode multi-language escalation dossiers (`EN`, `Formal AZ`, `AZ_LATIN`, `RU`).
+
+---
+
+## 11. Sovereign Fabric V6: Zero-Simulation Reality Enforcement, Cross-Layer OSI Epistemic Reasoner & Quiet Luxury 3-Tier UI
+
+### 11.1 Zero-Simulation Reality Enforcement (`multisite-manager.js`, `edge-agent-service.js`, `predictive-horizon-engine.js`)
+
+* **Live OS Runtime & Network Interface Discovery:** Eliminates fabricated placeholder cities (`Frankfurt`, `London`, `New York`, `Singapore`, `Tokyo`), fake carrier tunnels (`Colt`, `Lumen`, `NTT`, `Singtel`), and `[SIMULATION AGENT]` badges from the live Enterprise NOC Command Center (`?includeSimulated=false`).
+* **Authentic Host & Operator-Enrolled Topology:** Dynamically introspects `os.hostname()`, `os.networkInterfaces()`, active IPv4 subnets/CIDRs, kernel default gateway routes, and `dns.getServers()` upstream resolvers, alongside interactive operator-enrolled Sites/Zones (`POST /api/enterprise/sites`) and HMAC-SHA256 Edge Observation Agents (`POST /api/enterprise/agents/enroll`).
+* **Distinct Per-Node M/M/1 Queueing Horizon:** Computes distinct utilization $\rho$, non-linear queueing amplification $\Phi(\rho) = \frac{\rho}{1 - \rho}$, and Holt-Winters SLA trajectories for each discovered runtime node (`127.0.0.1:3000`, active host NICs, and OS DNS resolvers) rather than cloned static hostnames.
+
+### 11.2 Cross-Layer OSI Epistemic Consistency & Loopback/Sandbox Awareness (`hypothesis-arbiter.js`, `timeline-reconstructor.js`)
+
+* **Container / Loopback ICMP Paradox Resolution:** Enforces fundamental OSI causality ($L7 \implies L4 \implies L3 \implies L2$): when an endpoint completes a live TCP 3-way handshake ($L4$) and returns an HTTP response ($L7$) in $\le 2\text{ms}$, raw ICMP socket restrictions in containerized (`gVisor`/`vNIC`) environments are never misdiagnosed as a `100% packetLoss` physical L2/L3 outage.
+* **Domain-Aware Loopback Resilience Guidance:** Excludes loopback endpoints (`127.0.0.1`, `localhost`, `::1`) from false physical Tarjan cut-vertex SPOF cable-failover warnings and issues actionable kernel/process resilience guidance (`net.core.somaxconn` backlog tuning, worker pool concurrency, and file-descriptor ceiling audits).
+* **Unified Data Contracts (Zero `undefined` Rendering):** Reconciles schema contracts across `closedLoopExecutionTrace` (`stepIndex`, `probeExecuted`, `empiricalObservationSummary`), `findTarjanCutVertices` (`label`, `downstreamDependentCount`), `timelineEvents` (`detail`, `summary`), and `superpowersSkills` (`id`, `skillId`, `phaseBadge`, `sourcePath`, `liveContribution`).
+
+### 11.3 Runtime `.agents/skills` & `agent/skills` Superpowers Integration (`superpowers-skills-engine.js`)
+
+* **Live Skill Directory Binding:** Dynamically scans `.agents/skills/*/SKILL.md` (46 engineering skills) and `agent/skills/*/SKILL.md` (15 specialist skills) on disk and binds each Composable Superpowers module (`systematic-debugging`, `brainstorming-intent-griller`, `writing-execution-plans`, `subagent-driven-parallel-dispatch`, `verification-before-completion`, `defense-in-depth-hardening`, `test-driven-infrastructure-assertions`, `root-cause-tracing-backward-chain`) to live execution telemetry during unified 4-phase synthesis.
+
+### 11.4 Quiet Luxury Minimalist 3-Tier Progressive Disclosure UI (`enterprise-noc-view.js`, `ejii-meridian.css`)
+
+* **3-Tier Progressive Disclosure:** Organizes high-density NOC telemetry into (1) an executive 4-metric operational pulse strip, (2) structured multi-engine diagnostic cards with tabular numerals (`font-variant-numeric: tabular-nums`), and (3) interactive enrollment and shift-handover modals with zero functional loss.
+
+---
+
 <div align="center">
   <sub>Architected & Engineered for <strong>Eldar Jamiyev's Infrastructure Intelligence (EJII)</strong> · Project Falcon & Project Aurora Release</sub>
 </div>
-

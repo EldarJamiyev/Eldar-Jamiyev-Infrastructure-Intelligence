@@ -886,6 +886,21 @@ function translateNaturalLanguageToFilter(naturalQuery) {
     positiveClauses.push('arp');
   }
 
+  // Multicast and Broadcast Noise (mDNS 5353, LLMNR 5355, WS-Discovery 3702, NetBIOS-NS 137, Limited Broadcast)
+  if (/\b(multicast|broadcast|noise|llmnr|mdns|ws-discovery|netbios-ns|nbns)\b/.test(lower)) {
+    positiveClauses.push('(udp.port == 5353 || udp.port == 5355 || udp.port == 3702 || udp.port == 137 || ip.dst == 255.255.255.255)');
+  }
+
+  // Cleartext HTTP flows (e.g. 10.168.195.33 <-> 10.22.10.153:80)
+  if (/\b(cleartext|unencrypted http|http flows)\b/.test(lower)) {
+    positiveClauses.push('(tcp.port == 80 || http)');
+  }
+
+  // Intel AMT (623) or Hyper-V (2179 / 172.29.192.1) sockets
+  if (/\b(intel amt|amt|lms\.exe|hyper-v|vmconnect|vmms)\b/.test(lower)) {
+    positiveClauses.push('(tcp.port == 623 || tcp.port == 2179 || ip.addr == 172.29.192.1)');
+  }
+
   // Printer / JetDirect / Port 9100
   if (/\b(printer|jetdirect|9100|spooler)\b/.test(lower)) {
     positiveClauses.push('tcp.port == 9100');
@@ -925,7 +940,7 @@ function translateNaturalLanguageToFilter(naturalQuery) {
     positiveClauses.push(`frame.len > ${lenMatch[1]}`);
   }
 
-  const joinOp = /\b(and|with|from|on|where)\b/i.test(lower) ? ' && ' : ' || ';
+  const joinOp = /\b(and|with|from|on|where)\b/i.test(lower) && !/\b(multicast and broadcast)\b/i.test(lower) ? ' && ' : ' || ';
   let synthesized = positiveClauses.length > 0 ? positiveClauses.join(joinOp) : (directCheck.valid ? q : 'tcp || udp || icmp');
   if (negativeClauses.length > 0) {
     synthesized = positiveClauses.length > 0
@@ -942,8 +957,12 @@ function translateNaturalLanguageToFilter(naturalQuery) {
 
 function getFilterAutocompleteSuggestions(prefix = '') {
   const catalog = [
-    'ip.addr == 127.0.0.1',
-    'ip.src == 192.168.31.1',
+    'ip.addr == 10.168.195.33',
+    'ip.addr == 172.29.192.1',
+    'ip.addr == 10.168.195.188',
+    'ip.addr == 10.22.10.153 && tcp.port == 80',
+    'udp.port == 5353 || udp.port == 5355 || udp.port == 3702 || udp.port == 137',
+    'tcp.port == 623 || tcp.port == 2179',
     '(tcp.flags.syn == 1 || tcp.flags.rst == 1) && !(ip.addr == 127.0.0.1)',
     'tcp.window_size == 0',
     'tcp.port == 443',
