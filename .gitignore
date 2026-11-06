@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Logs
+*.log
+task-*.log
+npm-debug.log*
+
+# Test certificates and keys
+*.pem
+tests/fixtures/*.pem
+
+# Database & Runtime State (Keep schema and seed intact; ignore runtime mutable databases)
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+
+# Runtime audit trails, security ledgers, and AI memory baselines
+data/audit/
+data/security/
+data/brain_memory*.json
+data/brain-config*.json
+data/scripts_mount/**/*.html
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment & Secrets (Never commit production credentials)
+.env
+.env.local
+.env.*.local
+
+# Backups & Archives
+backups/
+EJI-Platform/
+*.zip
+*.backup-*
+*.bak
+*.bak.*
+
+# Ignore local SQLite databases and runtime data
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Scratch & Maintenance Batch Files
+sync_now.bat
+
+
+bin/*.exe
+
+# AI Studio Build Artifacts & Temporary Media Cache
+.aistudio/
+.playwright-cli/
+.tempmediaStorage/
+*.png.tmp
+
+

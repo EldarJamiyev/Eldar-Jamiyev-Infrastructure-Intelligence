@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f5f1">
+  <meta name="description" content="EJII — Eldar Jamiyev's Infrastructure Intelligence. Enterprise infrastructure operations and network diagnostics.">
+  <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('ejii_theme') || 'light';
+        if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        var density = localStorage.getItem('ejii_density') || 'comfortable';
+        if (density === 'compact') document.documentElement.setAttribute('data-density', 'compact');
+        if (localStorage.getItem('ejii_reduced_motion') === 'true') {
+          document.documentElement.setAttribute('data-reduced-motion', 'true');
+        }
+        sessionStorage.removeItem('warmup_start_time');
+        sessionStorage.removeItem('warmup_last_reload_time');
+        sessionStorage.removeItem('warmup_failed_sent');
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/style.css?v=2026.10.18.5">
+  <link rel="stylesheet" href="/css/eji-premium.css?v=2026.10.18.5">
+  <link rel="stylesheet" href="/css/ejii-meridian.css?v=2026.10.26.2">
+  <link rel="stylesheet" href="/css/learning-center.css">
+  <link rel="stylesheet" href="/css/ai-operator-peak.css?v=2026.10.28.9">
+  <link rel="stylesheet" href="/css/chat-minimal.css?v=2026.10.29.1">
+  <link rel="manifest" href="/manifest.json">
+</head>
+<body>
+  <!-- Authentication experience. Existing authentication handlers and telemetry IDs are retained. -->
+  <div id="loginScreen" class="login-screen-wrapper">
+    <div class="login-shell">
+      <aside class="login-brand-panel" aria-label="About EJII">
+        <div class="login-brand-top">
+          <div class="login-brand-monogram">EJII</div>
+          <div>
+            <div class="login-brand-name">Eldar Jamiyev</div>
+            <div class="login-brand-caption">Infrastructure Intelligence</div>
+          </div>
+        </div>
+
+        <div class="login-brand-copy">
+          <div class="login-kicker">Infrastructure operations</div>
+          <h1 class="login-brand-headline">Understand the system.<br>Act with confidence.</h1>
+          <p class="login-brand-description">
+            One working environment for network visibility, evidence-led diagnostics,
+            packet inspection and carefully controlled operational tasks.
+          </p>
+          <div class="login-feature-list">
+            <div class="login-feature">
+              <span class="login-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 2-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2.8v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-2-2 .1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H5.7v-2.8h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L7 8.2l2-2 .1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h2.8v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2 2-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2V14h-.2a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+              </span>
+              <div><strong>Operational visibility</strong>Topology and endpoint evidence grounded in the running environment.</div>
+            </div>
+            <div class="login-feature">
+              <span class="login-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
+              </span>
+              <div><strong>Evidence before action</strong>Inspect traffic and investigate faults before considering remediation.</div>
+            </div>
+            <div class="login-feature">
+              <span class="login-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3 19 6v5c0 5-3.3 8-7 10-3.7-2-7-5-7-10V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+              </span>
+              <div><strong>Controlled operations</strong>Safety boundaries remain part of the operational workflow.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="login-brand-footer">BUILT FOR CLARITY · ENGINEERED BY ELDAR JAMIYEV</div>
+      </aside>
+
+      <main class="login-card" style="padding-top: 36px !important;">
+        <div class="login-status-capsule">
+          <div class="login-status-indicator">
+            <span class="status-radar-dot" aria-hidden="true"></span>
+            <span class="status-live-text">LOCAL WORKSTATION</span>
+          </div>
+          <div class="login-security-tag"><span class="tag-accent">ACCESS</span> / AUTHENTICATION REQUIRED</div>
+        </div>
+
+        <div class="login-heading-block">
+          <h2 class="login-brand-title">Welcome back</h2>
+          <p class="login-brand-subtitle">Sign in to your authorized EJII workspace.</p>
+        </div>
+
+        <div id="loginTelemetryBar" class="login-telemetry-grid" aria-label="Environment discovery">
+          <div class="telemetry-chip">
+            <span class="telemetry-label">WORKSTATION</span>
+            <span id="loginTelHost" class="telemetry-value">LOCAL-WORKSTATION</span>
+          </div>
+          <div class="telemetry-chip">
+            <span class="telemetry-label">DEFAULT GATEWAY</span>
+            <span id="loginTelGateway" class="telemetry-value">192.168.31.1</span>
+          </div>
+          <div class="telemetry-chip">
+            <span class="telemetry-label">SUBNET</span>
+            <span id="loginTelSubnet" class="telemetry-value">192.168.31.0/24</span>
+          </div>
+          <div class="telemetry-chip">
+            <span class="telemetry-label">RUNTIME</span>
+            <span id="loginTelDriver" class="telemetry-value">User-Space Native</span>
+          </div>
+        </div>
+
+        <div id="loginErrorAlert" class="login-error-alert" role="alert" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 7v5m0 4h.01"/></svg>
+          <span id="loginErrorMessage">Authentication failed.</span>
+        </div>
+
+        <div id="evaluationLoginPills" class="login-profile-block">
+          <div class="login-profile-label">Choose a workstation profile</div>
+          <div class="role-segmented-control" id="loginRolePills">
+            <button type="button" class="role-segment-btn login-role-btn active-profile" id="pill-admin" onclick="window.selectLoginProfile('admin','admin2026!')">Lead Architect</button>
+            <button type="button" class="role-segment-btn login-role-btn" id="pill-sysadmin" onclick="window.selectLoginProfile('sysadmin','sysadmin2026!')">Systems Admin</button>
+            <button type="button" class="role-segment-btn login-role-btn" id="pill-netadmin" onclick="window.selectLoginProfile('netadmin','netadmin2026!')">Network Admin</button>
+            <button type="button" class="role-segment-btn login-role-btn" id="pill-noc" onclick="window.selectLoginProfile('noc','noc2026!')">NOC Operator</button>
+          </div>
+        </div>
+
+        <button type="button" class="login-quick-cta-btn" id="evaluationQuickCta" aria-label="Enter Eldar Jamiyev's Infrastructure Intelligence" onclick="window.quickNocLogin()">
+          <span class="cta-content"><span class="cta-title">Continue to workstation</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+          </span>
+        </button>
+
+        <div class="login-divider" id="evaluationLoginDivider"><span>OR SIGN IN WITH YOUR ACCOUNT</span></div>
+
+        <form id="loginForm" onsubmit="window.handleLoginFormSubmit(event)">
+          <div class="login-form-group">
+            <label class="login-form-label" for="loginUsername">USERNAME</label>
+            <div class="login-input-wrap">
+              <svg class="login-input-icon" style="pointer-events: none !important;" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>
+              <input type="text" id="loginUsername" class="login-input" placeholder="Enter your username" value="admin" required autocomplete="username" style="padding-left: 40px !important;">
+            </div>
+          </div>
+          <div class="login-form-group">
+            <label class="login-form-label" for="loginPassword">PASSWORD</label>
+            <div class="login-input-wrap">
+              <svg class="login-input-icon" style="pointer-events: none !important;" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+              <input type="password" id="loginPassword" class="login-input" placeholder="Enter your password" value="admin2026!" required autocomplete="current-password" style="padding-left: 40px !important;">
+            </div>
+          </div>
+          <button type="submit" id="btnSubmitLogin" class="login-btn-submit">
+            <span id="loginBtnText">Sign in securely</span>
+          </button>
+        </form>
+
+        <div class="login-card-footer">
+          <div class="login-badges">
+            <span class="hud-pill"><span class="hud-dot dot-green"></span> CONTROLLED ACCESS</span>
+            <span class="hud-pill"><span class="hud-dot dot-cyan"></span> LIVE ENVIRONMENT</span>
+            <span class="hud-pill"><span class="hud-dot dot-purple"></span> SAFETY CONTROLS</span>
+          </div>
+          <div class="login-footer-meta">EJII · INFRASTRUCTURE INTELLIGENCE · LOCAL WORKSTATION</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Main operations shell. Existing API, view and authentication contracts remain in place. -->
+  <div id="app" style="display:none">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <div class="brand-logo" title="Eldar Jamiyev's Infrastructure Intelligence">EJII</div>
+        <div class="brand-text" title="Eldar Jamiyev's Infrastructure Intelligence">
+          <h1>Eldar Jamiyev</h1>
+          <p>Infrastructure Intelligence</p>
+        </div>
+      </div>
+
+      <div class="sidebar-workspace">
+        <div class="sidebar-workspace-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M7 9h4m-4 4h8"/></svg>
+        </div>
+        <div class="sidebar-workspace-copy">
+          <span class="sidebar-workspace-title">Operations workspace</span>
+          <span class="sidebar-workspace-meta">Local workstation</span>
+        </div>
+      </div>
+
+      <div class="user-badge" id="userBadgeArea">
+        <div class="user-avatar" aria-hidden="true">EJ</div>
+        <div class="user-info">
+          <span class="user-name" id="userDisplayName">Operator</span>
+          <span class="user-role-tag" id="userRoleTag">UNPRIVILEGED NOC</span>
+        </div>
+        <button class="btn-logout" id="btnLogout" title="Sign out" type="button">Exit</button>
+      </div>
+
+      <div class="sidebar-command">
+        <button id="btnOpenCommandPalette" type="button" title="Search actions and commands (Ctrl+K)">
+          <span class="command-launch-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.2"/><path d="m16.2 16.2 4.3 4.3"/></svg>
+            <span class="command-launch-copy">Search tools and actions</span>
+          </span>
+          <span class="command-palette-kbd">Ctrl K</span>
+        </button>
+      </div>
+
+      <div class="nav-section">MONITOR</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link" data-target-view="chat" data-page-title="AI Diagnostic Assistant" href="#chat" onclick="event.preventDefault();window.renderView('chat')" title="Conversational AI Diagnostic &amp; Investigation Assistant">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="nav-label">AI Assistant</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-target-view="ai-operator" data-page-title="AI Infrastructure Operator" href="#ai-operator" onclick="event.preventDefault();window.renderView('ai-operator')" title="Autonomous AI Infrastructure Operator &amp; 9-Capability Command Center">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a4 4 0 0 1 4 4v1h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2V6a4 4 0 0 1 4-4Z"/><path d="M9 13h.01M15 13h.01M9.5 17h5"/></svg>
+            <span class="nav-label">AI Operator</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link active" data-view="topology" data-page-title="Network overview" href="#topology" onclick="event.preventDefault();window.renderView('topology')" title="1. NOC Network Topology &amp; Dependency Graph Map">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v6m9 3h-6M12 21v-6M3 12h6"/></svg>
+            <span class="nav-label">Network overview</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-target-view="enterprise-noc" data-page-title="Enterprise NOC — Multi-Site & Edge Fleet" href="#enterprise-noc" onclick="event.preventDefault();window.renderView('enterprise-noc')" title="Enterprise NOC — Multi-Site Topology, Edge Agents & 3-Tier Governance">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span class="nav-label">Enterprise NOC</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-target-view="noc-dashboard" data-page-title="NOC Operations Center" href="#noc-dashboard" onclick="event.preventDefault();window.renderView('noc-dashboard')" title="Dual-Pane NOC Operations Center &amp; Live Wire Stream">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v9"/></svg>
+            <span class="nav-label">NOC Dashboard</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-section">INVESTIGATE</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link" data-view="packet-sniffer" data-page-title="Packet analysis" href="#packet-analysis" onclick="event.preventDefault();window.renderView('packet-sniffer')" title="2. Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.2-7L14 19l2.2-7H21"/></svg>
+            <span class="nav-label">Packet analysis</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="ultra-ip-scanner" data-page-title="IP & asset discovery" href="#asset-discovery" onclick="event.preventDefault();window.renderView('ultra-ip-scanner')" title="3. Ultra IP Scanner">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M10.5 7v7m-3.5-3.5h7"/></svg>
+            <span class="nav-label">IP & asset discovery</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-section">OPERATE</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link" data-view="pc-automation" data-page-title="Automation library" href="#automation" onclick="event.preventDefault();window.renderView('pc-automation')" title="Host Automation &amp; Audited Remediation Library">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 9 3 3-3 3m5 0h3"/></svg>
+            <span class="nav-label">Automation library</span>
+          </a>
+        </li>
+        <li>
+          <a class="nav-link" data-view="core-diagnostics" data-page-title="Diagnostics & recovery" href="#diagnostics" onclick="event.preventDefault();window.renderView('core-diagnostics')" title="Investigate faults and recovery options">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="5"/></svg>
+            <span class="nav-label">Diagnostics & recovery</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="nav-section">LEARN</div>
+      <ul class="nav-links">
+        <li>
+          <a class="nav-link" data-view="learning-center" data-page-title="Sovereign Learning Center" href="#/learning" onclick="event.preventDefault();window.renderView('learning-center')" title="Sovereign Learning Center &amp; Academies">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/></svg>
+            <span class="nav-label">Learning Center</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-flex-spacer"></div>
+      <div class="sidebar-footer">
+        <div class="status-pill"><span class="status-dot" aria-hidden="true"></span><span id="wsStatusText">Checking live connection</span></div>
+        <div>Safety-first · User-space operations</div>
+      </div>
+    </aside>
+
+    <main class="main-wrapper">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="page-context">
+            <div class="page-eyebrow">EJII / OPERATIONS</div>
+            <div class="page-title" id="pageTitle" aria-label="Eldar Jamiyev's Infrastructure Intelligence"><span class="page-name">Network overview</span></div>
+          </div>
+        </div>
+
+        <div class="topbar-stats">
+          <div id="topbarBpfPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarBpfClick && window.onTopbarBpfClick()" title="Active Berkeley Packet Filter — Click to inspect and edit BPF">
+            <span>BPF</span><span class="stat-val" id="topbarBpfFilter">ALL WIRE</span>
+          </div>
+          <div id="topbarAnomaliesPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarAnomaliesClick && window.onTopbarAnomaliesClick()" title="Network anomalies — Click to open Diagnostics &amp; Recovery">
+            <span>Anomalies</span><span class="stat-val" id="topbarAnomaliesCount">—</span>
+          </div>
+          <div id="topbarNodesPill" class="stat-item stat-item-interactive" style="cursor: pointer;" onclick="window.onTopbarNodesClick && window.onTopbarNodesClick()" title="Discovered topology nodes — Click to view Network Topology">
+            <span>Nodes</span><span class="stat-val" id="topbarNodesCount">—</span>
+          </div>
+          <span id="ejiiClockChip" class="stat-item" aria-label="Local time in Baku">--:-- · BAKU</span>
+
+          <div class="stat-item theme-controls" role="group" aria-label="Color theme">
+            <button type="button" id="themeBtnLight" class="btn-theme-toggle" onclick="window.setTheme('light')" title="Light theme" aria-label="Light theme">☼</button>
+            <button type="button" id="themeBtnDark" class="btn-theme-toggle" onclick="window.setTheme('dark')" title="Dark theme" aria-label="Dark theme">◐</button>
+            <button type="button" id="themeBtnSystem" class="btn-theme-toggle" onclick="window.setTheme('system')" title="Use system theme" aria-label="Use system theme">▣</button>
+          </div>
+
+          <button id="btnTopbarV6Fabric" class="topbar-action" type="button" onclick="window.openV6SovereignFabricModal && window.openV6SovereignFabricModal('uncertainty')" title="EJII v6 Sovereign Intelligence Fabric — Evidence Lineage, Uncertainty Panel & Governed Control Plane" aria-label="Sovereign Fabric v6">
+            <span style="font-size: 13px;" aria-hidden="true">🧬</span>
+            <span class="action-label">Sovereign Fabric v6</span>
+          </button>
+          <button id="btnTopbarDvr" class="topbar-action" type="button" onclick="window.toggleDvrModal && window.toggleDvrModal()" title="Telemetry Time-Machine DVR & Historical State Diff" aria-label="Time-Machine DVR">
+            <span style="font-size: 13px;" aria-hidden="true">⏱️</span>
+            <span class="action-label">Time-Machine DVR</span>
+          </button>
+          <button class="topbar-action" type="button" onclick="window.openSettingsModal()" title="Workspace and display settings" aria-label="Workspace settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19 13.5 1.3 1-.9 2-1.6-.2a7.6 7.6 0 0 1-1.3 1l-.3 1.6h-2.2l-.5-1.5a7.6 7.6 0 0 1-1.5-.5l-1.4.8-1.6-1.6.8-1.4a7.6 7.6 0 0 1-.5-1.5l-1.5-.5v-2.2l1.5-.5a7.6 7.6 0 0 1 .5-1.5l-.8-1.4 1.6-1.6 1.4.8a7.6 7.6 0 0 1 1.5-.5l.5-1.5h2.2l.5 1.5a7.6 7.6 0 0 1 1.5.5l1.4-.8 1.6 1.6-.8 1.4a7.6 7.6 0 0 1 .5 1.5l1.5.5v2.2Z"/></svg>
+            <span class="action-label">Settings</span>
+          </button>
+          <button class="topbar-action" type="button" onclick="window.toggleJuniorAdminCheatSheet()" title="Open the operational field manual (Ctrl+H)" aria-label="Open field manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5Z"/><path d="M4 5.5v13M8 7h8M8 11h8"/></svg>
+            <span class="action-label">Field manual</span>
+          </button>
+        </div>
+      </header>
+
+      <div id="ejiiActiveTargetContextBar" class="eji-context-bar" style="display:none" role="region" aria-label="Active investigation target context"></div>
+      <div id="v6FabricCommandRibbon" class="v6-command-ribbon" role="region" aria-label="Sovereign Intelligence Fabric v6 Live Status">
+        <div class="v6-ribbon-left">
+          <span class="v6-ribbon-tag">SOVEREIGN FABRIC V6</span>
+          <span class="v6-ribbon-meta" id="v6RibbonTelemetrySummary">16 Capabilities · 11 Evidence Classes · Epistemic Guardrail Enforced</span>
+        </div>
+        <div class="v6-ribbon-actions">
+          <button type="button" class="v6-ribbon-btn v6-ribbon-btn-primary" onclick="window.renderView('ai-operator')">AI Operator Console</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('uncertainty')">Causal &amp; Epistemic Truth</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('evidence')">Evidence Lineage DAG</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('simulation')">M/M/1/K Chaos Twin</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('engines')">8 Flagship Engines</button>
+          <button type="button" class="v6-ribbon-btn" onclick="window.openV6SovereignFabricModal('governance')">Governed Control Plane</button>
+        </div>
+      </div>
+      <div id="aiOperatorProactiveBanner" style="display:none" role="region" aria-label="AI Infrastructure Operator Proactive Briefing"></div>
+      <section class="content-body" id="mainContent" aria-live="off">
+        <!-- The existing EJII view modules render live backend data here. -->
+      </section>
+    </main>
+  </div>
+
+  <!-- Global command palette: populated by the existing command-palette module. -->
+  <div id="commandPalette" class="command-palette-backdrop" style="display:none">
+    <div class="command-palette-modal" role="dialog" aria-modal="true" aria-label="Search tools and actions">
+      <div class="command-palette-input-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.2"/><path d="m16.2 16.2 4.3 4.3"/></svg>
+        <input type="text" id="commandPaletteInput" class="command-palette-input" placeholder="Search an action, diagnostic or target…" autocomplete="off">
+        <span class="command-palette-kbd">ESC</span>
+      </div>
+      <ul id="commandPaletteResults" class="command-palette-results"></ul>
+    </div>
+  </div>
+
+  <!-- Existing topology context actions. -->
+  <div id="nocContextMenu" class="noc-context-menu" style="display:none">
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('sniff')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12h5l2-8 5 16 3-8h5"/></svg><span>Inspect traffic on this node</span>
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('blast')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m13 2-3 9h8l-7 11 2-9H5l8-11Z"/></svg><span>Assess failure impact</span>
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('trace')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 8-2 6-6 2 2-6 6-2Z"/></svg><span>Trace network path</span>
+    </div>
+    <div class="noc-context-item" onclick="window.handleContextMenuAction('probe')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12h16M12 4v16"/></svg><span>Run diagnostic probes</span>
+    </div>
+  </div>
+
+  <div id="modalContainer" style="display:none"></div>
+
+  <!-- Workspace settings: IDs and handlers are used by app.js. -->
+  <div id="workspaceSettingsModal" class="command-palette-backdrop" style="display:none;z-index:9999" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="command-palette-modal settings-modal">
+      <div class="settings-modal-header">
+        <div>
+          <div class="page-eyebrow">PREFERENCES</div>
+          <h2 id="settingsModalTitle">Workspace settings</h2>
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="window.closeSettingsModal()" aria-label="Close settings">Close</button>
+      </div>
+      <div class="settings-options">
+        <div>
+          <label for="settingsThemeSelect">Appearance</label>
+          <select id="settingsThemeSelect" class="form-control" onchange="window.setTheme(this.value)">
+            <option value="system">Use system preference</option>
+            <option value="light">Light · Meridian</option>
+            <option value="dark">Dark · Graphite</option>
+          </select>
+        </div>
+        <div>
+          <label for="settingsDensitySelect">Table density</label>
+          <select id="settingsDensitySelect" class="form-control" onchange="window.setDensity(this.value)">
+            <option value="comfortable">Comfortable</option>
+            <option value="compact">Compact</option>
+          </select>
+        </div>
+        <label class="settings-motion-row" for="settingsReducedMotionCheckbox">
+          <input type="checkbox" id="settingsReducedMotionCheckbox" onchange="window.setReducedMotion(this.checked)">
+          <span><strong>Reduce motion</strong><small>Limit non-essential movement and transitions.</small></span>
+        </label>
+      </div>
+      <div class="settings-modal-footer">
+        <button type="button" class="btn btn-primary" onclick="window.closeSettingsModal()">Save preferences</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/components/filter-compiler.js?v=2026.10.28.8"></script>
+  <script src="/js/components/command-palette.js?v=2026.10.28.8"></script>
+  <script src="/js/components/junior-admin-guide.js?v=2026.10.28.8"></script>
+  <script src="/js/components/ai-brain-drawer.js?v=2026.10.28.8"></script>
+  <script src="/js/virtual-packet-cockpit.js?v=2026.10.28.8"></script>
+  <script src="/js/views/noc-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/topology-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/sniffer-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/ultra-ip-scanner-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/pc-automation-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/core-diagnostics-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-api.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-store.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-router.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-renderer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/subnetting-trainer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/packet-journey.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/vlan-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/routing-explorer.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/powershell-sandbox.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/linux-sandbox.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/active-directory-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/labs/dns-dhcp-lab.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-catalog.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-course-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-lesson-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-quiz-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-progress-view.js?v=2026.10.28.8"></script>
+  <script src="/js/learning/learning-flashcards.js?v=2026.10.28.8"></script>
+  <script src="/js/views/learning-center-view.js?v=2026.10.28.8"></script>
+  <script src="/js/views/ai-operator-view.js?v=2026.10.28.9"></script>
+  <script src="/js/views/chat-workspace-view.js?v=2026.10.29.1"></script>
+  <script src="/js/views/enterprise-noc-view.js?v=2026.11.01.1"></script>
+  <script src="/js/app.js?v=2026.10.29.1"></script>
+  <div id="dvrModalContainer" style="display:none"></div>
+  <div id="v6SovereignFabricModal" class="command-palette-backdrop" style="display:none;z-index:9998;align-items:center;justify-content:center;padding:18px;" role="dialog" aria-modal="true" aria-label="EJII v6 Sovereign Intelligence Fabric">
+    <div class="v6-studio-shell">
+      <div class="v6-studio-header">
+        <div>
+          <div class="v6-studio-eyebrow">EJII V6 · SOVEREIGN INTELLIGENCE FABRIC · UNIFIED EPISTEMIC CONTROL PLANE</div>
+          <h2 class="v6-studio-title">Evidence Fabric · Causal RCA · Temporal Topology · 8 Flagship Engines · Governed Remediation</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:6px 11px;" onclick="window.refreshV6FabricOverview(window.__v6ActiveTab || 'uncertainty')">↻ Sync Live Fabric</button>
+          <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:6px 12px;" onclick="window.closeV6SovereignFabricModal()" aria-label="Close Sovereign Fabric">Close</button>
+        </div>
+      </div>
+      <div id="v6StudioKpiStrip" class="v6-studio-kpi-strip" aria-label="Sovereign Fabric Metrics"></div>
+      <div class="v6-studio-tabs" role="tablist" aria-label="Sovereign Fabric Workbenches">
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="uncertainty" onclick="window.renderV6FabricTab('uncertainty')">1. Uncertainty &amp; Counterfactuals</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="evidence" onclick="window.renderV6FabricTab('evidence')">2. Evidence Fabric &amp; Lineage DAG</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="simulation" onclick="window.renderV6FabricTab('simulation')">3. Temporal Graph &amp; Chaos Twin</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="engines" onclick="window.renderV6FabricTab('engines')">4. 8 Flagship Deep Engines</button>
+        <button type="button" role="tab" class="btn v6-fabric-tab-btn" data-v6-tab="governance" onclick="window.renderV6FabricTab('governance')">5. Governed Remediation &amp; Academy</button>
+      </div>
+      <div id="v6SovereignFabricBody" class="v6-studio-body"></div>
+    </div>
+  </div>
+  <script src="/js/ejii-meridian.js?v=2026.10.28.8"></script>
+  <script src="/js/v6-sovereign-fabric.js?v=2026.10.28.8"></script>
+</body>
+</html>

@@ -1,0 +1,634 @@
+/**
+ * EJII Learning Center — Sovereign Enterprise Learning Design System
+ * Architectural Cashmere & Velvet Graphite aesthetic matching EJII design tokens.
+ * Fully responsive: Desktop (1440px), Tablet (768px-1024px), Mobile (390px).
+ */
+
+/* ==========================================================================
+   Container & Global Layout
+   ========================================================================== */
+
+.ejii-learning-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--text-primary, #141413);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (max-width: 768px) {
+  .ejii-learning-container {
+    padding: 12px;
+  }
+}
+
+/* ==========================================================================
+   Navigation Bar & Breadcrumbs
+   ========================================================================== */
+
+.ejii-learning-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 10px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ejii-learning-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #52514e);
+  flex-wrap: wrap;
+}
+
+.ejii-learning-breadcrumb-link {
+  color: var(--accent-primary, #2b44b8);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.ejii-learning-breadcrumb-link:hover {
+  text-decoration: underline;
+  color: var(--accent-hover, #22379a);
+}
+
+.ejii-learning-breadcrumb-sep {
+  color: var(--text-muted, #888681);
+}
+
+.ejii-learning-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   Hero & Header Banners
+   ========================================================================== */
+
+.ejii-learning-hero {
+  background: linear-gradient(135deg, var(--bg-surface, #ffffff) 0%, var(--bg-surface-subtle, #faf9f6) 100%);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.ejii-learning-hero-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px 0;
+  color: var(--text-primary, #141413);
+}
+
+.ejii-learning-hero-subtitle {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-secondary, #52514e);
+  margin: 0 0 20px 0;
+  max-width: 800px;
+}
+
+.ejii-learning-hero-stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle, #efece6);
+}
+
+.ejii-learning-stat-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.ejii-learning-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-primary, #2b44b8);
+  font-variant-numeric: tabular-nums;
+}
+
+.ejii-learning-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #888681);
+}
+
+/* ==========================================================================
+   Buttons & Inputs
+   ========================================================================== */
+
+.ejii-learning-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+.ejii-learning-btn--primary {
+  background: var(--accent-primary, #2b44b8);
+  color: #ffffff;
+  border-color: var(--accent-primary, #2b44b8);
+}
+
+.ejii-learning-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover, #22379a);
+  border-color: var(--accent-hover, #22379a);
+}
+
+.ejii-learning-btn--secondary {
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #141413);
+  border-color: var(--border-default, #e4e1d8);
+}
+
+.ejii-learning-btn--secondary:hover:not(:disabled) {
+  background: var(--bg-surface-hover, #efece6);
+}
+
+.ejii-learning-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ejii-learning-input {
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  color: var(--text-primary, #141413);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.ejii-learning-input:focus {
+  border-color: var(--border-focus, #2b44b8);
+}
+
+/* ==========================================================================
+   Badges & Pills
+   ========================================================================== */
+
+.ejii-learning-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--bg-surface-hover, #efece6);
+  color: var(--text-secondary, #52514e);
+}
+
+.ejii-learning-badge--accent {
+  background: var(--accent-subtle, #eef2ff);
+  color: var(--accent-primary, #2b44b8);
+  border: 1px solid var(--accent-border, #c7d2fe);
+}
+
+.ejii-learning-badge--completed {
+  background: var(--status-nominal-subtle, #ecfdf5);
+  color: var(--status-nominal, #0d7a5f);
+  border: 1px solid rgba(13, 122, 95, 0.2);
+}
+
+.ejii-learning-badge--warning {
+  background: var(--status-warning-subtle, #fffbeb);
+  color: var(--status-warning, #b45309);
+  border: 1px solid rgba(180, 83, 9, 0.2);
+}
+
+.ejii-learning-badge--danger {
+  background: var(--status-critical-subtle, #fff1f2);
+  color: var(--status-critical, #be123c);
+  border: 1px solid rgba(190, 18, 60, 0.2);
+}
+
+/* ==========================================================================
+   Progress Bar
+   ========================================================================== */
+
+.ejii-learning-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-surface-track, #efece6);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.ejii-learning-progress-bar {
+  height: 100%;
+  background: var(--accent-primary, #2b44b8);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.ejii-learning-progress-bar--completed {
+  background: var(--status-nominal, #0d7a5f);
+}
+
+/* ==========================================================================
+   Card Grids & Track/Course Cards
+   ========================================================================== */
+
+.ejii-learning-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 600px) {
+  .ejii-learning-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ejii-learning-card {
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.ejii-learning-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  border-color: var(--border-strong, #c4c2bc);
+}
+
+.ejii-learning-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.ejii-learning-card-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: var(--text-primary, #141413);
+}
+
+.ejii-learning-card-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary, #52514e);
+  margin: 0 0 16px 0;
+  flex: 1;
+}
+
+.ejii-learning-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle, #efece6);
+  margin-top: auto;
+}
+
+/* ==========================================================================
+   2-Pane Lesson Reader Layout
+   ========================================================================== */
+
+.ejii-learning-reader {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.ejii-learning-reader-sidebar {
+  width: 320px;
+  min-width: 280px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 10px;
+  padding: 16px;
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.ejii-learning-reader-content {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 10px;
+  padding: 32px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+@media (max-width: 1024px) {
+  .ejii-learning-reader {
+    flex-direction: column;
+  }
+  .ejii-learning-reader-sidebar {
+    width: 100%;
+    position: static;
+    max-height: 300px;
+  }
+  .ejii-learning-reader-content {
+    padding: 20px;
+  }
+}
+
+/* ==========================================================================
+   Sidebar Curriculum Tree
+   ========================================================================== */
+
+.ejii-learning-tree-module {
+  margin-bottom: 16px;
+}
+
+.ejii-learning-tree-module-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #888681);
+  padding: 4px 8px;
+  margin-bottom: 4px;
+}
+
+.ejii-learning-tree-lesson {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary, #52514e);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.ejii-learning-tree-lesson:hover {
+  background: var(--bg-surface-hover, #efece6);
+  color: var(--text-primary, #141413);
+}
+
+.ejii-learning-tree-lesson--active {
+  background: var(--accent-subtle, #eef2ff);
+  color: var(--accent-primary, #2b44b8);
+  font-weight: 600;
+  border-left: 3px solid var(--accent-primary, #2b44b8);
+}
+
+/* ==========================================================================
+   Article Markdown & Editorial Styling
+   ========================================================================== */
+
+.ejii-learning-article {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-primary, #141413);
+}
+
+.ejii-learning-article h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  letter-spacing: -0.02em;
+}
+
+.ejii-learning-article h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 28px 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle, #efece6);
+}
+
+.ejii-learning-article h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 20px 0 8px 0;
+}
+
+.ejii-learning-article p {
+  margin: 0 0 16px 0;
+}
+
+.ejii-learning-article ul, .ejii-learning-article ol {
+  margin: 0 0 16px 0;
+  padding-left: 24px;
+}
+
+.ejii-learning-article li {
+  margin-bottom: 6px;
+}
+
+.ejii-learning-article table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 13px;
+}
+
+.ejii-learning-article th, .ejii-learning-article td {
+  padding: 10px 14px;
+  border: 1px solid var(--border-default, #e4e1d8);
+  text-align: left;
+}
+
+.ejii-learning-article th {
+  background: var(--bg-surface-subtle, #faf9f6);
+  font-weight: 600;
+}
+
+/* Callout Alert Boxes */
+.ejii-learning-callout {
+  padding: 14px 18px;
+  border-radius: 8px;
+  margin: 20px 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  border-left: 4px solid var(--accent-primary, #2b44b8);
+  background: var(--accent-subtle, #eef2ff);
+}
+
+.ejii-learning-callout--tip {
+  border-left-color: var(--status-nominal, #0d7a5f);
+  background: var(--status-nominal-subtle, #ecfdf5);
+}
+
+.ejii-learning-callout--warning {
+  border-left-color: var(--status-warning, #b45309);
+  background: var(--status-warning-subtle, #fffbeb);
+}
+
+/* Code Blocks */
+.ejii-learning-codeblock {
+  background: var(--bg-terminal, #0f172a);
+  color: #f1f5f9;
+  border: 1px solid var(--border-terminal, #334155);
+  border-radius: 8px;
+  margin: 18px 0;
+  overflow: hidden;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.ejii-learning-codeblock-header {
+  background: var(--bg-terminal-subtle, #1e293b);
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-terminal, #334155);
+}
+
+.ejii-learning-codeblock-lang {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ejii-learning-codeblock-copy {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ejii-learning-codeblock-copy:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.ejii-learning-codeblock-pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Knowledge Check & Quiz Widgets
+   ========================================================================== */
+
+.ejii-learning-check {
+  background: var(--bg-surface-subtle, #faf9f6);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 8px;
+  padding: 18px;
+  margin: 24px 0;
+}
+
+.ejii-learning-check-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--accent-primary, #2b44b8);
+}
+
+.ejii-learning-check-prompt {
+  font-size: 13.5px;
+  font-weight: 500;
+  margin-bottom: 14px;
+}
+
+.ejii-learning-check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13px;
+}
+
+.ejii-learning-check-option:hover {
+  background: var(--bg-surface-hover, #efece6);
+}
+
+.ejii-learning-check-option--correct {
+  background: var(--status-nominal-subtle, #ecfdf5);
+  border-color: var(--status-nominal, #0d7a5f);
+}
+
+.ejii-learning-check-option--incorrect {
+  background: var(--status-critical-subtle, #fff1f2);
+  border-color: var(--status-critical, #be123c);
+}
+
+/* ==========================================================================
+   Notes & Bookmarks Drawer
+   ========================================================================== */
+
+.ejii-learning-notes-panel {
+  background: var(--bg-surface-subtle, #faf9f6);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 28px;
+}
+
+.ejii-learning-textarea {
+  width: 100%;
+  min-height: 100px;
+  box-sizing: border-box;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-default, #e4e1d8);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary, #141413);
+  resize: vertical;
+  outline: none;
+}
+
+.ejii-learning-textarea:focus {
+  border-color: var(--border-focus, #2b44b8);
+}

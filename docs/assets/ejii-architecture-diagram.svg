@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540" role="img" aria-label="EJII v7.0 System Architecture Diagram">
+  <defs>
+    <style>
+      .title { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif; font-weight: 800; fill: #0F172A; }
+      .subtitle { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif; font-weight: 500; fill: #475569; }
+      .layer-label { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 11px; letter-spacing: 0.08em; fill: #2563EB; }
+      .box-title { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif; font-weight: 700; font-size: 13.5px; fill: #0F172A; }
+      .box-meta { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 11px; fill: #475569; }
+      .pill-text { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 10px; fill: #FFFFFF; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748B"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="540" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5"/>
+
+  <!-- Header -->
+  <text x="36" y="42" class="title" font-size="20">EJII v7.0 — End-to-End Sovereign Infrastructure Intelligence Architecture</text>
+  <text x="36" y="64" class="subtitle" font-size="13">Project Aurora Unified UI Shell · Project Falcon AI-Native Conversational Brain · Sovereign Fabric v6 Evidence &amp; Governance Plane</text>
+
+  <!-- TIER 1: Unified Frontend Workstations -->
+  <rect x="28" y="84" width="1144" height="106" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="46" y="106" class="layer-label">TIER 1 · PROJECT AURORA UNIFIED FRONTEND WORKSTATIONS (PUBLIC/JS/VIEWS/* + EJII-MERIDIAN.CSS)</text>
+
+  <g transform="translate(46, 118)">
+    <rect x="0" y="0" width="172" height="56" rx="8" fill="#EFF6FF" stroke="#BFDBFE"/>
+    <text x="12" y="22" class="box-title">AI Assistant &amp; Chat</text>
+    <text x="12" y="40" class="box-meta">chat-workspace-view.js</text>
+
+    <rect x="184" y="0" width="172" height="56" rx="8" fill="#EFF6FF" stroke="#BFDBFE"/>
+    <text x="196" y="22" class="box-title">AI Operator Console</text>
+    <text x="196" y="40" class="box-meta">ai-operator-view.js</text>
+
+    <rect x="368" y="0" width="172" height="56" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="380" y="22" class="box-title">Topology &amp; NOC Map</text>
+    <text x="380" y="40" class="box-meta">topology / noc-view.js</text>
+
+    <rect x="552" y="0" width="172" height="56" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="564" y="22" class="box-title">3-Pane Wire Sniffer</text>
+    <text x="564" y="40" class="box-meta">sniffer-view.js</text>
+
+    <rect x="736" y="0" width="172" height="56" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="748" y="22" class="box-title">IP Scanner &amp; Host</text>
+    <text x="748" y="40" class="box-meta">ultra-ip / pc-auto</text>
+
+    <rect x="920" y="0" width="188" height="56" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="932" y="22" class="box-title">Diagnostics &amp; Academy</text>
+    <text x="932" y="40" class="box-meta">core-diag / learning</text>
+  </g>
+
+  <!-- Connector Arrows Tier 1 -> Tier 2 -->
+  <line x1="300" y1="190" x2="300" y2="214" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="600" y1="190" x2="600" y2="214" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="900" y1="190" x2="900" y2="214" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- TIER 2: Conversational Brain & Sovereign Intelligence Fabric v6 -->
+  <rect x="28" y="218" width="1144" height="132" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="46" y="240" class="layer-label">TIER 2 · PROJECT FALCON AI CONVERSATIONAL BRAIN &amp; SOVEREIGN INTELLIGENCE FABRIC V6 (SRC/CORE/*)</text>
+
+  <g transform="translate(46, 252)">
+    <rect x="0" y="0" width="356" height="82" rx="10" fill="#0F172A"/>
+    <rect x="14" y="12" width="110" height="18" rx="4" fill="#2563EB"/>
+    <text x="69" y="24" text-anchor="middle" class="pill-text">GEMINI + BRAIN</text>
+    <text x="14" y="46" fill="#F8FAFC" font-family="'Plus Jakarta Sans', sans-serif" font-weight="700" font-size="14">Conversational Brain &amp; Semantic Interpreter</text>
+    <text x="14" y="66" fill="#94A3B8" font-family="'JetBrains Mono', monospace" font-size="11">Multi-turn context · Mail/ISP workflows · Zero-guess</text>
+
+    <rect x="376" y="0" width="356" height="82" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <rect x="390" y="12" width="128" height="18" rx="4" fill="#059669"/>
+    <text x="454" y="24" text-anchor="middle" class="pill-text">EPISTEMIC GUARDRAIL</text>
+    <text x="390" y="46" class="box-title">Evidence Fabric &amp; Causal RCA Correlator</text>
+    <text x="390" y="66" class="box-meta">11 Evidence Classes · Lineage DAG · Shannon Gain</text>
+
+    <rect x="752" y="0" width="356" height="82" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <rect x="766" y="12" width="142" height="18" rx="4" fill="#D97706"/>
+    <text x="837" y="24" text-anchor="middle" class="pill-text">GOVERNED REMEDIATION</text>
+    <text x="766" y="46" class="box-title">Autonomous Operator &amp; Honest Rollback</text>
+    <text x="766" y="66" class="box-meta">Pre-Snapshots · Postcondition Probe · Auto-Restore</text>
+  </g>
+
+  <!-- Connector Arrows Tier 2 -> Tier 3 -->
+  <line x1="300" y1="350" x2="300" y2="374" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="600" y1="350" x2="600" y2="374" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="900" y1="350" x2="900" y2="374" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- TIER 3: Live Protocol Engines, OS Collectors & SQLite WAL Persistence -->
+  <rect x="28" y="378" width="1144" height="134" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="46" y="400" class="layer-label">TIER 3 · LIVE PROTOCOL DISSECTORS, OS TELEMETRY COLLECTORS &amp; SQLITE WAL STORAGE (SRC/PROTOCOLS &amp; SRC/DB)</text>
+
+  <g transform="translate(46, 412)">
+    <rect x="0" y="0" width="266" height="82" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="14" y="24" class="box-title">5-Layer Local-to-ISP Probes</text>
+    <text x="14" y="44" class="box-meta">NIC/DHCP · Gateway · DNS · TCP · HTTP</text>
+    <text x="14" y="62" class="box-meta">Verified OS Resolver Discovery</text>
+
+    <rect x="280" y="0" width="266" height="82" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="294" y="24" class="box-title">L2–L7 Wire &amp; Socket Engine</text>
+    <text x="294" y="44" class="box-meta">RFC Binary Dissector · JA4 TLS 1.3</text>
+    <text x="294" y="62" class="box-meta">Kernel BPF &amp; Wireshark AST Filter</text>
+
+    <rect x="560" y="0" width="266" height="82" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="574" y="24" class="box-title">Host &amp; Fleet Telemetry</text>
+    <text x="574" y="44" class="box-meta">CPU/RAM/Disk · Active Kernel Sockets</text>
+    <text x="574" y="62" class="box-meta">28 Audited Remediation Recipes</text>
+
+    <rect x="840" y="0" width="268" height="82" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="854" y="24" class="box-title">SQLite WAL &amp; RBAC Security</text>
+    <text x="854" y="44" class="box-meta">PBKDF2-SHA512 · Capability JWTs</text>
+    <text x="854" y="62" class="box-meta">Session Ownership &amp; DVR Snapshots</text>
+  </g>
+</svg>
