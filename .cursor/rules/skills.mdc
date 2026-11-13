@@ -1,0 +1,18 @@
+---
+description: Universal Agent Skills Ecosystem conventions for Cursor IDE in EJII
+globs: **/*
+alwaysApply: true
+---
+
+# Cursor Rules — EJII Universal Agent Skills Ecosystem
+
+- **Canonical Skills Directory**: `.agents/skills/<skill-name>/SKILL.md`
+- **Profiles**: `.agents/skill-profiles.json`
+- **Manifest**: `.agents/skills/skills-manifest.json`
+
+## Guidelines for Cursor Agents:
+1. All skills are located in `.agents/skills/`.
+2. Core Governance (`gravitas`, `doubt-driven-development`, `security-review`, `verification-before-completion`) must always guide development decisions.
+3. For infrastructure, networking, and Google Cloud tasks, consult the corresponding skills in `.agents/skills/`.
+4. The runtime skill router (`src/core/skills/read-only-skill-router.js`) is strictly read-only; never inject mutating disk routines into it.
+5. Setup workspace links using `powershell -File .\scripts\setup-agent-skills.ps1 -Agent cursor`.
