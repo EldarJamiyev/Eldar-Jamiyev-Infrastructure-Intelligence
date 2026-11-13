@@ -9,7 +9,7 @@ const { db } = require('../db/database');
 const { verifyPassword, createToken, verifyToken, revokeToken, ROLES } = require('../core/security');
 const { authenticate, parseCookies } = require('./middleware');
 const { loginRateLimiter, recordLoginAttempt } = require('./rate-limiter');
-const { generateSecret, verifyTOTP, getOtpAuthUrl } = require('../core/totp');
+const { generateSecret, verifyTOTP, verifyTOTPWithReplayGuard, getOtpAuthUrl } = require('../core/totp');
 
 /**
  * Set session cookie
@@ -29,12 +29,14 @@ function setSessionCookie(res, token) {
 router.post('/login', loginRateLimiter, (req, res) => {
   const rawBody = req.body || {};
   const isStrictMode = process.env.NODE_ENV === 'production' || req.headers['x-ejii-strict-auth'] === 'true';
+  const hasExplicitCredentials = rawBody.username !== undefined || rawBody.password !== undefined;
+
   const username = typeof rawBody.username === 'string' && rawBody.username.trim()
     ? rawBody.username.trim()
-    : (!isStrictMode ? 'admin' : '');
+    : (!isStrictMode && !hasExplicitCredentials ? 'admin' : '');
   const password = typeof rawBody.password === 'string' && rawBody.password
     ? rawBody.password
-    : (!isStrictMode ? 'admin2026!' : '');
+    : (!isStrictMode && !hasExplicitCredentials ? 'admin2026!' : '');
 
   if (!username || typeof password !== 'string' || !password) {
     recordLoginAttempt(req, false);
@@ -56,9 +58,6 @@ router.post('/login', loginRateLimiter, (req, res) => {
       user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get();
     } else if (/^(operator|noc[_\-\s]*operator|analyst)$/i.test(username)) {
       user = db.prepare("SELECT * FROM users WHERE username = 'noc'").get();
-    } else if (!isStrictMode) {
-      user = db.prepare("SELECT * FROM users WHERE username = 'admin' AND is_active = 1 LIMIT 1").get() ||
-             db.prepare('SELECT * FROM users WHERE is_active = 1 LIMIT 1').get();
     }
   }
 
@@ -67,9 +66,9 @@ router.post('/login', loginRateLimiter, (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
-  // Cryptographically verify password against stored PBKDF2 hash & salt
+  // Unconditionally validate password against stored PBKDF2 hash & salt in all environments
   const passwordValid = verifyPassword(password, user.password_hash, user.salt);
-  if (!passwordValid && isStrictMode) {
+  if (!passwordValid) {
     recordLoginAttempt(req, false);
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
@@ -79,13 +78,45 @@ router.post('/login', loginRateLimiter, (req, res) => {
     return res.status(403).json({ error: 'This user account is currently deactivated.' });
   }
 
+  // Enforce MFA when enrolled on the user account
+  if (Number(user.mfa_enabled) === 1 && user.mfa_secret) {
+    const suppliedTotp = rawBody.totpCode || rawBody.mfaToken || rawBody.totp || req.headers['x-ejii-totp'];
+    if (!suppliedTotp) {
+      recordLoginAttempt(req, false);
+      return res.status(401).json({
+        error: 'MFA_REQUIRED: TOTP code is required to complete authentication for this account.',
+        mfaRequired: true
+      });
+    }
+    const mfaResult = verifyTOTPWithReplayGuard(user.mfa_secret, String(suppliedTotp), user.mfa_last_counter);
+    if (!mfaResult.valid) {
+      recordLoginAttempt(req, false);
+      return res.status(401).json({
+        error: mfaResult.replayDetected
+          ? 'MFA_REPLAY_DETECTED: This TOTP code has already been consumed in the current time window.'
+          : 'Invalid MFA TOTP code.',
+        mfaRequired: true,
+        replayDetected: Boolean(mfaResult.replayDetected)
+      });
+    }
+    try {
+      db.prepare('UPDATE users SET mfa_last_counter = ?, mfa_updated_at = ? WHERE id = ?')
+        .run(mfaResult.matchedCounter, new Date().toISOString(), user.id);
+    } catch (_) {}
+  }
+
   recordLoginAttempt(req, true);
+  try {
+    db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(new Date().toISOString(), user.id);
+  } catch (_) {}
 
   const token = createToken({
     id: user.id,
     username: user.username,
     role: user.role,
-    fullName: user.full_name
+    fullName: user.full_name,
+    tokenType: 'user_session',
+    dbBacked: true
   });
 
   setSessionCookie(res, token);
@@ -97,20 +128,24 @@ router.post('/login', loginRateLimiter, (req, res) => {
       id: user.id,
       username: user.username,
       fullName: user.full_name,
-      role: user.role
+      role: user.role,
+      mfaEnabled: Boolean(Number(user.mfa_enabled) === 1 && user.mfa_secret)
     }
   });
 });
 
 /**
  * POST /api/auth/quick-noc
- * 1-click single-operator unprivileged NOC workstation sign-in (Local Loopback / Evaluation Only)
+ * 1-click single-operator unprivileged NOC workstation sign-in (Local Loopback Only)
  */
 router.post('/quick-noc', (req, res) => {
-  const { IS_EVALUATION_MODE, HOST, isLocalLoopbackHost } = require('../config');
-  const clientIp = req.ip || req.connection?.remoteAddress || '';
-  const isLoopbackClient = isLocalLoopbackHost(clientIp);
-  const isLoopbackHost = isLocalLoopbackHost(HOST);
+  const { isLocalLoopbackHost } = require('../config');
+  const forwardedIp = typeof req.headers['x-forwarded-for'] === 'string'
+    ? req.headers['x-forwarded-for'].split(',')[0].trim()
+    : '';
+  const socketIp = req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip || '';
+  const effectiveClientIp = forwardedIp || socketIp;
+  const isLoopbackClient = isLocalLoopbackHost(effectiveClientIp) && (!forwardedIp || isLocalLoopbackHost(forwardedIp));
 
   if (req.body && (req.body.role || req.body.username)) {
     return res.status(400).json({
@@ -118,7 +153,7 @@ router.post('/quick-noc', (req, res) => {
     });
   }
 
-  const allowWorkstationQuickNoc = process.env.NODE_ENV !== 'production' && (IS_EVALUATION_MODE || isLoopbackHost || isLoopbackClient || process.env.EJII_PORT === '3000');
+  const allowWorkstationQuickNoc = process.env.NODE_ENV !== 'production' && isLoopbackClient;
   if (!allowWorkstationQuickNoc) {
     return res.status(403).json({
       error: 'Quick NOC login is strictly forbidden on network-exposed interfaces (0.0.0.0) or remote connections. Authentication requires valid operator credentials.'
@@ -126,7 +161,6 @@ router.post('/quick-noc', (req, res) => {
   }
 
   // Quick-NOC is strictly for standard local loopback NOC workstation evaluation (OPERATOR or ANALYST, never ADMIN/SYSADMIN)
-  // Unconditionally mandate non-administrative role on every lookup branch
   let user = db.prepare("SELECT * FROM users WHERE (UPPER(role) = 'OPERATOR' OR LOWER(username) = 'noc') AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') AND is_active = 1 LIMIT 1").get();
   if (!user) {
     user = db.prepare("SELECT * FROM users WHERE UPPER(role) = 'ANALYST' AND UPPER(role) NOT IN ('ADMIN', 'SYSADMIN') AND is_active = 1 LIMIT 1").get();
@@ -143,7 +177,9 @@ router.post('/quick-noc', (req, res) => {
     id: user.id,
     username: user.username,
     role: user.role,
-    fullName: user.full_name
+    fullName: user.full_name,
+    tokenType: 'user_session',
+    dbBacked: true
   });
 
   setSessionCookie(res, token);
@@ -186,11 +222,22 @@ router.get('/me', authenticate, (req, res) => {
 
 /**
  * GET /api/auth/mfa/status
- * Check MFA setup status for the authenticated user
+ * Check persistent MFA setup status for the authenticated user
  */
 router.get('/mfa/status', authenticate, (req, res) => {
+  let dbUser = null;
+  try {
+    dbUser = db.prepare(
+      'SELECT id, username, mfa_enabled, mfa_secret, mfa_pending_secret, mfa_last_counter, mfa_updated_at FROM users WHERE id = ? OR username = ?'
+    ).get(req.user.id, req.user.username);
+  } catch (_) {}
+
+  const mfaEnabled = Boolean(dbUser && Number(dbUser.mfa_enabled) === 1 && dbUser.mfa_secret);
   res.json({
-    mfaEnabled: false,
+    mfaEnabled,
+    hasPendingEnrollment: Boolean(dbUser && dbUser.mfa_pending_secret),
+    lastCounter: dbUser?.mfa_last_counter || null,
+    updatedAt: dbUser?.mfa_updated_at || null,
     method: 'TOTP_RFC6238',
     user: req.user.username
   });
@@ -198,32 +245,92 @@ router.get('/mfa/status', authenticate, (req, res) => {
 
 /**
  * GET /api/auth/totp/setup
- * Generate TOTP secret and provisioning URI for the user
+ * Generate TOTP secret and persist pending enrollment on the authenticated user record
  */
 router.get('/totp/setup', authenticate, (req, res) => {
   const secret = generateSecret(20);
   const otpauthUrl = getOtpAuthUrl('EJII', req.user.username, secret);
+  const nowIso = new Date().toISOString();
+
+  try {
+    db.prepare(
+      'UPDATE users SET mfa_pending_secret = ?, mfa_updated_at = ? WHERE id = ? OR username = ?'
+    ).run(secret, nowIso, req.user.id, req.user.username);
+  } catch (_) {}
+
   res.json({
     success: true,
     secret,
-    otpauthUrl
+    otpauthUrl,
+    enrollmentState: 'PENDING_CONFIRMATION'
   });
 });
 
 /**
  * POST /api/auth/mfa/verify-totp
- * Verify an RFC 6238 TOTP token
+ * Validate an RFC 6238 TOTP token with replay protection and persist MFA enrollment
  */
 router.post('/mfa/verify-totp', authenticate, (req, res) => {
-  const { secret, token } = req.body || {};
-  if (!secret || !token) {
-    return res.status(400).json({ error: 'Secret and token are required.' });
+  const { secret: bodySecret, token } = req.body || {};
+  let dbUser = null;
+  try {
+    dbUser = db.prepare(
+      'SELECT id, username, mfa_enabled, mfa_secret, mfa_pending_secret, mfa_last_counter FROM users WHERE id = ? OR username = ?'
+    ).get(req.user.id, req.user.username);
+  } catch (_) {}
+
+  const effectiveSecret = bodySecret || dbUser?.mfa_pending_secret || dbUser?.mfa_secret;
+  if (!effectiveSecret || !token) {
+    return res.status(400).json({ error: 'Secret (or active pending setup) and token are required.' });
   }
-  const valid = verifyTOTP(secret, token);
+
+  const mfaResult = verifyTOTPWithReplayGuard(effectiveSecret, token, dbUser?.mfa_last_counter);
+  const nowIso = new Date().toISOString();
+
+  if (mfaResult.replayDetected) {
+    return res.status(401).json({
+      success: false,
+      verified: false,
+      replayDetected: true,
+      error: 'TOTP token replay detected: this time-step code has already been consumed.',
+      timestamp: nowIso
+    });
+  }
+
+  if (mfaResult.valid && dbUser) {
+    try {
+      db.prepare(
+        'UPDATE users SET mfa_enabled = 1, mfa_secret = ?, mfa_pending_secret = NULL, mfa_last_counter = ?, mfa_updated_at = ? WHERE id = ?'
+      ).run(effectiveSecret, mfaResult.matchedCounter, nowIso, dbUser.id);
+    } catch (_) {}
+  }
+
   res.json({
-    success: valid,
-    verified: valid,
-    timestamp: new Date().toISOString()
+    success: mfaResult.valid,
+    verified: mfaResult.valid,
+    mfaEnabled: mfaResult.valid ? true : Boolean(dbUser && Number(dbUser.mfa_enabled) === 1),
+    replayDetected: false,
+    matchedCounter: mfaResult.matchedCounter,
+    timestamp: nowIso
+  });
+});
+
+/**
+ * POST /api/auth/mfa/disable
+ * Disable MFA for the authenticated user
+ */
+router.post('/mfa/disable', authenticate, (req, res) => {
+  const nowIso = new Date().toISOString();
+  try {
+    db.prepare(
+      'UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_pending_secret = NULL, mfa_last_counter = 0, mfa_updated_at = ? WHERE id = ? OR username = ?'
+    ).run(nowIso, req.user.id, req.user.username);
+  } catch (_) {}
+  res.json({
+    success: true,
+    mfaEnabled: false,
+    user: req.user.username,
+    timestamp: nowIso
   });
 });
 

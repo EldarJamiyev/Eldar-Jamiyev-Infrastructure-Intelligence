@@ -225,14 +225,20 @@ class PreIncidentTimelineReconstructor {
         relativeOffsetMs: idx === 0
           ? 0
           : tsMillis - (typeof sortedEvents[0].timestamp === 'number' ? sortedEvents[0].timestamp : new Date(sortedEvents[0].timestamp || Date.now()).getTime()),
+        deltaFromPatientZeroMs: idx === 0
+          ? 0
+          : Math.max(0, tsMillis - (typeof sortedEvents[0].timestamp === 'number' ? sortedEvents[0].timestamp : new Date(sortedEvents[0].timestamp || Date.now()).getTime())),
         target: ev.target || target,
         layer: ev.layer || ev.domain || 'L4_TRANSPORT',
         metric: ev.metric || 'latency_ms',
         value: Number(ev.value ?? ev.latencyMs ?? 0),
         severity: ev.severity || (zPoint?.isAnomaly ? 'HIGH' : 'NOMINAL'),
         causalRole,
+        isPatientZero: idx === 0,
         zMadScore: zPoint?.zMadScore ?? 0,
+        madZScore: zPoint?.zMadScore ?? 0,
         cusumScore: zPoint?.cusumScore ?? 0,
+        cusumAccumulator: zPoint?.cusumScore ?? 0,
         summary: narrativeText,
         detail: narrativeText
       };
@@ -268,6 +274,7 @@ class PreIncidentTimelineReconstructor {
       patientZero,
       changepointAnalysis,
       totalEventsCount: timelineEvents.length,
+      rawEventsExaminedCount: rawEvents.length,
       timelineEvents,
       narrativeSummary
     };

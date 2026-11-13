@@ -17,8 +17,9 @@
 
 'use strict';
 
-const { describe, it, before } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const net = require('node:net');
 
 const { chatOperatorService } = require('../chat/chat-operator-service');
 const { semanticAiInterpreter } = require('../chat/semantic-ai-interpreter');
@@ -37,8 +38,33 @@ const { evidenceFabric } = require('../evidence/evidence-fabric');
 const hostMetrics = require('../../protocols/host-metrics');
 
 describe('EJII Conversational Intelligence & Technical Quality Evaluation Suite', () => {
-  before(() => {
+  let fallbackPort3000Server = null;
+
+  before(async () => {
     chatOperatorService.setLlmInterpreter(semanticAiInterpreter);
+    // In CI environments where the main HTTP server is not running on port 3000,
+    // bind an ephemeral local TCP listener on 127.0.0.1:3000 so localhost:3000 probes test a real open socket.
+    await new Promise((resolve) => {
+      const srv = net.createServer((socket) => {
+        socket.on('error', () => {});
+        socket.end('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK');
+      });
+      srv.once('error', () => {
+        // Port 3000 is already bound by the running dev server
+        resolve();
+      });
+      srv.listen(3000, '127.0.0.1', () => {
+        fallbackPort3000Server = srv;
+        resolve();
+      });
+    });
+  });
+
+  after(async () => {
+    if (fallbackPort3000Server) {
+      await new Promise((resolve) => fallbackPort3000Server.close(() => resolve()));
+      fallbackPort3000Server = null;
+    }
   });
 
   it('1. Preserves MX recordType for "DNS MX lookup for Google" (Transcript Failure #1)', async () => {

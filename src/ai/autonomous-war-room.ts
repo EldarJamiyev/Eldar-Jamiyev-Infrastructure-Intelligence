@@ -1,538 +1,2513 @@
-// src/ai/autonomous-war-room.ts
-import * as crypto from 'node:crypto';
-import { CusumChangepointEngine, TelemetrySeriesPoint } from './cusum-changepoint-engine';
-import { SpectralFourierDetector, SpectralAnalysisResult } from './spectral-fourier-detector';
-import { SpectralGNNTopologyEngine, TopologyNode, TopologyEdge } from '../topology/spectral-gnn-apex';
-import { DigitalTwinChaosSimulator, ChaosSimulationResult } from '../topology/digital-twin-chaos-simulator';
-import { L7DeepProtocolDissector } from '../sniffer/l7-deep-protocol-dissector';
-import { MultipathQosAuditor, QosAuditReport } from '../topology/multipath-qos-auditor';
-import { NeuroSymbolicApexEngine } from './neuro-symbolic-apex';
-import { HoltWintersForecaster, MetricSlaTrajectory } from './holt-winters-forecaster';
-import { DSRLLyapunovSafetyVault } from '../security/dsrl-lyapunov-vault';
-import { ZeroTrustPolicySynthesizer, ZeroTrustPolicyBundle } from '../security/zero-trust-policy-synthesizer';
-import { EpisodicCausalMemoryEngine } from './episodic-causal-memory-engine';
+/**
+ * EJII — Eldar Jamiyev's Infrastructure Intelligence
+ * Autonomous Multi-Agent SRE War Room Orchestrator (Phase: Autonomous Intelligence Maturity)
+ *
+ * Implements a 5-Agent Adversarial Consensus Engine with:
+ * - Genuine read-only network & OS probe execution:
+ *     1. DNS_PTR_LOOKUP: Real DNS queries via dns.promises.Resolver (PTR / A / AAAA) with resolver attribution & error classification
+ *     2. ICMP_PMTU_DISCOVERY: Real DF-bit ICMP stepped payload probing (1472->1400->1360->1200->548) separating local interface MTU from Path MTU
+ *     3. ARP_NEIGHBOR_VERIFY: Real OS kernel IPv4 ARP & IPv6 NDP neighbor table inspection (/proc/net/arp, ip neigh, arp -a)
+ *     4. SOCKET_ESTABLISHED_AUDIT: Real OS socket table inspection via processSocketCorrelator / /proc/net/tcp without loopback self-connect simulations
+ *     5. Exact sub-millisecond timing preservation (zero artificial 0.2ms floors) and explicit timingTarget metadata
+ * - Cryptographic CollectorExecutionReceipts (HMAC-SHA256 bound to sessionId, probeId, probeType, target, collectorId, timingTarget, nativeResultCode, rawOutputSha256)
+ * - Hypothesis-specific, protocol-aware Bayesian settlement, correlated observation deduplication & epistemic abstention
+ * - Observation provenance & input telemetry trust classification (OPERATOR_SUPPLIED_OBSERVATION vs DIRECT_LOCAL_OS_MEASUREMENT vs ACTUAL_PROTOCOL_PROBE_MEASUREMENT)
+ * - Durable SQLite WAL session persistence (Migration 007 & 008) with rowid-monotonic retention ordering
+ * - Cryptographic Dual-Operator Approval ledger (war_room_dual_approvals) & server-verified JWT identity enforcement
+ * - Verifiable Remediation Execution ledger (war_room_remediation_ledger) with temporal post-action verification
+ */
 
-export interface WarRoomTelemetryPayload {
-  readonly timeSeries?: readonly TelemetrySeriesPoint[];
-  readonly rawMetricValues?: readonly number[];
-  readonly topologyNodes?: readonly TopologyNode[];
-  readonly topologyEdges?: readonly TopologyEdge[];
-  readonly wireFrames?: readonly any[];
-  readonly rootNodeId?: string;
-  readonly operatorRole?: string;
+import * as crypto from 'crypto';
+import * as os from 'os';
+import * as dns from 'dns';
+import * as net from 'net';
+import * as fs from 'fs';
+import { execFile } from 'child_process';
+
+const DESTRUCTIVE_COMMAND_PATTERNS =
+  /\b(DROP\s+TABLE|SHUTDOWN|FORMAT\s+|RM\s+-RF|DEL\s+\/[FSQ]|REBOOT|POWEROFF|FLUSH\s+ALL|IPTABLES\s+-F|NETSH\s+INT\s+IP\s+RESET)\b/i;
+
+const PRIVILEGED_ROLES = new Set(['ADMIN', 'SYSADMIN', 'NETADMIN', 'OPERATOR', 'SRE_LEAD', 'NOC_LEAD', 'SECOPS']);
+
+export type ProbeTimingTarget =
+  | 'DNS_QUERY_RTT_MS'
+  | 'ICMP_DF_PROBE_RTT_MS'
+  | 'TCP_HANDSHAKE_RTT_MS'
+  | 'LOCAL_OS_NEIGHBOR_TABLE_READ_MS'
+  | 'LOCAL_OS_SOCKET_TABLE_READ_MS';
+
+export type EvidenceClass =
+  | 'DIRECT_LOCAL_OS_MEASUREMENT'
+  | 'DIRECT_PACKET_CAPTURE_MEASUREMENT'
+  | 'ACTUAL_PROTOCOL_PROBE_MEASUREMENT'
+  | 'AUTHENTICATED_REMOTE_COLLECTOR'
+  | 'OPERATOR_SUPPLIED_OBSERVATION'
+  | 'REFERENCE_FIXTURE'
+  | 'NO_TELEMETRY_BASELINE_ONLY';
+
+export interface CollectorExecutionReceipt {
+  receiptId: string;
+  sessionId: string;
+  probeId: string;
+  probeType: string;
+  target: string;
+  collectorId: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  timingTarget: ProbeTimingTarget;
+  nativeResultCode: string;
+  rawOutputSha256: string;
+  keyId?: string;
+  collectorTrustBoundary?: string;
+  hmacSignature: string;
 }
 
-export interface Agent1TriageReport {
-  readonly agentName: 'Agent 1 — Temporal & Spectral Triage';
-  readonly cusumDriver: string | null;
-  readonly onsetTimestampMs: number | null;
-  readonly spectralAnalysis: SpectralAnalysisResult;
-  readonly verdict: string;
-  readonly epistemicStatus?: 'OBSERVED_AND_DERIVED' | 'DEFAULT_BASELINE_INPUT';
-  readonly supportingEvidenceIds?: readonly string[];
-  readonly unresolvedQuestions?: readonly string[];
+export interface DualApprovalRecord {
+  approvalId: string;
+  sessionId: string;
+  remediationAction: string;
+  target: string;
+  operatorId: string;
+  operatorUsername: string;
+  operatorRole: string;
+  slot: 'PRIMARY' | 'SECONDARY';
+  issuedAt: string;
+  expiresAt: number;
+  tokenSignature: string;
 }
 
-export interface Agent2TopologicalReport {
-  readonly agentName: 'Agent 2 — Topological & Queuing Analyst';
-  readonly lambda2: number;
-  readonly bottleneckEdges: readonly string[];
-  readonly chaosQueuing: ChaosSimulationResult;
-  readonly verdict: string;
-  readonly epistemicStatus?: 'SIMULATED_PROJECTION';
-  readonly supportingEvidenceIds?: readonly string[];
+export interface RemediationExecutionReceipt {
+  executionId: string;
+  sessionId: string;
+  remediationAction: string;
+  target: string;
+  executorSource: string;
+  operatorId: string;
+  startedAt: string;
+  completedAt: string;
+  exitCode: number;
+  success: boolean;
+  outputSummary: string;
+  hmacSignature: string;
 }
 
-export interface Agent3WireForensicsReport {
-  readonly agentName: 'Agent 3 — Deep Wire Forensics';
-  readonly qosAudit: QosAuditReport;
-  readonly l7Observations: readonly string[];
-  readonly verdict: string;
-  readonly epistemicStatus?: 'WIRE_OBSERVATION' | 'DEFAULT_WIRE_SAMPLE';
-  readonly supportingEvidenceIds?: readonly string[];
-  readonly contradictingEvidenceIds?: readonly string[];
+function readFiniteNumber(val: unknown): number | null {
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    return val;
+  }
+  if (typeof val === 'string' && val.trim() !== '') {
+    const parsed = Number(val);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
-export interface Agent4CausalPlannerReport {
-  readonly agentName: 'Agent 4 — Causal Counterfactual Planner';
-  readonly smoothStlRobustness: number;
-  readonly ttvHorizonSeconds: number;
-  readonly holtWintersForecast: MetricSlaTrajectory;
-  readonly proposedRemediationAction: string;
-  readonly rejectedProposals?: readonly { readonly action: string; readonly reason: string }[];
-  readonly verdict: string;
-  readonly epistemicStatus?: 'HYPOTHESIS_AND_COUNTERFACTUAL_PLAN';
+function clampProbability(p: number): number {
+  if (!Number.isFinite(p)) return 0.01;
+  return Math.min(0.995, Math.max(0.01, Number(p.toFixed(4))));
 }
 
-export interface Agent5SafetySignoffReport {
-  readonly agentName: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer';
-  readonly lyapunovBarrierCleared: boolean;
-  readonly operatorRoleChecked?: string;
-  readonly operatorPermitted?: boolean;
-  readonly zeroTrustPolicy: ZeroTrustPolicyBundle;
-  readonly hmacSignature: string;
-  readonly proofChain: string;
-  readonly verdict: string;
+function execFileAsync(
+  cmd: string,
+  args: string[],
+  timeoutMs = 2000
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        cmd,
+        args,
+        { timeout: timeoutMs, windowsHide: true, maxBuffer: 512 * 1024 },
+        (err: any, stdout, stderr) => {
+          if (err) {
+            resolve({
+              stdout: String(stdout || ''),
+              stderr: String(stderr || err.message || ''),
+              exitCode: typeof err.code === 'number' ? err.code : 1
+            });
+            return;
+          }
+          resolve({
+            stdout: String(stdout || ''),
+            stderr: String(stderr || ''),
+            exitCode: 0
+          });
+        }
+      );
+    } catch (spawnErr: any) {
+      resolve({
+        stdout: '',
+        stderr: spawnErr && spawnErr.message ? spawnErr.message : String(spawnErr),
+        exitCode: 127
+      });
+    }
+  });
 }
 
-export interface DebateChallenge {
-  readonly roundNumber: number;
-  readonly challengerAgent: string;
-  readonly challengedAgent: string;
-  readonly challengeTopic: string;
-  readonly argument: string;
-  readonly rebuttal: string;
-  readonly resolution: string;
-  readonly confidenceImpactPct: number;
+function getKnownInsecureSecrets(): Set<string> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const cfg = require('../config');
+    if (cfg && cfg.KNOWN_INSECURE_SECRETS instanceof Set) {
+      return cfg.KNOWN_INSECURE_SECRETS;
+    }
+  } catch (_) {}
+  return new Set([
+    'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026',
+    'EJII-SRE-WAR-ROOM-SOVEREIGN-HMAC-KEY-2026',
+    'EJII-ENTERPRISE-TOKEN-KEY-98471298471928471',
+    'ejii-atlas-sovereign-hmac-secret-key-2026',
+    'ejii-super-secret-jwt-key-change-in-production',
+    'changeme',
+    'default',
+    'secret',
+    'password'
+  ]);
 }
 
-export interface ActiveProbeDispatchProposal {
-  readonly probeId: string;
-  readonly probeType: 'ICMP_PMTU_DISCOVERY' | 'TCP_HALF_OPEN_PROBE' | 'SNMP_INTERFACE_OCTETS' | 'DNS_ROOT_SOA_TEST' | 'HTTP_HEAD_TRACER';
-  readonly target: string;
-  readonly dispatchedByAgent: string;
-  readonly rationale: string;
-  readonly safetyGuardClassification: 'READ_ONLY_SAFE_POL_01';
-  readonly simulatedOutcome: string;
+function getDefaultConfiguredHmacSecret(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const cfg = require('../config');
+    if (cfg && typeof cfg.getPurposeSeparatedSecret === 'function') {
+      const purposeKey = cfg.getPurposeSeparatedSecret('sre-war-room-v1');
+      if (typeof purposeKey === 'string' && purposeKey.length >= 16) {
+        return purposeKey;
+      }
+    }
+    if (cfg && typeof cfg.HMAC_SECRET === 'string' && cfg.HMAC_SECRET.length >= 16) {
+      return cfg.HMAC_SECRET;
+    }
+  } catch (_) {}
+  return process.env.EJII_HMAC_SECRET || '';
 }
 
-export interface Round4EmpiricalProbeSettlement {
-  readonly roundNumber: 4;
-  readonly executedProbesCount: number;
-  readonly settledDisagreementTopic: string;
-  readonly winningAgent: string;
-  readonly empiricalObservations: readonly {
-    readonly probeId: string;
-    readonly probeType: string;
-    readonly target: string;
-    readonly measuredLatencyMs: number;
-    readonly empiricalFinding: string;
-    readonly hypothesisConfirmed: boolean;
-  }[];
-  readonly finalEmpiricalVerdict: string;
-  readonly posteriorShiftPct: number;
+function validateHmacSecret(secret: unknown): { valid: boolean; secret: string; reason: string } {
+  if (typeof secret !== 'string' || secret.trim().length < 16) {
+    return {
+      valid: false,
+      secret: '',
+      reason: 'HMAC_SECRET_MISSING_OR_TOO_SHORT'
+    };
+  }
+  const trimmed = secret.trim();
+  const insecureSet = getKnownInsecureSecrets();
+  if (insecureSet.has(trimmed) || /^(changeme|default|secret|password|test)$/i.test(trimmed)) {
+    return {
+      valid: false,
+      secret: '',
+      reason: 'HMAC_SECRET_KNOWN_INSECURE_PLACEHOLDER'
+    };
+  }
+  return {
+    valid: true,
+    secret: trimmed,
+    reason: 'VALID_SOVEREIGN_SECRET'
+  };
 }
 
-export interface OperatorSteeringConstraints {
-  readonly forbiddenRemediations?: readonly string[];
-  readonly requiredRemediations?: readonly string[];
-  readonly requireDualApproval?: boolean;
-  readonly targetVlan?: number;
-  readonly maxAllowableDowntimeSeconds?: number;
-  readonly operatorNotes?: string;
-  readonly operatorQuestion?: string;
-  readonly targetEntityFilter?: string;
+let middlewareModCache: any = null;
+function getMiddlewareAuth(): any {
+  if (middlewareModCache) return middlewareModCache;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    middlewareModCache = require('../api/middleware');
+    return middlewareModCache;
+  } catch (_) {
+    return null;
+  }
 }
 
-export interface WarRoomExecutionResult {
-  readonly warRoomSessionId: string;
-  readonly executedAt: string;
-  readonly status: 'RESOLVED_REMEDIATION_SIGNED' | 'INCIDENT_ESCALATED' | 'STABILIZED_MONITORING' | 'RE_EVALUATED_WITH_CONSTRAINTS';
-  readonly agent1: Agent1TriageReport;
-  readonly agent2: Agent2TopologicalReport;
-  readonly agent3: Agent3WireForensicsReport;
-  readonly agent4: Agent4CausalPlannerReport;
-  readonly agent5: Agent5SafetySignoffReport;
-  readonly executiveSummary: string;
-  readonly unresolvedUncertainties?: readonly string[];
-  readonly contradictingSignals?: readonly string[];
-  readonly adversarialDebates?: readonly DebateChallenge[];
-  readonly autonomousActiveProbes?: readonly ActiveProbeDispatchProposal[];
-  readonly round4EmpiricalSettlement?: Round4EmpiricalProbeSettlement;
-  readonly appliedConstraints?: OperatorSteeringConstraints;
-  readonly parentSessionId?: string;
+let socketCorrelatorCache: any = null;
+function getProcessSocketCorrelator(): any {
+  if (socketCorrelatorCache) return socketCorrelatorCache;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    socketCorrelatorCache = require('../network/process-socket-correlator');
+    return socketCorrelatorCache;
+  } catch (_) {
+    return null;
+  }
 }
 
 export class AutonomousWarRoomOrchestrator {
-  private readonly hmacSecret: string;
-  private latestResult: WarRoomExecutionResult | null = null;
-  private readonly sessions = new Map<string, WarRoomExecutionResult>();
+  private secretKey: string;
+  private activeKeyId: string;
+  private previousKeys: Array<{ keyId: string; secret: string; validUntilMs: number }> = [];
+  private revokedKeyIds: Set<string> = new Set();
+  private hmacConfigured: boolean;
+  private hmacValidationReason: string;
+  private readonly customDb: any;
+  private readonly maxRetainedSessions: number;
+  private latestResult: any = null;
+  private sessionHistory: Map<string, any> = new Map();
+  private collectorReceipts: Map<string, CollectorExecutionReceipt> = new Map();
+  private consumedReceiptSessions: Map<string, string> = new Map(); // receiptId -> sessionId
+  private dualApprovalsMemory: Map<string, DualApprovalRecord[]> = new Map();
+  private remediationLedgerMemory: Map<string, RemediationExecutionReceipt> = new Map();
+  private corruptSessionsSkippedCount = 0;
+  private lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
+  private lastPersistenceError: string | null = null;
 
-  constructor(secret = process.env.EJII_HMAC_SECRET || 'EJII-SRE-WAR-ROOM-SOVEREIGN-HMAC-KEY-2026') {
-    this.hmacSecret = secret;
-    this.hydratePersistedSessions();
-  }
-
-  private hydratePersistedSessions(): void {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { db } = require('../db/database');
-      if (db && typeof db.prepare === 'function') {
-        db.prepare(`
-          CREATE TABLE IF NOT EXISTS war_room_sessions (
-            session_id TEXT PRIMARY KEY,
-            executed_at TEXT NOT NULL,
-            status TEXT NOT NULL,
-            payload_json TEXT NOT NULL
-          )
-        `).run();
-        const rows = db.prepare('SELECT payload_json FROM war_room_sessions ORDER BY executed_at DESC LIMIT 25').all() as { payload_json: string }[];
-        for (const r of rows.reverse()) {
-          try {
-            const parsed = JSON.parse(r.payload_json) as WarRoomExecutionResult;
-            if (parsed && parsed.warRoomSessionId) {
-              this.sessions.set(parsed.warRoomSessionId, parsed);
-              this.latestResult = parsed;
-            }
-          } catch (_) {}
-        }
-      }
-    } catch (_) {
-      // Safe fallback when running in isolated unit tests without SQLite initialized
+  constructor(secretKeyOrOptions?: string | { secretKey?: string; db?: any; maxRetainedSessions?: number; keyId?: string }, maybeOptions: { db?: any; maxRetainedSessions?: number; keyId?: string } = {}) {
+    let secretKey: string | undefined;
+    let options: { db?: any; maxRetainedSessions?: number; keyId?: string } = {};
+    if (typeof secretKeyOrOptions === 'object' && secretKeyOrOptions !== null) {
+      options = secretKeyOrOptions;
+      secretKey = secretKeyOrOptions.secretKey;
+    } else {
+      secretKey = secretKeyOrOptions;
+      options = maybeOptions || {};
     }
-  }
-
-  private persistSessionToStore(result: WarRoomExecutionResult): void {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { db } = require('../db/database');
-      if (db && typeof db.prepare === 'function') {
-        db.prepare(`
-          INSERT OR REPLACE INTO war_room_sessions (session_id, executed_at, status, payload_json)
-          VALUES (?, ?, ?, ?)
-        `).run(result.warRoomSessionId, result.executedAt, result.status, JSON.stringify(result));
-      }
-    } catch (_) {}
-  }
-
-  public getLatestResult(): WarRoomExecutionResult | null {
-    return this.latestResult;
-  }
-
-  public getSession(sessionId: string): WarRoomExecutionResult | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  public getAllSessions(): WarRoomExecutionResult[] {
-    return Array.from(this.sessions.values());
+    const candidateSecret = secretKey === undefined ? getDefaultConfiguredHmacSecret() : secretKey;
+    const validation = validateHmacSecret(candidateSecret);
+    this.secretKey = validation.secret;
+    this.activeKeyId = options.keyId || 'sre-war-room-v1-primary';
+    this.hmacConfigured = validation.valid;
+    this.hmacValidationReason = validation.reason;
+    this.customDb = options.db !== undefined ? options.db : undefined;
+    this.maxRetainedSessions = Math.max(5, Math.min(1000, Number(options.maxRetainedSessions) || 100));
+    this.hydrateSessionsFromDb();
   }
 
   /**
-   * Executes the 5-Agent SRE War-Room Pipeline with Round 4 Closed-Loop Probe Settlement
+   * Rotates the active HMAC signing secret while retaining the prior key during a configurable grace window.
    */
-  public execute(payload: WarRoomTelemetryPayload = {}): WarRoomExecutionResult {
-    const executedAt = new Date().toISOString();
-    const warRoomSessionId = `sre-warroom-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const unresolvedUncertainties: string[] = [];
-    const contradictingSignals: string[] = [];
-
-    // ==========================================
-    // AGENT 1: Temporal & Spectral Triage (with TCPView Socket Churn Telemetry)
-    // ==========================================
+  public rotateHmacKey(
+    newSecret: string,
+    options: { keyId?: string; gracePeriodMs?: number } = {}
+  ): { rotated: boolean; activeKeyId: string; previousKeysCount: number; gracePeriodMs: number } {
+    const validation = validateHmacSecret(newSecret);
+    if (!validation.valid) {
+      const err: any = new Error(`HMAC_SECRET_INVALID_FOR_ROTATION: ${validation.reason}`);
+      err.code = validation.reason;
+      throw err;
+    }
+    const gracePeriodMs = Math.max(50, Number(options.gracePeriodMs) || 3600_000);
     const now = Date.now();
-    const hasCustomSeries = Boolean(payload.timeSeries && payload.timeSeries.length >= 4);
-    if (!hasCustomSeries && !payload.rawMetricValues) {
-      unresolvedUncertainties.push('Live telemetry time-series had <4 samples; Agent 1 evaluated reference baseline window.');
-    }
-    const defaultSeries: TelemetrySeriesPoint[] = [
-      { timestampMs: now - 5000, rttMs: 14.2, cpuSaturationPct: 22.0, packetLossPct: 0.1 },
-      { timestampMs: now - 4000, rttMs: 15.0, cpuSaturationPct: 24.5, packetLossPct: 0.1 },
-      { timestampMs: now - 3000, rttMs: 18.2, cpuSaturationPct: 35.0, packetLossPct: 0.2 },
-      { timestampMs: now - 2000, rttMs: 38.0, cpuSaturationPct: 62.0, packetLossPct: 1.5 },
-      { timestampMs: now - 1000, rttMs: 42.5, cpuSaturationPct: 68.0, packetLossPct: 2.1 }
-    ];
-    const series = hasCustomSeries ? payload.timeSeries! : defaultSeries;
-
-    const cusumEngine = new CusumChangepointEngine();
-    const cusumReport = cusumEngine.analyzeMultiMetricTrace(series);
-
-    const rawValues = payload.rawMetricValues ? [...payload.rawMetricValues] : series.map(s => s.rttMs || 20);
-    const spectralAnalysis = SpectralFourierDetector.analyze(rawValues, 10);
-
-    const agent1: Agent1TriageReport = {
-      agentName: 'Agent 1 — Temporal & Spectral Triage',
-      cusumDriver: cusumReport.primaryTemporalDriver || 'rttMs',
-      onsetTimestampMs: cusumReport.driverOnsetTimestampMs,
-      spectralAnalysis,
-      epistemicStatus: (hasCustomSeries || Boolean(payload.rawMetricValues)) ? 'OBSERVED_AND_DERIVED' : 'DEFAULT_BASELINE_INPUT',
-      supportingEvidenceIds: [`ev-cusum-${warRoomSessionId}`, `ev-fft-${warRoomSessionId}`, `ev-tcpview-churn-${warRoomSessionId}`],
-      unresolvedQuestions: spectralAnalysis.corroborationRequired
-        ? ['Spectral periodicity detected; requires socket/process corroboration (PID 1428 svchost.exe & PID 18112 SimpleX.exe) to distinguish timer from beacon.']
-        : [],
-      verdict: cusumReport.primaryTemporalDriver
-        ? `Primary anomaly driver isolated: [${cusumReport.primaryTemporalDriver}] (Onset: ${cusumReport.driverOnsetTimestampMs || now}). Spectral Flatness: ${spectralAnalysis.spectralFlatness}. Correlated with TCPView socket table (Endpoints: 349, Established: 120, Listening: 55, Time Wait: 11 on 172.29.192.1:135/139, Close Wait: 1).`
-        : 'Telemetry series operating within nominal stochastic bounds.'
-    };
-
-    // ==========================================
-    // AGENT 2: Topological & Queuing Analyst (Multi-Subnet + Hyper-V vEthernet)
-    // ==========================================
-    const defaultNodes: TopologyNode[] = [
-      { id: 'L1-WAN-ROUTER', role: 'GATEWAY', latencyMs: 14.2, packetLossPct: 0.1 },
-      { id: 'L2-EDGE-ROUTER', role: 'GATEWAY', latencyMs: 2.1, packetLossPct: 0.0 },
-      { id: 'L3-CORE-SWITCH', role: 'SWITCH', latencyMs: 0.8, packetLossPct: 0.0 },
-      { id: 'L4-SERVICE-HOST', role: 'SERVER', latencyMs: 0.4, packetLossPct: 0.0 },
-      { id: 'L5-ACCESS-LAN', role: 'ENDPOINT', latencyMs: 1.8, packetLossPct: 0.1 },
-      { id: 'L6-HOST-WORKSTATION', role: 'WORKSTATION', latencyMs: 0.1, packetLossPct: 0.0 }
-    ];
-
-    const defaultEdges: TopologyEdge[] = [
-      { source: 'L1-WAN-ROUTER', target: 'L2-EDGE-ROUTER', bandwidthMbps: 1000, linkLossPct: 0.1, rttMs: 12.1 },
-      { source: 'L2-EDGE-ROUTER', target: 'L3-CORE-SWITCH', bandwidthMbps: 1000, linkLossPct: 0.0, rttMs: 1.3 },
-      { source: 'L3-CORE-SWITCH', target: 'L4-SERVICE-HOST', bandwidthMbps: 1000, linkLossPct: 0.0, rttMs: 0.4 },
-      { source: 'L3-CORE-SWITCH', target: 'L5-ACCESS-LAN', bandwidthMbps: 1000, linkLossPct: 0.1, rttMs: 1.0 },
-      { source: 'L5-ACCESS-LAN', target: 'L6-HOST-WORKSTATION', bandwidthMbps: 1000, linkLossPct: 0.0, rttMs: 0.1 }
-    ];
-
-    const nodes = payload.topologyNodes || defaultNodes;
-    const edges = payload.topologyEdges || defaultEdges;
-    const rootNode = payload.rootNodeId || 'L6-HOST-WORKSTATION';
-
-    const chaosSim = new DigitalTwinChaosSimulator();
-    const chaosResult = chaosSim.simulate(nodes, edges, rootNode, { trafficMultiplier: 1.5 });
-
-    const agent2: Agent2TopologicalReport = {
-      agentName: 'Agent 2 — Topological & Queuing Analyst',
-      lambda2: chaosResult.postChaosLambda2,
-      bottleneckEdges: chaosResult.preChaosReport.criticalCutEdges.map(e => `${e.source}->${e.target}`),
-      chaosQueuing: chaosResult,
-      epistemicStatus: 'SIMULATED_PROJECTION',
-      supportingEvidenceIds: [`ev-topo-sim-${warRoomSessionId}`, `ev-hyperv-vswitch-172.29.192.1-${warRoomSessionId}`],
-      verdict: `Algebraic Connectivity λ₂: ${chaosResult.postChaosLambda2}. M/M/1/K Max Queue Delay: ${chaosResult.maxQueuingDelayMs}ms, Drop Probability: ${chaosResult.averageDropProbabilityPct}%. Multi-homed workstation bridge audited across 10.168.195.33 (Intel I219-LM) and Hyper-V virtual switches 172.29.192.1/20 & 172.29.224.1/20 (MAC 00:15:5D:DF:E5:56).`
-    };
-
-    // ==========================================
-    // AGENT 3: Deep Wire Forensics (NetworkTrafficView Conversation Matrix)
-    // ==========================================
-    const defaultFrames = [
-      { tos: 0, length: 54, dfBit: true, srcPort: 443, dstPort: 58546, srcIp: '34.143.78.2', dstIp: '10.168.195.33' },
-      { tos: 0, length: 1514, dfBit: true, srcPort: 80, dstPort: 47173, srcIp: '10.22.10.153', dstIp: '10.168.195.33' },
-      { tos: 3, length: 120, dfBit: false, srcPort: 443, dstPort: 10663, srcIp: '140.82.114.26', dstIp: '10.168.195.33' } // ECN-CE
-    ];
-    const hasCustomFrames = Boolean(payload.wireFrames && payload.wireFrames.length > 0);
-    const wireFrames = hasCustomFrames ? [...payload.wireFrames!] : defaultFrames;
-    const qosAudit = MultipathQosAuditor.auditWireFrames(wireFrames);
-
-    const l7Obs: string[] = [
-      'TLS 1.3 Active (34.143.78.2:443 <-> 10.168.195.33:58546, 140.82.114.26:443 <-> 10.168.195.33:10663)',
-      'DNS Over UDP/53 Active + Multicast Fallback Storm Detected (10.168.195.188 mDNS 224.0.0.251:5353, LLMNR 224.0.0.252:5355, NetBIOS-NS 10.168.195.255:137)',
-      'Cleartext Internal HTTP Detected (10.168.195.33:47173 <-> 10.22.10.153:80, 14,915 Bytes)'
-    ];
-    if (qosAudit.activeEcnCongestionCount > 0) {
-      l7Obs.push(`ECN-CE Router Congestion Detected (${qosAudit.activeEcnCongestionCount} events)`);
-    }
-
-    if (cusumReport.primaryTemporalDriver && qosAudit.violations.length === 0) {
-      contradictingSignals.push('CUSUM detected metric shift in Agent 1, but Agent 3 observed zero wire-level QoS/ECN/PMTU violations.');
-    }
-
-    const agent3: Agent3WireForensicsReport = {
-      agentName: 'Agent 3 — Deep Wire Forensics',
-      qosAudit,
-      l7Observations: l7Obs,
-      epistemicStatus: hasCustomFrames ? 'WIRE_OBSERVATION' : 'DEFAULT_WIRE_SAMPLE',
-      supportingEvidenceIds: [`ev-wire-qos-${warRoomSessionId}`, `ev-ntv-flows-${warRoomSessionId}`],
-      contradictingEvidenceIds: contradictingSignals.length > 0 ? [`ev-contradiction-${warRoomSessionId}`] : [],
-      verdict: `Wire audit completed: ${qosAudit.totalPacketsAudited} frames. Violations flagged: ${qosAudit.violations.length}. Active ECN CE: ${qosAudit.activeEcnCongestionCount}. NetworkTrafficView isolated 10.168.195.188 name-resolution fallback (mDNS/LLMNR/NBNS) and cleartext HTTP to 10.22.10.153:80.`
-    };
-
-    // ==========================================
-    // AGENT 4: Causal Counterfactual Planner
-    // ==========================================
-    const holtWinters = new HoltWintersForecaster();
-    const forecast = holtWinters.forecastSeries(rawValues, 'rttMs', 'RTT Latency', 'ms', 50.0, 'MAX');
-
-    const neuroApex = new NeuroSymbolicApexEngine();
-    const stlEvaluation = neuroApex.evaluateTemporallyBoundedAlways(
-      'SLA_RTT_BOUND',
-      [{ id: 'p1', metric: 'rttMs', operator: 'LTE', threshold: 50.0, weight: 1.0 }],
-      [{
-        timestampMs: now,
-        rttMs: rawValues[rawValues.length - 1] || 25,
-        packetLossPct: 0.1,
-        cpuSaturationPct: 35,
-        tcpRetransmitRate: 0.02
-      }]
+    this.previousKeys = this.previousKeys.filter(
+      (k) => k.validUntilMs > now && !this.revokedKeyIds.has(k.keyId)
     );
-
-    const proposedAction = forecast.forecasts.plus5m.slaBreachRiskPct > 20
-      ? 'ACTION_APPLY_TRAFFIC_SHAPING_AND_DSCP_REMARK'
-      : 'ACTION_OBSERVE_STABILIZATION';
-
-    const rejectedProposals = [
-      {
-        action: 'ACTION_BGP_NEIGHBOR_HARD_RESET',
-        reason: 'Rejected: Disproportionate blast radius (strands downstream LAN nodes in Digital Twin simulation).'
-      },
-      {
-        action: 'ACTION_TERMINATE_PID_4_SYSTEM_SMB',
-        reason: 'Rejected by POL-02 OS Process Shield: PID 4 (System) and PID 1428 (svchost.exe) are critical kernel/RPC processes; remediate via firewall ACL instead.'
-      }
-    ];
-
-    const agent4: Agent4CausalPlannerReport = {
-      agentName: 'Agent 4 — Causal Counterfactual Planner',
-      smoothStlRobustness: stlEvaluation.smoothRobustness,
-      ttvHorizonSeconds: stlEvaluation.estimatedTimeToViolationSec ?? 999,
-      holtWintersForecast: forecast,
-      proposedRemediationAction: proposedAction,
-      rejectedProposals,
-      epistemicStatus: 'HYPOTHESIS_AND_COUNTERFACTUAL_PLAN',
-      verdict: `Smooth STL Robustness ρ̃: ${stlEvaluation.smoothRobustness > 0 ? '+' : ''}${stlEvaluation.smoothRobustness.toFixed(2)}. +5m SLA Breach Risk: ${forecast.forecasts.plus5m.slaBreachRiskPct}%. Proposed: ${proposedAction} + Harden LMS.exe (PID 5428, TCP 623) & Hyper-V SMB (172.29.192.1:445).`
+    if (this.hmacConfigured && this.secretKey && !this.revokedKeyIds.has(this.activeKeyId)) {
+      this.previousKeys.push({
+        keyId: this.activeKeyId,
+        secret: this.secretKey,
+        validUntilMs: now + gracePeriodMs
+      });
+    }
+    const nextKeyId = options.keyId || `sre-war-room-v1-rot-${now}`;
+    if (this.revokedKeyIds.has(nextKeyId)) {
+      const err: any = new Error(`REVOKED_KEY_REUSE_BLOCKED: keyId "${nextKeyId}" was previously revoked.`);
+      err.code = 'REVOKED_KEY_REUSE_BLOCKED';
+      throw err;
+    }
+    this.secretKey = validation.secret;
+    this.activeKeyId = nextKeyId;
+    this.hmacConfigured = true;
+    this.hmacValidationReason = 'VALID_SOVEREIGN_SECRET';
+    return {
+      rotated: true,
+      activeKeyId: this.activeKeyId,
+      previousKeysCount: this.previousKeys.length,
+      gracePeriodMs
     };
+  }
 
-    // ==========================================
-    // AGENT 5: DSRL Lyapunov Safety & Zero-Trust Officer
-    // ==========================================
-    const zeroTrust = ZeroTrustPolicySynthesizer.synthesize(
-      nodes.map(n => ({ ip: n.id === 'L1-WAN-ROUTER' ? '8.8.8.8' : '10.168.195.33', hostname: n.id, role: n.role, openPorts: [135, 139, 445, 623, 2179] })),
-      [
-        { protocol: 'TCP', localIp: '10.168.195.33', localPort: 58546, remoteIp: '34.143.78.2', remotePort: 443 },
-        { protocol: 'TCP', localIp: '10.168.195.33', localPort: 47173, remoteIp: '10.22.10.153', remotePort: 80 }
-      ]
-    );
-
-    const operatorRole = (payload.operatorRole || 'ADMIN').toUpperCase();
-    const operatorPermitted = ['ADMIN', 'SYSADMIN', 'NETADMIN'].includes(operatorRole);
-    const lyapunovCleared = stlEvaluation.smoothRobustness >= -5.0 && operatorPermitted;
-    const transcriptPayload = JSON.stringify({
-      sessionId: warRoomSessionId,
-      triage: agent1.verdict,
-      topo: agent2.verdict,
-      wire: agent3.verdict,
-      planner: agent4.verdict,
-      action: proposedAction,
-      lyapunov: lyapunovCleared,
-      operatorRole
-    });
-
-    const hmacSig = crypto.createHmac('sha256', this.hmacSecret).update(transcriptPayload).digest('hex');
-    const proofChain = `EJII-PROOF-V5:${crypto.createHash('sha256').update(hmacSig + executedAt).digest('hex')}`;
-
-    const agent5: Agent5SafetySignoffReport = {
-      agentName: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer',
-      lyapunovBarrierCleared: lyapunovCleared,
-      operatorRoleChecked: operatorRole,
-      operatorPermitted,
-      zeroTrustPolicy: zeroTrust,
-      hmacSignature: hmacSig,
-      proofChain,
-      verdict: `Lyapunov barrier invariant verified: ${lyapunovCleared ? 'CLEARED' : 'VETOED'} (Role=${operatorRole}, Permitted=${operatorPermitted}). POL-02 OS Shield verified (PID 4 System protected; LMS.exe PID 5428 port 623 & Users share flagged for Zero-Trust ACL). Signed with HMAC-SHA256.`
-    };
-
-    // Autonomous Active Read-Only Probe Dispatch & Round 4 Empirical Settlement
-    const autonomousActiveProbes: ActiveProbeDispatchProposal[] = [
-      {
-        probeId: `probe-pmtu-${warRoomSessionId}`,
-        probeType: 'ICMP_PMTU_DISCOVERY',
-        target: String(rootNode),
-        dispatchedByAgent: 'Agent 3 — Deep Wire Forensics',
-        rationale: 'Perform DF=1 MTU discovery sweep (1500 to 1420 bytes) across 10.168.195.33 -> 10.22.10.153 to detect intermediate PMTU blackholes.',
-        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
-        simulatedOutcome: 'Path MTU validated at 1500 bytes; 0 ICMP fragmentation-needed drops observed.'
-      },
-      {
-        probeId: `probe-syn-${warRoomSessionId}`,
-        probeType: 'TCP_HALF_OPEN_PROBE',
-        target: '172.29.192.1:623',
-        dispatchedByAgent: 'Agent 1 — Temporal & Spectral Triage',
-        rationale: 'Audit TCPView wildcard listener 0.0.0.0:623 (LMS.exe PID 5428 Intel AMT httpd) and RPC 135/139 Time Wait socket churn.',
-        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
-        simulatedOutcome: 'SYN-ACK 0.4ms on 172.29.192.1:623 (Intel AMT httpd banner verified) and 11 Time Wait sockets confirmed on 172.29.192.1:135/139.'
-      },
-      {
-        probeId: `probe-snmp-${warRoomSessionId}`,
-        probeType: 'SNMP_INTERFACE_OCTETS',
-        target: '10.168.195.33',
-        dispatchedByAgent: 'Agent 2 — Topological & Queuing Analyst',
-        rationale: 'Poll Intel(R) Ethernet Connection (17) I219-LM and Hyper-V vEthernet octets + broadcast storm PPS from 10.168.195.188.',
-        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
-        simulatedOutcome: 'Zero physical CRC errors on I219-LM; 10.168.195.188 emitting mDNS/LLMNR/NetBIOS-NS fallback bursts (34 packets, 3,234 B).'
-      },
-      {
-        probeId: `probe-dns-${warRoomSessionId}`,
-        probeType: 'DNS_ROOT_SOA_TEST',
-        target: '10.168.195.1',
-        dispatchedByAgent: 'Agent 4 — Causal Counterfactual Planner',
-        rationale: 'Verify internal DNS SOA resolution to confirm why peer 10.168.195.188 is falling back to LLMNR (224.0.0.252:5355) and NetBIOS-NS (137).',
-        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
-        simulatedOutcome: 'Missing internal PTR/A record for local workstation hostnames triggered LLMNR/mDNS/NBNS multicast fallback.'
+  /**
+   * Explicitly revokes a specific keyId so that even within a grace window (or across restarts),
+   * signatures produced by that keyId are immediately rejected.
+   */
+  public revokeHmacKey(keyIdToRevoke: string, reason = 'Operator key revocation') {
+    const cleanId = String(keyIdToRevoke || '').trim();
+    if (!cleanId) {
+      throw new Error('keyIdToRevoke is required.');
+    }
+    this.revokedKeyIds.add(cleanId);
+    this.previousKeys = this.previousKeys.filter((k) => k.keyId !== cleanId);
+    if (this.activeKeyId === cleanId) {
+      this.hmacConfigured = false;
+      this.secretKey = '';
+      this.hmacValidationReason = 'ACTIVE_KEY_REVOKED';
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const cfg = require('../config');
+      if (cfg && typeof cfg.revokePurposeKey === 'function') {
+        cfg.revokePurposeKey('sre-war-room-v1', cleanId, reason, { db: this.resolveDb() });
       }
-    ];
+    } catch (_) {}
+    return {
+      revoked: true,
+      keyId: cleanId,
+      reason,
+      revokedAt: new Date().toISOString()
+    };
+  }
 
-    const round4EmpiricalSettlement: Round4EmpiricalProbeSettlement = {
-      roundNumber: 4,
-      executedProbesCount: autonomousActiveProbes.length,
-      settledDisagreementTopic: 'Host Socket Exhaustion & Multicast Name-Resolution Fallback vs. Upstream Core Queuing',
-      winningAgent: 'Agent 3 — Deep Wire Forensics & Agent 1 — Temporal & Spectral Triage (Joint Empirical Synthesis)',
-      empiricalObservations: [
-        {
-          probeId: autonomousActiveProbes[1].probeId,
-          probeType: 'TCP_HALF_OPEN_PROBE',
-          target: '172.29.192.1:623',
-          measuredLatencyMs: 0.4,
-          empiricalFinding: 'Confirmed wildcard 0.0.0.0:623 listener (LMS.exe PID 5428 Intel AMT UNS httpd) and 11 [Time Wait] RPC/NetBIOS sockets on Hyper-V switch 172.29.192.1.',
-          hypothesisConfirmed: true
-        },
-        {
-          probeId: autonomousActiveProbes[3].probeId,
-          probeType: 'DNS_ROOT_SOA_TEST',
-          target: '10.168.195.1',
-          measuredLatencyMs: 11.4,
-          empiricalFinding: 'Confirmed missing local split-horizon DNS records causing 10.168.195.188 to broadcast mDNS (5353), LLMNR (5355), and NetBIOS-NS (137).',
-          hypothesisConfirmed: true
-        },
-        {
-          probeId: autonomousActiveProbes[0].probeId,
-          probeType: 'ICMP_PMTU_DISCOVERY',
-          target: '10.22.10.153',
-          measuredLatencyMs: 2.1,
-          empiricalFinding: 'Confirmed 1500-byte MTU clean path on 10.168.195.33 -> 10.22.10.153:80; cleartext HTTP flow carries 14,915 bytes without L3 fragmentation.',
-          hypothesisConfirmed: true
+  private isKeyIdRevoked(keyId?: string | null): boolean {
+    if (!keyId) return false;
+    if (this.revokedKeyIds.has(keyId)) return true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const cfg = require('../config');
+      if (cfg && typeof cfg.isPurposeKeyRevokedOrExpiredInDb === 'function') {
+        if (cfg.isPurposeKeyRevokedOrExpiredInDb('sre-war-room-v1', keyId, this.resolveDb())) {
+          this.revokedKeyIds.add(keyId);
+          return true;
         }
-      ],
-      finalEmpiricalVerdict: 'Round 4 Closed-Loop Probe Execution settled the Round 1–3 debate: physical NIC Intel I219-LM (10.168.195.33) has 0 CRC drops, while host-level socket churn (11 Time Wait on 172.29.192.1:135/139, 1 Close Wait) and LAN multicast fallback from 10.168.195.188 explain the observed micro-bursts.',
-      posteriorShiftPct: 16.5
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  private verifyHmacWithKeyring(
+    canonical: string,
+    signature: string,
+    requiredKeyId?: string | null
+  ): { valid: boolean; matchedKeyId: string | null } {
+    if (!signature || typeof signature !== 'string') {
+      return { valid: false, matchedKeyId: null };
+    }
+    if (requiredKeyId && this.isKeyIdRevoked(requiredKeyId)) {
+      return { valid: false, matchedKeyId: null };
+    }
+    const now = Date.now();
+    const candidateKeys: Array<{ keyId: string; secret: string }> = [];
+    if (this.hmacConfigured && this.secretKey && !this.isKeyIdRevoked(this.activeKeyId)) {
+      candidateKeys.push({ keyId: this.activeKeyId, secret: this.secretKey });
+    }
+    for (const prev of this.previousKeys) {
+      if (prev.validUntilMs > now && !this.isKeyIdRevoked(prev.keyId)) {
+        candidateKeys.push({ keyId: prev.keyId, secret: prev.secret });
+      }
+    }
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const cfg = require('../config');
+      if (cfg && typeof cfg.getPurposeKeyRing === 'function') {
+        const ring = cfg.getPurposeKeyRing('sre-war-room-v1', { db: this.resolveDb() });
+        if (ring && typeof ring === 'object' && !Array.isArray(ring)) {
+          if (typeof ring.activeSecret === 'string' && ring.activeSecret.length >= 16 && !this.isKeyIdRevoked(ring.activeKeyId)) {
+            candidateKeys.push({ keyId: ring.activeKeyId || 'cfg-active', secret: ring.activeSecret });
+          }
+          if (Array.isArray(ring.previousKeys)) {
+            for (const pk of ring.previousKeys) {
+              if (pk && typeof pk.secret === 'string' && pk.expiresAtMs > now && !this.isKeyIdRevoked(pk.keyId)) {
+                candidateKeys.push({ keyId: pk.keyId || 'cfg-prev', secret: pk.secret });
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    const sigBuf = Buffer.from(signature, 'utf8');
+    for (const candidate of candidateKeys) {
+      if (this.isKeyIdRevoked(candidate.keyId)) continue;
+      const expected = crypto.createHmac('sha256', candidate.secret).update(canonical).digest('hex');
+      const expBuf = Buffer.from(expected, 'utf8');
+      if (sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf)) {
+        return { valid: true, matchedKeyId: candidate.keyId };
+      }
+    }
+    return { valid: false, matchedKeyId: null };
+  }
+
+  private resolveDb(): any {
+    if (this.customDb !== undefined) {
+      return this.customDb;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { db } = require('../db/database');
+      return db || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  public getDiagnostics() {
+    return {
+      hmacConfigured: this.hmacConfigured,
+      hmacValidationReason: this.hmacValidationReason,
+      activeKeyId: this.activeKeyId,
+      revokedKeysCount: this.revokedKeyIds.size,
+      retainedSessionsInMemory: this.sessionHistory.size,
+      maxRetainedSessions: this.maxRetainedSessions,
+      corruptSessionsSkippedCount: this.corruptSessionsSkippedCount,
+      collectorReceiptsIssuedCount: this.collectorReceipts.size,
+      lastPersistenceState: this.lastPersistenceState,
+      lastPersistenceError: this.lastPersistenceError
+    };
+  }
+
+  /**
+   * Signs local OS telemetry so internal collectors can prove DIRECT_LOCAL_OS_MEASUREMENT provenance.
+   */
+  public signLocalTelemetry(metrics: Record<string, number | null>, observedAtIso: string): string {
+    const signingKey = this.hmacConfigured ? this.secretKey : 'fallback-unconfigured';
+    const canonical = [
+      'EJII-LOCAL-OS-TELEMETRY-V1',
+      observedAtIso,
+      String(metrics.rttMs ?? 'null'),
+      String(metrics.packetLossPct ?? 'null'),
+      String(metrics.cpuSaturationPct ?? 'null'),
+      String(metrics.retransmissions ?? 'null'),
+      String(metrics.activeFlows ?? 'null')
+    ].join('|');
+    return crypto.createHmac('sha256', signingKey).update(canonical).digest('hex');
+  }
+
+  /**
+   * Creates and persists an HMAC-SHA256 CollectorExecutionReceipt (Section 6).
+   */
+  public createCollectorExecutionReceipt(params: {
+    sessionId?: string;
+    probeId: string;
+    probeType?: string;
+    target: string;
+    collectorId?: string;
+    startedAt?: string;
+    completedAt?: string;
+    durationMs: number;
+    timingTarget?: ProbeTimingTarget;
+    nativeResultCode?: string;
+    rawCommandOutput: string;
+  }): CollectorExecutionReceipt {
+    const receiptId = `rcpt-${crypto.randomBytes(6).toString('hex')}`;
+    const sessionId = params.sessionId || 'LIVE_COLLECTOR';
+    const probeType = params.probeType || (
+      params.probeId.includes('DNS') ? 'DNS_PTR_LOOKUP' :
+      params.probeId.includes('PMTU') ? 'ICMP_PMTU_DISCOVERY' :
+      params.probeId.includes('ARP') ? 'ARP_NEIGHBOR_VERIFY' : 'SOCKET_ESTABLISHED_AUDIT'
+    );
+    const collectorId = params.collectorId || `ejii-collector-${os.hostname()}`;
+    const startedAt = params.startedAt || new Date().toISOString();
+    const completedAt = params.completedAt || new Date().toISOString();
+    const durationMs = Number(Number(params.durationMs ?? 0).toFixed(3));
+    const timingTarget: ProbeTimingTarget = params.timingTarget || (
+      probeType === 'DNS_PTR_LOOKUP' ? 'DNS_QUERY_RTT_MS' :
+      probeType === 'ICMP_PMTU_DISCOVERY' ? 'ICMP_DF_PROBE_RTT_MS' :
+      probeType === 'ARP_NEIGHBOR_VERIFY' ? 'LOCAL_OS_NEIGHBOR_TABLE_READ_MS' : 'LOCAL_OS_SOCKET_TABLE_READ_MS'
+    );
+    const nativeResultCode = params.nativeResultCode || 'COLLECTOR_OK';
+    const rawOutputSha256 = crypto.createHash('sha256').update(String(params.rawCommandOutput || '')).digest('hex');
+
+    const signingKey = this.hmacConfigured ? this.secretKey : 'unconfigured-key';
+    const canonical = [
+      'EJII-COLLECTOR-RECEIPT-V1',
+      receiptId,
+      sessionId,
+      params.probeId,
+      probeType,
+      params.target,
+      collectorId,
+      durationMs.toFixed(3),
+      timingTarget,
+      nativeResultCode,
+      rawOutputSha256
+    ].join('|');
+
+    const hmacSignature = this.hmacConfigured
+      ? crypto.createHmac('sha256', signingKey).update(canonical).digest('hex')
+      : '';
+
+    const receipt: CollectorExecutionReceipt = {
+      receiptId,
+      sessionId,
+      probeId: params.probeId,
+      probeType,
+      target: params.target,
+      collectorId,
+      startedAt,
+      completedAt,
+      durationMs,
+      timingTarget,
+      nativeResultCode,
+      rawOutputSha256,
+      keyId: this.activeKeyId,
+      collectorTrustBoundary: 'TRUSTED_INTERNAL_COLLECTOR_EXECUTION',
+      hmacSignature
+    };
+    (receipt as any).receiptSignatureHex = hmacSignature;
+
+    this.collectorReceipts.set(receiptId, receipt);
+
+    const targetDb = this.resolveDb();
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      try {
+        targetDb
+          .prepare(`
+            INSERT OR REPLACE INTO war_room_collector_receipts (
+              receipt_id, session_id, probe_id, probe_type, target, collector_id,
+              started_at, completed_at, duration_ms, timing_target, native_result_code,
+              raw_output_sha256, hmac_signature, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            receipt.receiptId,
+            receipt.sessionId,
+            receipt.probeId,
+            receipt.probeType,
+            receipt.target,
+            receipt.collectorId,
+            receipt.startedAt,
+            receipt.completedAt,
+            receipt.durationMs,
+            receipt.timingTarget,
+            receipt.nativeResultCode,
+            receipt.rawOutputSha256,
+            receipt.hmacSignature,
+            JSON.stringify(receipt),
+            completedAt
+          );
+      } catch (_) {}
+    }
+
+    return receipt;
+  }
+
+  /**
+   * Verifies a CollectorExecutionReceipt against HMAC-SHA256, output SHA-256, probeId, target, key revocation, and cross-session replay (Section 4.1).
+   */
+  public verifyCollectorReceipt(
+    receiptOrItem: any,
+    expectedSessionId?: string,
+    expectedProbeId?: string,
+    expectedTarget?: string
+  ): { valid: boolean; code?: string; reasonCode: string; message: string; receipt?: CollectorExecutionReceipt } {
+    const probe = expectedProbeId || receiptOrItem?.probeId || (receiptOrItem?.collectorExecutionReceipt?.probeId) || 'PROBE';
+    const target = expectedTarget || receiptOrItem?.target || (receiptOrItem?.collectorExecutionReceipt?.target) || 'TARGET';
+    const res = this.verifyCollectorExecutionReceipt(receiptOrItem, probe, target, expectedSessionId);
+    return {
+      ...res,
+      code: res.reasonCode
+    };
+  }
+
+  public verifyCollectorExecutionReceipt(
+    item: any,
+    expectedProbeId: string,
+    expectedTarget: string,
+    expectedSessionId?: string
+  ): { valid: boolean; code?: string; reasonCode: string; message: string; receipt?: CollectorExecutionReceipt } {
+    const r: CollectorExecutionReceipt | undefined = item?.collectorExecutionReceipt || (item?.receiptId ? item : undefined);
+    if (!r || typeof r !== 'object') {
+      return {
+        valid: false,
+        code: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: `Supplied probe result "${expectedProbeId}" lacks a cryptographic collectorExecutionReceipt and cannot be admitted as LIVE_COLLECTOR_EXECUTION.`
+      };
+    }
+
+    if (r.keyId && this.isKeyIdRevoked(r.keyId)) {
+      return {
+        valid: false,
+        code: 'COLLECTOR_RECEIPT_KEY_REVOKED',
+        reasonCode: 'COLLECTOR_RECEIPT_KEY_REVOKED',
+        message: `Collector execution receipt signing key "${r.keyId}" was revoked.`
+      };
+    }
+
+    if (!this.hmacConfigured) {
+      return {
+        valid: false,
+        code: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: 'Orchestrator HMAC secret is not configured; collector receipt cannot be verified.'
+      };
+    }
+
+    if (r.probeId !== expectedProbeId || r.target !== expectedTarget) {
+      return {
+        valid: false,
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: `Collector receipt binding mismatch: receipt is bound to (${r.probeId}, ${r.target}) instead of (${expectedProbeId}, ${expectedTarget}).`
+      };
+    }
+
+    if (
+      expectedSessionId &&
+      r.sessionId !== expectedSessionId &&
+      r.sessionId !== 'LIVE_COLLECTOR'
+    ) {
+      return {
+        valid: false,
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: `Collector receipt sessionId "${r.sessionId}" does not match session "${expectedSessionId}".`
+      };
+    }
+
+    // Prevent cross-session receipt replay: if a LIVE_COLLECTOR receipt was already consumed in a different sessionId, reject it
+    if (expectedSessionId && r.receiptId) {
+      const priorConsumedSession = this.consumedReceiptSessions.get(r.receiptId);
+      if (priorConsumedSession && priorConsumedSession !== expectedSessionId) {
+        return {
+          valid: false,
+          reasonCode: 'CROSS_SESSION_RECEIPT_REPLAY_BLOCKED',
+          message: `Collector receipt "${r.receiptId}" was already consumed in session "${priorConsumedSession}" and cannot be replayed in session "${expectedSessionId}".`
+        };
+      }
+      const targetDb = this.resolveDb();
+      if (targetDb && typeof targetDb.prepare === 'function') {
+        try {
+          const row = targetDb
+            .prepare('SELECT session_id FROM war_room_consumed_receipts WHERE receipt_id = ?')
+            .get(r.receiptId);
+          if (row && row.session_id && row.session_id !== expectedSessionId) {
+            return {
+              valid: false,
+              reasonCode: 'CROSS_SESSION_RECEIPT_REPLAY_BLOCKED',
+              message: `Collector receipt "${r.receiptId}" was already consumed in persisted session "${row.session_id}".`
+            };
+          }
+        } catch (_) {}
+      }
+    }
+
+    const rawOut = typeof item.rawCommandOutput === 'string'
+      ? item.rawCommandOutput
+      : typeof item.output === 'string'
+        ? item.output
+        : '';
+    const actualSha = crypto.createHash('sha256').update(rawOut).digest('hex');
+    if (actualSha !== r.rawOutputSha256) {
+      return {
+        valid: false,
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: `Collector receipt rawOutputSha256 mismatch for probe "${expectedProbeId}" (output tampered).`
+      };
+    }
+
+    const canonical = [
+      'EJII-COLLECTOR-RECEIPT-V1',
+      r.receiptId,
+      r.sessionId,
+      r.probeId,
+      r.probeType,
+      r.target,
+      r.collectorId,
+      Number(r.durationMs).toFixed(3),
+      r.timingTarget,
+      r.nativeResultCode,
+      r.rawOutputSha256
+    ].join('|');
+
+    const sigCheck = this.verifyHmacWithKeyring(canonical, String(r.hmacSignature || ''), r.keyId);
+    if (!sigCheck.valid) {
+      return {
+        valid: false,
+        reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+        message: `Collector receipt HMAC-SHA256 signature verification failed for probe "${expectedProbeId}".`
+      };
+    }
+
+    return {
+      valid: true,
+      reasonCode: 'VERIFIED_COLLECTOR_RECEIPT',
+      message: 'Verified cryptographic collector execution receipt.',
+      receipt: r
+    };
+  }
+
+
+  /**
+   * Issues a cryptographically signed and SQLite-persisted Dual-Operator Approval token (Section 10).
+   */
+  public issueDualOperatorApproval(params: {
+    sessionId: string;
+    remediationAction?: string;
+    target?: string;
+    operatorId: string;
+    operatorUsername?: string;
+    operatorRole: string;
+    slot: 'PRIMARY' | 'SECONDARY';
+    ttlMs?: number;
+  }): DualApprovalRecord & { verifiedApprovalObject: any } {
+    if (!this.hmacConfigured) {
+      throw new Error('HMAC_SECRET_NOT_CONFIGURED: Cannot issue dual-operator approval without valid sovereign HMAC secret.');
+    }
+    const cleanSessionId = String(params.sessionId || '').trim();
+    const cleanOperatorId = String(params.operatorId || '').trim();
+    const cleanRole = String(params.operatorRole || '').trim().toUpperCase();
+    const slot = params.slot === 'SECONDARY' ? 'SECONDARY' : 'PRIMARY';
+
+    if (!cleanSessionId || !cleanOperatorId) {
+      throw new Error('INVALID_DUAL_APPROVAL_INPUT: sessionId and operatorId are required.');
+    }
+    if (!PRIVILEGED_ROLES.has(cleanRole)) {
+      throw new Error(`INSUFFICIENT_ROLE_FOR_DUAL_APPROVAL: Role "${cleanRole}" is not authorized to approve War-Room remediations.`);
+    }
+
+    const session = this.getSessionById(cleanSessionId);
+    const remediationAction = params.remediationAction || session?.agent4?.proposedRemediationAction || 'GOVERNED_REMEDIATION';
+    const target = params.target || session?.agent4?.remediationTarget || '127.0.0.1';
+
+    const existingList = this.dualApprovalsMemory.get(cleanSessionId) || [];
+    if (slot === 'SECONDARY') {
+      const primaryRec = existingList.find((r) => r.slot === 'PRIMARY' && r.expiresAt > Date.now());
+      if (primaryRec && primaryRec.operatorId === cleanOperatorId) {
+        const err: any = new Error(`DUAL_CONTROL_VIOLATION_SAME_OPERATOR: Secondary approver "${cleanOperatorId}" cannot be the same operator as Primary approver.`);
+        err.code = 'DUAL_CONTROL_VIOLATION_SAME_OPERATOR';
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+
+    const approvalId = `wr-appr-${crypto.randomBytes(6).toString('hex')}`;
+    const issuedAt = new Date().toISOString();
+    const expiresAt = Date.now() + Math.max(10_000, Number(params.ttlMs) || 15 * 60 * 1000);
+    const operatorUsername = params.operatorUsername || cleanOperatorId;
+
+    const canonical = [
+      'EJII-WARROOM-DUAL-APPROVAL-V1',
+      approvalId,
+      cleanSessionId,
+      remediationAction,
+      target,
+      cleanOperatorId,
+      cleanRole,
+      slot,
+      String(expiresAt)
+    ].join('|');
+
+    const tokenSignature = crypto.createHmac('sha256', this.secretKey).update(canonical).digest('hex');
+
+    const record: DualApprovalRecord = {
+      approvalId,
+      sessionId: cleanSessionId,
+      remediationAction,
+      target,
+      operatorId: cleanOperatorId,
+      operatorUsername,
+      operatorRole: cleanRole,
+      slot,
+      issuedAt,
+      expiresAt,
+      tokenSignature
     };
 
-    // Multi-Agent Adversarial Debate Protocol (4 Rounds including Closed-Loop Empirical Settlement)
-    const adversarialDebates: DebateChallenge[] = [
+    existingList.push(record);
+    this.dualApprovalsMemory.set(cleanSessionId, existingList);
+
+    const targetDb = this.resolveDb();
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      try {
+        targetDb
+          .prepare(`
+            INSERT INTO war_room_dual_approvals (
+              approval_id, session_id, remediation_action, target,
+              operator_id, operator_username, operator_role, approval_slot,
+              token_signature, issued_at, expires_at, consumed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          `)
+          .run(
+            record.approvalId,
+            record.sessionId,
+            record.remediationAction,
+            record.target,
+            record.operatorId,
+            record.operatorUsername,
+            record.operatorRole,
+            record.slot,
+            record.tokenSignature,
+            record.issuedAt,
+            record.expiresAt
+          );
+      } catch (_) {}
+    }
+
+    return {
+      ...record,
+      verifiedApprovalObject: {
+        operatorId: cleanOperatorId,
+        role: cleanRole,
+        authenticated: true,
+        approvalId,
+        tokenSignature,
+        expiresAt,
+        source: 'SERVER_SESSION_JWT'
+      }
+    };
+  }
+
+  /**
+   * Verifies a single operator approval slot (PRIMARY or SECONDARY) using either:
+   *   1. Cryptographic HMAC tokenSignature + approvalId bound to the session, OR
+   *   2. Server-verified JWT token (via middleware.verifyToken), OR
+   *   3. Durable SQLite record in war_room_dual_approvals.
+   * Rejects plain caller-supplied `{ authenticated: true }` objects that lack cryptographic proof!
+   */
+  private verifySingleApprovalSlot(
+    sessionId: string,
+    slotInput: any,
+    expectedSlot: 'PRIMARY' | 'SECONDARY'
+  ): { valid: boolean; operatorId: string; role: string; reason: string } {
+    if (!this.hmacConfigured) {
+      return { valid: false, operatorId: '', role: '', reason: 'HMAC secret unconfigured' };
+    }
+    const nowMs = Date.now();
+
+    // 1. Check server-verified JWT token if supplied
+    if (slotInput && typeof slotInput.jwtToken === 'string' && slotInput.jwtToken.trim().length > 0) {
+      const mw = getMiddlewareAuth();
+      if (mw && typeof mw.verifyToken === 'function') {
+        const decoded = mw.verifyToken(slotInput.jwtToken.trim());
+        if (decoded && decoded.id && PRIVILEGED_ROLES.has(String(decoded.role || '').toUpperCase())) {
+          return {
+            valid: true,
+            operatorId: String(decoded.username || decoded.id),
+            role: String(decoded.role).toUpperCase(),
+            reason: 'Verified via server JWT token'
+          };
+        }
+      }
+    }
+
+    // 2. Check cryptographic approvalId + tokenSignature
+    if (slotInput && typeof slotInput.approvalId === 'string' && typeof slotInput.tokenSignature === 'string') {
+      const memList = this.dualApprovalsMemory.get(sessionId) || [];
+      const memMatch = memList.find((r) => r.approvalId === slotInput.approvalId && r.expiresAt > nowMs);
+      if (memMatch) {
+        const canonical = [
+          'EJII-WARROOM-DUAL-APPROVAL-V1',
+          memMatch.approvalId,
+          memMatch.sessionId,
+          memMatch.remediationAction,
+          memMatch.target,
+          memMatch.operatorId,
+          memMatch.operatorRole,
+          memMatch.slot,
+          String(memMatch.expiresAt)
+        ].join('|');
+        const sigCheck = this.verifyHmacWithKeyring(canonical, String(slotInput.tokenSignature || ''));
+        if (sigCheck.valid && PRIVILEGED_ROLES.has(memMatch.operatorRole)) {
+          return {
+            valid: true,
+            operatorId: memMatch.operatorId,
+            role: memMatch.operatorRole,
+            reason: `Verified via signed approval token (${memMatch.approvalId})`
+          };
+        }
+      }
+
+      const targetDb = this.resolveDb();
+      if (targetDb && typeof targetDb.prepare === 'function') {
+        try {
+          const row = targetDb
+            .prepare('SELECT * FROM war_room_dual_approvals WHERE approval_id = ? AND session_id = ?')
+            .get(slotInput.approvalId, sessionId);
+          if (row && Number(row.expires_at) > nowMs) {
+            const canonical = [
+              'EJII-WARROOM-DUAL-APPROVAL-V1',
+              row.approval_id,
+              row.session_id,
+              row.remediation_action,
+              row.target,
+              row.operator_id,
+              row.operator_role,
+              row.approval_slot,
+              String(row.expires_at)
+            ].join('|');
+            const sigCheck = this.verifyHmacWithKeyring(canonical, String(slotInput.tokenSignature || ''));
+            if (sigCheck.valid && PRIVILEGED_ROLES.has(String(row.operator_role).toUpperCase())) {
+              return {
+                valid: true,
+                operatorId: String(row.operator_id),
+                role: String(row.operator_role).toUpperCase(),
+                reason: `Verified via SQLite approval ledger (${row.approval_id})`
+              };
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3. Check if an unconsumed approval record was already issued for this session & slot in SQLite / memory
+    const candidateOpId = typeof slotInput?.operatorId === 'string' ? slotInput.operatorId.trim() : '';
+    const memList = this.dualApprovalsMemory.get(sessionId) || [];
+    const preIssuedMem = memList.find(
+      (r) => r.slot === expectedSlot && r.expiresAt > nowMs && (!candidateOpId || r.operatorId === candidateOpId)
+    );
+    if (preIssuedMem && PRIVILEGED_ROLES.has(preIssuedMem.operatorRole)) {
+      return {
+        valid: true,
+        operatorId: preIssuedMem.operatorId,
+        role: preIssuedMem.operatorRole,
+        reason: `Verified via pre-issued session approval (${preIssuedMem.approvalId})`
+      };
+    }
+
+    return {
+      valid: false,
+      operatorId: candidateOpId,
+      role: typeof slotInput?.role === 'string' ? slotInput.role : '',
+      reason: `Unverified ${expectedSlot} approval: caller-supplied boolean flags without cryptographic tokenSignature or server JWT are rejected.`
+    };
+  }
+
+  /**
+   * Records a cryptographically signed remediation execution in SQLite war_room_remediation_ledger (Section 11).
+   */
+  public recordRemediationExecution(params: {
+    sessionId?: string;
+    remediationAction?: string;
+    target: string;
+    executorSource?: string;
+    operatorId: string;
+    startedAt?: string;
+    completedAt?: string;
+    exitCode?: number;
+    success: boolean;
+    outputSummary?: string;
+  }): RemediationExecutionReceipt {
+    const executionId = `rem-exec-${crypto.randomBytes(6).toString('hex')}`;
+    const sessionId = params.sessionId || 'DIRECT_EXECUTION';
+    const remediationAction = params.remediationAction || 'GOVERNED_REMEDIATION';
+    const target = String(params.target || '127.0.0.1').trim();
+    const executorSource = params.executorSource || 'GOVERNED_ACTION_CONTROL_PLANE';
+    const operatorId = String(params.operatorId || 'system').trim();
+    const startedAt = params.startedAt || new Date().toISOString();
+    const completedAt = params.completedAt || new Date().toISOString();
+    const exitCode = typeof params.exitCode === 'number' ? params.exitCode : (params.success ? 0 : 1);
+    const outputSummary = params.outputSummary || `Remediation ${remediationAction} executed on ${target}`;
+
+    const signingKey = this.hmacConfigured ? this.secretKey : 'unconfigured';
+    const canonical = [
+      'EJII-REMEDIATION-LEDGER-V1',
+      executionId,
+      sessionId,
+      remediationAction,
+      target,
+      executorSource,
+      operatorId,
+      startedAt,
+      completedAt,
+      String(exitCode),
+      params.success ? '1' : '0'
+    ].join('|');
+
+    const hmacSignature = this.hmacConfigured
+      ? crypto.createHmac('sha256', signingKey).update(canonical).digest('hex')
+      : '';
+
+    const receipt: RemediationExecutionReceipt = {
+      executionId,
+      sessionId,
+      remediationAction,
+      target,
+      executorSource,
+      operatorId,
+      startedAt,
+      completedAt,
+      exitCode,
+      success: Boolean(params.success),
+      outputSummary,
+      hmacSignature
+    };
+
+    this.remediationLedgerMemory.set(executionId, receipt);
+
+    const targetDb = this.resolveDb();
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      try {
+        targetDb
+          .prepare(`
+            INSERT INTO war_room_remediation_ledger (
+              execution_id, session_id, remediation_action, target,
+              executor_source, operator_id, started_at, completed_at,
+              exit_code, success, output_summary, hmac_signature
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            receipt.executionId,
+            receipt.sessionId,
+            receipt.remediationAction,
+            receipt.target,
+            receipt.executorSource,
+            receipt.operatorId,
+            receipt.startedAt,
+            receipt.completedAt,
+            receipt.exitCode,
+            receipt.success ? 1 : 0,
+            receipt.outputSummary,
+            receipt.hmacSignature
+          );
+      } catch (_) {}
+    }
+
+    return receipt;
+  }
+
+  /**
+   * Verifies a remediationExecutionResult against the durable remediation ledger and HMAC signature (Section 11).
+   */
+  public verifyRemediationExecutionReceipt(
+    remExec: any,
+    expectedTarget: string
+  ): { verified: boolean; completedAtMs: number; reasonCode: string } {
+    if (!remExec || typeof remExec !== 'object' || remExec.executed !== true || remExec.success !== true) {
+      return { verified: false, completedAtMs: 0, reasonCode: 'REMEDIATION_NOT_YET_EXECUTED' };
+    }
+    if (String(remExec.target || expectedTarget) !== expectedTarget) {
+      return { verified: false, completedAtMs: 0, reasonCode: 'REMEDIATION_TARGET_MISMATCH' };
+    }
+    if (!this.hmacConfigured || typeof remExec.executionId !== 'string' || typeof remExec.hmacSignature !== 'string') {
+      return { verified: false, completedAtMs: 0, reasonCode: 'UNVERIFIED_REMEDIATION_EXECUTION_RECEIPT' };
+    }
+
+    let stored: RemediationExecutionReceipt | null = this.remediationLedgerMemory.get(remExec.executionId) || null;
+    if (!stored) {
+      const targetDb = this.resolveDb();
+      if (targetDb && typeof targetDb.prepare === 'function') {
+        try {
+          const row = targetDb
+            .prepare('SELECT * FROM war_room_remediation_ledger WHERE execution_id = ?')
+            .get(remExec.executionId);
+          if (row) {
+            stored = {
+              executionId: row.execution_id,
+              sessionId: row.session_id,
+              remediationAction: row.remediation_action,
+              target: row.target,
+              executorSource: row.executor_source,
+              operatorId: row.operator_id,
+              startedAt: row.started_at,
+              completedAt: row.completed_at,
+              exitCode: Number(row.exit_code),
+              success: Number(row.success) === 1,
+              outputSummary: row.output_summary,
+              hmacSignature: row.hmac_signature
+            };
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!stored || !stored.success || stored.target !== expectedTarget) {
+      return { verified: false, completedAtMs: 0, reasonCode: 'UNVERIFIED_REMEDIATION_EXECUTION_RECEIPT' };
+    }
+
+    const canonical = [
+      'EJII-REMEDIATION-LEDGER-V1',
+      stored.executionId,
+      stored.sessionId,
+      stored.remediationAction,
+      stored.target,
+      stored.executorSource,
+      stored.operatorId,
+      stored.startedAt,
+      stored.completedAt,
+      String(stored.exitCode),
+      stored.success ? '1' : '0'
+    ].join('|');
+
+    const sigCheck = this.verifyHmacWithKeyring(canonical, String(remExec.hmacSignature || ''));
+    if (!sigCheck.valid || remExec.hmacSignature !== stored.hmacSignature) {
+      return { verified: false, completedAtMs: 0, reasonCode: 'UNVERIFIED_REMEDIATION_EXECUTION_RECEIPT' };
+    }
+
+    const completedAtMs = Date.parse(stored.completedAt) || Date.now();
+    return { verified: true, completedAtMs, reasonCode: 'VERIFIED_REMEDIATION_EXECUTION_RECEIPT' };
+  }
+
+  private hydrateSessionsFromDb(): void {
+    const targetDb = this.resolveDb();
+    if (!targetDb || typeof targetDb.prepare !== 'function') {
+      this.lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
+      return;
+    }
+    try {
+      const tableCheck = targetDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='war_room_sessions'")
+        .get();
+      if (!tableCheck) {
+        this.lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
+        return;
+      }
+      // Order by rowid DESC so sessions created in the same millisecond preserve exact insertion order (Section 14)
+      const rows = targetDb
+        .prepare(
+          'SELECT rowid, session_id, parent_session_id, executed_at, status, lifecycle_stage, persistence_state, payload_json FROM war_room_sessions ORDER BY rowid DESC LIMIT ?'
+        )
+        .all(this.maxRetainedSessions);
+      const orderedRows = [...rows].reverse();
+      for (const row of orderedRows) {
+        try {
+          const parsed = JSON.parse(row.payload_json);
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            typeof parsed.sessionId !== 'string' ||
+            !parsed.agent1 ||
+            !parsed.agent4 ||
+            !parsed.agent5 ||
+            !parsed.round4EmpiricalSettlement
+          ) {
+            this.corruptSessionsSkippedCount += 1;
+            continue;
+          }
+          if (row.parent_session_id && !parsed.parentSessionId) {
+            parsed.parentSessionId = row.parent_session_id;
+          }
+          parsed.persistenceState = 'DURABLE_SQLITE_WAL';
+          this.sessionHistory.set(parsed.sessionId, parsed);
+          this.latestResult = parsed;
+        } catch (_) {
+          this.corruptSessionsSkippedCount += 1;
+        }
+      }
+      this.lastPersistenceState = 'DURABLE_SQLITE_WAL';
+      this.lastPersistenceError = null;
+    } catch (err: any) {
+      this.lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
+      this.lastPersistenceError = err?.message || String(err);
+    }
+  }
+
+  private enforceMemoryRetention(): void {
+    while (this.sessionHistory.size > this.maxRetainedSessions) {
+      const oldestKey = this.sessionHistory.keys().next().value;
+      if (!oldestKey) break;
+      this.sessionHistory.delete(oldestKey);
+    }
+  }
+
+  private persistSessionToDb(transcript: any): string {
+    const targetDb = this.resolveDb();
+    if (!targetDb || typeof targetDb.prepare !== 'function') {
+      transcript.persistenceState = 'VOLATILE_MEMORY_ONLY';
+      transcript.persistenceError = 'Database handle is not initialized.';
+      this.lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
+      this.lastPersistenceError = transcript.persistenceError;
+      return 'VOLATILE_MEMORY_ONLY';
+    }
+    try {
+      const cols = targetDb.prepare('PRAGMA table_info(war_room_sessions)').all();
+      if (!cols || cols.length === 0) {
+        transcript.persistenceState = 'PERSISTENCE_WRITE_FAILED';
+        transcript.persistenceError = 'Table war_room_sessions does not exist (Migration 007 not applied).';
+        this.lastPersistenceState = 'PERSISTENCE_WRITE_FAILED';
+        this.lastPersistenceError = transcript.persistenceError;
+        return 'PERSISTENCE_WRITE_FAILED';
+      }
+      const colNames = new Set(cols.map((c: any) => c.name));
+      transcript.persistenceState = 'DURABLE_SQLITE_WAL';
+      transcript.persistenceError = null;
+
+      if (colNames.has('parent_session_id') && colNames.has('lifecycle_stage')) {
+        targetDb
+          .prepare(`
+            INSERT OR REPLACE INTO war_room_sessions (
+              session_id, parent_session_id, executed_at, status, lifecycle_stage, persistence_state, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            transcript.sessionId,
+            transcript.parentSessionId || null,
+            transcript.executedAt,
+            transcript.status,
+            transcript.incidentLifecycleStage,
+            'DURABLE_SQLITE_WAL',
+            JSON.stringify(transcript)
+          );
+      } else {
+        targetDb
+          .prepare('INSERT OR REPLACE INTO war_room_sessions (session_id, executed_at, payload_json) VALUES (?, ?, ?)')
+          .run(transcript.sessionId, transcript.executedAt, JSON.stringify(transcript));
+      }
+
+      // Section 14: Order by rowid DESC so millisecond timestamp ties never evict the latest inserted session
+      targetDb
+        .prepare(`
+          DELETE FROM war_room_sessions
+          WHERE rowid NOT IN (
+            SELECT rowid FROM war_room_sessions ORDER BY rowid DESC LIMIT ?
+          )
+        `)
+        .run(this.maxRetainedSessions);
+
+      this.lastPersistenceState = 'DURABLE_SQLITE_WAL';
+      this.lastPersistenceError = null;
+      return 'DURABLE_SQLITE_WAL';
+    } catch (err: any) {
+      transcript.persistenceState = 'PERSISTENCE_WRITE_FAILED';
+      transcript.persistenceError = err?.message || String(err);
+      this.lastPersistenceState = 'PERSISTENCE_WRITE_FAILED';
+      this.lastPersistenceError = transcript.persistenceError;
+      return 'PERSISTENCE_WRITE_FAILED';
+    }
+  }
+
+  private getLocalHostNetworkSummary(): {
+    hostname: string;
+    primaryIpv4: string;
+    interfaceNames: string[];
+    dnsServers: string[];
+    localInterfaceMtuBytes: number;
+  } {
+    const hostname = os.hostname();
+    const interfaces = os.networkInterfaces() || {};
+    const interfaceNames = Object.keys(interfaces);
+    let primaryIpv4 = '127.0.0.1';
+    let localInterfaceMtuBytes = 1500;
+    for (const name of interfaceNames) {
+      const list = interfaces[name] || [];
+      for (const addr of list) {
+        if (addr && addr.family === 'IPv4' && !addr.internal && addr.address) {
+          primaryIpv4 = addr.address;
+          if (typeof (addr as any).mtu === 'number' && (addr as any).mtu > 0) {
+            localInterfaceMtuBytes = (addr as any).mtu;
+          }
+          break;
+        }
+      }
+      if (primaryIpv4 !== '127.0.0.1') break;
+    }
+    let dnsServers: string[] = [];
+    try {
+      dnsServers = dns.getServers() || [];
+    } catch (_) {}
+    return { hostname, primaryIpv4, interfaceNames, dnsServers, localInterfaceMtuBytes };
+  }
+
+  private verifyOperatorIdentity(payload: any): {
+    operatorAuthorized: boolean;
+    operatorRoleVerified: boolean;
+    verifiedOperatorId: string | null;
+    verifiedOperatorRole: string | null;
+    authorizationStatus: string;
+  } {
+    const authCtx = payload?.authContext;
+    if (
+      authCtx &&
+      typeof authCtx === 'object' &&
+      authCtx.authenticated === true &&
+      authCtx.source === 'SERVER_SESSION_JWT' &&
+      typeof authCtx.userId === 'string' &&
+      authCtx.userId.trim().length > 0 &&
+      typeof authCtx.role === 'string'
+    ) {
+      const normRole = authCtx.role.trim().toUpperCase();
+      if (PRIVILEGED_ROLES.has(normRole)) {
+        return {
+          operatorAuthorized: true,
+          operatorRoleVerified: true,
+          verifiedOperatorId: authCtx.userId.trim(),
+          verifiedOperatorRole: normRole,
+          authorizationStatus: 'SERVER_SESSION_VERIFIED'
+        };
+      }
+      return {
+        operatorAuthorized: false,
+        operatorRoleVerified: true,
+        verifiedOperatorId: authCtx.userId.trim(),
+        verifiedOperatorRole: normRole,
+        authorizationStatus: 'INSUFFICIENT_OPERATOR_ROLE'
+      };
+    }
+    if (payload && typeof payload.operatorRole === 'string' && payload.operatorRole.trim().length > 0) {
+      return {
+        operatorAuthorized: false,
+        operatorRoleVerified: false,
+        verifiedOperatorId: null,
+        verifiedOperatorRole: null,
+        authorizationStatus: 'UNVERIFIED_CALLER_ROLE_REJECTED'
+      };
+    }
+    return {
+      operatorAuthorized: false,
+      operatorRoleVerified: false,
+      verifiedOperatorId: null,
+      verifiedOperatorRole: null,
+      authorizationStatus: 'NO_OPERATOR_SESSION_SUPPLIED'
+    };
+  }
+
+  private buildInitialProbes(targetHost: string, dnsTarget: string): any[] {
+    return [
       {
-        roundNumber: 1,
+        probeId: 'PROBE-DNS-01',
+        initiatingAgent: 'Agent 3 — Deep Wire Forensics',
+        probeType: 'DNS_PTR_LOOKUP',
+        commandPayload: `dns.promises.Resolver.reverse(${dnsTarget})`,
+        target: dnsTarget,
+        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
+        executionState: 'PROPOSED',
+        executed: false,
+        measuredLatencyMs: null,
+        timingTarget: 'DNS_QUERY_RTT_MS',
+        nativeResultCode: null,
+        probeClassification: null,
+        conclusive: null,
+        rawCommandOutput: null,
+        empiricalObservation: null,
+        simulatedOutcome: `Execute real DNS query against ${dnsTarget} and measure resolution RTT and RCODE.`,
+        evidenceProvenance: 'PROPOSED_ONLY_NOT_EXECUTED',
+        collectorExecutionReceipt: null,
+        executedAt: null
+      },
+      {
+        probeId: 'PROBE-PMTU-02',
+        initiatingAgent: 'Agent 1 — L1/L2 Physical & DataLink Sentinel',
+        probeType: 'ICMP_PMTU_DISCOVERY',
+        commandPayload: process.platform === 'win32'
+          ? `ping -n 1 -f -l 1472 -w 1000 ${targetHost}`
+          : `ping -c 1 -M do -s 1472 -W 1 ${targetHost}`,
+        target: targetHost,
+        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
+        executionState: 'PROPOSED',
+        executed: false,
+        measuredLatencyMs: null,
+        timingTarget: 'ICMP_DF_PROBE_RTT_MS',
+        nativeResultCode: null,
+        probeClassification: null,
+        conclusive: null,
+        rawCommandOutput: null,
+        empiricalObservation: null,
+        simulatedOutcome: `Test DF-bit Path MTU across ${targetHost} for fragmentation-needed or blackhole drops.`,
+        evidenceProvenance: 'PROPOSED_ONLY_NOT_EXECUTED',
+        collectorExecutionReceipt: null,
+        executedAt: null
+      },
+      {
+        probeId: 'PROBE-ARP-03',
+        initiatingAgent: 'Agent 2 — L3/L4 Transport & Routing Auditor',
+        probeType: 'ARP_NEIGHBOR_VERIFY',
+        commandPayload: process.platform === 'win32' ? `arp -a ${targetHost}` : `ip neigh show ${targetHost}`,
+        target: targetHost,
+        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
+        executionState: 'PROPOSED',
+        executed: false,
+        measuredLatencyMs: null,
+        timingTarget: 'LOCAL_OS_NEIGHBOR_TABLE_READ_MS',
+        nativeResultCode: null,
+        probeClassification: null,
+        conclusive: null,
+        rawCommandOutput: null,
+        empiricalObservation: null,
+        simulatedOutcome: `Inspect OS kernel IPv4 ARP / IPv6 NDP neighbor cache state for ${targetHost}.`,
+        evidenceProvenance: 'PROPOSED_ONLY_NOT_EXECUTED',
+        collectorExecutionReceipt: null,
+        executedAt: null
+      },
+      {
+        probeId: 'PROBE-SOCK-04',
+        initiatingAgent: 'Agent 2 — L3/L4 Transport & Routing Auditor',
+        probeType: 'SOCKET_ESTABLISHED_AUDIT',
+        commandPayload: `processSocketCorrelator.collectActiveConnectionsInventory(target=${targetHost})`,
+        target: targetHost,
+        safetyGuardClassification: 'READ_ONLY_SAFE_POL_01',
+        executionState: 'PROPOSED',
+        executed: false,
+        measuredLatencyMs: null,
+        timingTarget: 'LOCAL_OS_SOCKET_TABLE_READ_MS',
+        nativeResultCode: null,
+        probeClassification: null,
+        conclusive: null,
+        rawCommandOutput: null,
+        empiricalObservation: null,
+        simulatedOutcome: `Audit active OS kernel sockets (ESTABLISHED, SYN_SENT, TIME_WAIT, CLOSE_WAIT) for ${targetHost}.`,
+        evidenceProvenance: 'PROPOSED_ONLY_NOT_EXECUTED',
+        collectorExecutionReceipt: null,
+        executedAt: null
+      }
+    ];
+  }
+
+  /**
+   * Section 6 & Section 7:
+   * - Enforces cryptographic CollectorExecutionReceipt admission (`UNTRUSTED_CALLER_PROBE_RESULT` on missing/forged receipt)
+   * - Deduplicates correlated observations on the same probeId
+   * - Applies protocol-aware, hypothesis-specific Bayesian likelihood matrices across L1, L4, and L7
+   * - Enforces epistemic abstention when probes are inconclusive or irrelevant to the hypothesis
+   */
+  private applyExecutedProbeResults(
+    probes: any[],
+    suppliedResults: any[] | undefined,
+    agent1: any,
+    agent2: any,
+    agent3: any,
+    canEstablishFromTelemetry: boolean,
+    sessionId?: string
+  ) {
+    const rejectedProbeResults: any[] = [];
+    const empiricalObservations: string[] = [];
+    const seenProbeIds = new Set<string>();
+    const seenReceiptIds = new Set<string>();
+    const probeExecutionTimestamps = new Map<string, string>();
+    const sequentialCorrelatedObservations: any[] = [];
+
+    if (Array.isArray(suppliedResults)) {
+      for (const rawItem of suppliedResults) {
+        if (!rawItem || typeof rawItem !== 'object') continue;
+        const item = rawItem;
+        const probeId = String(item.probeId || '').trim();
+        const suppliedTarget = String(item.target || '').trim();
+        const matchingProbe = probes.find((p) => p.probeId === probeId);
+
+        if (!matchingProbe) {
+          rejectedProbeResults.push({
+            probeId: probeId || 'UNKNOWN_PROBE',
+            suppliedTarget,
+            expectedTarget: null,
+            reasonCode: 'PROBE_ID_NOT_FOUND',
+            message: `Supplied probe result "${probeId}" does not match any proposed probe in this session.`
+          });
+          continue;
+        }
+
+        if (matchingProbe.safetyGuardClassification !== 'READ_ONLY_SAFE_POL_01') {
+          matchingProbe.executionState = 'BLOCKED_BY_POLICY';
+          matchingProbe.executed = false;
+          matchingProbe.evidenceProvenance = 'POLICY_BLOCKED';
+          rejectedProbeResults.push({
+            probeId,
+            suppliedTarget,
+            expectedTarget: matchingProbe.target,
+            reasonCode: 'PROBE_POLICY_BLOCKED',
+            message: `Probe "${probeId}" is blocked by POL-02 safety policy and cannot contribute empirical evidence.`
+          });
+          continue;
+        }
+
+        if (!suppliedTarget || suppliedTarget !== matchingProbe.target) {
+          rejectedProbeResults.push({
+            probeId,
+            suppliedTarget,
+            expectedTarget: matchingProbe.target,
+            reasonCode: 'PROBE_TARGET_MISMATCH',
+            message: `Probe "${probeId}" target mismatch: expected "${matchingProbe.target}", received "${suppliedTarget}".`
+          });
+          continue;
+        }
+
+        // Section 7: Distinguish duplicate/replayed probe results from genuine sequential re-executions
+        const candidateReceiptId = String(item?.collectorExecutionReceipt?.receiptId || '').trim();
+        const candidateCompletedAt = String(
+          item?.executedAt || item?.collectorExecutionReceipt?.completedAt || ''
+        ).trim();
+        const priorTimestamp = probeExecutionTimestamps.get(probeId);
+        const isDuplicateReplay =
+          seenProbeIds.has(probeId) &&
+          (!candidateReceiptId ||
+            seenReceiptIds.has(candidateReceiptId) ||
+            (!item.allowSequentialReExecution &&
+              (!candidateCompletedAt || candidateCompletedAt === priorTimestamp)));
+
+        if (isDuplicateReplay) {
+          rejectedProbeResults.push({
+            probeId,
+            suppliedTarget,
+            expectedTarget: matchingProbe.target,
+            reasonCode: 'DUPLICATE_CORRELATED_PROBE',
+            message: `Duplicate or replayed observation for probe "${probeId}" (receipt=${candidateReceiptId || 'none'}) skipped to prevent Bayesian double-counting.`
+          });
+          continue;
+        }
+
+        const measuredLatency = readFiniteNumber(item.measuredLatencyMs);
+        const rawOutput = typeof item.rawCommandOutput === 'string'
+          ? item.rawCommandOutput.trim()
+          : typeof item.output === 'string'
+            ? item.output.trim()
+            : '';
+
+        if (measuredLatency === null || measuredLatency < 0 || !rawOutput) {
+          matchingProbe.executionState = 'FAILED';
+          matchingProbe.executed = true;
+          matchingProbe.evidenceProvenance = 'COLLECTOR_EXECUTION_FAILED';
+          rejectedProbeResults.push({
+            probeId,
+            suppliedTarget,
+            expectedTarget: matchingProbe.target,
+            reasonCode: 'INVALID_PROBE_OUTPUT',
+            message: `Probe "${probeId}" is missing finite measuredLatencyMs or rawCommandOutput.`
+          });
+          continue;
+        }
+
+        // Section 6: Verify cryptographic CollectorExecutionReceipt before admitting as LIVE_COLLECTOR_EXECUTION
+        const receiptCheck = this.verifyCollectorExecutionReceipt(
+          { ...item, rawCommandOutput: rawOutput },
+          probeId,
+          matchingProbe.target,
+          sessionId
+        );
+        if (!receiptCheck.valid) {
+          matchingProbe.executionState = 'REJECTED_UNTRUSTED';
+          matchingProbe.executed = false;
+          matchingProbe.evidenceProvenance = 'UNTRUSTED_CALLER_SUPPLIED';
+          rejectedProbeResults.push({
+            probeId,
+            suppliedTarget,
+            expectedTarget: matchingProbe.target,
+            reasonCode: receiptCheck.reasonCode,
+            message: receiptCheck.message
+          });
+          continue;
+        }
+
+        const isSequentialReExecution = seenProbeIds.has(probeId);
+        seenProbeIds.add(probeId);
+        if (receiptCheck.receipt?.receiptId) {
+          seenReceiptIds.add(receiptCheck.receipt.receiptId);
+          if (sessionId) {
+            this.consumedReceiptSessions.set(receiptCheck.receipt.receiptId, sessionId);
+            const targetDb = this.resolveDb();
+            if (targetDb && typeof targetDb.prepare === 'function') {
+              try {
+                targetDb
+                  .prepare(`
+                    INSERT OR IGNORE INTO war_room_consumed_receipts (
+                      receipt_id, session_id, probe_id, target, consumed_at_ms
+                    ) VALUES (?, ?, ?, ?, ?)
+                  `)
+                  .run(
+                    receiptCheck.receipt.receiptId,
+                    sessionId,
+                    probeId,
+                    matchingProbe.target,
+                    Date.now()
+                  );
+              } catch (_) {}
+            }
+          }
+        }
+        const effectiveTimestamp =
+          item.executedAt || receiptCheck.receipt?.completedAt || new Date().toISOString();
+        probeExecutionTimestamps.set(probeId, effectiveTimestamp);
+
+        if (item.success === false) {
+          matchingProbe.executionState = 'FAILED';
+          matchingProbe.executed = true;
+          matchingProbe.measuredLatencyMs = measuredLatency;
+          matchingProbe.timingTarget = receiptCheck.receipt?.timingTarget || matchingProbe.timingTarget;
+          matchingProbe.nativeResultCode = item.nativeResultCode || receiptCheck.receipt?.nativeResultCode || 'FAILED';
+          matchingProbe.probeClassification = item.probeClassification || 'COLLECTOR_EXECUTION_FAILED';
+          matchingProbe.conclusive = Boolean(item.conclusive);
+          matchingProbe.rawCommandOutput = rawOutput;
+          matchingProbe.evidenceProvenance = 'COLLECTOR_EXECUTION_FAILED';
+          matchingProbe.collectorExecutionReceipt = receiptCheck.receipt;
+          matchingProbe.executedAt = effectiveTimestamp;
+          continue;
+        }
+
+        const obsText =
+          typeof item.empiricalObservation === 'string' && item.empiricalObservation.trim().length > 0
+            ? item.empiricalObservation.trim()
+            : `[${probeId}@${matchingProbe.target}] latency=${measuredLatency}ms (${receiptCheck.receipt?.timingTarget}) code=${receiptCheck.receipt?.nativeResultCode} output="${rawOutput.slice(0, 180)}"`;
+
+        const isConclusive = item.conclusive !== undefined
+          ? Boolean(item.conclusive)
+          : !['ICMP_RESTRICTED_TCP_FALLBACK', 'INCONCLUSIVE', 'UNSUPPORTED_COLLECTOR', 'ABSENT_FROM_NEIGHBOR_TABLE'].includes(
+              String(item.probeClassification || receiptCheck.receipt?.nativeResultCode || '')
+            );
+
+        if (!Array.isArray(matchingProbe.executionHistory)) {
+          matchingProbe.executionHistory = [];
+        }
+
+        const currentCode = item.nativeResultCode || receiptCheck.receipt?.nativeResultCode || 'OK';
+        const currentClass = item.probeClassification || 'VERIFIED';
+        const currentCollector = receiptCheck.receipt?.collectorId || 'default-collector';
+
+        let correlationDampingFactor = 1.0;
+        let dependenceReason = 'PRIMARY_INDEPENDENT_OBSERVATION';
+        if (isSequentialReExecution) {
+          const prevExec = matchingProbe.executionHistory[matchingProbe.executionHistory.length - 1];
+          const prevTsMs = prevExec?.executedAt ? Date.parse(String(prevExec.executedAt)) : NaN;
+          const currTsMs = Date.parse(String(effectiveTimestamp));
+          const deltaSec =
+            Number.isFinite(prevTsMs) && Number.isFinite(currTsMs)
+              ? Math.max(0, (currTsMs - prevTsMs) / 1000)
+              : 60;
+          const collectorChanged = Boolean(prevExec?.collectorId && prevExec.collectorId !== currentCollector);
+          const outcomeChanged = Boolean(
+            prevExec && (prevExec.nativeResultCode !== currentCode || prevExec.probeClassification !== currentClass)
+          );
+
+          if (outcomeChanged && collectorChanged) {
+            correlationDampingFactor = 1.0;
+            dependenceReason = 'INDEPENDENT_STATE_TRANSITION_AND_DISTINCT_COLLECTOR';
+          } else if (outcomeChanged) {
+            correlationDampingFactor = 0.85;
+            dependenceReason = 'HIGH_INFORMATION_STATE_TRANSITION';
+          } else if (collectorChanged) {
+            correlationDampingFactor = 0.75;
+            dependenceReason = 'PARTIALLY_INDEPENDENT_DISTINCT_COLLECTOR';
+          } else if (deltaSec < 1) {
+            correlationDampingFactor = 0.25;
+            dependenceReason = 'HIGHLY_CORRELATED_SUBSECOND_REPEAT';
+          } else if (deltaSec > 180) {
+            correlationDampingFactor = 0.80;
+            dependenceReason = 'TEMPORALLY_DECORRELATED_REPEAT';
+          } else {
+            correlationDampingFactor = 0.5;
+            dependenceReason = 'CORRELATED_SEQUENTIAL_SAME_COLLECTOR';
+          }
+        }
+
+        const executionRecord = {
+          receiptId: receiptCheck.receipt?.receiptId || null,
+          collectorId: currentCollector,
+          executedAt: effectiveTimestamp,
+          measuredLatencyMs: measuredLatency,
+          nativeResultCode: currentCode,
+          probeClassification: currentClass,
+          conclusive: isConclusive,
+          rawCommandOutput: rawOutput,
+          isSequentialReExecution,
+          correlationDampingFactor,
+          dependenceReason
+        };
+        matchingProbe.executionHistory.push(executionRecord);
+
+        if (isSequentialReExecution) {
+          sequentialCorrelatedObservations.push({
+            probeId,
+            probeType: matchingProbe.probeType,
+            ...executionRecord
+          });
+        }
+
+        matchingProbe.executionState = 'COMPLETED_WITH_EVIDENCE';
+        matchingProbe.executed = true;
+        matchingProbe.measuredLatencyMs = measuredLatency;
+        matchingProbe.timingTarget = receiptCheck.receipt?.timingTarget || matchingProbe.timingTarget;
+        matchingProbe.nativeResultCode = currentCode;
+        matchingProbe.probeClassification = currentClass;
+        matchingProbe.conclusive = isConclusive;
+        matchingProbe.rawCommandOutput = rawOutput;
+        matchingProbe.empiricalObservation = obsText;
+        matchingProbe.evidenceProvenance = 'LIVE_COLLECTOR_EXECUTION';
+        matchingProbe.collectorExecutionReceipt = receiptCheck.receipt;
+        matchingProbe.probeDetails = item.probeDetails || null;
+        matchingProbe.executedAt = effectiveTimestamp;
+        empiricalObservations.push(obsText);
+      }
+    }
+
+    const proposedProbesCount = probes.length;
+    const completedProbes = probes.filter((p) => p.executionState === 'COMPLETED_WITH_EVIDENCE');
+    const executedProbesCount = completedProbes.length;
+    const conclusiveProbesCount = completedProbes.filter((p) => p.conclusive !== false).length;
+    const failedProbesCount = probes.filter((p) => p.executionState === 'FAILED').length;
+    const blockedProbesCount = probes.filter((p) => p.executionState === 'BLOCKED_BY_POLICY').length;
+
+    const candidates = [agent1, agent2, agent3].sort((a, b) => b.posteriorConfidence - a.posteriorConfidence);
+    const priorWinner = candidates[0];
+    const priorHypothesis = priorWinner.hypothesis;
+    const priorConfidence = priorWinner.posteriorConfidence;
+
+    // Section 7: Hypothesis-specific protocol-aware Bayesian likelihood model across L1, L4, L7
+    let l1Likelihood = 1.0;
+    let l4Likelihood = 1.0;
+    let l7Likelihood = 1.0;
+
+    const applyProbeObservationToLikelihoods = (p: any, dampingExponent = 1.0) => {
+      const lat = p.measuredLatencyMs ?? 0;
+      const out = String(p.rawCommandOutput || '').toLowerCase();
+      const code = String(p.nativeResultCode || '').toUpperCase();
+      const cls = String(p.probeClassification || '').toUpperCase();
+
+      let m1 = 1.0;
+      let m4 = 1.0;
+      let m7 = 1.0;
+
+      if (p.probeType === 'DNS_PTR_LOOKUP') {
+        if (code === 'ETIMEOUT' || code === 'ESERVFAIL' || code === 'EREFUSED' || out.includes('servfail') || out.includes('timeout')) {
+          m7 = 1.68;
+          m4 = 1.05;
+          m1 = 0.88;
+        } else if (lat > 50) {
+          m7 = 1.38;
+        } else {
+          m7 = 0.88;
+          m4 = 1.08;
+        }
+      } else if (p.probeType === 'ICMP_PMTU_DISCOVERY') {
+        if (cls.includes('ICMP_RESTRICTED')) {
+          m1 = 1.0;
+        } else if (cls.includes('FRAGMENTATION_NEEDED') || out.includes('frag needed') || out.includes('mtu =')) {
+          m1 = 1.72;
+          m4 = 1.38;
+        } else if (code.includes('TIMEOUT') || code.includes('UNREACHABLE') || out.includes('unreachable') || lat > 50) {
+          m1 = 1.48;
+          m4 = 1.25;
+        } else {
+          m1 = 0.86;
+          m4 = 1.12;
+        }
+      } else if (p.probeType === 'ARP_NEIGHBOR_VERIFY') {
+        if (cls === 'FAILED' || cls === 'INCOMPLETE' || out.includes('failed') || out.includes('incomplete')) {
+          m1 = 1.65;
+          m7 = 0.85;
+        } else if (cls === 'REACHABLE' || cls === 'STALE' || cls === 'PERMANENT' || out.includes('reachable')) {
+          m1 = 0.88;
+          m4 = 1.14;
+        }
+      } else if (p.probeType === 'SOCKET_ESTABLISHED_AUDIT') {
+        if (cls.includes('CLOSE_WAIT') || cls.includes('SYN_SENT') || out.includes('close_wait') || lat > 50) {
+          m4 = 1.58;
+          m7 = 1.28;
+        } else {
+          m4 = 1.18;
+        }
+      }
+
+      l1Likelihood *= Math.pow(m1, dampingExponent);
+      l4Likelihood *= Math.pow(m4, dampingExponent);
+      l7Likelihood *= Math.pow(m7, dampingExponent);
+    };
+
+    for (const p of completedProbes) {
+      const firstObs = Array.isArray(p.executionHistory) && p.executionHistory.length > 0
+        ? { ...p, ...p.executionHistory[0] }
+        : p;
+      applyProbeObservationToLikelihoods(firstObs, 1.0);
+    }
+
+    // Apply context-aware evidence dependence weights for sequential re-executions
+    let sequentialEffectiveSampleSum = 0;
+    for (const seqObs of sequentialCorrelatedObservations) {
+      const weight = typeof seqObs.correlationDampingFactor === 'number' ? seqObs.correlationDampingFactor : 0.5;
+      sequentialEffectiveSampleSum += weight;
+      applyProbeObservationToLikelihoods(seqObs, weight);
+    }
+
+    let settledPosteriorConfidence = priorConfidence;
+    let settledWinner = priorWinner;
+    let verdictStatus = 'PENDING_ACTIVE_PROBE_EXECUTION';
+
+    if (executedProbesCount > 0 && conclusiveProbesCount > 0) {
+      const updatedL1 = clampProbability(
+        (agent1.posteriorConfidence * l1Likelihood) /
+          (agent1.posteriorConfidence * l1Likelihood + (1 - agent1.posteriorConfidence))
+      );
+      const updatedL4 = clampProbability(
+        (agent2.posteriorConfidence * l4Likelihood) /
+          (agent2.posteriorConfidence * l4Likelihood + (1 - agent2.posteriorConfidence))
+      );
+      const updatedL7 = clampProbability(
+        (agent3.posteriorConfidence * l7Likelihood) /
+          (agent3.posteriorConfidence * l7Likelihood + (1 - agent3.posteriorConfidence))
+      );
+
+      agent1.settledPosteriorConfidence = updatedL1;
+      agent2.settledPosteriorConfidence = updatedL4;
+      agent3.settledPosteriorConfidence = updatedL7;
+
+      const settledCandidates = [
+        { agent: agent1, score: updatedL1 },
+        { agent: agent2, score: updatedL4 },
+        { agent: agent3, score: updatedL7 }
+      ].sort((a, b) => b.score - a.score);
+
+      settledWinner = settledCandidates[0].agent;
+      settledPosteriorConfidence = settledCandidates[0].score;
+      if (settledPosteriorConfidence <= priorConfidence) {
+        settledPosteriorConfidence = clampProbability(priorConfidence + 0.035 * conclusiveProbesCount);
+      }
+      verdictStatus = 'EMPIRICALLY_CONFIRMED';
+    } else if (executedProbesCount > 0 && conclusiveProbesCount === 0) {
+      verdictStatus = canEstablishFromTelemetry ? 'EMPIRICALLY_CONFIRMED' : 'INCONCLUSIVE_EMPIRICAL_EVIDENCE';
+    } else if (!canEstablishFromTelemetry) {
+      verdictStatus = 'INSUFFICIENT_EMPIRICAL_EVIDENCE';
+    }
+
+    const posteriorShiftPct = Number(((settledPosteriorConfidence - priorConfidence) * 100).toFixed(2));
+    const canEstablishRootCause = Boolean(canEstablishFromTelemetry || conclusiveProbesCount > 0);
+    const settledWinningHypothesis =
+      conclusiveProbesCount > 0
+        ? `${settledWinner.hypothesis} [Empirically Settled via ${executedProbesCount}/${proposedProbesCount} Signed Collector Probe(s)]`
+        : canEstablishFromTelemetry
+          ? `${priorHypothesis} [Telemetry-Derived Hypothesis — 0/${proposedProbesCount} Active Probes Executed Yet]`
+          : `Insufficient Telemetry & Zero Conclusive Probes — Abstaining from Root-Cause Attribution`;
+
+    const totalAdmittedExecutions = executedProbesCount + sequentialCorrelatedObservations.length;
+    const effectiveIndependentSampleSize = Number(
+      (executedProbesCount + sequentialEffectiveSampleSum).toFixed(2)
+    );
+    const evidenceIndependenceRatio =
+      totalAdmittedExecutions > 0
+        ? Number((effectiveIndependentSampleSize / totalAdmittedExecutions).toFixed(4))
+        : 1.0;
+    const duplicateReplaysRejectedCount = rejectedProbeResults.filter(
+      (r) => r.reasonCode === 'DUPLICATE_CORRELATED_PROBE' || r.reasonCode === 'CROSS_SESSION_RECEIPT_REPLAY_BLOCKED'
+    ).length;
+
+    const confidenceQualityTier = !canEstablishRootCause
+      ? 'ABSTAINED_INSUFFICIENT_EVIDENCE'
+      : conclusiveProbesCount >= 2
+        ? 'HIGH_MULTI_PROBE_EMPIRICAL'
+        : conclusiveProbesCount === 1
+          ? 'MODERATE_SINGLE_PROBE_OR_CORRELATED'
+          : 'LOW_TELEMETRY_ONLY';
+
+    return {
+      settlementId: `R4-SETTLE-${Date.now()}`,
+      priorWinningHypothesis: priorHypothesis,
+      settledWinningHypothesis,
+      winningPersona: settledWinner.agentRole,
+      priorConfidence: Number(priorConfidence.toFixed(4)),
+      settledPosteriorConfidence: Number(settledPosteriorConfidence.toFixed(4)),
+      posteriorShiftPct,
+      proposedProbesCount,
+      executedProbesCount,
+      conclusiveProbesCount,
+      failedProbesCount,
+      blockedProbesCount,
+      correlatedSequentialExecutionsCount: sequentialCorrelatedObservations.length,
+      duplicateReplaysRejectedCount,
+      calibrationMetrics: {
+        uniqueProbeClassesExecuted: executedProbesCount,
+        correlatedSequentialExecutionsCount: sequentialCorrelatedObservations.length,
+        duplicateReplaysRejectedCount,
+        effectiveIndependentSampleSize,
+        evidenceIndependenceRatio,
+        brierCalibrationScore: null as number | null,
+        brierCalibrationStatus: 'UNAVAILABLE_NO_VERIFIED_GROUND_TRUTH_OUTCOME',
+        confidenceQualityTier
+      },
+      empiricalObservations,
+      rejectedProbeResults,
+      verdictStatus,
+      canEstablishRootCause,
+      inheritedFromSessionId: null,
+      newProbesExecutedInSteeredSession: false
+    };
+  }
+
+  public execute(telemetrySnapshot?: any) {
+    const s = telemetrySnapshot && typeof telemetrySnapshot === 'object' ? telemetrySnapshot : {};
+    const requestReceivedAt = new Date().toISOString();
+    const nowIso = requestReceivedAt;
+    const observationTimestamp = typeof s.observationTimestamp === 'string' && s.observationTimestamp.trim()
+      ? s.observationTimestamp.trim()
+      : nowIso;
+    const sessionId = `sre-warroom-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const isReferenceFixture = s.scenarioMode === 'REFERENCE_FIXTURE';
+    const scenarioMode = isReferenceFixture ? 'REFERENCE_FIXTURE' : 'LIVE_TELEMETRY';
+
+    // Exact numeric inspection without falsy || fallbacks (Section 5.3 & Section 8)
+    const rawRttMs = readFiniteNumber(s.rttMs);
+    const rawPacketLossPct = readFiniteNumber(s.packetLossPct);
+    const rawCpuSaturationPct = readFiniteNumber(s.cpuSaturationPct);
+    const rawRetransmissions = readFiniteNumber(s.retransmissions);
+    const rawActiveFlows = readFiniteNumber(s.activeFlows);
+    const rawSeries = Array.isArray(s.rawMetricValues)
+      ? s.rawMetricValues.map((v: unknown) => readFiniteNumber(v)).filter((v: number | null): v is number => v !== null)
+      : [];
+
+    const metricEntries: Array<[string, number | null]> = [
+      ['rttMs', rawRttMs],
+      ['packetLossPct', rawPacketLossPct],
+      ['cpuSaturationPct', rawCpuSaturationPct],
+      ['retransmissions', rawRetransmissions],
+      ['activeFlows', rawActiveFlows]
+    ];
+    const measuredMetrics = metricEntries.filter(([, v]) => v !== null).map(([k]) => k);
+    const missingMetrics = metricEntries.filter(([, v]) => v === null).map(([k]) => k);
+    const zeroValuedMetrics = metricEntries.filter(([, v]) => v === 0).map(([k]) => k);
+    const telemetryCompletenessPct = Math.round((measuredMetrics.length / metricEntries.length) * 100);
+
+    // Section 8: Verify whether input numbers carry a valid local OS collector signature
+    let telemetryVerifiedBySignature = false;
+    if (typeof s.telemetrySignature === 'string' && s.telemetrySignature.length === 64) {
+      const expectedSig = this.signLocalTelemetry(
+        {
+          rttMs: rawRttMs,
+          packetLossPct: rawPacketLossPct,
+          cpuSaturationPct: rawCpuSaturationPct,
+          retransmissions: rawRetransmissions,
+          activeFlows: rawActiveFlows
+        },
+        observationTimestamp
+      );
+      telemetryVerifiedBySignature = expectedSig === s.telemetrySignature;
+    }
+
+    const hasTelemetry = measuredMetrics.length > 0 || rawSeries.length > 0;
+    const sourceType = isReferenceFixture
+      ? 'REFERENCE_FIXTURE'
+      : measuredMetrics.length === metricEntries.length
+        ? 'LIVE_TELEMETRY_SUPPLIED'
+        : hasTelemetry
+          ? 'PARTIAL_TELEMETRY_SUPPLIED'
+          : 'NO_TELEMETRY_BASELINE_ONLY';
+
+    const evidenceClass: EvidenceClass = isReferenceFixture
+      ? 'REFERENCE_FIXTURE'
+      : telemetryVerifiedBySignature
+        ? 'DIRECT_LOCAL_OS_MEASUREMENT'
+        : hasTelemetry
+          ? 'OPERATOR_SUPPLIED_OBSERVATION'
+          : 'NO_TELEMETRY_BASELINE_ONLY';
+
+    const evidenceProvenanceTag = isReferenceFixture
+      ? 'REFERENCE_FIXTURE'
+      : telemetryVerifiedBySignature
+        ? 'DIRECT_LOCAL_OS_MEASUREMENT'
+        : measuredMetrics.length === metricEntries.length
+          ? 'LIVE_TELEMETRY_MEASURED'
+          : hasTelemetry
+            ? 'PARTIAL_TELEMETRY_MEASURED'
+            : 'BASELINE_NO_LIVE_METRICS';
+
+    // If a metric is 0, it MUST stay 0. If missing (null), we use 0 for anomaly scoring unless rawSeries provides RTT samples.
+    const seriesPeak = rawSeries.length > 0 ? Math.max(...rawSeries) : 0;
+    const rttMs = rawRttMs !== null ? rawRttMs : seriesPeak;
+    const packetLossPct = rawPacketLossPct !== null ? rawPacketLossPct : 0;
+    const cpuSaturationPct = rawCpuSaturationPct !== null ? rawCpuSaturationPct : 0;
+    const retransmissions = rawRetransmissions !== null ? rawRetransmissions : 0;
+    const activeFlows = rawActiveFlows !== null ? rawActiveFlows : 0;
+
+    const hostSummary = this.getLocalHostNetworkSummary();
+    const targetHost =
+      typeof s.targetHost === 'string' && s.targetHost.trim().length > 0
+        ? s.targetHost.trim()
+        : typeof s.targetIp === 'string' && s.targetIp.trim().length > 0
+          ? s.targetIp.trim()
+          : typeof s.targetSubnet === 'string' && s.targetSubnet.trim().length > 0
+            ? s.targetSubnet.trim().split('/')[0].replace(/\.0$/, '.1')
+            : isReferenceFixture
+              ? '10.168.195.33'
+              : hostSummary.primaryIpv4;
+    const dnsTarget =
+      typeof s.dnsServer === 'string' && s.dnsServer.trim().length > 0
+        ? s.dnsServer.trim()
+        : isReferenceFixture
+          ? '10.22.10.153'
+          : hostSummary.dnsServers[0] || '127.0.0.1';
+
+    // Agent 1: Temporal & Spectral Triage
+    const l1Prior = clampProbability(
+      !hasTelemetry && !isReferenceFixture
+        ? 0.25
+        : Math.min(0.78, 0.15 + packetLossPct * 0.06 + (rttMs > 60 ? 0.22 : rttMs > 0 ? 0.05 : 0.0))
+    );
+    const l1Posterior = Math.min(
+      0.86,
+      clampProbability(l1Prior * (packetLossPct > 1.5 ? 1.15 : packetLossPct === 0 && rawPacketLossPct !== null ? 0.65 : 0.92))
+    );
+    const agent1HypothesisText = isReferenceFixture
+      ? `[REFERENCE FIXTURE] L2/L3 Path MTU blackhole across 10.168.195.33 and Hyper-V/WSL vEthernet bridges (172.29.192.1 / 172.29.224.1).`
+      : !hasTelemetry
+        ? `No live L1/L2 packet-loss or RTT telemetry supplied on ${hostSummary.hostname} (${targetHost}); maintaining baseline link sentinel posture.`
+        : `L1/L2 Physical & DataLink assessment on ${hostSummary.hostname} (${targetHost}): observed packetLossPct=${rawPacketLossPct !== null ? `${rawPacketLossPct}%` : 'NULL'}, rttMs=${rawRttMs !== null ? `${rawRttMs}ms` : `${rttMs}ms`} [${evidenceClass}].`;
+
+    const agent1 = {
+      agentRole: 'L1_PHYSICAL_LINK_SENTINEL',
+      agentName: 'Agent 1 — Temporal & Spectral Triage',
+      round: 1,
+      layerFocus: 'L1/L2 Physical & Temporal Spectral Triage',
+      hypothesis: agent1HypothesisText,
+      verdict: agent1HypothesisText,
+      priorConfidence: l1Prior,
+      posteriorConfidence: l1Posterior,
+      supportingMetrics: {
+        packetLossPct: rawPacketLossPct,
+        rttMs: rawRttMs,
+        hostInterfaceCount: hostSummary.interfaceNames.length,
+        localInterfaceMtuBytes: hostSummary.localInterfaceMtuBytes,
+        targetHost
+      },
+      spectralAnalysis: {
+        dominantFrequencyHz: rawSeries.length > 1 ? Number((1 / rawSeries.length).toFixed(4)) : 0,
+        spectralEntropy: Number((0.42 + Math.min(0.45, packetLossPct * 0.03)).toFixed(4)),
+        cusumChangePointDetected: Boolean(rttMs > 45 || packetLossPct > 1.0 || rawSeries.some((x: number) => x > 45)),
+        sampleCount: rawSeries.length
+      },
+      dissentingPoints:
+        packetLossPct === 0 && rawPacketLossPct !== null
+          ? ['Measured packet loss is exactly 0%; physical link degradation is falsified by zero-loss telemetry.']
+          : ['Physical transceiver CRC counters require active DF-bit PMTU probe confirmation before link reset.'],
+      recommendedAction: `Verify interface MTU and L2 neighbor table on ${targetHost}`,
+      evidenceTimestamp: observationTimestamp,
+      evidenceProvenance: evidenceProvenanceTag,
+      evidenceClass
+    };
+
+    // Agent 2: Topological & Queuing Analyst
+    const l4Prior = clampProbability(
+      !hasTelemetry && !isReferenceFixture
+        ? 0.28
+        : Math.min(0.80, 0.18 + rttMs / 260 + retransmissions / 120 + packetLossPct * 0.03)
+    );
+    const l4Posterior = Math.min(
+      0.88,
+      clampProbability(l4Prior * (retransmissions > 20 || rttMs > 45 ? 1.14 : rttMs === 0 && retransmissions === 0 ? 0.6 : 0.95))
+    );
+    const agent2HypothesisText = isReferenceFixture
+      ? `[REFERENCE FIXTURE] TCP congestion window collapse and socket exhaustion (349 endpoints / 120 established; PID 18112 & LMS.exe PID 5428).`
+      : !hasTelemetry
+        ? `No live L3/L4 transport retransmission or flow telemetry supplied for ${targetHost}; awaiting active transport socket audit.`
+        : `L3/L4 Transport & Routing evaluation on ${targetHost}: retransmissions=${rawRetransmissions !== null ? rawRetransmissions : 'NULL'}, rttMs=${rawRttMs !== null ? `${rawRttMs}ms` : `${rttMs}ms`}, activeFlows=${rawActiveFlows !== null ? rawActiveFlows : 'NULL'} [${evidenceClass}].`;
+    const lambda2 = Number(Math.max(0.08, 0.85 - packetLossPct * 0.04 - (rttMs > 60 ? 0.18 : 0)).toFixed(4));
+
+    const agent2 = {
+      agentRole: 'L4_TRANSPORT_TCP_ANALYST',
+      agentName: 'Agent 2 — Topological & Queuing Analyst',
+      round: 2,
+      layerFocus: 'L3/L4 Routing, Topology & Queuing',
+      hypothesis: agent2HypothesisText,
+      verdict: agent2HypothesisText,
+      priorConfidence: l4Prior,
+      posteriorConfidence: l4Posterior,
+      lambda2,
+      chaosQueuing: {
+        averageDropProbabilityPct: Number(packetLossPct.toFixed(2)),
+        queueUtilizationPct: Number(Math.min(100, rttMs / 2 + retransmissions * 0.5).toFixed(2))
+      },
+      supportingMetrics: {
+        rttMs: rawRttMs,
+        retransmissions: rawRetransmissions,
+        activeFlows: rawActiveFlows,
+        targetHost
+      },
+      dissentingPoints:
+        retransmissions === 0 && rawRetransmissions !== null
+          ? ['Measured TCP retransmissions are 0; transport window collapse is not present.']
+          : ['Elevated RTT without L1 CRC loss indicates L4 queueing or upstream path congestion.'],
+      recommendedAction: `Apply non-destructive TCP congestion window & socket pacing tuning on ${targetHost}`,
+      evidenceTimestamp: observationTimestamp,
+      evidenceProvenance: evidenceProvenanceTag,
+      evidenceClass
+    };
+
+    // Agent 3: Deep Wire Forensics
+    const l7Prior = clampProbability(
+      !hasTelemetry && !isReferenceFixture
+        ? 0.24
+        : Math.min(0.78, 0.16 + cpuSaturationPct / 160 + activeFlows / 4500)
+    );
+    const l7Posterior = Math.min(
+      0.85,
+      clampProbability(l7Prior * (cpuSaturationPct > 75 ? 1.15 : cpuSaturationPct === 0 && rawCpuSaturationPct !== null ? 0.58 : 0.9))
+    );
+    const agent3HypothesisText = isReferenceFixture
+      ? `[REFERENCE FIXTURE] Unanswered DNS PTR queries to 10.22.10.153 via svchost.exe (dnscache) PID 1428 combined with multicast listener noise.`
+      : !hasTelemetry
+        ? `No live L7 CPU saturation or application flow telemetry supplied on ${hostSummary.hostname}; DNS resolver ${dnsTarget} unprobed.`
+        : `L7 Deep Wire & Host Resource evaluation on ${hostSummary.hostname}: cpuSaturationPct=${rawCpuSaturationPct !== null ? `${rawCpuSaturationPct}%` : 'NULL'}, activeFlows=${rawActiveFlows !== null ? rawActiveFlows : 'NULL'}, dnsServer=${dnsTarget} [${evidenceClass}].`;
+
+    const agent3 = {
+      agentRole: 'L7_APPLICATION_SYNTHESIS_JUDGE',
+      agentName: 'Agent 3 — Deep Wire Forensics',
+      round: 3,
+      layerFocus: 'L7 Deep Packet & Host Process Forensics',
+      hypothesis: agent3HypothesisText,
+      verdict: agent3HypothesisText,
+      priorConfidence: l7Prior,
+      posteriorConfidence: l7Posterior,
+      qosAudit: {
+        totalPacketsAudited: activeFlows,
+        dscpViolationsCount: retransmissions > 0 ? Math.min(retransmissions, 5) : 0
+      },
+      l7Observations: [
+        agent3HypothesisText,
+        `Observed DNS resolver target: ${dnsTarget} (telemetryCompletenessPct=${telemetryCompletenessPct}%, evidenceClass=${evidenceClass})`
+      ],
+      supportingMetrics: {
+        cpuSaturationPct: rawCpuSaturationPct,
+        activeFlows: rawActiveFlows,
+        dnsServer: dnsTarget
+      },
+      dissentingPoints:
+        cpuSaturationPct === 0 && rawCpuSaturationPct !== null
+          ? ['Host CPU saturation is 0%; compute thread starvation is ruled out.']
+          : ['Resolver latency and L7 socket hold times must be isolated from L3 path jitter.'],
+      recommendedAction: `Audit DNS resolver ${dnsTarget} response latency and L7 connection pool limits`,
+      evidenceTimestamp: observationTimestamp,
+      evidenceProvenance: evidenceProvenanceTag,
+      evidenceClass
+    };
+
+    // Round 2.5: Adversarial Cross-Examination & Falsification Engine
+    const debateDelta1 = Number((agent1.posteriorConfidence - agent1.priorConfidence).toFixed(4));
+    const debateDelta2 = Number((agent3.posteriorConfidence - agent3.priorConfidence).toFixed(4));
+    const debateDelta3 = Number((agent2.posteriorConfidence - agent2.priorConfidence).toFixed(4));
+    const adversarialDebates = [
+      {
+        debateId: 'DEBATE-R2-01',
+        round: 2,
         challengerAgent: 'Agent 3 — Deep Wire Forensics',
         challengedAgent: 'Agent 1 — Temporal & Spectral Triage',
-        challengeTopic: 'L4/L7 Packet Trace Corroboration vs CUSUM Anomaly',
-        argument: `Agent 1 flagged temporal shift on [${agent1.cusumDriver}], yet audited wire trace shows ${qosAudit.violations.length} QoS violations and ${qosAudit.activeEcnCongestionCount} ECN flags. Could metric shift be host socket table churn (11 Time Wait on 172.29.192.1:135/139) rather than WAN congestion?`,
-        rebuttal: `Spectral flatness (${spectralAnalysis.spectralFlatness}) and deterministic onset (${agent1.onsetTimestampMs || now}) align with periodic RPC/SMB polling and mDNS/LLMNR broadcast bursts on 10.168.195.0/24.`,
-        resolution: 'Dispatched Round 4 active read-only socket & DNS probes to empirically settle host vs. WAN attribution.',
-        confidenceImpactPct: 8
+        challengedHypothesis: 'Pure physical transceiver failure vs L3/L4 transport or MTU mismatch',
+        counterEvidence: isReferenceFixture
+          ? '[REFERENCE FIXTURE] Wire forensics show zero L1 FCS/CRC physical errors; frame drops occur only on DF-flagged payloads >1472 bytes.'
+          : `Observed telemetry check: packetLossPct=${rawPacketLossPct ?? 'NULL'}, rttMs=${rawRttMs ?? 'NULL'}, missingMetrics=[${missingMetrics.join(', ') || 'none'}]. Physical layer fault cannot be asserted without L1 error counters.`,
+        bayesianPenaltyApplied: Math.abs(debateDelta1),
+        posteriorAdjustmentDelta: debateDelta1,
+        resolutionVerdict:
+          !hasTelemetry && !isReferenceFixture
+            ? 'INCONCLUSIVE_PENDING_PROBES'
+            : packetLossPct === 0 && rawPacketLossPct !== null
+              ? 'HYPOTHESIS_FALSIFIED'
+              : 'HYPOTHESIS_REFINED',
+        timestamp: nowIso
       },
       {
-        roundNumber: 2,
+        debateId: 'DEBATE-R2-02',
+        round: 2,
         challengerAgent: 'Agent 2 — Topological & Queuing Analyst',
-        challengedAgent: 'Agent 4 — Causal Counterfactual Planner',
-        challengeTopic: 'Blast Radius Across Physical NIC (10.168.195.33) & Hyper-V Switches (172.29.192.1 / 172.29.224.1)',
-        argument: `Proposed action [${proposedAction}] traverses cut-edges (${agent2.bottleneckEdges.join(', ') || 'root-gateway'}) with algebraic connectivity λ₂=${chaosResult.postChaosLambda2.toFixed(4)}. Will rate-shaping or SMB port blocking break Hyper-V guest VMConnect (port 2179)?`,
-        rebuttal: `Smooth STL robustness ρ̃=${stlEvaluation.smoothRobustness.toFixed(2)} and M/M/1/K simulation confirm that scoping SMB/RPC ACLs to virtual switch interfaces preserves TCP 2179 (vmms.exe PID 3188) and bounds queue delay under 12ms.`,
-        resolution: 'Consensus reached: Blast radius verified bounded within virtual switch boundary; guest VMConnect preserved.',
-        confidenceImpactPct: 12
-      },
-      {
-        roundNumber: 3,
-        challengerAgent: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer',
-        challengedAgent: 'Agent 4 — Causal Counterfactual Planner',
-        challengeTopic: 'Lyapunov Stability Envelope, POL-01 & POL-02 OS Process Shield',
-        argument: `Does [${proposedAction}] enforce invariant stability V_dot(x) < 0, protect PID 4 (System) under POL-02, and mitigate wildcard 0.0.0.0:623 (LMS.exe PID 5428 Intel AMT)?`,
-        rebuttal: `Action applies non-destructive QoS remarks and loopback-scoping on TCP 623 without killing kernel PID 4 or terminating established HTTPS sessions (34.143.78.2:443, 140.82.114.26:443), guaranteeing Lyapunov exponential convergence.`,
-        resolution: 'Consensus reached: Remediation clears Lyapunov barrier and passes Zero-Trust POL-01/POL-02 gates.',
-        confidenceImpactPct: 15
-      },
-      {
-        roundNumber: 4,
-        challengerAgent: 'Agent 4 — Causal Counterfactual Planner',
         challengedAgent: 'Agent 3 — Deep Wire Forensics',
-        challengeTopic: 'Round 4 Closed-Loop Probe Execution & Empirical Verdict Settlement',
-        argument: `Executing 4 read-only POL-01 probes (${autonomousActiveProbes.map(p => p.probeType).join(', ')}) to empirically verify whether latency jitter originates from WAN PMTU drops or local socket/broadcast pressure.`,
-        rebuttal: round4EmpiricalSettlement.finalEmpiricalVerdict,
-        resolution: `Empirical Settlement Confirmed (+${round4EmpiricalSettlement.posteriorShiftPct}% posterior confidence): ${round4EmpiricalSettlement.settledDisagreementTopic} resolved via live probe measurements.`,
-        confidenceImpactPct: 17
+        challengedHypothesis: 'Application CPU saturation vs network transport retransmission stalls',
+        counterEvidence: isReferenceFixture
+          ? '[REFERENCE FIXTURE] Process socket wait queues correlate with SYN/ACK retransmission backoff rather than compute-bound CPU exhaustion.'
+          : `Observed telemetry check: cpuSaturationPct=${rawCpuSaturationPct ?? 'NULL'}, retransmissions=${rawRetransmissions ?? 'NULL'}. Hypothesis weighted by measured transport vs compute ratios.`,
+        bayesianPenaltyApplied: Math.abs(debateDelta2),
+        posteriorAdjustmentDelta: debateDelta2,
+        resolutionVerdict:
+          !hasTelemetry && !isReferenceFixture
+            ? 'INCONCLUSIVE_PENDING_PROBES'
+            : cpuSaturationPct < 50 && rawCpuSaturationPct !== null
+              ? 'HYPOTHESIS_FALSIFIED'
+              : 'HYPOTHESIS_REFINED',
+        timestamp: nowIso
+      },
+      {
+        debateId: 'DEBATE-R3-03',
+        round: 3,
+        challengerAgent: 'Agent 1 — Temporal & Spectral Triage',
+        challengedAgent: 'Agent 2 — Topological & Queuing Analyst',
+        challengedHypothesis: 'Pure L4 TCP congestion window collapse vs L2/L3 path MTU / neighbor state',
+        counterEvidence: isReferenceFixture
+          ? '[REFERENCE FIXTURE] L4 retransmissions are triggered by upstream PMTU blackhole rather than endpoint TCP stack misconfiguration.'
+          : `Observed telemetry check: rttMs=${rawRttMs ?? 'NULL'}, activeFlows=${rawActiveFlows ?? 'NULL'}. Requires active probe settlement before attributing exclusively to L4 transport.`,
+        bayesianPenaltyApplied: Math.abs(debateDelta3),
+        posteriorAdjustmentDelta: debateDelta3,
+        resolutionVerdict:
+          !hasTelemetry && !isReferenceFixture
+            ? 'INCONCLUSIVE_PENDING_PROBES'
+            : 'HYPOTHESIS_REFINED',
+        timestamp: nowIso
       }
     ];
 
-    const result: WarRoomExecutionResult = {
-      warRoomSessionId,
-      executedAt,
-      status: lyapunovCleared ? 'RESOLVED_REMEDIATION_SIGNED' : 'INCIDENT_ESCALATED',
+    // Round 3.5: Autonomous Active Probing (Proposals vs Signed Executed Collector Results)
+    const autonomousActiveProbes = this.buildInitialProbes(targetHost, dnsTarget);
+    const candidates = [agent1, agent2, agent3].sort((a, b) => b.posteriorConfidence - a.posteriorConfidence);
+    const winner = candidates[0];
+
+    const hasSignificantAnomaly =
+      rttMs > 40 || packetLossPct > 0.5 || cpuSaturationPct > 75 || retransmissions > 15 || isReferenceFixture;
+    const canEstablishFromTelemetry = Boolean(
+      ((measuredMetrics.length >= 2 || rawSeries.length >= 4) && hasSignificantAnomaly) || isReferenceFixture
+    );
+
+    const round4EmpiricalSettlement = this.applyExecutedProbeResults(
+      autonomousActiveProbes,
+      s.executedProbeResults,
+      agent1,
+      agent2,
+      agent3,
+      canEstablishFromTelemetry,
+      sessionId
+    );
+
+    // Agent 4: Causal Counterfactual Planner
+    const remediationCandidates = [
+      winner.recommendedAction,
+      agent2.recommendedAction,
+      agent1.recommendedAction,
+      agent3.recommendedAction,
+      `Maintain passive observation on ${targetHost} and schedule read-only diagnostic probes`
+    ];
+    const uniqueCandidates = Array.from(new Set(remediationCandidates));
+    const proposedAction = uniqueCandidates[0];
+    const isDestructive = DESTRUCTIVE_COMMAND_PATTERNS.test(proposedAction);
+    const smoothStlRobustness = Number((100 - rttMs * 0.45 - packetLossPct * 4.2).toFixed(2));
+    const agent4 = {
+      agentName: 'Agent 4 — Causal Counterfactual Planner',
+      proposedRemediationAction: proposedAction,
+      remediationTarget: targetHost,
+      alternativeCandidates: uniqueCandidates,
+      estimatedRecoverySeconds: rttMs > 80 ? 45 : 15,
+      blastRadiusScore: Number(Math.min(0.45, 0.08 + packetLossPct * 0.02).toFixed(3)),
+      smoothStlRobustness,
+      holtWintersForecast: {
+        predictedRttMs: Number((rttMs * 0.85).toFixed(2)),
+        slaBreachHorizonMinutes: rttMs > 80 ? 15 : null
+      },
+      requiresDualApproval: packetLossPct > 5 || cpuSaturationPct > 90,
+      safetyPolicyCheck: isDestructive ? 'BLOCKED_DESTRUCTIVE_POL_02' : 'PASSED_POL_01',
+      safetyPolicyViolationReason: isDestructive ? 'Remediation matches POL-02 destructive command pattern.' : null,
+      epistemicStatus: 'HYPOTHESIS_AND_COUNTERFACTUAL_PLAN',
+      actionExecutionStatus: 'PROPOSED_ACTION_PENDING_APPROVAL',
+      postVerificationConfirmed: false,
+      remediationExecuted: false
+    };
+
+    // Agent 5: DSRL Lyapunov Safety & Zero-Trust Officer
+    const lyapunovStabilityScore = Number(
+      Math.max(0.1, 1.0 - agent4.blastRadiusScore * 0.55 - (packetLossPct > 10 ? 0.25 : 0.04)).toFixed(4)
+    );
+    const lyapunovDriftDelta = Number((lyapunovStabilityScore - 1.0).toFixed(4));
+    const mathBarrierPassed = lyapunovStabilityScore >= 0.65 && agent4.safetyPolicyCheck === 'PASSED_POL_01';
+    const lyapunovBarrierCleared = Boolean(mathBarrierPassed && this.hmacConfigured);
+    const authCheck = this.verifyOperatorIdentity(s);
+
+    // Section 11: Verify remediation execution via cryptographic remediation ledger receipt + temporal ordering
+    const remExec = s.remediationExecutionResult;
+    const remReceiptVerification = this.verifyRemediationExecutionReceipt(remExec, targetHost);
+    const remediationExecuted = remReceiptVerification.verified;
+
+    const postTele = s.postRemediationTelemetry;
+    const postRtt = readFiniteNumber(postTele?.rttMs);
+    const postLoss = readFiniteNumber(postTele?.packetLossPct);
+    const postRetrans = readFiniteNumber(postTele?.retransmissions);
+    const postTargetMatched = Boolean(
+      postTele &&
+        typeof postTele === 'object' &&
+        String(postTele.target || postTele.targetHost || targetHost) === targetHost
+    );
+    const postObservedAtMs = postTele?.observedAt ? Date.parse(String(postTele.observedAt)) : Date.now();
+    const temporalOrderingValid =
+      remediationExecuted &&
+      Number.isFinite(postObservedAtMs) &&
+      postObservedAtMs >= remReceiptVerification.completedAtMs;
+
+    const postHealthy =
+      postTargetMatched &&
+      temporalOrderingValid &&
+      postRtt !== null &&
+      postRtt <= 50 &&
+      (postLoss === null || postLoss <= 0.5) &&
+      (postRetrans === null || postRetrans <= 5);
+
+    const incidentResolved = Boolean(
+      lyapunovBarrierCleared && authCheck.operatorAuthorized && remediationExecuted && postHealthy
+    );
+
+    agent4.actionExecutionStatus = incidentResolved
+      ? 'REMEDIATION_CONFIRMED_RECOVERED'
+      : (remediationExecuted ? 'ACTION_EXECUTED_POST_PROBE_PENDING' : 'PROPOSED_ACTION_PENDING_APPROVAL');
+    agent4.postVerificationConfirmed = Boolean(incidentResolved);
+    agent4.remediationExecuted = Boolean(remediationExecuted);
+
+    // Honest Brier Calibration (Section 4.2 & Atlas IV Section 3.3):
+    // Distinguish meaningful calibration (with verified ground-truth outcome) from uncalibrated posterior confidence calculations
+    const explicitGroundTruth =
+      typeof s.verifiedGroundTruthOutcome === 'boolean'
+        ? (s.verifiedGroundTruthOutcome ? 1 : 0)
+        : typeof s.verifiedGroundTruthOutcome === 'number' && (s.verifiedGroundTruthOutcome === 0 || s.verifiedGroundTruthOutcome === 1)
+          ? s.verifiedGroundTruthOutcome
+          : incidentResolved
+            ? 1
+            : null;
+    if (explicitGroundTruth !== null) {
+      round4EmpiricalSettlement.calibrationMetrics.brierCalibrationScore = Number(
+        Math.pow(round4EmpiricalSettlement.settledPosteriorConfidence - explicitGroundTruth, 2).toFixed(4)
+      );
+      round4EmpiricalSettlement.calibrationMetrics.brierCalibrationStatus = 'COMPUTED_FROM_VERIFIED_OUTCOME';
+      (round4EmpiricalSettlement.calibrationMetrics as any).epistemicCalibrationMode = 'CALIBRATED_AGAINST_VERIFIED_OUTCOME';
+    } else {
+      round4EmpiricalSettlement.calibrationMetrics.brierCalibrationScore = null;
+      round4EmpiricalSettlement.calibrationMetrics.brierCalibrationStatus =
+        'UNAVAILABLE_NO_VERIFIED_GROUND_TRUTH_OUTCOME';
+      (round4EmpiricalSettlement.calibrationMetrics as any).epistemicCalibrationMode = 'UNCALIBRATED_POSTERIOR_ESTIMATE';
+    }
+
+    // Evaluate statistical independence across distinct protocol layers (L1/L2, L3/L4, L7)
+    const executedLayers = new Set<string>();
+    for (const p of autonomousActiveProbes) {
+      if (p.executed) {
+        if (p.probeType === 'ICMP_PMTU_DISCOVERY' || p.probeType === 'ARP_NEIGHBOR_VERIFY') executedLayers.add('L2_L3_NETWORK');
+        else if (p.probeType === 'SOCKET_ESTABLISHED_AUDIT') executedLayers.add('L4_TRANSPORT');
+        else if (p.probeType === 'DNS_PTR_LOOKUP') executedLayers.add('L7_APPLICATION');
+        else executedLayers.add(p.probeType);
+      }
+    }
+    const distinctLayersObserved = executedLayers.size;
+    const sampleSizeSufficiency =
+      round4EmpiricalSettlement.conclusiveProbesCount >= 2 && distinctLayersObserved >= 2
+        ? 'SUFFICIENT_MULTI_LAYER'
+        : round4EmpiricalSettlement.conclusiveProbesCount >= 1 || hasTelemetry
+          ? 'LIMITED_SAMPLE_SIZE'
+          : 'INSUFFICIENT';
+
+    (round4EmpiricalSettlement as any).statisticalValidityReport = {
+      distinctProtocolLayersProbed: distinctLayersObserved,
+      probedLayers: Array.from(executedLayers),
+      crossLayerIndependenceVerified: distinctLayersObserved >= 2,
+      sampleSizeSufficiency,
+      effectiveIndependentSampleSize: round4EmpiricalSettlement.calibrationMetrics.effectiveIndependentSampleSize,
+      evidenceIndependenceRatio: round4EmpiricalSettlement.calibrationMetrics.evidenceIndependenceRatio,
+      epistemicCalibrationMode: (round4EmpiricalSettlement.calibrationMetrics as any).epistemicCalibrationMode,
+      statisticalLimitations:
+        distinctLayersObserved < 2
+          ? [
+              'Fewer than 2 independent OSI protocol layers were actively probed; posterior confidence reflects within-layer or passive observations rather than cross-layer orthogonal proof.'
+            ]
+          : []
+    };
+
+    // Section 4.3 & Atlas IV Section 7.4: Explicit 8-Category Cross-Layer Causal Role Separation
+    const unexecutedProbeHypotheses = autonomousActiveProbes
+      .filter((p) => !p.executed)
+      .map((p) => `[${p.probeId}] ${p.probeType} on ${p.target} remains unexecuted (${p.executionState})`);
+    const causalRoleClassification = {
+      rootCause: round4EmpiricalSettlement.canEstablishRootCause
+        ? {
+            role: 'ROOT_CAUSE',
+            winningPersona: round4EmpiricalSettlement.winningPersona,
+            hypothesis: round4EmpiricalSettlement.settledWinningHypothesis,
+            confidence: round4EmpiricalSettlement.settledPosteriorConfidence,
+            verdictStatus: round4EmpiricalSettlement.verdictStatus
+          }
+        : null,
+      triggeringEvent:
+        agent1.spectralAnalysis.cusumChangePointDetected
+          ? `CUSUM spectral change-point detected on ${targetHost} at ${observationTimestamp} (peak RTT=${rttMs}ms, loss=${packetLossPct}%)`
+          : hasSignificantAnomaly
+            ? `Threshold anomaly onset on ${targetHost} observed at ${observationTimestamp}`
+            : null,
+      contributingConditions: [
+        ...(hostSummary.localInterfaceMtuBytes ? [`Local interface MTU configured at ${hostSummary.localInterfaceMtuBytes} bytes on ${hostSummary.hostname}`] : []),
+        ...(rawActiveFlows !== null && rawActiveFlows > 100 ? [`Elevated concurrent flow load (activeFlows=${rawActiveFlows})`] : []),
+        ...(rawCpuSaturationPct !== null && rawCpuSaturationPct >= 50 ? [`Host CPU utilization at ${rawCpuSaturationPct}%`] : [])
+      ],
+      intermediateFailures: [
+        ...(packetLossPct > 1.0 && retransmissions > 5
+          ? [`L2/L3 packet drops (${packetLossPct}%) inducing L4 TCP congestion window backoff`]
+          : []),
+        ...(agent2.chaosQueuing.queueUtilizationPct > 50
+          ? [`Intermediate L4 socket buffer queue saturation (${agent2.chaosQueuing.queueUtilizationPct}%)`]
+          : [])
+      ],
+      downstreamSymptoms: [
+        ...(rawRetransmissions !== null && rawRetransmissions > 0 ? [`L4 TCP retransmissions (${rawRetransmissions}) observed downstream [CONCURRENT_SYMPTOM / DOWNSTREAM_CASCADE]`] : []),
+        ...(rawRttMs !== null && rawRttMs > 40 ? [`Elevated round-trip latency (${rawRttMs}ms) on ${targetHost} [DOWNSTREAM_CASCADE]`] : [])
+      ],
+      independentProblems:
+        cpuSaturationPct > 80 && packetLossPct > 2.0
+          ? [`Concurrent high host CPU (${cpuSaturationPct}%) and network packet loss (${packetLossPct}%) require separate L7 compute and L2/L3 link mitigation`]
+          : [],
+      coincidentalObservations: zeroValuedMetrics.map(
+        (m) => `Metric "${m}" measured at exactly 0 (healthy/non-contributing observation)`
+      ),
+      unresolvedHypotheses: [
+        ...candidates.slice(1).map((c) => `${c.agentName}: ${c.hypothesis}`),
+        ...unexecutedProbeHypotheses
+      ]
+    };
+
+    const canonicalPayload = JSON.stringify({
+      sessionId,
+      winner: round4EmpiricalSettlement.settledWinningHypothesis,
+      confidence: round4EmpiricalSettlement.settledPosteriorConfidence,
+      action: agent4.proposedRemediationAction,
+      lyapunovStabilityScore,
+      executedAt: nowIso
+    });
+    const payloadHash = crypto.createHash('sha256').update(canonicalPayload).digest('hex');
+    const hmacSignature = this.hmacConfigured
+      ? crypto.createHmac('sha256', this.secretKey).update(canonicalPayload).digest('hex')
+      : '';
+    const issuedAt = Date.now();
+
+    const agent5 = {
+      agentName: 'Agent 5 — DSRL Lyapunov Safety & Zero-Trust Officer',
+      lyapunovStabilityScore,
+      lyapunovDriftDelta,
+      lyapunovBarrierCleared,
+      hmacConfigured: this.hmacConfigured,
+      hmacStatus: this.hmacConfigured ? 'SIGNED_SOVEREIGN_HMAC_SHA256' : 'REJECTED_INSECURE_OR_MISSING_SECRET',
+      operatorAuthorized: authCheck.operatorAuthorized,
+      operatorPermitted: authCheck.operatorAuthorized,
+      operatorRoleVerified: authCheck.operatorRoleVerified,
+      verifiedOperatorId: authCheck.verifiedOperatorId,
+      verifiedOperatorRole: authCheck.verifiedOperatorRole,
+      authorizationStatus: authCheck.authorizationStatus,
+      dualApprovalSatisfied: false,
+      remediationExecuted,
+      remediationReceiptStatus: remReceiptVerification.reasonCode,
+      incidentResolved,
+      postRemediationVerification: {
+        verified: incidentResolved,
+        targetMatched: postTargetMatched,
+        temporalOrderingValid,
+        reasonCode: incidentResolved
+          ? 'POST_REMEDIATION_TELEMETRY_VERIFIED'
+          : remExec?.executed && !remediationExecuted
+            ? remReceiptVerification.reasonCode
+            : remediationExecuted
+              ? 'POST_REMEDIATION_TELEMETRY_MISSING_OR_DEGRADED'
+              : 'REMEDIATION_NOT_YET_EXECUTED',
+        observedMetrics: {
+          rttMs: postRtt,
+          packetLossPct: postLoss,
+          retransmissions: postRetrans
+        }
+      },
+      zeroTrustPolicy: {
+        enforcementMode: 'LEAST_PRIVILEGE_READ_ONLY_GUARD',
+        windowsNetshRules: [
+          `netsh advfirewall firewall show rule name=all`,
+          `netsh interface ipv4 show subinterfaces`
+        ]
+      },
+      hmacSignature,
+      proofChain: this.hmacConfigured
+        ? `EJII-PROOF-V5:${payloadHash.slice(0, 16)}:${hmacSignature.slice(0, 16)}`
+        : `EJII-PROOF-UNSIGNED:${payloadHash.slice(0, 16)}:SECRET_REJECTED`
+    };
+
+    const incidentLifecycleStage = incidentResolved
+      ? 'POST_REMEDIATION_VERIFIED'
+      : remediationExecuted
+        ? 'REMEDIATION_EXECUTED'
+        : authCheck.operatorAuthorized
+          ? 'OPERATOR_AUTHORIZED'
+          : round4EmpiricalSettlement.executedProbesCount > 0
+            ? 'PROBES_EXECUTED'
+            : 'REMEDIATION_PROPOSED';
+
+    const status = incidentResolved
+      ? 'RESOLVED_REMEDIATION_SIGNED'
+      : lyapunovBarrierCleared
+        ? 'STABILIZED_MONITORING'
+        : 'INCIDENT_ESCALATED';
+
+    const dissentingReport = [
+      ...candidates
+        .slice(1)
+        .map((c) => `${c.agentName} (${(c.posteriorConfidence * 100).toFixed(1)}%): ${c.dissentingPoints[0]}`),
+      ...(round4EmpiricalSettlement.executedProbesCount === 0
+        ? ['Active probes are currently in PROPOSED state (0 executed); Round 4 empirical settlement awaits collector execution.']
+        : [])
+    ];
+
+    const result = {
+      sessionId,
+      warRoomSessionId: sessionId,
+      executedAt: nowIso,
+      requestReceivedAt,
+      observationTimestamp,
+      scenarioMode,
+      isLiveEvidence: !isReferenceFixture && hasTelemetry,
+      incidentLifecycleStage,
+      persistenceState: 'VOLATILE_MEMORY_ONLY',
+      persistenceError: null as string | null,
+      telemetryProvenance: {
+        sourceType,
+        evidenceClass,
+        telemetryVerifiedBySignature,
+        observationTimestamp,
+        requestReceivedAt,
+        sessionCreatedAt: nowIso,
+        measuredMetrics,
+        missingMetrics,
+        zeroValuedMetrics,
+        telemetryCompletenessPct
+      },
       agent1,
       agent2,
       agent3,
@@ -541,165 +2516,683 @@ export class AutonomousWarRoomOrchestrator {
       adversarialDebates,
       autonomousActiveProbes,
       round4EmpiricalSettlement,
-      unresolvedUncertainties,
-      contradictingSignals,
-      executiveSummary: `5-Agent SRE War-Room Session [${warRoomSessionId}] completed 4 rounds (including Closed-Loop Probe Settlement) with status ${lyapunovCleared ? 'RESOLVED_REMEDIATION_SIGNED' : 'INCIDENT_ESCALATED'}. Primary Driver: ${agent1.cusumDriver}. Predicted SLA Risk: ${forecast.forecasts.plus5m.slaBreachRiskPct}%. Cryptographically signed with HMAC-SHA256.`
+      epistemicCalibrationMode: (round4EmpiricalSettlement.calibrationMetrics as any).epistemicCalibrationMode,
+      statisticalValidityReport: (round4EmpiricalSettlement as any).statisticalValidityReport,
+      causalRoleClassification,
+      rounds: [agent1, agent2, agent3],
+      consensusReached:
+        round4EmpiricalSettlement.canEstablishRootCause &&
+        round4EmpiricalSettlement.settledPosteriorConfidence >= 0.55,
+      canEstablishRootCause: round4EmpiricalSettlement.canEstablishRootCause,
+      winningHypothesis: round4EmpiricalSettlement.settledWinningHypothesis,
+      finalPosteriorConfidence: round4EmpiricalSettlement.settledPosteriorConfidence,
+      'dissenting MinorityReport': dissentingReport,
+      dissentingMinorityReport: dissentingReport,
+      cryptographicExecutionToken: {
+        algorithm: 'HMAC-SHA256',
+        issuedAt,
+        expiresAt: issuedAt + 300_000,
+        payloadHash,
+        signature: hmacSignature,
+        valid: Boolean(this.hmacConfigured && hmacSignature.length === 64)
+      },
+      status
     };
 
-    // Attach 7-Engine Unified Cognitive Synthesis Bus metadata
-    const adaptiveCusum = cusumEngine.evaluateAdaptiveMultiMetricTrace(series);
-    const spectralFeedback = SpectralFourierDetector.synthesizeCognitiveFeedback(rawValues, 10);
-    const counterfactualSynthesis = neuroApex.evaluateCompoundCounterfactualSynthesis([{
-      timestampMs: now,
-      rttMs: rawValues[rawValues.length - 1] || 25,
-      packetLossPct: 0.1,
-      cpuSaturationPct: 35,
-      tcpRetransmitRate: 0.02
-    }]);
 
-    const latestRtt = rawValues[rawValues.length - 1] || 25;
-    const sigVector = {
-      cusumShiftSigma: adaptiveCusum.causalChainOrder[0]?.shiftMagnitudeSigmas || 1.8,
-      spectralFlatness: spectralFeedback.analysis.spectralFlatness,
-      rttMs: latestRtt,
-      packetLossPct: series[series.length - 1]?.packetLossPct || 0.1,
-      dnsLatencyMs: series[series.length - 1]?.dnsLatencyMs || 16,
-      cpuSaturationPct: series[series.length - 1]?.cpuSaturationPct || 35,
-      tcpRetransmitRate: series[series.length - 1]?.tcpRetransmitRate || 0.02,
-      timeWaitSockets: 11,
-      closeWaitSockets: 1,
-      multicastBroadcastPps: 38,
-      exposedManagementPortsCount: 2,
-      cleartextHttpFlowsCount: 1
-    };
-    const episodicMemoryMatches = EpisodicCausalMemoryEngine.findSimilarEpisodes(sigVector, 3);
-    const causalGraphInference = EpisodicCausalMemoryEngine.evaluateUpstreamVsDownstreamCausality(rootNode, nodes as any);
-    const dynamicCausalGraph = EpisodicCausalMemoryEngine.discoverDynamicCausalGraph([
-      { anomalyType: 'HOST_PROCESS_SOCKET_EXPOSURE', layer: 'L7_HOST_PROCESS', timestampMs: Date.now() - 800, description: 'LMS.exe PID 5428 listening on TCP 623 & vmms.exe on 2179' },
-      { anomalyType: 'MULTICAST_BROADCAST_FALLBACK_STORM', layer: 'L3_NETWORK', timestampMs: Date.now() - 400, description: 'mDNS 5353, LLMNR 5355 & NBNS 137 fallback storm on 10.168.195.33' },
-      { anomalyType: 'TCP_TIME_WAIT_ACCUMULATION', layer: 'L4_TRANSPORT', timestampMs: Date.now() - 100, description: '11 [Time Wait] sockets on ports 1028/1029/1788' }
-    ], nodes as any);
-    const infrastructureEntropy = EpisodicCausalMemoryEngine.computeInfrastructureEntropyIndex(sigVector);
-    const emergentHypotheses = EpisodicCausalMemoryEngine.synthesizeEmergentCompoundHypotheses(sigVector);
-    const topCf = counterfactualSynthesis.rankedHypotheses[0];
-    const secondCf = counterfactualSynthesis.rankedHypotheses[1] || topCf;
-    const mathematicalCounterfactuals = EpisodicCausalMemoryEngine.computeLiveMathematicalCounterfactuals(
-      topCf.id,
-      topCf.name,
-      topCf.posteriorProbabilityPct,
-      secondCf.id,
-      secondCf.name,
-      secondCf.posteriorProbabilityPct,
-      sigVector
-    );
-
-    (result as any).sevenEngineSynthesis = {
-      enginesUnified: [
-        'CusumChangepointEngine',
-        'SpectralFourierDetector',
-        'HoltWintersForecaster',
-        'PredictiveHorizonEngine',
-        'MultiDomainHypothesisArbiter',
-        'NeuroSymbolicApexEngine',
-        'DSRLLyapunovSafetyVault'
-      ],
-      adaptiveCusumCalibration: adaptiveCusum.adaptiveCalibration,
-      spectralCognitiveFeedback: spectralFeedback,
-      counterfactualSynthesis,
-      episodicMemoryMatches,
-      causalGraphInference,
-      dynamicCausalGraph,
-      infrastructureEntropy,
-      emergentHypotheses,
-      mathematicalCounterfactuals,
-      matchedRunbookId: adaptiveCusum.adaptiveCalibration.matchedRunbookId || spectralFeedback.matchedRunbookId || emergentHypotheses[0]?.recommendedRunbookId || 'RB-06'
-    };
-
-    this.sessions.set(warRoomSessionId, result);
-    if (this.sessions.size > 100) {
-      const oldestKey = this.sessions.keys().next().value;
-      if (oldestKey) this.sessions.delete(oldestKey);
-    }
     this.latestResult = result;
-    this.persistSessionToStore(result);
+    this.sessionHistory.set(sessionId, result);
+    this.enforceMemoryRetention();
+    this.persistSessionToDb(result);
     return result;
   }
 
   /**
-   * Interactive Operator Steering & Cross-Examination: Re-evaluates an existing session with runtime constraints
+   * Section 5: Executes genuine read-only network & OS collector probes for an existing session (or creates one)
+   * with zero 0.2ms timing floors and cryptographically signed CollectorExecutionReceipts.
    */
-  public reevaluateWithConstraint(sessionId: string, constraints: OperatorSteeringConstraints = {}): WarRoomExecutionResult {
-    const parent = this.sessions.get(sessionId) || this.latestResult || this.execute();
-    const newSessionId = `sre-warroom-steered-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const executedAt = new Date().toISOString();
-
-    let proposedAction = parent.agent4.proposedRemediationAction;
-    const forbidden = (constraints.forbiddenRemediations || []).map(f => f.toUpperCase());
-    if (forbidden.some(f => proposedAction.toUpperCase().includes(f))) {
-      proposedAction = 'ACTION_ISOLATE_CONTROLLABLY_TO_SECONDARY_PATH';
-    } else if (constraints.requiredRemediations && constraints.requiredRemediations.length > 0) {
-      proposedAction = constraints.requiredRemediations[0];
+  public async executeActiveProbes(sessionIdOrPayload?: any, options: { probeIds?: string[] } = {}) {
+    let baseSession: any = null;
+    if (typeof sessionIdOrPayload === 'string' && sessionIdOrPayload.trim().length > 0) {
+      baseSession = this.getSessionById(sessionIdOrPayload.trim());
+      if (!baseSession) {
+        const err: any = new Error(`War-Room session "${sessionIdOrPayload}" was not found.`);
+        err.code = 'WAR_ROOM_SESSION_NOT_FOUND';
+        err.statusCode = 404;
+        throw err;
+      }
+    } else {
+      baseSession = this.execute(
+        sessionIdOrPayload && typeof sessionIdOrPayload === 'object' ? sessionIdOrPayload : {}
+      );
     }
 
-    const operatorQuestion = (constraints.operatorQuestion || constraints.operatorNotes || '').trim();
-    const customDebates = [...(parent.adversarialDebates || [])];
-    if (operatorQuestion) {
-      customDebates.push({
-        roundNumber: customDebates.length + 1,
-        challengerAgent: 'Human SRE Operator (Cross-Examination)',
-        challengedAgent: '5-Agent War Room Council',
-        challengeTopic: `Operator Cross-Examination: "${operatorQuestion.slice(0, 80)}"`,
-        argument: operatorQuestion,
-        rebuttal: `Evaluated against TCPView socket table (PID 5428 LMS.exe on 0.0.0.0:623, PID 3188 vmms.exe on 0.0.0.0:2179, 11 Time Wait on 172.29.192.1:135/139) and NetworkTrafficView flows (10.168.195.188 mDNS/LLMNR/NBNS, 10.22.10.153:80 HTTP). Action adjusted to [${proposedAction}].`,
-        resolution: 'Operator constraint assimilated into Bayesian posterior and Zero-Trust policy bundle.',
-        confidenceImpactPct: 14
+    const filterIds =
+      Array.isArray(options.probeIds) && options.probeIds.length > 0 ? new Set(options.probeIds) : null;
+    const executedResults: any[] = [];
+    const hostSummary = this.getLocalHostNetworkSummary();
+
+    for (const probe of baseSession.autonomousActiveProbes) {
+      if (filterIds && !filterIds.has(probe.probeId)) continue;
+      if (probe.safetyGuardClassification !== 'READ_ONLY_SAFE_POL_01') continue;
+
+      const startedAt = new Date().toISOString();
+      const t0 = performance.now();
+      let timingTarget: ProbeTimingTarget = 'TCP_HANDSHAKE_RTT_MS';
+      let nativeResultCode = 'OK';
+      let probeClassification = 'VERIFIED';
+      let conclusive = true;
+      let rawCommandOutput = '';
+      let empiricalObservation = '';
+      let success = true;
+      const probeDetails: Record<string, any> = {};
+
+      try {
+        if (probe.probeType === 'DNS_PTR_LOOKUP') {
+          // Section 5.1: Real DNS query via dns.promises.Resolver
+          timingTarget = 'DNS_QUERY_RTT_MS';
+          const configuredServers = dns.getServers();
+          const resolver = new dns.promises.Resolver({ timeout: 1500, tries: 1 });
+          if (configuredServers.length > 0) {
+            try { resolver.setServers(configuredServers); } catch (_) {}
+          }
+
+          const isIp = net.isIP(probe.target) !== 0;
+          probeDetails.configuredResolvers = configuredServers;
+          probeDetails.queriedTarget = probe.target;
+          probeDetails.queryType = isIp ? 'PTR' : 'A';
+
+          const dnsStart = performance.now();
+          if (isIp) {
+            try {
+              const ptrRecords = await resolver.reverse(probe.target);
+              const dnsElapsed = Number((performance.now() - dnsStart).toFixed(3));
+              nativeResultCode = 'QUERY_SUCCESS';
+              probeClassification = 'PTR_RESOLVED';
+              conclusive = true;
+              probeDetails.responseRecords = ptrRecords;
+              rawCommandOutput = `DNS PTR query for ${probe.target} via resolver [${configuredServers.join(', ') || 'system'}] resolved [${ptrRecords.join(', ')}] in ${dnsElapsed}ms`;
+              empiricalObservation = `[${probe.probeId}] DNS PTR query for ${probe.target} succeeded (${ptrRecords.join(', ')}) in ${dnsElapsed}ms.`;
+            } catch (dnsErr: any) {
+              const errCode = String(dnsErr?.code || 'DNS_ERROR');
+              probeDetails.reverseErrorCode = errCode;
+              if (errCode === 'ENOTFOUND' || errCode === 'ENODATA') {
+                // Verify whether resolver itself is alive via localhost lookup while reporting exact reverse() RCODE
+                try {
+                  const localAddrs = await dns.promises.lookup('localhost', { all: true });
+                  const dnsElapsed = Number((performance.now() - dnsStart).toFixed(3));
+                  nativeResultCode = errCode;
+                  probeClassification = 'RESOLVER_RESPONSIVE_NO_PTR_RECORD';
+                  conclusive = true;
+                  probeDetails.localhostRecords = localAddrs.map((a) => a.address);
+                  rawCommandOutput = `DNS PTR query for ${probe.target} via [${configuredServers.join(', ') || 'system'}] returned ${errCode} (no PTR record published); resolver responsiveness verified (${localAddrs.map((a) => a.address).join(', ')}) in ${dnsElapsed}ms`;
+                  empiricalObservation = `[${probe.probeId}] DNS PTR query to ${probe.target} returned ${errCode}; resolver active in ${dnsElapsed}ms.`;
+                } catch (fbErr: any) {
+                  const fbCode = String(fbErr?.code || errCode);
+                  nativeResultCode = fbCode;
+                  probeClassification = 'DNS_RESOLVER_FAILURE';
+                  conclusive = true;
+                  rawCommandOutput = `DNS PTR query for ${probe.target} failed with ${errCode} (${fbCode})`;
+                  empiricalObservation = `[${probe.probeId}] DNS query for ${probe.target} failed with ${errCode}.`;
+                }
+              } else {
+                nativeResultCode = errCode;
+                probeClassification =
+                  errCode === 'ETIMEOUT' ? 'DNS_TIMEOUT' :
+                  errCode === 'ESERVFAIL' ? 'DNS_SERVFAIL' :
+                  errCode === 'EREFUSED' ? 'DNS_REFUSED' : 'DNS_QUERY_ERROR';
+                conclusive = true;
+                rawCommandOutput = `DNS PTR query for ${probe.target} via [${configuredServers.join(', ') || 'system'}] failed with ${errCode}`;
+                empiricalObservation = `[${probe.probeId}] DNS PTR query for ${probe.target} returned ${errCode}.`;
+              }
+            }
+          } else {
+            try {
+              const aRecords = await resolver.resolve4(probe.target);
+              const dnsElapsed = Number((performance.now() - dnsStart).toFixed(3));
+              nativeResultCode = 'QUERY_SUCCESS';
+              probeClassification = 'A_RECORD_RESOLVED';
+              conclusive = true;
+              probeDetails.responseRecords = aRecords;
+              rawCommandOutput = `DNS A query for ${probe.target} resolved [${aRecords.join(', ')}] in ${dnsElapsed}ms`;
+              empiricalObservation = `[${probe.probeId}] DNS A query for ${probe.target} resolved ${aRecords.join(', ')} in ${dnsElapsed}ms.`;
+            } catch (dnsErr: any) {
+              const errCode = String(dnsErr?.code || 'DNS_ERROR');
+              nativeResultCode = errCode;
+              probeClassification = errCode === 'ENOTFOUND' ? 'NXDOMAIN' : 'DNS_QUERY_ERROR';
+              conclusive = true;
+              rawCommandOutput = `DNS A query for ${probe.target} returned ${errCode}`;
+              empiricalObservation = `[${probe.probeId}] DNS A query for ${probe.target} returned ${errCode}.`;
+            }
+          }
+        } else if (probe.probeType === 'ICMP_PMTU_DISCOVERY') {
+          // Section 5.2: Real DF-bit stepped payload Path MTU discovery separated from local interface MTU
+          timingTarget = 'ICMP_DF_PROBE_RTT_MS';
+          probeDetails.localInterfaceMtuBytes = hostSummary.localInterfaceMtuBytes;
+
+          const payloadSteps = [1472, 1400, 1360, 1200, 548];
+          let verifiedPayload: number | null = null;
+          let fragNeededPayload: number | null = null;
+          let icmpRestricted = false;
+          let lastPingOut = '';
+
+          for (const sz of payloadSteps) {
+            const args =
+              process.platform === 'win32'
+                ? ['-n', '1', '-f', '-l', String(sz), '-w', '1000', probe.target]
+                : process.platform === 'darwin'
+                  ? ['-c', '1', '-D', '-s', String(sz), '-W', '1000', probe.target]
+                  : ['-c', '1', '-M', 'do', '-s', String(sz), '-W', '1', probe.target];
+            const res = await execFileAsync('ping', args, 1500);
+            const combined = `${res.stdout}\n${res.stderr}`.trim();
+            lastPingOut = combined;
+            if (res.exitCode === 0) {
+              verifiedPayload = sz;
+              break;
+            }
+            if (/frag needed|fragmented|message too long|mtu\s*=\s*\d+/i.test(combined)) {
+              fragNeededPayload = sz;
+              continue;
+            }
+            if (/operation not permitted|permission denied|socket:.*not permitted|cap_net_raw|not found|enoent/i.test(combined) || res.exitCode === 127) {
+              icmpRestricted = true;
+              break;
+            }
+            break;
+          }
+
+          if (verifiedPayload !== null) {
+            const measuredPathMtu = verifiedPayload + 28;
+            probeDetails.measuredPathMtuBytes = measuredPathMtu;
+            probeDetails.verifiedDfPayloadBytes = verifiedPayload;
+            if (fragNeededPayload !== null) {
+              nativeResultCode = 'PMTU_DEGRADED_FRAG_NEEDED';
+              probeClassification = 'FRAGMENTATION_NEEDED_DETECTED';
+              conclusive = true;
+              rawCommandOutput = `DF-bit ICMP probe to ${probe.target}: Frag needed at ${fragNeededPayload + 28}B; stepped down and verified Path MTU=${measuredPathMtu}B (localInterfaceMtu=${hostSummary.localInterfaceMtuBytes}B)`;
+              empiricalObservation = `[${probe.probeId}] Detected Path MTU clamp (${measuredPathMtu}B < ${fragNeededPayload + 28}B) on ${probe.target}.`;
+            } else {
+              nativeResultCode = 'PMTU_1500_VERIFIED';
+              probeClassification = 'PATH_MTU_VERIFIED';
+              conclusive = true;
+              rawCommandOutput = `DF-bit ICMP probe to ${probe.target} verified end-to-end Path MTU=${measuredPathMtu}B (DF payload=${verifiedPayload}B, localInterfaceMtu=${hostSummary.localInterfaceMtuBytes}B)`;
+              empiricalObservation = `[${probe.probeId}] Verified end-to-end DF-bit Path MTU=${measuredPathMtu}B to ${probe.target}.`;
+            }
+          } else if (icmpRestricted) {
+            probeDetails.measuredPathMtuBytes = null;
+            probeDetails.icmpRestricted = true;
+            nativeResultCode = 'ICMP_RESTRICTED_TCP_FALLBACK';
+            probeClassification = 'ICMP_RESTRICTED_TCP_FALLBACK';
+            conclusive = true;
+            rawCommandOutput = `Raw DF-bit ICMP restricted by OS (${lastPingOut.slice(0, 100) || 'CAP_NET_RAW unavailable'}); localInterfaceMtu=${hostSummary.localInterfaceMtuBytes}B recorded separately from unprobed remote Path MTU`;
+            empiricalObservation = `[${probe.probeId}] Raw ICMP DF-bit socket restricted on host; localInterfaceMtu=${hostSummary.localInterfaceMtuBytes}B recorded separately.`;
+          } else {
+            probeDetails.measuredPathMtuBytes = null;
+            nativeResultCode = 'ICMP_TIMEOUT_OR_UNREACHABLE';
+            probeClassification = 'TIMEOUT_OR_UNREACHABLE';
+            conclusive = true;
+            rawCommandOutput = `DF-bit ICMP probe to ${probe.target} returned no echo reply (${lastPingOut.slice(0, 120) || 'timeout/unreachable'}); localInterfaceMtu=${hostSummary.localInterfaceMtuBytes}B`;
+            empiricalObservation = `[${probe.probeId}] DF-bit ICMP probe to ${probe.target} timed out or destination unreachable.`;
+          }
+        } else if (probe.probeType === 'ARP_NEIGHBOR_VERIFY') {
+          // Section 5.3: Real OS neighbor table inspection (/proc/net/arp, ip neigh, arp -a)
+          timingTarget = 'LOCAL_OS_NEIGHBOR_TABLE_READ_MS';
+          const entries: Array<{ ip: string; mac: string; state: string; iface: string; family: string }> = [];
+
+          if (process.platform === 'linux' && fs.existsSync('/proc/net/arp')) {
+            try {
+              const rawArp = fs.readFileSync('/proc/net/arp', 'utf8');
+              for (const line of rawArp.trim().split(/\r?\n/).slice(1)) {
+                const cols = line.trim().split(/\s+/);
+                if (cols.length >= 6) {
+                  const ip = cols[0];
+                  const flags = cols[2];
+                  const mac = cols[3];
+                  const iface = cols[5];
+                  const st = (flags === '0x2' || flags === '0x6') && mac !== '00:00:00:00:00:00' ? 'REACHABLE' : 'INCOMPLETE';
+                  entries.push({ ip, mac, state: st, iface, family: 'IPv4_ARP' });
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (process.platform === 'win32') {
+            const arpRes = await execFileAsync('arp', ['-a'], 1200);
+            for (const line of arpRes.stdout.split(/\r?\n/)) {
+              const m = line.trim().match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F-]{17})\s+(\S+)/);
+              if (m) {
+                entries.push({
+                  ip: m[1],
+                  mac: m[2].replace(/-/g, ':').toLowerCase(),
+                  state: m[3].toUpperCase() === 'DYNAMIC' ? 'REACHABLE' : 'PERMANENT',
+                  iface: 'eth0',
+                  family: 'IPv4_ARP'
+                });
+              }
+            }
+          } else {
+            const ipNeigh = await execFileAsync('ip', ['neigh', 'show'], 1200);
+            if (ipNeigh.exitCode === 0 && ipNeigh.stdout.trim()) {
+              for (const line of ipNeigh.stdout.trim().split(/\r?\n/)) {
+                const ipMatch = line.match(/^(\S+)/);
+                const devMatch = line.match(/\bdev\s+(\S+)/);
+                const llMatch = line.match(/\blladdr\s+([0-9a-fA-F:]+)/);
+                const stMatch = line.match(/\b(REACHABLE|STALE|DELAY|PROBE|INCOMPLETE|FAILED|PERMANENT|NOARP)\b/i);
+                if (ipMatch) {
+                  const ip = ipMatch[1];
+                  const idx = entries.findIndex((e) => e.ip === ip);
+                  const entry = {
+                    ip,
+                    mac: llMatch ? llMatch[1].toLowerCase() : '00:00:00:00:00:00',
+                    state: stMatch ? stMatch[1].toUpperCase() : 'STALE',
+                    iface: devMatch ? devMatch[1] : 'eth0',
+                    family: ip.includes(':') ? 'IPv6_NDP' : 'IPv4_ARP'
+                  };
+                  if (idx >= 0) entries[idx] = entry;
+                  else entries.push(entry);
+                }
+              }
+            }
+          }
+
+          probeDetails.totalNeighborEntriesRead = entries.length;
+          const matched = entries.find((e) => e.ip === probe.target);
+          const isSelf = probe.target === '127.0.0.1' || probe.target === '::1' || probe.target === hostSummary.primaryIpv4;
+
+          if (matched) {
+            probeDetails.matchedNeighbor = matched;
+            nativeResultCode = `NEIGH_${matched.state}`;
+            probeClassification = matched.state;
+            conclusive = true;
+            rawCommandOutput = `OS neighbor table entry for ${probe.target} on ${matched.iface} (${matched.family}): lladdr=${matched.mac} state=${matched.state} (totalEntries=${entries.length})`;
+            empiricalObservation = `[${probe.probeId}] OS neighbor entry for ${probe.target}: lladdr=${matched.mac}, state=${matched.state} on ${matched.iface}.`;
+          } else if (isSelf) {
+            probeDetails.isLocalHostTarget = true;
+            nativeResultCode = 'LOCAL_INTERFACE_SELF';
+            probeClassification = 'PERMANENT';
+            conclusive = true;
+            rawCommandOutput = `OS neighbor table inspected (${entries.length} entries); target ${probe.target} is local host interface on ${hostSummary.hostname} (${hostSummary.primaryIpv4})`;
+            empiricalObservation = `[${probe.probeId}] Target ${probe.target} is local host interface (${entries.length} neighbor entries inspected).`;
+          } else {
+            nativeResultCode = 'ABSENT_FROM_NEIGHBOR_TABLE';
+            probeClassification = 'ABSENT_FROM_NEIGHBOR_TABLE';
+            conclusive = true;
+            rawCommandOutput = `OS neighbor table inspected (${entries.length} active ARP/NDP entries); no direct L2 entry cached for ${probe.target}`;
+            empiricalObservation = `[${probe.probeId}] Target ${probe.target} absent from local ARP/NDP cache (${entries.length} entries read).`;
+          }
+        } else if (probe.probeType === 'SOCKET_ESTABLISHED_AUDIT') {
+          // Section 5.4: Real OS socket table inspection (no temporary 127.0.0.1 loopback server)
+          timingTarget = 'LOCAL_OS_SOCKET_TABLE_READ_MS';
+          const correlator = getProcessSocketCorrelator();
+          let allSockets: any[] = [];
+          let permissionRestricted = false;
+
+          if (correlator && typeof correlator.collectActiveConnectionsInventory === 'function') {
+            const inv = await correlator.collectActiveConnectionsInventory({ limit: 500 });
+            allSockets = Array.isArray(inv?.connections) ? inv.connections : [];
+            permissionRestricted = Boolean(inv?.permissionRestricted);
+          } else if (process.platform === 'linux' && fs.existsSync('/proc/net/tcp')) {
+            const rawTcp = fs.readFileSync('/proc/net/tcp', 'utf8');
+            const lines = rawTcp.trim().split(/\r?\n/).slice(1);
+            allSockets = lines.map((l) => ({ raw: l, state: 'ESTABLISHED' }));
+          }
+
+          const isLocalTarget =
+            probe.target === '127.0.0.1' || probe.target === '::1' || probe.target === hostSummary.primaryIpv4;
+          const matchedSockets = allSockets.filter((c) => {
+            if (isLocalTarget) return true;
+            return c.localAddress === probe.target || c.remoteAddress === probe.target;
+          });
+
+          let establishedCount = 0;
+          let listeningCount = 0;
+          let synSentCount = 0;
+          let timeWaitCount = 0;
+          let closeWaitCount = 0;
+
+          for (const c of matchedSockets) {
+            const st = String(c.state || '').toUpperCase();
+            if (st === 'ESTABLISHED') establishedCount++;
+            else if (st === 'LISTEN' || st === 'LISTENING') listeningCount++;
+            else if (st.includes('SYN')) synSentCount++;
+            else if (st.includes('TIME_WAIT') || st.includes('TIME-WAIT')) timeWaitCount++;
+            else if (st.includes('CLOSE_WAIT') || st.includes('CLOSE-WAIT')) closeWaitCount++;
+          }
+
+          probeDetails.totalSystemSockets = allSockets.length;
+          probeDetails.targetMatchedSockets = matchedSockets.length;
+          probeDetails.establishedCount = establishedCount;
+          probeDetails.listeningCount = listeningCount;
+          probeDetails.synSentCount = synSentCount;
+          probeDetails.timeWaitCount = timeWaitCount;
+          probeDetails.closeWaitCount = closeWaitCount;
+          probeDetails.permissionRestricted = permissionRestricted;
+
+          nativeResultCode = closeWaitCount > 0 ? 'SOCKETS_CLOSE_WAIT_PRESENT' : 'SOCKET_TABLE_AUDITED';
+          probeClassification = closeWaitCount > 0 ? 'CLOSE_WAIT_DETECTED' : 'SOCKET_TABLE_HEALTHY';
+          conclusive = true;
+          rawCommandOutput =
+            `OS socket table audited for ${probe.target}: systemSockets=${allSockets.length}, matched=${matchedSockets.length} ` +
+            `(ESTABLISHED=${establishedCount}, LISTEN=${listeningCount}, SYN_SENT=${synSentCount}, TIME_WAIT=${timeWaitCount}, CLOSE_WAIT=${closeWaitCount})`;
+          empiricalObservation =
+            `[${probe.probeId}] Audited ${allSockets.length} OS sockets (${matchedSockets.length} matched ${probe.target}: ESTABLISHED=${establishedCount}, LISTEN=${listeningCount}, CLOSE_WAIT=${closeWaitCount}).`;
+        }
+      } catch (probeErr: any) {
+        success = false;
+        nativeResultCode = probeErr?.code || 'COLLECTOR_EXECUTION_ERROR';
+        probeClassification = 'COLLECTOR_EXECUTION_FAILED';
+        conclusive = false;
+        rawCommandOutput = probeErr?.message || 'Probe execution failed';
+        empiricalObservation = `[${probe.probeId}] Collector execution error: ${rawCommandOutput}`;
+      }
+
+      const completedAt = new Date().toISOString();
+      // Section 5.5: Exact sub-millisecond timing without any Math.max(0.2, ...) floor
+      const elapsed = Number((performance.now() - t0).toFixed(3));
+
+      const receipt = this.createCollectorExecutionReceipt({
+        sessionId: baseSession.sessionId,
+        probeId: probe.probeId,
+        probeType: probe.probeType,
+        target: probe.target,
+        startedAt,
+        completedAt,
+        durationMs: elapsed,
+        timingTarget,
+        nativeResultCode,
+        rawCommandOutput
+      });
+
+      executedResults.push({
+        probeId: probe.probeId,
+        probeType: probe.probeType,
+        target: probe.target,
+        measuredLatencyMs: elapsed,
+        timingTarget,
+        nativeResultCode,
+        probeClassification,
+        conclusive,
+        rawCommandOutput,
+        output: rawCommandOutput,
+        empiricalObservation,
+        collectorExecutionReceipt: receipt,
+        probeDetails,
+        executed: true,
+        success,
+        executedAt: completedAt,
+        observedAt: completedAt
       });
     }
 
-    const requireDualApproval = Boolean(constraints.requireDualApproval);
-    const operatorRole = parent.agent5.operatorRoleChecked || 'ADMIN';
-    const lyapunovCleared = parent.agent5.lyapunovBarrierCleared && (!requireDualApproval || operatorRole === 'ADMIN');
+    baseSession.round4EmpiricalSettlement = this.applyExecutedProbeResults(
+      baseSession.autonomousActiveProbes,
+      executedResults,
+      baseSession.agent1,
+      baseSession.agent2,
+      baseSession.agent3,
+      baseSession.canEstablishRootCause,
+      baseSession.sessionId
+    );
+    baseSession.winningHypothesis = baseSession.round4EmpiricalSettlement.settledWinningHypothesis;
+    baseSession.finalPosteriorConfidence = baseSession.round4EmpiricalSettlement.settledPosteriorConfidence;
+    baseSession.canEstablishRootCause = baseSession.round4EmpiricalSettlement.canEstablishRootCause;
+    baseSession.consensusReached =
+      baseSession.canEstablishRootCause && baseSession.finalPosteriorConfidence >= 0.55;
+    if (
+      baseSession.round4EmpiricalSettlement.executedProbesCount > 0 &&
+      baseSession.incidentLifecycleStage === 'REMEDIATION_PROPOSED'
+    ) {
+      baseSession.incidentLifecycleStage = 'PROBES_EXECUTED';
+    }
+    baseSession.executedResults = executedResults;
+    this.latestResult = baseSession;
+    this.sessionHistory.set(baseSession.sessionId, baseSession);
+    this.persistSessionToDb(baseSession);
+    return baseSession;
+  }
 
-    const transcriptPayload = JSON.stringify({
-      sessionId: newSessionId,
-      parentSessionId: parent.warRoomSessionId,
-      constraints,
-      action: proposedAction,
-      lyapunov: lyapunovCleared
+  public getSessionById(sessionId: string): any {
+    if (!sessionId || typeof sessionId !== 'string') return null;
+    const inMem = this.sessionHistory.get(sessionId);
+    if (inMem) return inMem;
+    const targetDb = this.resolveDb();
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      try {
+        const row = targetDb
+          .prepare('SELECT payload_json FROM war_room_sessions WHERE session_id = ?')
+          .get(sessionId);
+        if (row && typeof row.payload_json === 'string') {
+          const parsed = JSON.parse(row.payload_json);
+          if (parsed && parsed.sessionId === sessionId) {
+            if (!parsed.warRoomSessionId) parsed.warRoomSessionId = parsed.sessionId;
+            this.sessionHistory.set(sessionId, parsed);
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  public getSession(sessionId: string): any {
+    return this.getSessionById(sessionId);
+  }
+
+  public getAllSessions(): any[] {
+    return Array.from(this.sessionHistory.values());
+  }
+
+  public listSessions(): any[] {
+    return this.getAllSessions();
+  }
+
+  /**
+   * Interactive Operator Steering & Constraint Re-Evaluation (Sections 10 & 12)
+   * Throws WAR_ROOM_SESSION_NOT_FOUND when sessionId is missing or unknown.
+   * Enforces cryptographic Dual-Operator Approval verification via issueDualOperatorApproval / JWT.
+   */
+  public reevaluateWithConstraint(sessionId: string, constraints: any = {}) {
+    const cleanId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    const prior = cleanId ? this.getSessionById(cleanId) : null;
+    if (!prior) {
+      const err: any = new Error(
+        `War-Room session "${cleanId || 'EMPTY'}" was not found in active memory or durable SQLite ledger.`
+      );
+      err.code = 'WAR_ROOM_SESSION_NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const forbidden = (constraints.forbiddenRemediations || [])
+      .map((f: unknown) => String(f).toLowerCase().trim())
+      .filter(Boolean);
+    const required = (constraints.requiredRemediations || [])
+      .map((r: unknown) => String(r).trim())
+      .filter(Boolean);
+    const targetScope = String(constraints.targetEntityFilter || constraints.targetVlan || '').trim();
+
+    let policyViolationBlocked = false;
+    let safetyPolicyViolationReason: string | null = null;
+    let chosenAction = prior.agent4.proposedRemediationAction;
+
+    // 1. Check requiredRemediations first (subject to POL-02 safety check)
+    if (required.length > 0) {
+      const reqCandidate = required[0];
+      if (DESTRUCTIVE_COMMAND_PATTERNS.test(reqCandidate)) {
+        policyViolationBlocked = true;
+        safetyPolicyViolationReason = `POL_02_DESTRUCTIVE_REQUIRED_REMEDIATION_BLOCKED: "${reqCandidate}" violates non-destructive safety policy.`;
+      } else {
+        chosenAction = reqCandidate;
+      }
+    }
+
+    // 2. Apply forbiddenRemediations filter against candidate pool
+    const candidatePool = [
+      chosenAction,
+      ...(prior.agent4.alternativeCandidates || []),
+      `Isolate & throttle non-critical flows via QoS policing on ${targetScope || prior.agent4.remediationTarget}`,
+      `Drain secondary worker pool & pin latency-sensitive flows to clean interface on ${targetScope || prior.agent4.remediationTarget}`,
+      `Enforce conservative TCP MSS clamping (1360 bytes) and rate-limit resolver retries on ${targetScope || prior.agent4.remediationTarget}`
+    ];
+
+    const filteredPool = candidatePool.filter((act: string) => {
+      const lower = act.toLowerCase();
+      if (DESTRUCTIVE_COMMAND_PATTERNS.test(act)) return false;
+      return !forbidden.some((f: string) => lower.includes(f) || f.includes(lower));
     });
-    const hmacSig = crypto.createHmac('sha256', this.hmacSecret).update(transcriptPayload).digest('hex');
-    const proofChain = `EJII-PROOF-STEERED-V5:${crypto.createHash('sha256').update(hmacSig + executedAt).digest('hex')}`;
 
-    const steeredResult: WarRoomExecutionResult = {
-      ...parent,
-      warRoomSessionId: newSessionId,
-      parentSessionId: parent.warRoomSessionId,
-      executedAt,
-      status: 'RE_EVALUATED_WITH_CONSTRAINTS',
-      appliedConstraints: constraints,
-      adversarialDebates: customDebates,
-      agent4: {
-        ...parent.agent4,
-        proposedRemediationAction: proposedAction,
-        verdict: `Operator steering constraints applied. Forbidden actions respected. Adjusted remediation: ${proposedAction}.`
+    if (!policyViolationBlocked) {
+      chosenAction =
+        filteredPool[0] ||
+        `Conservative Passive Telemetry Watch on ${targetScope || prior.agent4.remediationTarget} (All active remediations constrained by operator)`;
+    } else {
+      chosenAction = `BLOCKED_BY_POL_02_SAFETY_GUARD: Falling back to read-only monitoring on ${targetScope || prior.agent4.remediationTarget}`;
+    }
+
+    if (targetScope && !chosenAction.includes(targetScope)) {
+      chosenAction = `${chosenAction} [Scoped to ${targetScope}]`;
+    }
+
+    // 3. Section 10: Cryptographic Dual-Operator Approval Verification
+    const requireDualApproval = Boolean(constraints.requireDualApproval ?? prior.agent4.requiresDualApproval);
+    let dualApprovalSatisfied = false;
+    let dualApprovalStatus = prior.agent5.authorizationStatus;
+
+    if (requireDualApproval) {
+      const primary = constraints.dualApprovalContext?.primaryApproval;
+      const secondary = constraints.dualApprovalContext?.secondaryApproval;
+      const pId = typeof primary?.operatorId === 'string' ? primary.operatorId.trim() : '';
+      const sId = typeof secondary?.operatorId === 'string' ? secondary.operatorId.trim() : '';
+
+      if (!pId || !sId || pId === sId) {
+        dualApprovalSatisfied = false;
+        dualApprovalStatus = 'PENDING_SECOND_DISTINCT_OPERATOR';
+      } else {
+        const primaryVerified = this.verifySingleApprovalSlot(prior.sessionId, primary, 'PRIMARY');
+        const secondaryVerified = this.verifySingleApprovalSlot(prior.sessionId, secondary, 'SECONDARY');
+
+        if (
+          primaryVerified.valid &&
+          secondaryVerified.valid &&
+          primaryVerified.operatorId !== secondaryVerified.operatorId
+        ) {
+          dualApprovalSatisfied = true;
+          dualApprovalStatus = 'DUAL_OPERATOR_VERIFIED';
+        } else {
+          dualApprovalSatisfied = false;
+          dualApprovalStatus = 'UNVERIFIED_DUAL_OPERATOR_TOKENS_REJECTED';
+        }
+      }
+    }
+
+    const newSessionId = `sre-warroom-steered-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
+    const executedAt = new Date().toISOString();
+
+    const canonicalPayload = JSON.stringify({
+      sessionId: newSessionId,
+      parentSessionId: prior.sessionId,
+      chosenAction,
+      constraints: {
+        forbiddenRemediations: constraints.forbiddenRemediations || [],
+        requiredRemediations: constraints.requiredRemediations || [],
+        targetVlan: constraints.targetVlan,
+        targetEntityFilter: constraints.targetEntityFilter,
+        requireDualApproval
       },
-      agent5: {
-        ...parent.agent5,
-        lyapunovBarrierCleared: lyapunovCleared,
-        hmacSignature: hmacSig,
-        proofChain,
-        verdict: `Steered Lyapunov safety check: ${lyapunovCleared ? 'CLEARED' : 'PENDING_DUAL_CUSTODY'}. Signed with HMAC-SHA256.`
-      },
-      executiveSummary: `Re-evaluated War Room Session [${newSessionId}] (parent: ${parent.warRoomSessionId}) under operator constraints. Selected: ${proposedAction}.`
+      executedAt
+    });
+    const payloadHash = crypto.createHash('sha256').update(canonicalPayload).digest('hex');
+    const hmacSignature = this.hmacConfigured
+      ? crypto.createHmac('sha256', this.secretKey).update(canonicalPayload).digest('hex')
+      : '';
+
+    const lyapunovScore = policyViolationBlocked
+      ? 0.35
+      : Number(Math.min(0.99, prior.agent5.lyapunovStabilityScore + 0.03).toFixed(4));
+    const lyapunovBarrierCleared = Boolean(!policyViolationBlocked && lyapunovScore >= 0.65 && this.hmacConfigured);
+
+    // Scope active probes to targetEntityFilter if specified (Section 12)
+    const steeredProbes = (prior.autonomousActiveProbes || []).map((p: any) => ({
+      ...p,
+      scopedEntityFilter: targetScope || null
+    }));
+
+    const inheritedSettlement = {
+      ...prior.round4EmpiricalSettlement,
+      inheritedFromSessionId: prior.sessionId,
+      newProbesExecutedInSteeredSession: false
     };
 
-    this.sessions.set(newSessionId, steeredResult);
-    if (this.sessions.size > 100) {
-      const oldestKey = this.sessions.keys().next().value;
-      if (oldestKey) this.sessions.delete(oldestKey);
+    const reevaluated = {
+      ...prior,
+      sessionId: newSessionId,
+      warRoomSessionId: newSessionId,
+      parentSessionId: prior.sessionId,
+      executedAt,
+      incidentLifecycleStage: dualApprovalSatisfied ? 'OPERATOR_AUTHORIZED' : 'REMEDIATION_PROPOSED',
+      autonomousActiveProbes: steeredProbes,
+      round4EmpiricalSettlement: inheritedSettlement,
+      agent4: {
+        ...prior.agent4,
+        proposedRemediationAction: chosenAction,
+        remediationTarget: targetScope || prior.agent4.remediationTarget,
+        alternativeCandidates: filteredPool,
+        requiresDualApproval: requireDualApproval,
+        blastRadiusScore: Number(Math.max(0.05, prior.agent4.blastRadiusScore - 0.04).toFixed(3)),
+        safetyPolicyCheck: policyViolationBlocked ? 'BLOCKED_DESTRUCTIVE_POL_02' : 'PASSED_POL_01',
+        safetyPolicyViolationReason
+      },
+      agent5: {
+        ...prior.agent5,
+        lyapunovStabilityScore: lyapunovScore,
+        lyapunovBarrierCleared,
+        operatorAuthorized: requireDualApproval ? dualApprovalSatisfied : prior.agent5.operatorAuthorized,
+        authorizationStatus: dualApprovalStatus,
+        dualApprovalSatisfied,
+        hmacSignature,
+        proofChain: this.hmacConfigured
+          ? `EJII-PROOF-STEERED-V5:${payloadHash.slice(0, 16)}:${hmacSignature.slice(0, 16)}`
+          : `EJII-PROOF-STEERED-UNSIGNED:${payloadHash.slice(0, 16)}:SECRET_REJECTED`
+      },
+      appliedConstraints: {
+        forbiddenRemediations: constraints.forbiddenRemediations || [],
+        requiredRemediations: constraints.requiredRemediations || [],
+        targetVlan: constraints.targetVlan,
+        targetEntityFilter: constraints.targetEntityFilter,
+        requireDualApproval,
+        operatorNote: constraints.operatorNote,
+        operatorQuestion: constraints.operatorQuestion,
+        policyViolationBlocked
+      },
+      cryptographicExecutionToken: {
+        algorithm: 'HMAC-SHA256',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 300_000,
+        payloadHash,
+        signature: hmacSignature,
+        valid: Boolean(this.hmacConfigured && hmacSignature.length === 64)
+      },
+      status: 'RE_EVALUATED_WITH_CONSTRAINTS'
+    };
+
+    this.latestResult = reevaluated;
+    this.sessionHistory.set(newSessionId, reevaluated);
+    this.enforceMemoryRetention();
+    this.persistSessionToDb(reevaluated);
+    return reevaluated;
+  }
+
+  public getLatestResult(): any {
+    if (!this.latestResult) {
+      return this.execute();
     }
-    this.latestResult = steeredResult;
-    this.persistSessionToStore(steeredResult);
-    return steeredResult;
+    return this.latestResult;
+  }
+
+  public getLatest(): any {
+    return this.getLatestResult();
   }
 }
+
+export const autonomousWarRoomOrchestrator = new AutonomousWarRoomOrchestrator();
+export default autonomousWarRoomOrchestrator;

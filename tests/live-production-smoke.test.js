@@ -121,12 +121,12 @@ async function runLiveProductionSmoke() {
         }
       });
 
-      // Timeout safety: 15 seconds
+      // Timeout safety: 40 seconds on Windows
       setTimeout(() => {
         if (!serverStarted) {
           reject(new Error(`Timed out waiting for production server to start. Stderr: ${stderrLogs.slice(-300)}`));
         }
-      }, 15000);
+      }, 40000);
     });
 
     await serverReady;

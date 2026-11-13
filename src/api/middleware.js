@@ -51,11 +51,12 @@ function authenticate(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired session token.' });
   }
 
-  // Verify user is active in database
+  // Check user status in database
   let user = null;
   if (decoded.id) {
     user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE id = ?').get(decoded.id);
-  } else if (decoded.username) {
+  }
+  if (!user && decoded.username && !decoded.dbBacked && decoded.tokenType !== 'user_session') {
     user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE username = ?').get(decoded.username);
   }
 
@@ -70,7 +71,10 @@ function authenticate(req, res, next) {
       role: String(user.role || 'READONLY').toUpperCase()
     };
   } else {
-    // Cryptographically verified token for system or service accounts
+    if (decoded.dbBacked || decoded.tokenType === 'user_session') {
+      return res.status(401).json({ error: 'Session invalidated: user account no longer exists.' });
+    }
+    // Cryptographically signed token for stateless system/service test accounts
     req.user = {
       id: decoded.id || 'SVC-' + (decoded.username || 'user'),
       username: decoded.username || 'authenticated_user',

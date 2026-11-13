@@ -40,6 +40,7 @@ router.get('/status', (req, res) => {
     const governanceMode = remediationGovernanceEngine.getGovernanceMode();
     const horizonReport = predictiveHorizonEngine.evaluatePredictiveHorizon({});
     const superpowersCatalog = superpowersSkillsEngine.listSkills();
+    const skillsSummary = superpowersSkillsEngine.getSkillsSummary();
 
     res.json({
       success: true,
@@ -56,6 +57,8 @@ router.get('/status', (req, res) => {
         endpointsEvaluatedCount: horizonReport.endpointsEvaluatedCount
       },
       superpowersSkillsCount: superpowersCatalog.length,
+      totalInstalledSkillsCount: skillsSummary.totalInstalledSkillsCount,
+      skillsSummary,
       closedLoopArbiterDomains: 6,
       timestamp: new Date().toISOString()
     });
@@ -538,13 +541,30 @@ router.get('/memory/timeline/:target', (req, res) => {
 router.get('/superpowers/skills', (req, res) => {
   try {
     const query = req.query.q ? String(req.query.q).trim() : '';
+    const includeAllInstalled = req.query.includeAllInstalled === 'true';
+    const pillar = req.query.pillar ? String(req.query.pillar).trim() : null;
+    const coreSkills = superpowersSkillsEngine.listSkills();
+    const allInstalledSkills = superpowersSkillsEngine.listAllInstalledSkills(pillar);
+    const skillsSummary = superpowersSkillsEngine.getSkillsSummary();
     const skills = query
       ? superpowersSkillsEngine.findSkills(query)
-      : { matchedCount: superpowersSkillsEngine.listSkills().length, matchedSkills: superpowersSkillsEngine.listSkills() };
+      : {
+          matchedCount: includeAllInstalled ? allInstalledSkills.length : coreSkills.length,
+          matchedSkills: includeAllInstalled ? allInstalledSkills : coreSkills
+        };
     res.json({
       success: true,
-      catalogCount: superpowersSkillsEngine.listSkills().length,
-      skills: superpowersSkillsEngine.listSkills(),
+      catalogCount: coreSkills.length,
+      topLevelPackagesCount: skillsSummary.topLevelPackagesCount,
+      nestedGstackWorkflowsCount: skillsSummary.nestedGstackWorkflowsCount,
+      totalManifestsCount: skillsSummary.totalManifestsCount,
+      agentDirectorySkillsCount: skillsSummary.agentDirectorySkillsCount,
+      lockfileSkillsCount: skillsSummary.lockfileSkillsCount,
+      readOnlyIntegrityStatus: skillsSummary.readOnlyIntegrityStatus,
+      totalInstalledSkillsCount: skillsSummary.totalInstalledSkillsCount,
+      skillsSummary,
+      skills: includeAllInstalled ? allInstalledSkills : coreSkills,
+      allInstalledSkills,
       ...skills
     });
   } catch (err) {
@@ -600,7 +620,7 @@ router.post('/superpowers/execute', async (req, res) => {
 });
 
 // 11. Unified Full-Stack Multi-Engine Synthesis (Timeline + 6-Domain Closed-Loop Arbiter + Predictive Horizon + Superpowers)
-router.post('/investigation/unified-synthesis', async (req, res) => {
+router.post(['/investigation/unified-synthesis', '/superpowers/synthesize', '/superpowers/synthesis'], async (req, res) => {
   try {
     const body = req.body || {};
     const target = String(body.target || '127.0.0.1').trim();
@@ -616,21 +636,6 @@ router.post('/investigation/unified-synthesis', async (req, res) => {
       executeClosedLoop: body.executeClosedLoop !== false,
       initiatedBy: req.user?.username || 'operator'
     });
-    try {
-      const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
-      const win = synthesis.hypothesisArbitration?.winningHypothesis || {};
-      const firstTrace = synthesis.hypothesisArbitration?.closedLoopExecutionTrace?.[0] || {};
-      EpisodicCausalMemoryEngine.recordLiveSynthesisEpisode({
-        target: `${target}:${port}`,
-        winningDomainId: win.domainId || 'TRANSPORT_L4',
-        probabilityPct: Number(win.probabilityPct || 25),
-        rttMs: Number(firstTrace.durationMs || 1.2),
-        lossPct: Number(firstTrace.rawMetrics?.lossPct || 0),
-        summary: synthesis.unifiedExecutiveSummary
-      });
-    } catch (_epErr) {
-      // non-fatal episode persistence
-    }
     res.json({ success: true, ...synthesis });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -832,25 +837,237 @@ router.get('/runbooks', (req, res) => {
   }
 });
 
+async function measureAuthenticHostCpuAndLoad() {
+  const os = require('os');
+  const { performance } = require('perf_hooks');
+  const snapCpu = () => {
+    const cpus = os.cpus() || [];
+    let idle = 0;
+    let total = 0;
+    for (const c of cpus) {
+      const t = c.times || {};
+      const cTotal = (t.user || 0) + (t.nice || 0) + (t.sys || 0) + (t.idle || 0) + (t.irq || 0);
+      idle += t.idle || 0;
+      total += cTotal;
+    }
+    return { idle, total, cores: cpus.length };
+  };
+  const s0 = snapCpu();
+  await new Promise((r) => setTimeout(r, 15));
+  const s1 = snapCpu();
+  const collectedAtIso = new Date().toISOString();
+  const totalDelta = s1.total - s0.total;
+  const idleDelta = s1.idle - s0.idle;
+  const cpuSaturationPct = totalDelta > 0
+    ? Number((((totalDelta - idleDelta) / totalDelta) * 100).toFixed(2))
+    : null;
+  const rawLoad = os.platform() !== 'win32' && typeof os.loadavg === 'function' ? os.loadavg() : null;
+  const loadAvg1m = Array.isArray(rawLoad) && typeof rawLoad[0] === 'number'
+    ? Number(rawLoad[0].toFixed(3))
+    : null;
+  return {
+    cpuSaturationPct,
+    loadAvg1m,
+    coresCount: s1.cores || null,
+    collectedAtIso,
+    measurementMethod: 'KERNEL_PROC_STAT_CPU_TICK_DELTA_15MS'
+  };
+}
+
+async function measureAuthenticDnsLatency(targetHost) {
+  const dns = require('dns');
+  const net = require('net');
+  const { performance } = require('perf_hooks');
+  const resolver = new dns.promises.Resolver();
+  const isIp = net.isIP(targetHost) !== 0;
+  const t0 = performance.now();
+  const collectedAtIso = new Date().toISOString();
+  try {
+    if (isIp) {
+      await Promise.race([
+        resolver.reverse(targetHost),
+        new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('DNS_TIMEOUT'), { code: 'ETIMEOUT' })), 1200))
+      ]);
+      return {
+        dnsLatencyMs: Number((performance.now() - t0).toFixed(3)),
+        available: true,
+        status: 'RESOLVED_PTR',
+        measurementMethod: 'DNS_REVERSE_PTR_QUERY',
+        collectedAtIso
+      };
+    } else {
+      await Promise.race([
+        resolver.resolve4(targetHost),
+        new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('DNS_TIMEOUT'), { code: 'ETIMEOUT' })), 1200))
+      ]);
+      return {
+        dnsLatencyMs: Number((performance.now() - t0).toFixed(3)),
+        available: true,
+        status: 'RESOLVED_A',
+        measurementMethod: 'DNS_FORWARD_A_QUERY',
+        collectedAtIso
+      };
+    }
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : 'DNS_ERROR';
+    // Even if PTR/A record is ENOTFOUND/ENODATA, a real DNS response packet was received from the resolver if not ETIMEOUT/ECONNREFUSED
+    if (code === 'ENOTFOUND' || code === 'ENODATA' || code === 'NXDOMAIN') {
+      return {
+        dnsLatencyMs: Number((performance.now() - t0).toFixed(3)),
+        available: true,
+        status: `DNS_RESPONSE_${code}`,
+        measurementMethod: isIp ? 'DNS_REVERSE_PTR_QUERY' : 'DNS_FORWARD_A_QUERY',
+        collectedAtIso
+      };
+    }
+    return {
+      dnsLatencyMs: null,
+      available: false,
+      status: `UNAVAILABLE_${code}`,
+      measurementMethod: isIp ? 'DNS_REVERSE_PTR_QUERY' : 'DNS_FORWARD_A_QUERY',
+      collectedAtIso
+    };
+  }
+}
+
+async function measureAuthenticTcpProbe(targetHost, portNumber) {
+  const { checkPort } = require('../protocols/tcp-port');
+  const collectedAtIso = new Date().toISOString();
+  try {
+    const res = await checkPort(targetHost, portNumber, 1200);
+    const rawRtt = typeof res?.rtt === 'number' ? res.rtt : (typeof res?.responseTimeMs === 'number' ? res.responseTimeMs : null);
+    if (res && res.open === true && typeof rawRtt === 'number' && Number.isFinite(rawRtt)) {
+      return {
+        rttMs: Number(rawRtt.toFixed(3)),
+        packetLossPct: 0.0,
+        open: true,
+        available: true,
+        status: 'TCP_SYN_ACK_VERIFIED',
+        measurementMethod: 'TCP_3WAY_HANDSHAKE_PROBE',
+        collectedAtIso
+      };
+    }
+    return {
+      rttMs: null,
+      packetLossPct: res?.timedOut ? 100.0 : null,
+      open: false,
+      available: false,
+      status: res?.error || 'TCP_CONNECT_FAILED_OR_REFUSED',
+      measurementMethod: 'TCP_3WAY_HANDSHAKE_PROBE',
+      collectedAtIso
+    };
+  } catch (err) {
+    return {
+      rttMs: null,
+      packetLossPct: null,
+      open: false,
+      available: false,
+      status: err?.code || err?.message || 'TCP_PROBE_EXCEPTION',
+      measurementMethod: 'TCP_3WAY_HANDSHAKE_PROBE',
+      collectedAtIso
+    };
+  }
+}
+
 router.post('/runbooks/:runbookId/execute', async (req, res) => {
   try {
+    const { superpowersSkillsEngine } = require('../core/skills/superpowers-skills-engine');
     const runbookId = String(req.params.runbookId || 'RB-01').toUpperCase();
     const rb = RUNBOOK_CATALOG.find((r) => r.id === runbookId) || RUNBOOK_CATALOG[0];
     const target = String(req.body?.target || persistedSituationalMemory.activeTarget || '127.0.0.1').trim();
+    const port = Number(req.body?.port) || Number(persistedSituationalMemory.activePort) || 3000;
+
     if (!isSafeNetworkTarget(target)) {
       return res.status(400).json({ success: false, error: `Target '${target}' rejected by SSRF guard.` });
     }
-    const port = Number(req.body?.port) || Number(persistedSituationalMemory.activePort) || 3000;
 
-    // 1. Pre-Flight Telemetry Snapshot & POL-01 / POL-02 Safety Gate
+    // Enforce full 5-invariant Constraint Floor (SSRF, POL-01, POL-02 protected PIDs, SPOF guard, Read-Only skills)
+    const constraintAudit = superpowersSkillsEngine.enforceConstraintFloor(
+      { target, port },
+      {},
+      req.body || {}
+    );
+    if (!constraintAudit.passed) {
+      return res.status(403).json({
+        success: false,
+        error: 'Runbook execution blocked by Constraint Floor (POL-01/POL-02/SSRF/SPOF).',
+        constraintAudit
+      });
+    }
+
+    // 1. Live Pre-Flight Telemetry Probe — each field measured independently with explicit provenance (zero fabricated fallbacks)
+    const callerSuppliedPreRtt = req.body?.preRttMs !== undefined && req.body?.preRttMs !== null && Number.isFinite(Number(req.body.preRttMs));
+    const callerSuppliedPreLoss = req.body?.preLossPct !== undefined && req.body?.preLossPct !== null && Number.isFinite(Number(req.body.preLossPct));
+    const callerSuppliedPreDns = req.body?.preDnsMs !== undefined && req.body?.preDnsMs !== null && Number.isFinite(Number(req.body.preDnsMs));
+
+    const [preTcpProbe, preDnsProbe, preHostCpu] = await Promise.all([
+      callerSuppliedPreRtt ? Promise.resolve(null) : measureAuthenticTcpProbe(target, port),
+      callerSuppliedPreDns ? Promise.resolve(null) : measureAuthenticDnsLatency(target),
+      measureAuthenticHostCpuAndLoad()
+    ]);
+
+    const preCapturedAt = new Date().toISOString();
+    const preRttMs = callerSuppliedPreRtt ? Number(req.body.preRttMs) : preTcpProbe.rttMs;
+    const preLossPct = callerSuppliedPreLoss ? Number(req.body.preLossPct) : preTcpProbe?.packetLossPct ?? null;
+    const preDnsMs = callerSuppliedPreDns ? Number(req.body.preDnsMs) : preDnsProbe.dnsLatencyMs;
+
     const preFlightMetrics = {
-      rttMs: Number(req.body?.preRttMs || 34.6),
-      packetLossPct: Number(req.body?.preLossPct ?? 1.8),
-      dnsLatencyMs: Number(req.body?.preDnsMs || 28.4),
-      cpuSaturationPct: 31.0,
+      tcpReachable: callerSuppliedPreRtt ? true : Boolean(preTcpProbe?.open),
+      rttMs: preRttMs,
+      packetLossPct: preLossPct,
+      dnsLatencyMs: preDnsMs,
+      cpuSaturationPct: preHostCpu.cpuSaturationPct,
+      loadAvg1m: preHostCpu.loadAvg1m,
       pol01PrivacyGateVerified: true,
       pol02ProtectedProcessShieldVerified: true,
-      capturedAt: new Date().toISOString()
+      telemetrySource: (callerSuppliedPreRtt || callerSuppliedPreLoss || callerSuppliedPreDns)
+        ? 'HYBRID_OPERATOR_AND_LOCAL_OS_PROBE'
+        : 'LIVE_INDEPENDENT_OS_AND_WIRE_PROBES',
+      fieldProvenance: {
+        rttMs: {
+          available: preRttMs !== null,
+          status: preRttMs !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: callerSuppliedPreRtt ? 'OPERATOR_SUPPLIED_PRE_RTT' : 'LOCAL_OS_TCP_HANDSHAKE_PROBE',
+          evidenceClass: callerSuppliedPreRtt ? 'OPERATOR_SUPPLIED_OBSERVATION' : 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: callerSuppliedPreRtt ? 'CALLER_REQUEST_BODY' : preTcpProbe.measurementMethod,
+          probeStatus: callerSuppliedPreRtt ? 'OPERATOR_SUPPLIED' : preTcpProbe.status,
+          collectedAtIso: callerSuppliedPreRtt ? preCapturedAt : preTcpProbe.collectedAtIso
+        },
+        packetLossPct: {
+          available: preLossPct !== null,
+          status: preLossPct !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: callerSuppliedPreLoss ? 'OPERATOR_SUPPLIED_PRE_LOSS' : 'LOCAL_OS_TCP_HANDSHAKE_PROBE',
+          evidenceClass: callerSuppliedPreLoss ? 'OPERATOR_SUPPLIED_OBSERVATION' : 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: callerSuppliedPreLoss ? 'CALLER_REQUEST_BODY' : preTcpProbe?.measurementMethod || 'TCP_3WAY_HANDSHAKE_PROBE',
+          collectedAtIso: callerSuppliedPreLoss ? preCapturedAt : (preTcpProbe?.collectedAtIso || preCapturedAt)
+        },
+        dnsLatencyMs: {
+          available: preDnsMs !== null,
+          status: preDnsMs !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: callerSuppliedPreDns ? 'OPERATOR_SUPPLIED_PRE_DNS' : 'LOCAL_OS_DNS_RESOLVER_PROBE',
+          evidenceClass: callerSuppliedPreDns ? 'OPERATOR_SUPPLIED_OBSERVATION' : 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: callerSuppliedPreDns ? 'CALLER_REQUEST_BODY' : preDnsProbe.measurementMethod,
+          probeStatus: callerSuppliedPreDns ? 'OPERATOR_SUPPLIED' : preDnsProbe.status,
+          collectedAtIso: callerSuppliedPreDns ? preCapturedAt : preDnsProbe.collectedAtIso
+        },
+        cpuSaturationPct: {
+          available: preHostCpu.cpuSaturationPct !== null,
+          status: preHostCpu.cpuSaturationPct !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: 'LOCAL_OS_KERNEL_CPU_TIMES',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: preHostCpu.measurementMethod,
+          collectedAtIso: preHostCpu.collectedAtIso
+        },
+        loadAvg1m: {
+          available: preHostCpu.loadAvg1m !== null,
+          status: preHostCpu.loadAvg1m !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: preHostCpu.loadAvg1m !== null ? 'LOCAL_POSIX_LOADAVG' : 'UNSUPPORTED_ON_PLATFORM',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: 'OS_LOADAVG_1M',
+          collectedAtIso: preHostCpu.collectedAtIso
+        }
+      },
+      capturedAt: preCapturedAt
     };
 
     // 2. Run 6-Domain Hypothesis Arbiter + Live Probes
@@ -862,18 +1079,79 @@ router.post('/runbooks/:runbookId/execute', async (req, res) => {
       maxClosedLoopSteps: 2
     });
 
-    // 3. Measure Post-Action Telemetry & Compute Closed-Loop Health Delta
-    const measuredPostRtt = Number(
-      arb.closedLoopExecutionTrace?.[0]?.durationMs
-        ? Math.min(preFlightMetrics.rttMs * 0.45, Math.max(1.2, Number(arb.closedLoopExecutionTrace[0].durationMs) * 0.25))
-        : 8.4
-    );
+    // 3. Measure Fresh Post-Verification Telemetry independently (never carry forward pre-flight DNS or substitute probe duration for RTT)
+    const [postTcpProbe, postDnsProbe, postHostCpu] = await Promise.all([
+      measureAuthenticTcpProbe(target, port),
+      measureAuthenticDnsLatency(target),
+      measureAuthenticHostCpuAndLoad()
+    ]);
+
+    const extractedRaw = arb.diagnosticSemantics?.extractedTelemetrySignature?.rawMeasuredMetrics || {};
+    const postCapturedAt = new Date().toISOString();
+    const postRttMs = postTcpProbe.available
+      ? postTcpProbe.rttMs
+      : (typeof extractedRaw.rttMs === 'number' && Number.isFinite(extractedRaw.rttMs) ? Number(extractedRaw.rttMs.toFixed(3)) : null);
+    const postLossPct = postTcpProbe.packetLossPct !== null
+      ? postTcpProbe.packetLossPct
+      : (typeof extractedRaw.packetLossPct === 'number' && Number.isFinite(extractedRaw.packetLossPct) ? extractedRaw.packetLossPct : null);
+    const postDnsMs = postDnsProbe.available
+      ? postDnsProbe.dnsLatencyMs
+      : (typeof extractedRaw.dnsLatencyMs === 'number' && Number.isFinite(extractedRaw.dnsLatencyMs) ? Number(extractedRaw.dnsLatencyMs.toFixed(3)) : null);
+
     const postActionMetrics = {
-      rttMs: Number(measuredPostRtt.toFixed(2)),
-      packetLossPct: 0.0,
-      dnsLatencyMs: Number(Math.max(1.5, preFlightMetrics.dnsLatencyMs * 0.38).toFixed(2)),
-      cpuSaturationPct: 22.4,
-      capturedAt: new Date().toISOString()
+      tcpReachable: Boolean(postTcpProbe?.open),
+      rttMs: postRttMs,
+      packetLossPct: postLossPct,
+      dnsLatencyMs: postDnsMs,
+      cpuSaturationPct: postHostCpu.cpuSaturationPct,
+      loadAvg1m: postHostCpu.loadAvg1m,
+      telemetrySource: 'LIVE_POST_ACTION_INDEPENDENT_PROBES',
+      fieldProvenance: {
+        rttMs: {
+          available: postRttMs !== null,
+          status: postRttMs !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: postTcpProbe.available ? 'POST_ACTION_TCP_HANDSHAKE_PROBE' : (postRttMs !== null ? 'ARBITER_CLOSED_LOOP_TCP_PROBE' : 'UNAVAILABLE'),
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: postTcpProbe.measurementMethod,
+          probeStatus: postTcpProbe.status,
+          collectedAtIso: postTcpProbe.collectedAtIso
+        },
+        packetLossPct: {
+          available: postLossPct !== null,
+          status: postLossPct !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: postTcpProbe.packetLossPct !== null ? 'POST_ACTION_TCP_HANDSHAKE_PROBE' : 'UNAVAILABLE',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: postTcpProbe.measurementMethod,
+          collectedAtIso: postTcpProbe.collectedAtIso
+        },
+        dnsLatencyMs: {
+          available: postDnsMs !== null,
+          status: postDnsMs !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: postDnsProbe.available ? 'POST_ACTION_DNS_RESOLVER_PROBE' : 'UNAVAILABLE',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: postDnsProbe.measurementMethod,
+          method: postDnsProbe.measurementMethod,
+          probeStatus: postDnsProbe.status,
+          collectedAtIso: postDnsProbe.collectedAtIso
+        },
+        cpuSaturationPct: {
+          available: postHostCpu.cpuSaturationPct !== null,
+          status: postHostCpu.cpuSaturationPct !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: 'POST_ACTION_KERNEL_CPU_TIMES',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: postHostCpu.measurementMethod,
+          collectedAtIso: postHostCpu.collectedAtIso
+        },
+        loadAvg1m: {
+          available: postHostCpu.loadAvg1m !== null,
+          status: postHostCpu.loadAvg1m !== null ? 'MEASURED' : 'UNAVAILABLE',
+          source: postHostCpu.loadAvg1m !== null ? 'POST_ACTION_POSIX_LOADAVG' : 'UNSUPPORTED_ON_PLATFORM',
+          evidenceClass: 'DIRECT_LOCAL_OS_MEASUREMENT',
+          measurementMethod: 'OS_LOADAVG_1M',
+          collectedAtIso: postHostCpu.collectedAtIso
+        }
+      },
+      capturedAt: postCapturedAt
     };
 
     const closedLoopRecalibration = hypothesisArbiter.recalibrateOnActionOutcome(arb, {
@@ -885,26 +1163,30 @@ router.post('/runbooks/:runbookId/execute', async (req, res) => {
       operatorObservation: req.body?.operatorObservation || null
     });
 
-    const stageResults = rb.stages.map((stageName, idx) => ({
-      stepNumber: idx + 1,
-      stageName,
-      status: 'VERIFIED',
-      beforeRttMs: idx === 0 ? preFlightMetrics.rttMs : Number((preFlightMetrics.rttMs - idx * 5.2).toFixed(2)),
-      afterRttMs: idx === rb.stages.length - 1 ? postActionMetrics.rttMs : Number((preFlightMetrics.rttMs - (idx + 1) * 6.1).toFixed(2)),
-      aiInterpretation: idx === 0
-        ? `[Pre-Flight Snapshot] Baseline RTT=${preFlightMetrics.rttMs}ms, Loss=${preFlightMetrics.packetLossPct}% captured on ${target}:${port} under POL-01/POL-02 governance.`
-        : idx === rb.stages.length - 1
-          ? `[Post-Action Verification] RTT improved ${preFlightMetrics.rttMs}ms -> ${postActionMetrics.rttMs}ms (${closedLoopRecalibration.telemetryImprovementPct}% gain). ${closedLoopRecalibration.posteriorShiftSummary}`
-          : `Executed live non-destructive verification for ${stageName}; zero policy violations detected.`
-    }));
+    const stageResults = rb.stages.map((stageName, idx) => {
+      const traceStep = arb.closedLoopExecutionTrace?.[idx] || arb.closedLoopExecutionTrace?.[0] || null;
+      const stepRtt = typeof traceStep?.durationMs === 'number' ? Number(traceStep.durationMs) : postActionMetrics.rttMs;
+      return {
+        stepNumber: idx + 1,
+        stageName,
+        status: postActionMetrics.rttMs !== null || traceStep ? 'VERIFIED' : 'PROBED_UNREACHABLE',
+        beforeRttMs: idx === 0 ? preFlightMetrics.rttMs : stepRtt,
+        afterRttMs: idx === rb.stages.length - 1 ? postActionMetrics.rttMs : stepRtt,
+        aiInterpretation: idx === 0
+          ? `[Pre-Flight Snapshot] Baseline RTT=${preFlightMetrics.rttMs !== null ? preFlightMetrics.rttMs + 'ms' : 'UNAVAILABLE'}, Loss=${preFlightMetrics.packetLossPct !== null ? preFlightMetrics.packetLossPct + '%' : 'UNAVAILABLE'} captured on ${target}:${port} under POL-01/POL-02 governance.`
+          : idx === rb.stages.length - 1
+            ? `[Post-Verification Observation] Measured RTT=${postActionMetrics.rttMs !== null ? postActionMetrics.rttMs + 'ms' : 'UNAVAILABLE'}, Loss=${postActionMetrics.packetLossPct !== null ? postActionMetrics.packetLossPct + '%' : 'UNAVAILABLE'} (${closedLoopRecalibration.beliefState}). ${closedLoopRecalibration.posteriorShiftSummary || closedLoopRecalibration.beliefShiftExplanation || ''}`
+            : `Executed live non-destructive verification for ${stageName} (${traceStep?.finding || 'zero policy violations detected'}).`
+      };
+    });
 
     // Sync into Backend Situational Memory & Timeline
     appendSituationalTimelineEvent({
       actor: req.user?.username || 'operator',
       eventType: 'RUNBOOK_EXECUTED',
       workspace: req.body?.workspace || 'ai-operator',
-      summary: `Executed ${rb.id} (${rb.title}) on ${target}:${port} — RTT ${preFlightMetrics.rttMs}ms -> ${postActionMetrics.rttMs}ms (${closedLoopRecalibration.beliefState})`,
-      delta: `${closedLoopRecalibration.telemetryImprovementPct}% telemetry improvement`
+      summary: `Executed ${rb.id} (${rb.title}) on ${target}:${port} — RTT ${preFlightMetrics.rttMs ?? 'N/A'}ms -> ${postActionMetrics.rttMs ?? 'N/A'}ms (${closedLoopRecalibration.beliefState})`,
+      delta: `${closedLoopRecalibration.telemetryImprovementPct ?? 0}% telemetry delta`
     });
     persistedSituationalMemory.activeTarget = target;
     persistedSituationalMemory.activePort = port;
@@ -919,9 +1201,13 @@ router.post('/runbooks/:runbookId/execute', async (req, res) => {
       title: rb.title,
       target,
       port,
+      executionMode: 'NON_DESTRUCTIVE_DIAGNOSTIC_VERIFICATION',
+      constraintAudit,
       labRoute: rb.labRoute,
       preFlightMetrics,
       postActionMetrics,
+      preFlightTelemetry: preFlightMetrics,
+      postRemediationTelemetry: postActionMetrics,
       closedLoopRecalibration,
       stageResults,
       arbitrationSummary: arb.executiveSummary,
@@ -1066,9 +1352,16 @@ router.post('/steer-observation', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Observation text is required.' });
     }
 
-    // Extract IP if mentioned in observation
+    // Extract IP if mentioned in observation and enforce SSRF target safety
     const ipMatch = observation.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-    const effectiveTarget = ipMatch && isSafeNetworkTarget(ipMatch[0]) ? ipMatch[0] : target;
+    const candidateTarget = ipMatch ? ipMatch[0] : target;
+    if (!isSafeNetworkTarget(candidateTarget) || !isSafeNetworkTarget(target)) {
+      return res.status(400).json({
+        success: false,
+        error: `Target '${candidateTarget}' rejected by SSRF guard.`
+      });
+    }
+    const effectiveTarget = candidateTarget;
 
     const obsLower = observation.toLowerCase();
     const ruledOutDomains = [];
@@ -1166,18 +1459,23 @@ router.post('/steer-observation', async (req, res) => {
   }
 });
 
-// Episodic Incident Memory & Experience Replay API
+// Episodic Incident Memory & Experience Replay API (respects ?includeSimulated=false)
 router.get('/episodic-memory', (req, res) => {
   try {
+    const includeSimulated = req.query.includeSimulated !== 'false';
     const { EpisodicCausalMemoryEngine } = require('../ai/episodic-causal-memory-engine');
-    const episodes = EpisodicCausalMemoryEngine.getAllEpisodes ? EpisodicCausalMemoryEngine.getAllEpisodes() : [];
+    const episodes = EpisodicCausalMemoryEngine.getAllEpisodes
+      ? EpisodicCausalMemoryEngine.getAllEpisodes({ includeSimulated })
+      : [];
     const learnedDomainWeights = EpisodicCausalMemoryEngine.getLearnedDomainWeights
       ? EpisodicCausalMemoryEngine.getLearnedDomainWeights()
       : {};
     res.json({
       success: true,
       count: episodes.length,
+      includeSimulated,
       episodes,
+       domainWeights: learnedDomainWeights,
       learnedDomainWeights,
       situationalMemory: persistedSituationalMemory
     });
@@ -1992,43 +2290,60 @@ router.post('/daily-automation/execute', (req, res) => {
   }
 });
 
-// Step 6: 5-Agent SRE Autonomous War Room (4-Round Deliberation + Empirical Probe Settlement)
-router.post('/war-room/convene', (req, res) => {
+// Step 6: 5-Agent SRE Autonomous War Room (4-Round Deliberation + Genuine Empirical Probe Settlement)
+router.post('/war-room/convene', async (req, res) => {
   try {
     const { AutonomousWarRoomOrchestrator } = require('../ai/autonomous-war-room');
+    const { verifyToken } = require('./middleware');
     const orchestrator = new AutonomousWarRoomOrchestrator();
     const operatorQuestion = String(req.body?.operatorQuestion || '').trim();
-    const baseResult = orchestrator.execute({
-      operatorRole: req.user?.role || 'ADMIN'
-    });
-    const finalResult = operatorQuestion
-      ? orchestrator.reevaluateWithConstraint(baseResult.warRoomSessionId, {
-          operatorQuestion
-        })
-      : baseResult;
+    const rawBody = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    delete rawBody.authContext;
 
-    const round4EmpiricalSettlement = {
-      ...(finalResult.round4EmpiricalSettlement || {}),
-      verdictStatus: 'EMPIRICALLY_CONFIRMED',
-      priorConfidence: 0.58,
-      settledPosteriorConfidence: 0.92
+    let verifiedUser = req.user && req.user.id && req.user.role ? req.user : null;
+    if (!verifiedUser && req?.headers?.authorization) {
+      const authHeader = String(req.headers.authorization);
+      if (authHeader.startsWith('Bearer ')) {
+        const decoded = verifyToken(authHeader.slice(7).trim());
+        if (decoded && decoded.id && decoded.role) {
+          verifiedUser = decoded;
+        }
+      }
+    }
+
+    const payload = {
+      ...rawBody,
+      authContext: verifiedUser
+        ? {
+            authenticated: true,
+            userId: String(verifiedUser.username || verifiedUser.id),
+            role: String(verifiedUser.role).toUpperCase(),
+            source: 'SERVER_SESSION_JWT'
+          }
+        : undefined
     };
 
-    const crossExamDebate = (finalResult.adversarialDebates || []).find(
-      d => d.challengerAgent && d.challengerAgent.includes('Cross-Examination')
-    );
-    const operatorCrossExaminationResponse = crossExamDebate
-      ? crossExamDebate.rebuttal
-      : `Evaluated operator inquiry across TCPView socket table (PID 5428 LMS.exe on 0.0.0.0:623, PID 3188 vmms.exe on 0.0.0.0:2179, 11 Time Wait on 172.29.192.1:135/139) and NetworkTrafficView flows (10.168.195.188 mDNS/LLMNR/NBNS, 10.22.10.153:80 HTTP).`;
+    const probedResult = await orchestrator.executeActiveProbes(payload);
+    const finalResult = operatorQuestion
+      ? orchestrator.reevaluateWithConstraint(probedResult.sessionId, {
+          operatorQuestion,
+          operatorNote: operatorQuestion
+        })
+      : probedResult;
+
+    const settledObs = (finalResult.round4EmpiricalSettlement?.empiricalObservations || []).join(' | ');
+    const operatorCrossExaminationResponse = operatorQuestion
+      ? `Evaluated operator inquiry ("${operatorQuestion}") against ${finalResult.round4EmpiricalSettlement?.executedProbesCount || 0} executed host probe(s): ${settledObs || finalResult.winningHypothesis}`
+      : `Completed 4-round deliberation with ${finalResult.round4EmpiricalSettlement?.executedProbesCount || 0} executed active collector probe(s): ${settledObs || finalResult.winningHypothesis}`;
 
     res.json({
       success: true,
       ...finalResult,
-      round4EmpiricalSettlement,
       operatorCrossExaminationResponse
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const status = err.statusCode || 500;
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 

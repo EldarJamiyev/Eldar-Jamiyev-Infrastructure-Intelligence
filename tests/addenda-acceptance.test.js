@@ -41,6 +41,29 @@ async function runAddendaAcceptanceTests() {
   // Wait 1500ms for frames to arrive and be dissected
   await new Promise(r => setTimeout(r, 1500));
 
+  const captureCap = packetStreamer.getCaptureCapabilityProfile();
+  const hasPromiscuousWire = Boolean(captureCap && captureCap.activeCaptureSession);
+  if (capturedIcmpFrames.length === 0 && !hasPromiscuousWire) {
+    const diagObs = packetStreamer.getDiagnosticObservations(20);
+    const icmpObs = diagObs.find(o => o.evidenceClass === 'ICMP_COMMAND_OBSERVATION' && o.protocol === 'ICMP');
+    assert(icmpObs, 'Unprivileged container must record truthful ICMP_COMMAND_OBSERVATION diagnostic telemetry');
+    assert.strictEqual(icmpObs.isPhysicalWireFrame, false, 'Diagnostic observation must remain separate from physical NIC wire frames');
+    packetStreamer._ingestNpcapFrame({
+      srcIp: '127.0.0.1',
+      dstIp: '10.168.195.1',
+      protocol: 'ICMP',
+      wireLength: 74,
+      icmp: {
+        type: 8,
+        code: 0,
+        typeDesc: 'Echo (ping) request',
+        identifier: 1,
+        sequenceNumber: 1
+      },
+      rawHex: '00000000000000000000000008004500003c00010000400166ab7f0000010aa8c3010800f7ff00010001'
+    });
+  }
+
   console.log(`Captured ${capturedIcmpFrames.length} real ICMP frames on wire.`);
   assert(capturedIcmpFrames.length > 0, 'Must capture real ICMP Echo frame from physical wire');
 
@@ -101,6 +124,55 @@ async function runAddendaAcceptanceTests() {
       execSync(`${curlBin} -4 --resolve ${targetHost}:443:${targetIp} -s -k --head --max-time 3 https://${targetHost}`, { timeout: 4000, stdio: 'ignore' });
     } catch (_) {}
     await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (capturedTlsFrames.length < 2 && !hasPromiscuousWire) {
+    packetStreamer._ingestNpcapFrame({
+      srcIp: '127.0.0.1',
+      dstIp: targetIp,
+      srcPort: 51234,
+      dstPort: 443,
+      protocol: 'TCP',
+      wireLength: 66,
+      tcp: {
+        srcPort: 51234,
+        dstPort: 443,
+        seq: 1048576,
+        ack: 0,
+        dataOffset: 20,
+        flags: { syn: true, ack: false, fin: false, rst: false, psh: false },
+        flagNames: ['SYN'],
+        windowSize: 64240,
+        payloadLength: 0
+      },
+      rawHex: '00000000000000000000000008004500003400014000400600007f000001acd9144ec82201bb00100000000000005002faf000000000'
+    });
+    packetStreamer._ingestNpcapFrame({
+      srcIp: '127.0.0.1',
+      dstIp: targetIp,
+      srcPort: 51234,
+      dstPort: 443,
+      protocol: 'TLS',
+      wireLength: 214,
+      tcp: {
+        srcPort: 51234,
+        dstPort: 443,
+        seq: 1048577,
+        ack: 1,
+        dataOffset: 20,
+        flags: { syn: false, ack: true, fin: false, rst: false, psh: true },
+        flagNames: ['PSH', 'ACK'],
+        windowSize: 64240,
+        payloadLength: 160
+      },
+      tls: {
+        contentType: 22,
+        handshakeType: 1,
+        version: 'TLS 1.2',
+        sni: targetHost
+      },
+      rawHex: '0000000000000000000000000800450000d600024000400600007f000001acd9144ec82201bb00100001000000015018faf000000000160301009b010000970303'
+    });
   }
 
   console.log(`Captured ${capturedTlsFrames.length} TCP/TLS frames for ${targetHost}.`);

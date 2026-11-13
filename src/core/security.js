@@ -128,8 +128,16 @@ function createToken(payload, expiresInSeconds = 86400) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const jti = payload.jti || (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
+  let dbBacked = Boolean(payload.dbBacked || payload.tokenType === 'user_session');
+  if (!dbBacked && payload && payload.id) {
+    try {
+      const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(payload.id);
+      if (existing) dbBacked = true;
+    } catch (_) {}
+  }
   const tokenPayload = {
     ...payload,
+    dbBacked,
     jti,
     iat: now,
     exp: now + expiresInSeconds

@@ -321,10 +321,12 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
     console.log('\n[33.4] Testing API Route Hygiene & Architectural Mounting...');
 
     const expectedRouteFiles = [
+      'routes-atlas.js',
       'routes-auth.js',
       'routes-diagnostics-remediation.js',
       'routes-diagnostics.js',
       'routes-enterprise.js',
+      'routes-github.js',
       'routes-learning.js',
       'routes-network.js',
       'routes-observability.js',
@@ -360,10 +362,12 @@ async function runFullSystemE2eAndFeedbackLoopTests() {
 
     // Verify server.js loads and mounts every route module
     const serverCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.js'), 'utf8');
+    assert.ok(serverCode.includes("require('./api/routes-atlas')"), 'server.js must mount routes-atlas');
     assert.ok(serverCode.includes("require('./api/routes-auth')"), 'server.js must mount routes-auth');
     assert.ok(serverCode.includes("require('./api/routes-diagnostics-remediation')"), 'server.js must mount routes-diagnostics-remediation');
     assert.ok(serverCode.includes("require('./api/routes-diagnostics')"), 'server.js must mount routes-diagnostics');
     assert.ok(serverCode.includes("require('./api/routes-enterprise')"), 'server.js must mount routes-enterprise');
+    assert.ok(serverCode.includes("require('./api/routes-github')"), 'server.js must mount routes-github');
     assert.ok(serverCode.includes("require('./api/routes-network')"), 'server.js must mount routes-network');
     assert.ok(serverCode.includes("require('./api/routes-tools')"), 'server.js must mount routes-tools');
     assert.ok(serverCode.includes("require('./api/routes-rca')"), 'server.js must mount routes-rca');

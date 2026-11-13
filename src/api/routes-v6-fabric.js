@@ -2145,8 +2145,151 @@ router.post('/command-center/cognition3/decision-outcome', authenticate, (req, r
   }));
 });
 
+// Claude-Mem 3-Layer Progressive Disclosure Memory Endpoints
+router.get('/claude-mem/status', authenticate, (req, res) => {
+  const { claudeMemEngine } = require('../core/memory/claude-mem-engine');
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.claude_mem.status',
+    status: 'ok',
+    data: claudeMemEngine.getStatusSummary({ user: req.user, enforceStrictIsolation: true })
+  }));
+});
+
+router.get('/claude-mem/search', authenticate, (req, res) => {
+  const { claudeMemEngine } = require('../core/memory/claude-mem-engine');
+  const layer = String(req.query.layer || 'bundle').toLowerCase();
+  const query = String(req.query.q || req.query.query || '');
+  const target = req.query.target ? String(req.query.target) : null;
+  const callerContext = {
+    user: req.user,
+    sessionId: req.query.sessionId ? String(req.query.sessionId) : null,
+    enforceStrictIsolation: true
+  };
+
+  let payload;
+  if (layer === 'index') {
+    payload = claudeMemEngine.searchIndex(query, {
+      ...callerContext,
+      target,
+      type: req.query.type,
+      concept: req.query.concept,
+      includeArchitecturalMetadata: req.query.includeArchitecturalMetadata === 'true',
+      limit: Number(req.query.limit) || 10
+    });
+  } else if (layer === 'timeline') {
+    payload = claudeMemEngine.getTimelineContext(req.query.anchorId || target || '', {
+      ...callerContext,
+      depthBefore: Number(req.query.depthBefore) || 3,
+      depthAfter: Number(req.query.depthAfter) || 3,
+      includeArchitecturalMetadata: req.query.includeArchitecturalMetadata === 'true'
+    });
+  } else if (layer === 'details') {
+    const rawIds = String(req.query.ids || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    payload = claudeMemEngine.getObservationsByIds(rawIds, callerContext);
+  } else {
+    payload = claudeMemEngine.compileProgressiveDisclosureContext(
+      query,
+      target,
+      {
+        ...callerContext,
+        maxTokenBudget: Number(req.query.maxTokenBudget) || 600
+      }
+    );
+  }
+
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.claude_mem.search',
+    status: 'ok',
+    data: payload
+  }));
+});
+
+router.get('/claude-mem/timeline', authenticate, (req, res) => {
+  const { claudeMemEngine } = require('../core/memory/claude-mem-engine');
+  const anchor = String(req.query.anchorId || req.query.target || '');
+  const payload = claudeMemEngine.getTimelineContext(anchor, {
+    user: req.user,
+    sessionId: req.query.sessionId ? String(req.query.sessionId) : null,
+    enforceStrictIsolation: true,
+    depthBefore: Number(req.query.depthBefore) || 3,
+    depthAfter: Number(req.query.depthAfter) || 3,
+    includeArchitecturalMetadata: req.query.includeArchitecturalMetadata === 'true'
+  });
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.claude_mem.timeline',
+    status: 'ok',
+    data: payload
+  }));
+});
+
+router.post('/claude-mem/hydrate', authenticate, (req, res) => {
+  const { claudeMemEngine } = require('../core/memory/claude-mem-engine');
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids
+    : Array.isArray(req.body?.observationIds)
+      ? req.body.observationIds
+      : [];
+  const payload = claudeMemEngine.getObservationsByIds(ids, {
+    user: req.user,
+    sessionId: req.body?.sessionId ? String(req.body.sessionId) : null,
+    enforceStrictIsolation: true
+  });
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.claude_mem.hydrate',
+    status: 'ok',
+    data: payload
+  }));
+});
+
+router.post('/claude-mem/observations', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.claude_mem.record',
+      status: 'denied',
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: authCheck.error }
+    }));
+  }
+  const { claudeMemEngine } = require('../core/memory/claude-mem-engine');
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const recorded = claudeMemEngine.recordObservation({
+    ...body,
+    ownerUserId: String(req.user?.id || req.user?.userId || body.ownerUserId || '').trim() || null,
+    ownerUsername: String(req.user?.username || body.ownerUsername || '').trim() || null
+  });
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.claude_mem.record',
+    status: 'ok',
+    data: recorded
+  }));
+});
+
+// 5-Tier Skill Taxonomy Reconciliation, Overlap Deduplication & Read-Only Firewall Endpoint
+router.get('/skills/taxonomy-reconciliation', authenticate, (req, res) => {
+  const { readOnlySkillCatalog } = require('../core/skills/read-only-skill-router');
+  const query = String(req.query.q || req.query.query || 'network latency tcp dns diagnostics');
+  const maxContextTokens = Number(req.query.maxContextTokens) || 900;
+  const candidateScript = String(req.query.candidatePath || '.agents/skills/gstack/SKILL.md.tmpl');
+
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.skills.taxonomy_reconciliation',
+    status: 'ok',
+    data: {
+      taxonomyReconciliationMap: readOnlySkillCatalog.getTaxonomyReconciliationMap(),
+      contextBudgetRouting: readOnlySkillCatalog.routeWithContextBudget(query, { maxContextTokens }),
+      scriptFirewallCheck: readOnlySkillCatalog.evaluateScriptAndScopeFirewall(candidateScript)
+    }
+  }));
+});
+
 module.exports = router;
-
-
-
-

@@ -549,9 +549,12 @@ def main():
 
     wpcap = load_wpcap()
     if not wpcap:
-        sys.stderr.write(json.dumps({"error": "Failed to load Npcap library (wpcap.dll)"}) + "\n")
-        sys.stderr.flush()
-        sys.exit(1)
+        if args.list_interfaces:
+            sys.stdout.write(json.dumps([]) + "\n")
+        else:
+            sys.stdout.write(json.dumps({"event": "UNPRIVILEGED_FALLBACK", "status": "UNPRIVILEGED_CAPTURE", "reason": "PCAP_DRIVER_NOT_INSTALLED"}) + "\n")
+        sys.stdout.flush()
+        sys.exit(0)
 
     if args.list_interfaces:
         alldevs = ctypes.POINTER(pcap_if)()

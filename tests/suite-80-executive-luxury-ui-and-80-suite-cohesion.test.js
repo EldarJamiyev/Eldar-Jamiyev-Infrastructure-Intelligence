@@ -141,7 +141,7 @@ async function runSuite80ExecutiveLuxuryUiAnd80SuiteCohesion() {
     // Group 1: Login Screen layout & immediate defaults
     assert.ok(meridianCss.includes('justify-content: flex-start !important;'), 'Login card must use justify-content: flex-start to prevent top clipping');
     assert.ok(meridianCss.includes('padding: 10px 14px 10px 42px !important;'), 'Login input must enforce left padding for icons');
-    assert.ok(indexHtml.includes('LOCAL-WORKSTATION') && indexHtml.includes('192.168.31.1'), 'Login telemetry must provide immediate default values');
+    assert.ok(indexHtml.includes('LOCAL-WORKSTATION') && (indexHtml.includes('Restricted (Sign in)') || indexHtml.includes('192.168.31.1')), 'Login telemetry must provide immediate default values');
     assert.ok(appJs.includes('LOCAL-WORKSTATION'), 'app.js loadLoginTelemetry must provide immediate default fallback');
     // Group 2: Topology Map toolbar and node title clipping
     assert.ok(nocView.includes('nocSpectralHealthPill') && nocView.includes('white-space: nowrap !important;'), 'noc-view.js must enforce white-space: nowrap on spectral pill');

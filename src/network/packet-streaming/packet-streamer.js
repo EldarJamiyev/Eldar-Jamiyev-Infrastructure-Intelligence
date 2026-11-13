@@ -117,6 +117,12 @@ class PacketStreamer {
     this.domainToIpCache = new Map();
     this.targetRosterInterval = null;
     this.ipToMacMap = new Map(); // RFC 5227 IPv4 address conflict tracking
+    this.diagnosticObservationBuffer = [];
+    this.diagnosticObservationSequence = 0;
+    this.snifferBackendActive = false;
+    this.parserFailuresCount = 0;
+    this.lastFrameTimestampIso = null;
+    this.sessionStartedAtIso = null;
   }
 
   /**
@@ -135,6 +141,7 @@ class PacketStreamer {
     this.streamKeyToId.clear();
     this.ipToMacMap.clear();
     this.frameRingBuffer = [];
+    this.diagnosticObservationBuffer = [];
     this.flowTable.clear();
   }
 
@@ -188,10 +195,15 @@ class PacketStreamer {
     this.isStreaming = true;
     if (broadcastFn) this.broadcastCallback = broadcastFn;
 
-    // Clear session caches to guarantee zero contamination across capture restarts
+    // Clear session caches and reset counters/timestamps to guarantee zero contamination across capture restarts
     this.clearAllCaches();
+    this.resetCounters();
+    this.parserFailuresCount = 0;
     this.captureSessionSeq = (this.captureSessionSeq || 0) + 1;
     this.captureSessionId = `cap_${Date.now()}_${this.captureSessionSeq}`;
+    this.sessionStartedAtIso = new Date().toISOString();
+    this.sessionStoppedAtIso = null;
+    this.lastFrameTimestampIso = null;
 
     // Refresh socket-to-process map immediately
     this._refreshSocketProcessMap();
@@ -228,6 +240,7 @@ class PacketStreamer {
    */
   stopStreaming() {
     this.isStreaming = false;
+    this.sessionStoppedAtIso = new Date().toISOString();
     this._stopNpcapSniffer();
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -286,73 +299,209 @@ class PacketStreamer {
   }
 
   /**
-   * Enumerate all physical and virtual packet capture interfaces
+   * Returns a truthful capability profile distinguishing promiscuous NIC wire capture
+   * from unprivileged socket introspection and uploaded PCAP/PCAPNG buffer dissection.
+   */
+  getCaptureCapabilityProfile() {
+    const fs = require('fs');
+    const os = require('os');
+    const npcapDllPresent = IS_WINDOWS && (
+      fs.existsSync('C:\\Windows\\System32\\Npcap\\wpcap.dll') ||
+      fs.existsSync('C:\\Windows\\System32\\wpcap.dll')
+    );
+    const linuxLibpcapPresent = !IS_WINDOWS && [
+      '/usr/lib/x86_64-linux-gnu/libpcap.so',
+      '/usr/lib/x86_64-linux-gnu/libpcap.so.0.8',
+      '/usr/lib/libpcap.so',
+      '/lib/x86_64-linux-gnu/libpcap.so.0.8'
+    ].some((p) => fs.existsSync(p));
+    let linuxCapNetRaw = false;
+    if (!IS_WINDOWS) {
+      try {
+        if (fs.existsSync('/proc/self/status')) {
+          const statusText = fs.readFileSync('/proc/self/status', 'utf8');
+          const capEffMatch = statusText.match(/CapEff:\s*([0-9a-fA-F]+)/);
+          if (capEffMatch) {
+            const capMask = BigInt('0x' + capEffMatch[1]);
+            linuxCapNetRaw = (capMask & BigInt(0x2000)) !== BigInt(0);
+          }
+        }
+      } catch (_) {}
+    }
+    const pcapLibraryPresent = Boolean(npcapDllPresent || linuxLibpcapPresent);
+    const driverAvailable = Boolean(npcapDllPresent || (linuxCapNetRaw && linuxLibpcapPresent));
+    const osIfaces = os.networkInterfaces() || {};
+    const interfaceAccessible = Object.keys(osIfaces).length > 0;
+    const captureSessionInitialized = Boolean(this.isStreaming);
+    const activeCaptureSession = Boolean(this.isStreaming && this.snifferBackendActive && this.snifferProcess);
+    const counters = this.getCounters();
+    const hasReceivedWireFrames = counters.received > 0;
+    const promiscuousWireCaptureAvailable = Boolean(driverAvailable && interfaceAccessible);
+    const isHardwareWireCapture = Boolean(activeCaptureSession && driverAvailable);
+    const captureMode = isHardwareWireCapture
+      ? 'PROMISCUOUS_NIC_WIRE_CAPTURE'
+      : 'UNPRIVILEGED_SOCKET_AND_BUFFER_DISSECTION';
+    const captureState = isHardwareWireCapture
+      ? 'ACTIVE_HARDWARE_WIRE_CAPTURE'
+      : driverAvailable
+        ? 'DRIVER_READY_IDLE'
+        : 'UNPRIVILEGED_SOCKET_FALLBACK';
+    const driverStatus = driverAvailable ? 'AVAILABLE' : 'NPCAP_OR_CAP_NET_RAW_UNAVAILABLE';
+
+    const evidenceProvenanceSummary = this.getEvidenceProvenanceSummary();
+
+    return {
+      captureMode,
+      captureState,
+      driverStatus,
+      isHardwareWireCapture,
+      promiscuousWireCaptureAvailable,
+      driverAvailable,
+      pcapLibraryPresent,
+      npcapDriverAvailable: npcapDllPresent,
+      kernelCapNetRaw: linuxCapNetRaw,
+      linuxCapNetRawAvailable: linuxCapNetRaw,
+      interfaceAccessible,
+      captureSessionInitialized,
+      activeCaptureSession,
+      hasReceivedWireFrames,
+      receivedFramesCount: counters.received,
+      processedFramesCount: counters.decoded,
+      captureDropsCount: counters.dropped,
+      parserFailuresCount: this.parserFailuresCount || 0,
+      sessionStartedAtIso: this.sessionStartedAtIso || null,
+      sessionStoppedAtIso: this.sessionStoppedAtIso || null,
+      lastFrameTimestampIso: this.lastFrameTimestampIso || null,
+      diagnosticObservationsCount: Array.isArray(this.diagnosticObservationBuffer) ? this.diagnosticObservationBuffer.length : 0,
+      evidenceProvenanceSummary,
+      pcapBufferDissectionAvailable: true,
+      kernelSocketIntrospectionAvailable: true,
+      hostPlatform: `${os.platform()} ${os.release()}`,
+      capabilityNotice: isHardwareWireCapture
+        ? 'Promiscuous NIC wire capture session is actively streaming physical frames.'
+        : driverAvailable
+          ? 'Capture driver/capability detected on host, but no live promiscuous wire capture session is currently active.'
+          : 'Operating in unprivileged user space without raw NIC promiscuous capture (CAP_NET_RAW / Npcap unavailable). Uploaded PCAP/PCAPNG RFC binary dissection and live kernel socket/flow introspection remain 100% active.'
+    };
+  }
+
+  getEvidenceProvenanceSummary() {
+    const frames = Array.isArray(this.frameRingBuffer) ? this.frameRingBuffer : [];
+    const diag = Array.isArray(this.diagnosticObservationBuffer) ? this.diagnosticObservationBuffer : [];
+    let physicalWireFramesCount = 0;
+    let importedPcapFramesCount = 0;
+    let otherBufferedFramesCount = 0;
+
+    for (const f of frames) {
+      if (f && f.evidenceClass === 'PHYSICAL_NIC_CAPTURE' && f.isPhysicalWireFrame === true) {
+        physicalWireFramesCount += 1;
+      } else if (f && f.evidenceClass === 'IMPORTED_PCAP_BUFFER') {
+        importedPcapFramesCount += 1;
+      } else {
+        otherBufferedFramesCount += 1;
+      }
+    }
+
+    let osSocketObservationsCount = 0;
+    let icmpCommandObservationsCount = 0;
+    for (const d of diag) {
+      if (d && d.evidenceClass === 'OS_SOCKET_OBSERVATION') {
+        osSocketObservationsCount += 1;
+      } else if (d && d.evidenceClass === 'ICMP_COMMAND_OBSERVATION') {
+        icmpCommandObservationsCount += 1;
+      }
+    }
+
+    return {
+      physicalWireFramesCount,
+      importedPcapFramesCount,
+      otherBufferedFramesCount,
+      osSocketObservationsCount,
+      icmpCommandObservationsCount,
+      parserFailuresCount: this.parserFailuresCount || 0,
+      totalBufferedFrames: frames.length,
+      totalDiagnosticObservations: diag.length
+    };
+  }
+
+  /**
+   * Enumerate all physical and virtual packet capture interfaces from the real OS runtime
+   * without fabricating Windows NPF GUIDs or Intel AX211 Wi-Fi adapters when absent.
    */
   getCaptureInterfaces() {
+    const os = require('os');
     const netInfo = getPhysicalNetworkInfo();
     let devices = [];
-    try {
-      const snifferScript = path.join(__dirname, '../packet-capture/npcap-sniffer.py');
-      const pyBin = IS_WINDOWS ? 'python' : 'python3';
-      const res = spawnSync(pyBin, [snifferScript, '--list-interfaces'], {
-        encoding: 'utf-8',
-        timeout: 4000,
-        windowsHide: true
-      });
-      if (res.stdout) {
-        devices = JSON.parse(res.stdout.trim());
+    const capProfile = this.getCaptureCapabilityProfile();
+    if (capProfile && capProfile.driverAvailable) {
+      try {
+        const snifferScript = path.join(__dirname, '../packet-capture/npcap-sniffer.py');
+        const pyBin = IS_WINDOWS ? 'python' : 'python3';
+        const res = spawnSync(pyBin, [snifferScript, '--list-interfaces'], {
+          encoding: 'utf-8',
+          timeout: 4000,
+          windowsHide: true
+        });
+        if (res.stdout) {
+          devices = JSON.parse(res.stdout.trim());
+        }
+      } catch (e) {
+        devices = [];
       }
-    } catch (e) {
-      devices = [];
     }
 
     if (!Array.isArray(devices) || devices.length === 0) {
-      devices = [
-        {
-          name: '\\Device\\NPF_{F54BC898-444A-4114-9E23-072F15B41CAF}',
-          description: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-          isPhysical: true,
-          isDefault: true
-        },
-        {
-          name: '\\Device\\NPF_Loopback',
-          description: 'Adapter for loopback traffic capture',
-          isPhysical: true,
-          isDefault: false
-        }
-      ];
-    } else {
-      const hasLoopback = devices.some(d => d.name === '\\Device\\NPF_Loopback' || (d.description || '').toLowerCase().includes('loopback'));
-      if (!hasLoopback) {
-        devices.push({
-          name: '\\Device\\NPF_Loopback',
-          description: 'Adapter for loopback traffic capture',
-          isPhysical: false,
-          isDefault: false
+      const osIfaces = os.networkInterfaces() || {};
+      const discovered = [];
+      for (const [ifName, addrs] of Object.entries(osIfaces)) {
+        if (!Array.isArray(addrs)) continue;
+        const ipv4 = addrs.find(a => a.family === 'IPv4' || a.family === 4) || addrs[0];
+        if (!ipv4) continue;
+        const isInternal = Boolean(ipv4.internal);
+        discovered.push({
+          name: ifName,
+          description: isInternal
+            ? `OS Loopback Interface (${ifName})`
+            : `OS Network Interface (${ifName} · ${ipv4.address})`,
+          ip: ipv4.address,
+          alias: isInternal ? 'Loopback' : ifName,
+          isPhysical: !isInternal,
+          isDefault: !isInternal && discovered.filter(d => d.isPhysical).length === 0,
+          source: 'OS_NETWORK_INTERFACES',
+          captureCapableVerified: false
         });
       }
+      if (discovered.length > 0 && !discovered.some(d => d.isDefault)) {
+        discovered[0].isDefault = true;
+      }
+      devices = discovered;
     }
 
     return devices.map(d => {
-      let ip = '';
-      let alias = '';
-      const dLower = (d.description || '').toLowerCase();
-      if (d.name === '\\Device\\NPF_Loopback' || dLower.includes('loopback')) {
-        ip = '127.0.0.1';
-        alias = 'Loopback';
-      } else if (d.isPhysical || dLower.includes('intel') || dLower.includes('wi-fi') || dLower.includes('ax211')) {
-        ip = netInfo?.hostIp || '192.168.31.89';
-        alias = netInfo?.interfaceAlias || 'Wi-Fi (Беспроводная сеть)';
+      const dLower = (d.description || d.name || '').toLowerCase();
+      let ip = d.ip || '';
+      let alias = d.alias || d.name || '';
+      if (!ip) {
+        if (dLower.includes('loopback') || d.name === 'lo') {
+          ip = '127.0.0.1';
+          alias = alias || 'Loopback';
+        } else if (d.isPhysical) {
+          ip = netInfo?.hostIp || '127.0.0.1';
+          alias = netInfo?.interfaceAlias || d.name;
+        }
       }
       const isSelected = this.selectedDevice ? (this.selectedDevice === d.name) : Boolean(d.isDefault);
+      const source = d.source || 'NPCAP_ENUMERATION';
       return {
         name: d.name,
         description: d.description,
         alias,
         ip,
-        isPhysical: d.isPhysical,
-        isDefault: d.isDefault,
-        isSelected
+        isPhysical: Boolean(d.isPhysical),
+        isDefault: Boolean(d.isDefault),
+        isSelected,
+        source,
+        captureCapableVerified: d.captureCapableVerified !== undefined ? Boolean(d.captureCapableVerified) : (source === 'NPCAP_ENUMERATION')
       };
     });
   }
@@ -451,57 +600,39 @@ class PacketStreamer {
   }
 
   /**
-   * Record kernel ICMP probe wire frame when running in unprivileged socket capture mode
+   * Record diagnostic ICMP probe observation without fabricating a physical NIC Ethernet frame
+   * or inflating physical wire capture counters.
    */
   recordKernelIcmpProbeFrame(targetHost, count = 1, gotReply = false) {
-    if (!this.isStreaming) return;
     const netInfo = getPhysicalNetworkInfo();
-    const srcIp = netInfo?.hostIp || '10.168.195.33';
-    const dstIp = /^\d+\.\d+\.\d+\.\d+$/.test(targetHost) ? targetHost : '10.168.195.1';
-    const rawBuf = Buffer.alloc(42);
-    // Ethernet header (0x0800 IPv4)
-    rawBuf[12] = 0x08; rawBuf[13] = 0x00;
-    // IPv4 header (version 4, IHL 5, totalLen 28, TTL 64, proto 1 ICMP)
-    rawBuf[14] = 0x45; rawBuf[16] = 0x00; rawBuf[17] = 28;
-    rawBuf[22] = 64; rawBuf[23] = 1;
-    const srcParts = srcIp.split('.').map(n => parseInt(n, 10) || 0);
-    const dstParts = dstIp.split('.').map(n => parseInt(n, 10) || 0);
-    for (let i = 0; i < 4; i++) {
-      rawBuf[26 + i] = srcParts[i] || 0;
-      rawBuf[30 + i] = dstParts[i] || 0;
-    }
-    // ICMP Echo Request (type 8, code 0, id 0x1337, seq 1)
-    rawBuf[34] = 8; rawBuf[35] = 0;
-    rawBuf.writeUInt16BE(0x1337, 38);
-    rawBuf.writeUInt16BE(1, 40);
+    const srcIp = netInfo?.hostIp || '127.0.0.1';
+    const dstIp = targetHost ? String(targetHost).trim() : null;
+    if (!dstIp) return null;
 
-    this._ingestNpcapFrame({
-      frameNumber: this.frameSequence + 1,
+    this.diagnosticObservationSequence = (this.diagnosticObservationSequence || 0) + 1;
+    const observation = {
+      observationId: `obs_icmp_${Date.now()}_${this.diagnosticObservationSequence}`,
+      sequenceNumber: this.diagnosticObservationSequence,
       timestamp: new Date().toISOString(),
-      wireLength: 74,
-      capturedLength: 42,
       protocol: 'ICMP',
       srcIp,
       dstIp,
-      ethernet: { srcMac: netInfo?.mac || '70:15:fb:6b:f3:46', dstMac: '00:11:22:33:44:55', ethertype: '0x800', vlanId: null },
-      ipv4: { version: 4, ihl: 20, dscp: 0, ecn: 0, totalLength: 60, identification: 0x1001, flags: { df: false, mf: false }, fragmentOffset: 0, ttl: 64, protocol: 1, checksum: '0x0000', srcIp, dstIp },
-      icmp: {
-        type: 8,
-        code: 0,
-        typeDesc: 'Echo (ping) request',
-        checksum: '0xf7ff',
-        identifier: 4919,
-        sequenceNumber: 1,
-        payloadLength: 32
-      },
-      summary: 'Echo (ping) request (id=4919, seq=1)',
-      urlIntelligence: { value: dstIp, valueType: 'IP_ONLY', evidence: 'UNAVAILABLE' },
-      rawHex: rawBuf.toString('hex')
-    });
+      probesSent: Number(count) || 1,
+      gotReply: Boolean(gotReply),
+      evidenceClass: 'ICMP_COMMAND_OBSERVATION',
+      isPhysicalWireFrame: false,
+      summary: `Diagnostic ICMP probe observation (${srcIp} -> ${dstIp}, count=${Number(count) || 1}, reply=${Boolean(gotReply)})`
+    };
+    this.diagnosticObservationBuffer.push(observation);
+    if (this.diagnosticObservationBuffer.length > this.maxBufferSize) {
+      this.diagnosticObservationBuffer.shift();
+    }
+    return observation;
   }
 
   /**
-   * Unprivileged BPF port 443 handshake observer when Npcap kernel driver is absent
+   * Unprivileged BPF socket observation recorder when Npcap kernel driver is absent.
+   * Records explicitly labeled OS socket observations without fabricating Ethernet wire frames.
    */
   _triggerUnprivilegedBpfSocketObservation() {
     if (!this.isStreaming || !this.bpfFilter) return;
@@ -512,110 +643,200 @@ class PacketStreamer {
 
     const targetIp = hostMatch[1];
     const netInfo = getPhysicalNetworkInfo();
-    const srcIp = netInfo?.hostIp || '10.168.195.33';
-    const srcPort = 51443;
-    const sniHost = this.resolveDomainForIp(targetIp) || 'google.com';
+    const srcIp = netInfo?.hostIp || '127.0.0.1';
+    const sniHost = this.resolveDomainForIp(targetIp) || targetIp;
 
-    setTimeout(() => {
-      if (!this.isStreaming) return;
-      const synBuf = Buffer.alloc(54);
-      synBuf[12] = 0x08; synBuf[13] = 0x00;
-      synBuf[14] = 0x45; synBuf[16] = 0x00; synBuf[17] = 40;
-      synBuf[22] = 64; synBuf[23] = 6;
-      const sParts = srcIp.split('.').map(n => parseInt(n, 10) || 0);
-      const dParts = targetIp.split('.').map(n => parseInt(n, 10) || 0);
-      for (let i = 0; i < 4; i++) {
-        synBuf[26 + i] = sParts[i] || 0;
-        synBuf[30 + i] = dParts[i] || 0;
+    this.diagnosticObservationSequence = (this.diagnosticObservationSequence || 0) + 1;
+    const observation = {
+      observationId: `obs_sock_${Date.now()}_${this.diagnosticObservationSequence}`,
+      sequenceNumber: this.diagnosticObservationSequence,
+      timestamp: new Date().toISOString(),
+      protocol: 'TCP',
+      srcIp,
+      dstIp: targetIp,
+      dstPort: 443,
+      sniHost,
+      evidenceClass: 'OS_SOCKET_OBSERVATION',
+      isPhysicalWireFrame: false,
+      summary: `Unprivileged OS socket filter observation (${srcIp} -> ${targetIp}:443)`
+    };
+    this.diagnosticObservationBuffer.push(observation);
+    if (this.diagnosticObservationBuffer.length > this.maxBufferSize) {
+      this.diagnosticObservationBuffer.shift();
+    }
+  }
+
+  getDiagnosticObservations(limit = 100) {
+    const cap = Math.max(1, Math.min(500, Number(limit) || 100));
+    return this.diagnosticObservationBuffer.slice(-cap).reverse();
+  }
+
+  /**
+   * Section 16 & Phase Atlas II Section 3.3: Cross-Source Wire-Frame and OS Socket Correlation
+   * Correlates OS process-socket entries with physical wire frames ONLY when:
+   *   1. Both the socket entry and wire frame carry genuine collection timestamps (never manufactures Date.now())
+   *   2. Protocol matches (TCP/UDP)
+   *   3. 5-tuple endpoints (localAddress:localPort <-> remoteAddress:remotePort) match in forward or reverse direction
+   *   4. Observation timestamps align within maxTimestampSkewMs (default 5000ms) with sub-millisecond fidelity
+   * Never merges unrelated socket and packet records or fabricates missing timestamps.
+   */
+  correlateWireAndSocketObservations(socketEntries = [], options = {}) {
+    const maxSkewMs = Math.max(1, Number(options.maxTimestampSkewMs) || 5000);
+    const wireFrames = Array.isArray(options.wireFrames)
+      ? options.wireFrames
+      : (Array.isArray(this.frameRingBuffer) ? this.frameRingBuffer.filter((f) => f && f.isSimulated !== true) : []);
+
+    const correlatedPairs = [];
+    const uncorrelatedSockets = [];
+    let incompleteSocketTimestampsCount = 0;
+    let incompleteFrameTimestampsCount = 0;
+
+    const parseAuthenticTimestampMs = (obj, tsFields) => {
+      if (!obj || typeof obj !== 'object') return NaN;
+      for (const field of tsFields) {
+        const val = obj[field];
+        if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+          return val;
+        }
+        if (typeof val === 'string' && val.trim().length > 0) {
+          const parsed = Date.parse(val.trim());
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
       }
-      synBuf.writeUInt16BE(srcPort, 34);
-      synBuf.writeUInt16BE(443, 36);
-      synBuf.writeUInt32BE(1048576, 38);
-      synBuf[46] = 0x50;
-      synBuf[47] = 0x02; // SYN
-      synBuf.writeUInt16BE(64240, 48);
+      return NaN;
+    };
 
-      this._ingestNpcapFrame({
-        frameNumber: this.frameSequence + 1,
-        timestamp: new Date().toISOString(),
-        wireLength: 54,
-        capturedLength: 54,
-        protocol: 'TCP',
-        srcIp,
-        dstIp: targetIp,
-        srcPort,
-        dstPort: 443,
-        ethernet: { srcMac: netInfo?.mac || '70:15:fb:6b:f3:46', dstMac: '00:11:22:33:44:55', ethertype: '0x800', vlanId: null },
-        ipv4: { version: 4, ihl: 20, dscp: 0, ecn: 0, totalLength: 40, identification: 0x2001, flags: { df: true, mf: false }, fragmentOffset: 0, ttl: 64, protocol: 6, checksum: '0x0000', srcIp, dstIp: targetIp },
-        tcp: {
-          srcPort,
-          dstPort: 443,
-          seq: 1048576,
-          ack: 0,
-          dataOffset: 20,
-          flags: { fin: false, syn: true, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false },
-          flagNames: ['SYN'],
-          windowSize: 64240,
-          checksum: '0x0000',
-          urgentPointer: 0,
-          options: { mss: 1460 },
-          payloadLength: 0
-        },
-        summary: `${srcPort} -> 443 [SYN] Seq=1048576 Ack=0 Win=64240 Len=0`,
-        urlIntelligence: { value: '', valueType: 'UNAVAILABLE', evidence: 'UNAVAILABLE' },
-        rawHex: synBuf.toString('hex')
-      });
+    for (const frame of wireFrames) {
+      const fTs = parseAuthenticTimestampMs(frame, ['timestampMs', 'capturedAtMs', 'timestamp', 'capturedAt']);
+      if (!Number.isFinite(fTs)) {
+        incompleteFrameTimestampsCount += 1;
+      }
+    }
 
-      this._ingestNpcapFrame({
-        frameNumber: this.frameSequence + 1,
-        timestamp: new Date().toISOString(),
-        wireLength: 174,
-        capturedLength: 174,
-        protocol: 'TLS',
-        srcIp,
-        dstIp: targetIp,
-        srcPort,
-        dstPort: 443,
-        ethernet: { srcMac: netInfo?.mac || '70:15:fb:6b:f3:46', dstMac: '00:11:22:33:44:55', ethertype: '0x800', vlanId: null },
-        ipv4: { version: 4, ihl: 20, dscp: 0, ecn: 0, totalLength: 160, identification: 0x2002, flags: { df: true, mf: false }, fragmentOffset: 0, ttl: 64, protocol: 6, checksum: '0x0000', srcIp, dstIp: targetIp },
-        tcp: {
-          srcPort,
-          dstPort: 443,
-          seq: 1048577,
-          ack: 1,
-          dataOffset: 20,
-          flags: { fin: false, syn: false, rst: false, psh: true, ack: true, urg: false, ece: false, cwr: false },
-          flagNames: ['PSH', 'ACK'],
-          windowSize: 64240,
-          checksum: '0x0000',
-          urgentPointer: 0,
-          options: {},
-          payloadLength: 120
-        },
-        tls: {
-          contentType: 'Handshake',
-          recordVersion: '3.3',
-          recordLength: 115,
-          handshakeType: 'ClientHello',
-          sni: sniHost
-        },
-        summary: `TLS ClientHello (SNI: ${sniHost})`,
-        urlIntelligence: {
-          value: sniHost,
-          valueType: 'HOSTNAME',
-          evidence: 'Observed TLS hostname'
-        },
-        urlResolution: {
-          hostnameOrUrl: `https://${sniHost}/`,
-          method: 'SNI',
-          confidence: 'HIGH',
-          source: 'TLS ClientHello Server Name Indication',
-          isLinkable: true,
-          linkUrl: `https://${sniHost}/`
-        },
-        rawHex: synBuf.toString('hex')
-      });
-    }, 300);
+    for (const sock of Array.isArray(socketEntries) ? socketEntries : []) {
+      if (!sock || typeof sock !== 'object') continue;
+      const proto = String(sock.protocol || 'TCP').toUpperCase();
+      const lAddr = String(sock.localAddress || sock.localIp || '').trim();
+      const lPort = Number(sock.localPort);
+      const rAddr = String(sock.remoteAddress || sock.remoteIp || '').trim();
+      const rPort = Number(sock.remotePort);
+
+      // NEVER manufacture a fallback timestamp from Date.now() when a socket observation has no actual timestamp
+      const sockTsMs = parseAuthenticTimestampMs(sock, ['timestampMs', 'observedAtMs', 'observedAt', 'timestamp', 'collectedAtIso']);
+      if (!Number.isFinite(sockTsMs)) {
+        incompleteSocketTimestampsCount += 1;
+        uncorrelatedSockets.push({
+          correlationStatus: 'INCOMPLETE_MISSING_SOCKET_TIMESTAMP',
+          timestampComplete: false,
+          socketObservedAtMs: null,
+          protocol: proto,
+          localEndpoint: `${lAddr}:${lPort}`,
+          remoteEndpoint: `${rAddr}:${rPort}`,
+          pid: sock.pid ?? null,
+          processName: sock.processName || null,
+          rejectedByTimestampCount: 0,
+          reason: 'Socket observation has no authentic collection timestamp; refusing to manufacture Date.now() fallback.'
+        });
+        continue;
+      }
+
+      const matchingFrames = [];
+      let rejectedByTimestampCount = 0;
+      let skippedIncompleteFramesFor5Tuple = 0;
+
+      for (const frame of wireFrames) {
+        if (!frame || typeof frame !== 'object') continue;
+        const fProto = String(frame.protocol || 'TCP').toUpperCase();
+        if (!fProto.startsWith(proto)) continue;
+
+        const fSrcIp = String(frame.srcIp || frame.sourceIp || '').trim();
+        const fDstIp = String(frame.dstIp || frame.destIp || '').trim();
+        const fSrcPort = Number(frame.srcPort ?? frame.sourcePort);
+        const fDstPort = Number(frame.dstPort ?? frame.destPort);
+
+        const forwardMatch =
+          fSrcIp === lAddr && fSrcPort === lPort && fDstIp === rAddr && fDstPort === rPort;
+        const reverseMatch =
+          fSrcIp === rAddr && fSrcPort === rPort && fDstIp === lAddr && fDstPort === lPort;
+
+        if (!forwardMatch && !reverseMatch) continue;
+
+        const frameTsMs = parseAuthenticTimestampMs(frame, ['timestampMs', 'capturedAtMs', 'timestamp', 'capturedAt']);
+        if (!Number.isFinite(frameTsMs)) {
+          skippedIncompleteFramesFor5Tuple += 1;
+          continue;
+        }
+
+        const signedSkewMs = frameTsMs - sockTsMs;
+        const skewMs = Math.abs(signedSkewMs);
+
+        if (skewMs <= maxSkewMs) {
+          matchingFrames.push({
+            frameNumber: frame.frameNumber ?? frame.id ?? null,
+            direction: forwardMatch ? 'EGRESS_LOCAL_TO_REMOTE' : 'INGRESS_REMOTE_TO_LOCAL',
+            frameTimestampMs: frameTsMs,
+            socketTimestampMs: sockTsMs,
+            signedClockSkewMs: Number(signedSkewMs.toFixed(3)),
+            timestampSkewMs: Number(skewMs.toFixed(3)),
+            temporalOrder: signedSkewMs < 0 ? 'WIRE_BEFORE_SOCKET_SNAPSHOT' : (signedSkewMs > 0 ? 'WIRE_AFTER_SOCKET_SNAPSHOT' : 'SIMULTANEOUS'),
+            length: frame.length ?? frame.len ?? 0,
+            flags: frame.tcpFlags || frame.info || ''
+          });
+        } else {
+          rejectedByTimestampCount += 1;
+        }
+      }
+
+      if (matchingFrames.length > 0) {
+        matchingFrames.sort((a, b) => a.frameTimestampMs - b.frameTimestampMs);
+        correlatedPairs.push({
+          correlationStatus: 'VERIFIED_5TUPLE_AND_TIMESTAMP_MATCH',
+          timestampComplete: true,
+          protocol: proto,
+          localEndpoint: `${lAddr}:${lPort}`,
+          remoteEndpoint: `${rAddr}:${rPort}`,
+          socketTimestampMs: sockTsMs,
+          pid: sock.pid ?? null,
+          processName: sock.processName || null,
+          socketState: sock.state || 'ESTABLISHED',
+          matchedWireFrameCount: matchingFrames.length,
+          minTimestampSkewMs: Math.min(...matchingFrames.map((m) => m.timestampSkewMs)),
+          matchedFrames: matchingFrames
+        });
+      } else {
+        uncorrelatedSockets.push({
+          correlationStatus:
+            rejectedByTimestampCount > 0
+              ? 'REJECTED_TIMESTAMP_SKEW_EXCEEDED'
+              : skippedIncompleteFramesFor5Tuple > 0
+                ? 'INCOMPLETE_MISSING_FRAME_TIMESTAMP'
+                : 'UNCORRELATED_NO_MATCHING_WIRE_5TUPLE',
+          timestampComplete: true,
+          socketTimestampMs: sockTsMs,
+          protocol: proto,
+          localEndpoint: `${lAddr}:${lPort}`,
+          remoteEndpoint: `${rAddr}:${rPort}`,
+          pid: sock.pid ?? null,
+          processName: sock.processName || null,
+          rejectedByTimestampCount,
+          skippedIncompleteFramesFor5Tuple
+        });
+      }
+    }
+
+    return {
+      totalSocketsEvaluated: Array.isArray(socketEntries) ? socketEntries.length : 0,
+      totalWireFramesEvaluated: wireFrames.length,
+      maxTimestampSkewMs: maxSkewMs,
+      incompleteSocketTimestampsCount,
+      incompleteFrameTimestampsCount,
+      correlatedCount: correlatedPairs.length,
+      uncorrelatedCount: uncorrelatedSockets.length,
+      correlatedPairs,
+      uncorrelatedSockets
+    };
   }
 
   /**
@@ -623,6 +844,20 @@ class PacketStreamer {
    */
   _startNpcapSniffer() {
     this._intentionalStop = false;
+    const capProfile = this.getCaptureCapabilityProfile();
+    if (!capProfile || !capProfile.driverAvailable) {
+      this.snifferProcess = null;
+      this.snifferBackendActive = false;
+      this._triggerUnprivilegedBpfSocketObservation();
+      if (this.broadcastCallback) {
+        this.broadcastCallback('CAPTURE_STATUS', {
+          status: 'UNPRIVILEGED_CAPTURE',
+          message: 'Physical wire driver unavailable in unprivileged environment; operating in OS socket and PCAP buffer dissection mode.'
+        });
+      }
+      return;
+    }
+
     const snifferScript = path.join(__dirname, '../packet-capture/npcap-sniffer.py');
     const args = ['-u', snifferScript];
     if (this.selectedDevice) {
@@ -662,6 +897,7 @@ class PacketStreamer {
           try {
             const parsed = JSON.parse(trimmed);
             if (parsed.event === 'CAPTURE_STARTED') {
+              this.snifferBackendActive = true;
               console.log(`[EJI Npcap] Physical wire capture active on ${parsed.device} (${parsed.description}) [BPF: "${parsed.bpf}"]`);
               if (this.broadcastCallback) {
                 this.broadcastCallback('CAPTURE_STATUS', {
@@ -672,13 +908,14 @@ class PacketStreamer {
                 });
               }
             } else if (parsed.event === 'CAPTURE_STOPPED') {
+              this.snifferBackendActive = false;
               console.log(`[EJI Npcap] Physical wire capture stopped. Total captured: ${parsed.totalCaptured}`);
               if (parsed.received !== undefined) this.counters.received = parsed.received;
               if (parsed.dropped !== undefined) this.counters.dropped = parsed.dropped;
             } else if (parsed.event === 'STATS') {
               if (parsed.received !== undefined) this.counters.received = parsed.received;
               if (parsed.dropped !== undefined) this.counters.dropped = parsed.dropped;
-              if (parsed.captured !== undefined) this.counters.accepted = parsed.captured;
+              if (parsed.captured !== undefined) this.counters.captured = parsed.captured;
               if (this.broadcastCallback) {
                 this.broadcastCallback('PACKET_STATS', { counters: this.getCounters() });
               }
@@ -686,6 +923,7 @@ class PacketStreamer {
               this._ingestNpcapFrame(parsed);
             }
           } catch (e) {
+            this.parserFailuresCount = (this.parserFailuresCount || 0) + 1;
             console.error('[EJI Ingest Frame Error]:', e.message);
           }
         }
@@ -694,7 +932,7 @@ class PacketStreamer {
       this.snifferProcess.stderr.on('data', (errChunk) => {
         const msg = errChunk.toString('utf-8').trim();
         if (msg) {
-          console.warn('[EJI Npcap Warning]:', msg);
+          console.log('[EJI Capture Info]:', msg);
           if (this.broadcastCallback) {
             this.broadcastCallback('CAPTURE_STATUS', {
               status: 'UNPRIVILEGED_CAPTURE',
@@ -707,6 +945,7 @@ class PacketStreamer {
       this.snifferProcess.on('exit', (code, signal) => {
         const wasIntentional = this._intentionalStop;
         this.snifferProcess = null;
+        this.snifferBackendActive = false;
         if (this.isStreaming && !wasIntentional) {
           console.log(`[EJI Npcap] Sniffer process exited (code=${code}, signal=${signal}). Running in socket monitoring mode.`);
           this._triggerUnprivilegedBpfSocketObservation();
@@ -722,6 +961,7 @@ class PacketStreamer {
       this.snifferProcess.on('error', (err) => {
         console.warn('[EJI Npcap Spawn Error]:', err.message);
         this.snifferProcess = null;
+        this.snifferBackendActive = false;
         if (this.isStreaming) {
           this._triggerUnprivilegedBpfSocketObservation();
         }
@@ -735,6 +975,7 @@ class PacketStreamer {
     } catch (err) {
       console.warn('[EJI Npcap Failed to Start]:', err.message);
       this.snifferProcess = null;
+      this.snifferBackendActive = false;
       if (this.isStreaming) {
         this._triggerUnprivilegedBpfSocketObservation();
       }
@@ -751,6 +992,7 @@ class PacketStreamer {
    * Stop Python Npcap sniffer process gracefully
    */
   _stopNpcapSniffer() {
+    this.snifferBackendActive = false;
     if (this.snifferProcess) {
       this._intentionalStop = true;
       const proc = this.snifferProcess;
@@ -775,9 +1017,16 @@ class PacketStreamer {
    * Ingest and correlate a genuine physical wire frame from Npcap
    */
   _ingestNpcapFrame(rawFrame) {
+    if (!rawFrame || typeof rawFrame !== 'object' || (!rawFrame.protocol && !rawFrame.srcIp && !rawFrame.rawHex)) {
+      this.parserFailuresCount = (this.parserFailuresCount || 0) + 1;
+      return false;
+    }
+    rawFrame.evidenceClass = rawFrame.evidenceClass || 'PHYSICAL_NIC_CAPTURE';
+    rawFrame.isPhysicalWireFrame = rawFrame.isPhysicalWireFrame !== false;
     this.counters.received++;
     this.counters.accepted++;
     this.frameSequence++;
+    this.lastFrameTimestampIso = rawFrame.timestamp || new Date().toISOString();
 
     // 1. Correlate Process Attribution
     let processName = 'Process unknown (unmapped socket)';
@@ -1251,9 +1500,9 @@ class PacketStreamer {
     const isClient = (frame.srcIp === stream.initiatorIp && tcp.srcPort === stream.initiatorPort);
     const nowMs = new Date(frame.timestamp).getTime();
 
-    // RTT calculation on handshake (SYN-ACK or ACK)
-    if (tcp.flags.syn && tcp.flags.ack && stream.synTime) {
-      stream.rttMs = Math.max(0.1, Number((nowMs - stream.synTime).toFixed(2)));
+    // RTT calculation on handshake (SYN-ACK or ACK) — preserve exact 0 and sub-millisecond timing without artificial 0.1ms floor
+    if (tcp.flags.syn && tcp.flags.ack && stream.synTime !== null && Number.isFinite(nowMs)) {
+      stream.rttMs = Number(Math.max(0, nowMs - stream.synTime).toFixed(3));
     }
 
     // RFC 1122 Section 4.2.3.6 TCP Keep-Alive Probe & Keep-Alive ACK Disambiguation
@@ -1475,10 +1724,13 @@ class PacketStreamer {
    */
   clearBuffer() {
     this.frameRingBuffer = [];
+    this.diagnosticObservationBuffer = [];
     this.flowTable.clear();
     this.tcpStreams.clear();
     this.streamKeyToId.clear();
     this.nextStreamId = 0;
+    this.parserFailuresCount = 0;
+    this.lastFrameTimestampIso = null;
     this.resetCounters();
   }
 
@@ -2118,7 +2370,10 @@ class PacketStreamer {
       const wirelen = isLittleEndian ? buffer.readUInt32LE(offset + 12) : buffer.readUInt32BE(offset + 12);
       offset += 16;
 
-      if (offset + caplen > buffer.length) break;
+      if (offset + caplen > buffer.length) {
+        this.parserFailuresCount = (this.parserFailuresCount || 0) + 1;
+        break;
+      }
 
       const rawPkt = buffer.slice(offset, offset + caplen);
       offset += caplen;
@@ -2126,9 +2381,13 @@ class PacketStreamer {
       const isoTs = new Date(tsSec * 1000 + Math.floor(tsUsec / 1000)).toISOString();
       this.frameSequence++;
       importedCount++;
+      this.lastFrameTimestampIso = isoTs;
 
       // Decode with PacketDecoder
       try {
+        if (rawPkt.length < 14) {
+          throw new Error('Truncated Ethernet frame (< 14 bytes)');
+        }
         const decoded = PacketDecoder.dissectFrame(rawPkt);
         const protocol = decoded.transport?.type || decoded.ethernet?.typeStr || 'ETHERNET';
         const srcIp = decoded.ip?.srcIp || decoded.transport?.senderIp || null;
@@ -2150,6 +2409,8 @@ class PacketStreamer {
           summary,
           processName: 'PCAP Imported Frame',
           processPid: null,
+          evidenceClass: 'IMPORTED_PCAP_BUFFER',
+          isPhysicalWireFrame: false,
           urlIntelligence: {
             value: dstIp || '',
             valueType: dstPort ? 'IP_AND_PORT' : 'IP_ONLY',
@@ -2164,20 +2425,30 @@ class PacketStreamer {
           this.frameRingBuffer.shift();
         }
       } catch (e) {
-        // Fallback minimal record
+        this.parserFailuresCount = (this.parserFailuresCount || 0) + 1;
+        // Fallback minimal record tagged with parseFailure
         this.frameRingBuffer.push({
           frameNumber: this.frameSequence,
           timestamp: isoTs,
           wireLength: wirelen,
           capturedLength: caplen,
-          protocol: 'ETHERNET',
-          summary: `Imported frame (${caplen} bytes)`,
+          protocol: 'MALFORMED_FRAME',
+          parseFailure: true,
+          parseError: e.message,
+          evidenceClass: 'IMPORTED_PCAP_BUFFER',
+          isPhysicalWireFrame: false,
+          summary: `Malformed imported frame (${caplen} bytes): ${e.message}`,
           rawHex: rawPkt.toString('hex')
         });
       }
     }
 
-    return { success: true, importedCount, totalBuffered: this.frameRingBuffer.length };
+    return {
+      success: true,
+      importedCount,
+      parserFailuresCount: this.parserFailuresCount || 0,
+      totalBuffered: this.frameRingBuffer.length
+    };
   }
 }
 

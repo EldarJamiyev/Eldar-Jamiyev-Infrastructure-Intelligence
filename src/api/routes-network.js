@@ -368,20 +368,61 @@ router.post('/capture/stop', requirePermission('network.capture.execute'), (req,
 
 router.get('/capture/status', (req, res) => {
   const counters = packetStreamer.getCounters();
-  const fs = require('fs');
-  const npcapInstalled = fs.existsSync('C:\\Windows\\System32\\Npcap\\wpcap.dll') || fs.existsSync('C:\\Windows\\System32\\wpcap.dll');
+  const capabilityProfile = typeof packetStreamer.getCaptureCapabilityProfile === 'function'
+    ? packetStreamer.getCaptureCapabilityProfile()
+    : null;
+  const provenanceSummary = typeof packetStreamer.getEvidenceProvenanceSummary === 'function'
+    ? packetStreamer.getEvidenceProvenanceSummary()
+    : (capabilityProfile?.evidenceProvenanceSummary || {
+        physicalWireFramesCount: 0,
+        importedPcapFramesCount: 0,
+        otherBufferedFramesCount: 0,
+        osSocketObservationsCount: 0,
+        icmpCommandObservationsCount: 0,
+        parserFailuresCount: capabilityProfile?.parserFailuresCount ?? 0,
+        totalBufferedFrames: packetStreamer.frameRingBuffer.length,
+        totalDiagnosticObservations: Array.isArray(packetStreamer.diagnosticObservationBuffer)
+          ? packetStreamer.diagnosticObservationBuffer.length
+          : 0
+      });
+  const npcapInstalled = capabilityProfile ? capabilityProfile.npcapDriverAvailable : false;
+  const activeCaptureSession = Boolean(capabilityProfile?.activeCaptureSession);
+  const containsOnlyPhysicalWireFrames = Boolean(
+    provenanceSummary.physicalWireFramesCount > 0 &&
+    provenanceSummary.importedPcapFramesCount === 0 &&
+    provenanceSummary.osSocketObservationsCount === 0 &&
+    provenanceSummary.icmpCommandObservationsCount === 0
+  );
 
   res.json({
     active: packetStreamer.isActive(),
+    activeCaptureSession,
+    captureSessionInitialized: Boolean(capabilityProfile?.captureSessionInitialized),
+    hasReceivedWireFrames: Boolean(capabilityProfile?.hasReceivedWireFrames),
+    parserFailuresCount: capabilityProfile?.parserFailuresCount ?? 0,
+    sessionStartedAtIso: capabilityProfile?.sessionStartedAtIso ?? null,
+    sessionStoppedAtIso: capabilityProfile?.sessionStoppedAtIso ?? null,
+    lastFrameTimestampIso: capabilityProfile?.lastFrameTimestampIso ?? null,
     bufferCount: packetStreamer.frameRingBuffer.length,
+    diagnosticObservationsCount: Array.isArray(packetStreamer.diagnosticObservationBuffer)
+      ? packetStreamer.diagnosticObservationBuffer.length
+      : 0,
     totalSequenced: packetStreamer.frameSequence,
     bpfFilter: packetStreamer.bpfFilter || '',
     npcapAvailable: npcapInstalled,
-    driverName: npcapInstalled ? 'Npcap NDIS 6.x Physical Wire Capture Driver' : 'Raw Socket Driver (Fallback)',
-    driverStatus: npcapInstalled ? 'AUTHENTIC_WIRE_PROMISCUOUS' : 'SOCKET_FALLBACK',
-    authenticityGuarantee: '100% Genuine Wire Telemetry — Zero Synthetic Packets',
-    zeroSimulation: true,
-    permissionLevel: 'Unprivileged User Space',
+    captureMode: capabilityProfile ? capabilityProfile.captureMode : 'UNPRIVILEGED_SOCKET_AND_BUFFER_DISSECTION',
+    captureCapabilityProfile: capabilityProfile,
+    evidenceProvenanceSummary: provenanceSummary,
+    containsOnlyPhysicalWireFrames,
+    authenticityPolicy: 'EVIDENCE_PROVENANCE_TAGGED_PER_OBSERVATION',
+    authenticitySummary: activeCaptureSession
+      ? `Active NIC wire capture (${provenanceSummary.physicalWireFramesCount} wire frames, ${provenanceSummary.importedPcapFramesCount} imported PCAP frames, ${provenanceSummary.osSocketObservationsCount + provenanceSummary.icmpCommandObservationsCount} diagnostic observations)`
+      : `Unprivileged socket & PCAP dissection mode (${provenanceSummary.physicalWireFramesCount} wire frames, ${provenanceSummary.importedPcapFramesCount} imported PCAP frames, ${provenanceSummary.osSocketObservationsCount + provenanceSummary.icmpCommandObservationsCount} diagnostic observations)`,
+    driverName: activeCaptureSession
+      ? 'Npcap NDIS 6.x Physical Wire Capture Driver'
+      : 'Unprivileged Socket & PCAP Buffer Dissector',
+    driverStatus: activeCaptureSession ? 'AUTHENTIC_WIRE_PROMISCUOUS' : 'SOCKET_AND_BUFFER_DISSECTION_ONLY',
+    permissionLevel: activeCaptureSession ? 'Elevated Wire Capture' : 'Unprivileged User Space',
     counters
   });
 });
@@ -1276,16 +1317,65 @@ router.post('/automation/view', async (req, res) => {
 });
 
 /**
+ * POST /api/network/automation/approve
+ * Issues a cryptographically bound operator approval token for high-risk or elevated script execution
+ */
+router.post('/automation/approve', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADMIN'), async (req, res) => {
+  try {
+    const { scriptName, params = '', target = 'local_host', ttlMs = 300000 } = req.body || {};
+    if (!scriptName) {
+      return res.status(400).json({ error: 'scriptName is required.' });
+    }
+    const { issueOperatorScriptApproval } = require('../tools/script-automation');
+    const operatorId = req.user?.id || req.user?.username || 'op-admin';
+    const operatorRole = req.user?.role || 'ADMIN';
+    const approval = issueOperatorScriptApproval({
+      operatorId,
+      operatorRole,
+      scriptName,
+      params,
+      target,
+      ttlMs
+    });
+    res.json({ success: true, approval });
+  } catch (err) {
+    if (err.code === 'TRAVERSAL_ATTEMPT') {
+      return res.status(403).json({ error: err.message });
+    }
+    if (err.code === 'ENOENT') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(400).json({ error: 'Failed to issue script approval: ' + err.message });
+  }
+});
+
+/**
  * POST /api/network/automation/execute
  * Safely executes script and returns stdout, stderr, exit code, and duration
  */
 router.post('/automation/execute', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADMIN'), async (req, res) => {
   try {
-    const { scriptName, params = '' } = req.body;
+    const {
+      scriptName,
+      params = '',
+      approvalToken = null,
+      explicitOperatorApproval = false,
+      requireBoundApprovalToken = false,
+      target = 'local_host'
+    } = req.body || {};
     if (!scriptName) {
       return res.status(400).json({ error: 'scriptName is required.' });
     }
-    const result = await executeScript(scriptName, params);
+    const operatorId = req.user?.id || req.user?.username || 'op-admin';
+    const operatorRole = req.user?.role || 'ADMIN';
+    const result = await executeScript(scriptName, params, undefined, {
+      operatorId,
+      operatorRole,
+      approvalToken,
+      explicitOperatorApproval: Boolean(explicitOperatorApproval),
+      requireBoundApprovalToken: Boolean(requireBoundApprovalToken),
+      target
+    });
     res.json(result);
   } catch (err) {
     if (err.code === 'TRAVERSAL_ATTEMPT') {
@@ -1295,6 +1385,25 @@ router.post('/automation/execute', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADM
       return res.status(404).json({ error: err.message });
     }
     res.status(500).json({ error: 'Failed to execute script: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/network/automation/revoke
+ * Revokes an issued operator script approval token before execution
+ */
+router.post('/automation/revoke', requireRole('ADMIN', 'SYSADMIN', 'NETWORK_ADMIN'), (req, res) => {
+  try {
+    const { approvalId, approvalToken, reason = 'OPERATOR_REVOKED' } = req.body || {};
+    const tokenOrId = approvalId || approvalToken;
+    if (!tokenOrId) {
+      return res.status(400).json({ error: 'approvalId or approvalToken is required.' });
+    }
+    const { revokeOperatorScriptApproval } = require('../tools/script-automation');
+    const result = revokeOperatorScriptApproval(tokenOrId, reason);
+    res.json({ success: result.revoked, ...result });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to revoke script approval: ' + err.message });
   }
 });
 

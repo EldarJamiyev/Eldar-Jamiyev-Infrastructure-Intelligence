@@ -633,7 +633,7 @@ class AIModelOrchestrator {
         (allowRedactedCloudFallback && (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA')))
     ) {
       const startTime = Date.now();
-      const requestedModel = options.model || process.env.EJII_GEMINI_MODEL || process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.1-flash-lite';
+      const requestedModel = options.model || process.env.EJII_GEMINI_MODEL || process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.8-flash';
       const fallbackModel = process.env.EJII_GEMINI_FALLBACK_MODEL || 'gemini-flash-latest';
       let executedModel = requestedModel;
       try {

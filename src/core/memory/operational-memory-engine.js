@@ -154,10 +154,10 @@ class OperationalMemoryEngine {
         knowledgeId: 'ORG-KB-CORE-LOOPBACK-SPLIT',
         targetKey: '127.0.0.1',
         category: 'SERVICE_ARCHITECTURE_RUNBOOK',
-        title: 'Local Control-Plane & Workspace Service Port Architecture (:3000 vs :3001)',
-        criticalDependencyNote: 'Primary web control plane binds to :3000 while auxiliary local workspace daemons (e.g., SYNTRA local/server.mjs) bind to :3001. Polling :3000 for :3001 routes causes HTTP 404 or ECONNREFUSED.',
-        runbookProcedure: '1. Verify active kernel sockets (`active_connections`). 2. Check whether listener is bound to :3001 while readiness script probes :3000. 3. Align reverse-proxy / Vite proxy or startup readiness URL before restarting.',
-        historicalRationale: 'Separated local model workspace daemon (:3001) from primary web UI (:3000) to isolate loopback compute tasks.',
+        title: 'Multi-Port Local Service Split Pattern (:3000 vs :3001 Runbook Reference)',
+        criticalDependencyNote: '[RUNBOOK_REFERENCE_ONLY — NOT LIVE TELEMETRY] Reference pattern for external multi-port workspace applications where a web control plane binds to :3000 while an auxiliary daemon binds to :3001. Polling :3000 for :3001 routes causes HTTP 404 or ECONNREFUSED.',
+        runbookProcedure: '1. Inspect active kernel sockets (`active_connections`). 2. Check whether listener is bound to :3001 while readiness script probes :3000. 3. Align reverse-proxy or startup readiness URL before restarting.',
+        historicalRationale: 'Reference runbook pattern for multi-port local daemon triage; never treated as a live EJII host observation.',
         owningTeam: 'Core Platform & Systems SRE',
         author: 'Principal Infrastructure Architect'
       },
@@ -4235,6 +4235,59 @@ class OperationalMemoryEngine {
     const primaryPort = Array.isArray(ports) && ports.length > 0 ? ports[0] : 443;
     const hasFailedStep = Array.isArray(steps) && steps.some((s) => s.status === 'FAIL' || s.status === 'TIMEOUT');
 
+    const isConversationalIntent =
+      intent === 'greeting' ||
+      intent === 'casual_conversation' ||
+      intent === 'everyday_conversation' ||
+      intent === 'general_knowledge' ||
+      (intent === 'clarification_needed' && (!target || String(target).startsWith('knowledge_') || String(target).startsWith('local_') || String(target).startsWith('operational_')));
+
+    if (isConversationalIntent) {
+      return [];
+    }
+
+    if (intent === 'informational_question') {
+      const topicLower = String(structuredAnswer?.result || '').toLowerCase();
+      if (topicLower.includes('dns') || topicLower.includes('nameserver')) {
+        return [
+          {
+            label: 'Explain DNS record types (A, CNAME, MX)',
+            prompt: 'Explain the difference between A, CNAME, and MX records',
+            rationale: 'Deep dive into core DNS resource record types'
+          },
+          {
+            label: 'Explain DNS propagation delay',
+            prompt: 'Why does DNS propagation take time and how does TTL affect it?',
+            rationale: 'Understand DNS caching layers and authoritative TTL propagation'
+          }
+        ];
+      }
+      if (topicLower.includes('tcp') || topicLower.includes('handshake') || topicLower.includes('syn')) {
+        return [
+          {
+            label: 'Explain TCP 3-way handshake',
+            prompt: 'How does the TCP 3-way handshake work (SYN, SYN-ACK, ACK)?',
+            rationale: 'Understand Layer 4 connection establishment'
+          },
+          {
+            label: 'Explain TCP vs UDP differences',
+            prompt: 'What are the key trade-offs between TCP and UDP?',
+            rationale: 'Compare reliable stream transport vs low-overhead datagrams'
+          }
+        ];
+      }
+      if (topicLower.includes('subnet') || topicLower.includes('cidr') || topicLower.includes('mask')) {
+        return [
+          {
+            label: 'Explain CIDR notation (/24, /16)',
+            prompt: 'How does CIDR slash notation work for subnet calculation?',
+            rationale: 'Understand network prefix lengths and host counts'
+          }
+        ];
+      }
+      return [];
+    }
+
     if (intent === 'log_and_startup_triage' && logAnalysis) {
       const endpoints = logAnalysis.extractedEndpoints || [];
       for (const ep of endpoints.slice(0, 2)) {
@@ -4360,24 +4413,24 @@ class OperationalMemoryEngine {
         rationale: 'Review cross-target stability scores, regressions, and learned playbooks'
       });
     } else {
-      suggestions.push({
-        label: 'Run 5-layer local path diagnostic',
-        prompt: 'Check my connection layer by layer',
-        rationale: 'Verify L1 interfaces, L2 neighbor cache, L3 gateway, L4 transport, and L7 reachability'
-      });
-      suggestions.push({
-        label: 'Synthesize fleet anomalies & playbooks',
-        prompt: 'Give me an operational intelligence briefing on active regressions and learned playbooks',
-        rationale: 'Correlate cross-target stability scores, RTT drift, and verified resolution playbooks'
-      });
-      suggestions.push({
-        label: 'Query Sovereign Fabric v6 IG',
-        prompt: 'Based on the unresolved states inside the Sovereign Fabric v6 truth matrix, what is the highest information-gain next probe to run right now?',
-        rationale: 'Compute mathematical Shannon entropy and highest-IG next probe'
-      });
+      if (target && !String(target).startsWith('local_') && !String(target).startsWith('operational_') && !String(target).startsWith('knowledge_')) {
+        suggestions.push({
+          label: `Run 5-layer diagnostic on ${target}`,
+          prompt: `Check ${target} layer by layer`,
+          rationale: 'Verify L1 interfaces, L2 neighbor cache, L3 gateway, L4 transport, and L7 reachability'
+        });
+        suggestions.push({
+          label: `Inspect TLS and HTTP on ${target}`,
+          prompt: `Check whether https://${target} is working`,
+          rationale: 'Verify TLS certificate and HTTP application response'
+        });
+      } else {
+        return [];
+      }
     }
 
     if (
+      target &&
       memoryInsights &&
       memoryInsights.dependencyContext &&
       (memoryInsights.dependencyContext.upstreamDependencies?.length > 0 ||
@@ -4391,7 +4444,7 @@ class OperationalMemoryEngine {
       });
     }
 
-    if (memoryInsights && memoryInsights.observationCount >= 2 && !suggestions.some((s) => s.prompt.includes('Compare'))) {
+    if (target && memoryInsights && memoryInsights.observationCount >= 2 && !suggestions.some((s) => s.prompt.includes('Compare'))) {
       suggestions.push({
         label: 'Compare historical baseline',
         prompt: 'Compare the latest results with the previous test',

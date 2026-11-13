@@ -15,27 +15,28 @@ const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('../
 const { DATA_DIR, IS_EVALUATION_MODE } = require('../config');
 
 function getSystemDefaultGateway() {
-  if (process.env.NODE_ENV === 'test' || process.env.EJII_FAST_BOOT === 'true') {
-    try {
-      const ifaces = os.networkInterfaces();
-      for (const name of Object.keys(ifaces)) {
-        for (const iface of ifaces[name]) {
-          if (iface.family === 'IPv4' && !iface.internal) {
-            const parts = iface.address.split('.');
+  try {
+    const info = getPhysicalNetworkInfo({ forceRefresh: true });
+    if (info && info.defaultGateway) return info.defaultGateway;
+    if (info && info.gatewayIp) return info.gatewayIp;
+  } catch (_) {}
+
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const name of Object.keys(ifaces)) {
+      for (const iface of ifaces[name] || []) {
+        if (iface.family === 'IPv4' && !iface.internal && iface.address) {
+          const parts = iface.address.split('.');
+          if (parts.length === 4) {
             parts[3] = '1';
             return parts.join('.');
           }
         }
       }
-    } catch (_) {}
-    return '192.168.31.1';
-  }
-  try {
-    const info = getPhysicalNetworkInfo({ forceRefresh: true });
-    if (info && info.defaultGateway) return info.defaultGateway;
-    if (info && info.gatewayIp) return info.gatewayIp;
-  } catch (e) {}
-  return '192.168.31.1';
+    }
+  } catch (_) {}
+
+  return '127.0.0.1';
 }
 
 function seedDatabase() {
@@ -154,11 +155,16 @@ function seedDatabase() {
   }
 
   // Detect genuine physical network info
-  const netInfo = getPhysicalNetworkInfo({ forceRefresh: true });
+  const netInfo = getPhysicalNetworkInfo({ forceRefresh: true }) || {};
+  const hasObservedGateway = Boolean(netInfo.defaultGateway || netInfo.gatewayIp);
   const defaultGatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || getSystemDefaultGateway();
-  const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
-  const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '192.168.31.1';
-  const lanCidr = netInfo.subnetCidr || '192.168.31.0/24';
+  const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
+  const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || defaultGatewayIp;
+  const lanCidr = netInfo.subnetCidr || (hostIp !== '127.0.0.1' ? `${hostIp.split('.').slice(0, 3).join('.')}.0/24` : '127.0.0.0/8');
+  const gatewayMac = netInfo.gatewayMac && netInfo.gatewayMac !== 'Unknown' ? netInfo.gatewayMac : null;
+  const hostMac = (netInfo.macAddress || netInfo.mac) && (netInfo.macAddress || netInfo.mac) !== '00:00:00:00:00:00'
+    ? (netInfo.macAddress || netInfo.mac)
+    : null;
   const now = new Date().toISOString();
 
   // 2. Seed Baseline Topology Nodes (Layer 1 to Layer 6)
@@ -177,41 +183,44 @@ function seedDatabase() {
         layer_level: 1,
         parent_id: null,
         status: 'healthy',
-        last_latency_ms: 12.4,
+        last_latency_ms: null,
         vendor: 'Google Anycast Transit',
         if_name: 'WAN0',
         x: 80,
         y: 140,
-        metadata: JSON.stringify({ role: 'WAN Transit', provider: 'Anycast Tier 1' })
+        metadata: JSON.stringify({ role: 'WAN Transit', provider: 'Anycast Tier 1', probeState: 'AWAITING_FIRST_PROBE' })
       },
       {
         id: 'NODE-GW-01',
         name: `Edge Perimeter Router (${defaultGatewayIp})`,
         hostname_or_ip: defaultGatewayIp,
-        mac_address: netInfo.gatewayMac !== 'Unknown' ? netInfo.gatewayMac : '64:12:25:E4:88:90',
+        mac_address: gatewayMac,
         type: 'router',
         layer: 'edge',
         layer_level: 2,
         parent_id: 'NODE-WAN-01',
         status: 'healthy',
-        last_latency_ms: 0.8,
-        vendor: netInfo.gatewayVendor || 'Observed Default Gateway',
+        last_latency_ms: null,
+        vendor: netInfo.gatewayVendor || (hasObservedGateway ? 'Observed Default Gateway' : 'Subnet Gateway (Heuristic)'),
         if_name: 'ether1',
         x: 280,
         y: 140,
-        metadata: JSON.stringify({ role: 'Border Router', model: 'CCR1036' })
+        metadata: JSON.stringify({
+          role: 'Border Router',
+          gatewayDiscoveryStatus: hasObservedGateway ? 'OBSERVED_OS_ROUTE' : 'DERIVED_SUBNET_HEURISTIC'
+        })
       },
       {
         id: 'NODE-CORE-01',
         name: `Core Switch & Internal DNS (${dnsIp})`,
         hostname_or_ip: dnsIp,
-        mac_address: '64:12:25:E4:68:F0',
+        mac_address: null,
         type: 'switch',
         layer: 'core',
         layer_level: 3,
         parent_id: 'NODE-GW-01',
         status: 'healthy',
-        last_latency_ms: 0.9,
+        last_latency_ms: null,
         vendor: dnsIp !== defaultGatewayIp ? 'Configured OS DNS Resolver' : `${netInfo.gatewayVendor || 'Local Gateway'} DNS Forwarder`,
         if_name: 'tengig0/1',
         x: 480,
@@ -228,7 +237,7 @@ function seedDatabase() {
         layer_level: 4,
         parent_id: 'NODE-CORE-01',
         status: 'healthy',
-        last_latency_ms: 1.8,
+        last_latency_ms: null,
         vendor: `Active Service (${lanCidr})`,
         if_name: 'eth0',
         x: 680,
@@ -245,7 +254,7 @@ function seedDatabase() {
         layer_level: 5,
         parent_id: 'NODE-GW-01',
         status: 'healthy',
-        last_latency_ms: 0.4,
+        last_latency_ms: null,
         vendor: 'Access LAN Switched Fabric',
         if_name: 'gig0/1-24',
         x: 880,
@@ -256,14 +265,14 @@ function seedDatabase() {
         id: 'NODE-HOST-01',
         name: `Local Workstation Host (${hostIp})`,
         hostname_or_ip: hostIp,
-        mac_address: netInfo.macAddress || netInfo.mac || '70:15:FB:6B:F3:46',
+        mac_address: hostMac,
         type: 'host',
         layer: 'endpoint',
         layer_level: 6,
         parent_id: 'NODE-LAN-01',
         status: 'healthy',
-        last_latency_ms: 0.1,
-        vendor: `${netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz'} / Windows Workstation`,
+        last_latency_ms: null,
+        vendor: `${netInfo.hardwareDescription || netInfo.adapterName || 'Host Network Interface'} / ${os.platform()} Workstation`,
         if_name: ((netInfo.hardwareDescription || netInfo.adapterName || '').toLowerCase().includes('wi-fi') || (netInfo.hardwareDescription || netInfo.adapterName || '').toLowerCase().includes('wireless')) ? 'Wi-Fi' : 'Ethernet',
         x: 1080,
         y: 140,

@@ -130,6 +130,9 @@ window.EJII_INVESTIGATION_STORE = {
 
 // Universal Unified Route Mapping & View Lifecycle Controller
 const ROUTE_ALIASES = {
+  'overview': 'overview',
+  'dashboard': 'overview',
+  'home': 'overview',
   'chat': 'chat',
   'ai-operator': 'ai-operator',
   'operator': 'ai-operator',
@@ -155,6 +158,7 @@ const ROUTE_ALIASES = {
 };
 
 const VIEW_HASH_MAP = {
+  'overview': '#/overview',
   'chat': '#/chat',
   'ai-operator': '#/ai-operator',
   'topology': '#/topology',
@@ -176,6 +180,7 @@ function resolveViewFromHash(hash = window.location.hash) {
   return ROUTE_ALIASES[first] || 'chat';
 }
 window.resolveViewFromHash = resolveViewFromHash;
+window.switchMainView = renderView;
 
 const ViewLifecycle = {
   teardownHooks: new Map(),
@@ -251,36 +256,92 @@ window.EJIIInvestigationPinboard = {
   subscribers: new Set(),
 
   pin(item = {}) {
+    const safeObj = (item && typeof item === 'object') ? item : {};
+    const rawTarget = safeObj.target || safeObj.targetIp || safeObj.ip || safeObj.hostname || null;
+    const cleanTarget = rawTarget && String(rawTarget).trim() ? String(rawTarget).trim() : null;
+    const rawSubnet = safeObj.subnetCidr || safeObj.subnet || null;
+    const cleanSubnet = rawSubnet && String(rawSubnet).trim() ? String(rawSubnet).trim() : null;
+    const rawVendor = safeObj.manufacturer || safeObj.vendor || null;
+    const cleanVendor = rawVendor && String(rawVendor).trim() ? String(rawVendor).trim() : null;
+    const rawMac = safeObj.mac || safeObj.macAddress || null;
+    const cleanMac = rawMac && String(rawMac).trim() ? String(rawMac).trim() : null;
+    const rawPort = safeObj.port ?? safeObj.localPort ?? safeObj.destinationPort ?? null;
+    const cleanPort = (rawPort !== null && rawPort !== undefined && rawPort !== '' && Number.isFinite(Number(rawPort)) && Number(rawPort) > 0)
+      ? Number(rawPort)
+      : null;
+    const cleanProcess = safeObj.processName && String(safeObj.processName).trim() ? String(safeObj.processName).trim() : null;
+    const cleanFlowId = safeObj.flowId && String(safeObj.flowId).trim() ? String(safeObj.flowId).trim() : null;
+    const cleanIncidentId = (safeObj.incidentId || safeObj.warRoomSessionId) ? String(safeObj.incidentId || safeObj.warRoomSessionId).trim() : null;
+
+    const hasEssentialContext = Boolean(
+      cleanTarget || cleanFlowId || cleanIncidentId || cleanProcess || cleanMac || cleanPort !== null
+    );
+
+    if (!hasEssentialContext) {
+      this.pinnedItem = {
+        incompleteContext: true,
+        target: null,
+        subnetCidr: null,
+        hostname: null,
+        mac: null,
+        manufacturer: null,
+        processName: null,
+        pid: null,
+        port: null,
+        serviceName: null,
+        flowId: null,
+        sharedFolder: null,
+        incidentId: null,
+        frameNo: null,
+        vlan: null,
+        timestamp: new Date().toISOString(),
+        notes: 'Incomplete context — no target IP, hostname, flow ID, or socket identifier provided'
+      };
+      this._renderPinboardBar();
+      this._notify();
+      return this.pinnedItem;
+    }
+
     this.pinnedItem = {
-      target: item.target || item.targetIp || item.ip || item.hostname || '172.29.192.1',
-      subnetCidr: item.subnetCidr || (String(item.target || '').startsWith('172.29.192') ? '172.29.192.0/20' : '10.168.195.0/24'),
-      hostname: item.hostname || null,
-      mac: item.mac || (String(item.target || '').startsWith('172.29.192') ? '00:15:5D:DF:E5:56' : null),
-      manufacturer: item.manufacturer || (String(item.target || '').startsWith('172.29.192') ? 'Microsoft Corporation' : null),
-      processName: item.processName || null,
-      pid: item.pid !== undefined ? item.pid : null,
-      port: item.port || item.localPort || item.destinationPort || null,
-      serviceName: item.serviceName || item.service || null,
-      flowId: item.flowId || null,
-      sharedFolder: item.sharedFolder || null,
-      incidentId: item.incidentId || item.warRoomSessionId || null,
-      frameNo: item.frameNo || null,
-      vlan: item.vlan || null,
-      timestamp: item.timestamp || new Date().toISOString(),
-      notes: item.notes || 'Operator Pinned Multi-Layer Entity'
+      incompleteContext: false,
+      target: cleanTarget,
+      subnetCidr: cleanSubnet,
+      hostname: safeObj.hostname ? String(safeObj.hostname).trim() : null,
+      mac: cleanMac,
+      manufacturer: cleanVendor,
+      processName: cleanProcess,
+      pid: (safeObj.pid !== undefined && safeObj.pid !== null && safeObj.pid !== '') ? safeObj.pid : null,
+      port: cleanPort,
+      serviceName: (safeObj.serviceName || safeObj.service || safeObj.serviceBanner)
+        ? String(safeObj.serviceName || safeObj.service || safeObj.serviceBanner).trim()
+        : null,
+      flowId: cleanFlowId,
+      sharedFolder: safeObj.sharedFolder ? String(safeObj.sharedFolder).trim() : null,
+      incidentId: cleanIncidentId,
+      frameNo: safeObj.frameNo ?? null,
+      vlan: safeObj.vlan ?? null,
+      timestamp: safeObj.timestamp || new Date().toISOString(),
+      notes: safeObj.notes || 'Operator Pinned Investigation Context'
     };
     try {
       localStorage.setItem('ejii_pinned_investigation', JSON.stringify(this.pinnedItem));
     } catch (_) {}
     if (typeof window.updateSituationalMemory === 'function') {
-      window.updateSituationalMemory({
-        activeTarget: this.pinnedItem.target,
-        activePort: this.pinnedItem.port || 623,
-        activeSubnet: this.pinnedItem.subnetCidr
-      });
+      const memPatch = {};
+      if (this.pinnedItem.target) memPatch.activeTarget = this.pinnedItem.target;
+      if (this.pinnedItem.port !== null) memPatch.activePort = this.pinnedItem.port;
+      if (this.pinnedItem.subnetCidr) memPatch.activeSubnet = this.pinnedItem.subnetCidr;
+      if (Object.keys(memPatch).length > 0) {
+        window.updateSituationalMemory(memPatch);
+      }
     }
     this._renderPinboardBar();
     this._notify();
+    return this.pinnedItem;
+  },
+
+  setContext(item = {}) {
+    return this.pin(item);
   },
 
   unpin() {
@@ -296,7 +357,12 @@ window.EJIIInvestigationPinboard = {
     if (!this.pinnedItem) {
       try {
         const stored = localStorage.getItem('ejii_pinned_investigation');
-        if (stored) this.pinnedItem = JSON.parse(stored);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === 'object') {
+            this.pinnedItem = parsed;
+          }
+        }
       } catch (_) {}
     }
     return this.pinnedItem;
@@ -327,8 +393,8 @@ window.EJIIInvestigationPinboard = {
       bar = document.createElement('div');
       bar.id = 'ejiiGlobalPinboardBar';
       bar.className = 'ejii-global-pinboard-bar';
-      bar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:rgba(15,23,42,0.96); border-bottom:1px solid rgba(56,189,248,0.35); padding:6px 16px; font-size:12px; z-index:900;';
-      const mainHeader = document.querySelector('header') || document.querySelector('.top-navbar') || document.body;
+      bar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:var(--bg-surface-subtle, #F9F8F5); border-bottom:1px solid var(--border-default, #E6E3DB); padding:7px 20px; font-size:12px; color:var(--text-primary, #1F2421); z-index:900;';
+      const mainHeader = document.querySelector('header.topbar') || document.querySelector('header') || document.body;
       if (mainHeader && mainHeader.parentNode) {
         mainHeader.parentNode.insertBefore(bar, mainHeader.nextSibling);
       } else {
@@ -338,23 +404,39 @@ window.EJIIInvestigationPinboard = {
     bar.style.display = 'flex';
     const escVal = (s) => (typeof window.escapeHtml === 'function' ? window.escapeHtml(s) : String(s || ''));
     const p = this.pinnedItem;
+
+    if (p.incompleteContext) {
+      bar.innerHTML = `
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; color:var(--warning, #9A6700);">
+          <span style="font-weight:600;">Investigation Pinboard:</span>
+          <span>Incomplete context — select a specific host IP, socket, or flow to pin across workstations.</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button type="button" class="btn btn-xs" style="background:transparent; border:1px solid var(--border-default, #E6E3DB); color:var(--text-secondary, #666B66); font-size:11px; padding:2px 8px; border-radius:6px; cursor:pointer;" onclick="window.EJIIInvestigationPinboard.unpin()">Dismiss</button>
+        </div>
+      `;
+      return;
+    }
+
+    const primaryLabel = p.target
+      ? `${escVal(p.target)}${p.port !== null && p.port !== undefined ? ':' + escVal(p.port) : ''}`
+      : (p.flowId ? `Flow ${escVal(p.flowId)}` : (p.processName ? `Process ${escVal(p.processName)}` : 'Pinned Entity'));
+
     bar.innerHTML = `
-      <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:11.5px; font-weight:600; color:#38bdf8;">
-        <span style="font-size:14px;">📌</span>
-        <span>PINBOARD 2.0:</span>
-        <span class="badge" style="background:rgba(56,189,248,0.16); border:1px solid #38bdf8; color:#e0f2fe; padding:2px 8px; border-radius:4px; font-family:monospace;">${escVal(p.target)}${p.port ? ':' + escVal(p.port) : ''}</span>
-        ${p.mac ? `<span class="badge" style="background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#d1fae5; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:10.5px;">MAC ${escVal(p.mac)} (${escVal(p.manufacturer || 'OUI')})</span>` : ''}
-        ${p.processName ? `<span class="badge" style="background:rgba(245,158,11,0.18); border:1px solid #f59e0b; color:#fef3c7; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:10.5px;">⚙️ ${escVal(p.processName)}${p.pid !== null ? ' (PID ' + escVal(p.pid) + ')' : ''}</span>` : ''}
-        ${p.serviceName ? `<span class="badge" style="background:rgba(168,85,247,0.15); border:1px solid #a855f7; color:#f3e8ff; padding:2px 6px; border-radius:4px; font-size:10.5px;">${escVal(p.serviceName)}</span>` : ''}
-        ${p.flowId ? `<span style="color:#94a3b8; font-size:10.5px; font-family:monospace;">[${escVal(p.flowId)}]</span>` : ''}
+      <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; font-weight:500; color:var(--text-primary, #1F2421);">
+        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--accent-primary, #3A6653);">Pinned Context</span>
+        <span class="badge" style="background:var(--accent-subtle, #E7F0EA); border:1px solid var(--accent-border, #D5E3DA); color:var(--accent-primary, #3A6653); padding:2px 8px; border-radius:6px; font-family:var(--font-mono); font-weight:600;">${primaryLabel}</span>
+        ${p.subnetCidr ? `<span class="badge" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-secondary, #666B66); padding:2px 6px; border-radius:6px; font-family:var(--font-mono); font-size:11px;">Subnet ${escVal(p.subnetCidr)}</span>` : ''}
+        ${p.mac ? `<span class="badge" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-secondary, #666B66); padding:2px 6px; border-radius:6px; font-family:var(--font-mono); font-size:11px;">MAC ${escVal(p.mac)}${p.manufacturer ? ' (' + escVal(p.manufacturer) + ')' : ''}</span>` : ''}
+        ${p.processName ? `<span class="badge" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-secondary, #666B66); padding:2px 6px; border-radius:6px; font-family:var(--font-mono); font-size:11px;">${escVal(p.processName)}${p.pid !== null ? ' (PID ' + escVal(p.pid) + ')' : ''}</span>` : ''}
+        ${p.serviceName ? `<span class="badge" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-secondary, #666B66); padding:2px 6px; border-radius:6px; font-size:11px;">${escVal(p.serviceName)}</span>` : ''}
       </div>
       <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
-        <button type="button" class="btn btn-xs" style="background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.5); color:#93c5fd; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.openQuadQuadrantCommandGrid('${escVal(p.target)}')">⊞ 4-Quadrant Grid</button>
-        <button type="button" class="btn btn-xs" style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.renderView('packet-sniffer')">Wire &amp; TCPView</button>
-        <button type="button" class="btn btn-xs" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#6ee7b7; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.renderView('ultra-ip-scanner')">Port Scanner</button>
-        <button type="button" class="btn btn-xs" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#fcd34d; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="window.renderView('pc-automation')">⚡ Heal / Harden</button>
-        <button type="button" class="btn btn-xs" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;" onclick="if(typeof window.triageHostInWarRoom==='function'){window.triageHostInWarRoom('${escVal(p.target)}')}else{window.renderView('ai-operator')}">War Room</button>
-        <button type="button" class="btn btn-xs" style="background:transparent; border:none; color:#94a3b8; font-size:14px; cursor:pointer; padding:0 4px;" title="Unpin Investigation" onclick="window.EJIIInvestigationPinboard.unpin()">✕</button>
+        ${p.target ? `<button type="button" class="btn btn-xs" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-primary, #1F2421); font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer;" onclick="window.openQuadQuadrantCommandGrid('${escVal(p.target)}')">4-Quadrant Grid</button>` : ''}
+        <button type="button" class="btn btn-xs" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-primary, #1F2421); font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer;" onclick="window.renderView('packet-sniffer')">Packet Analysis</button>
+        <button type="button" class="btn btn-xs" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-primary, #1F2421); font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer;" onclick="window.renderView('ultra-ip-scanner')">IP Discovery</button>
+        <button type="button" class="btn btn-xs" style="background:var(--bg-surface, #FFFFFF); border:1px solid var(--border-default, #E6E3DB); color:var(--text-primary, #1F2421); font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer;" onclick="window.renderView('core-diagnostics')">Diagnostics</button>
+        <button type="button" class="btn btn-xs" style="background:transparent; border:1px solid transparent; color:var(--text-muted, #858B85); font-size:12px; cursor:pointer; padding:2px 6px;" title="Clear Pinned Context" onclick="window.EJIIInvestigationPinboard.unpin()">✕</button>
       </div>
     `;
   }
@@ -702,13 +784,45 @@ function initWebSocket() {
   const subprotocols = state.token ? ['token', state.token] : undefined;
   
   try {
+    const initDot = document.querySelector('.status-dot');
+    if (initDot) {
+      if (initDot.classList && typeof initDot.classList.remove === 'function') {
+        initDot.classList.remove('is-connected', 'is-disconnected');
+      }
+      if (initDot.style) {
+        if (typeof initDot.style.removeProperty === 'function') {
+          initDot.style.removeProperty('background-color');
+        } else {
+          delete initDot.style['background-color'];
+          delete initDot.style.backgroundColor;
+        }
+      }
+    }
+
     state.ws = subprotocols ? new WebSocket(wsUrl, subprotocols) : new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
       const el = document.getElementById('wsStatusText');
-      if (el) el.textContent = 'Live Wire Connected';
+      if (el) {
+        el.textContent = window._ejiiCaptureMode === 'WIRE_GRADE'
+          ? 'Wire Capture Connected'
+          : 'Socket Telemetry Active';
+      }
       const dot = document.querySelector('.status-dot');
-      if (dot) dot.style.backgroundColor = '#10b981';
+      if (dot) {
+        if (dot.style) {
+          if (typeof dot.style.removeProperty === 'function') {
+            dot.style.removeProperty('background-color');
+          } else {
+            delete dot.style['background-color'];
+            delete dot.style.backgroundColor;
+          }
+        }
+        if (dot.classList && typeof dot.classList.add === 'function') {
+          dot.classList.remove('is-disconnected');
+          dot.classList.add('is-connected');
+        }
+      }
 
       // Request live wire frame streaming if authenticated
       if (state.token && state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -773,7 +887,20 @@ function initWebSocket() {
       const el = document.getElementById('wsStatusText');
       if (el) el.textContent = 'Disconnected (Reconnecting...)';
       const dot = document.querySelector('.status-dot');
-      if (dot) dot.style.backgroundColor = '#ef4444';
+      if (dot) {
+        if (dot.style) {
+          if (typeof dot.style.removeProperty === 'function') {
+            dot.style.removeProperty('background-color');
+          } else {
+            delete dot.style['background-color'];
+            delete dot.style.backgroundColor;
+          }
+        }
+        if (dot.classList && typeof dot.classList.add === 'function') {
+          dot.classList.remove('is-connected');
+          dot.classList.add('is-disconnected');
+        }
+      }
       if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
       wsReconnectTimer = setTimeout(initWebSocket, 4000);
     };
@@ -784,11 +911,16 @@ function initWebSocket() {
 
 window.initWebSocket = initWebSocket;
 
+let _lastTopbarStatsAt = 0;
+
 /**
- * Update Topbar Stats (BPF Filter, Anomalies, Nodes)
+ * Update Topbar Stats (BPF Filter, Anomalies, Nodes) with 2s burst throttle
  */
-async function loadTopbarStats() {
+async function loadTopbarStats(force = false) {
   if (!state.token) return;
+  const now = Date.now();
+  if (!force && (now - _lastTopbarStatsAt) < 2000) return;
+  _lastTopbarStatsAt = now;
   try {
     const [statusRes, anomRes, topoRes] = await Promise.allSettled([
       api('/api/network/capture/status'),
@@ -797,9 +929,23 @@ async function loadTopbarStats() {
     ]);
 
     if (statusRes.status === 'fulfilled' && statusRes.value) {
+      const st = statusRes.value;
+      const capMode = (st.counters && st.counters.captureMode) || st.captureMode || (st.npcapAvailable ? 'WIRE_GRADE' : 'METADATA_ONLY');
+      window._ejiiCaptureMode = capMode;
+      const isWire = capMode === 'WIRE_GRADE';
       const bpfEl = document.getElementById('topbarBpfFilter');
       if (bpfEl) {
-        bpfEl.textContent = statusRes.value.bpfFilter ? `[BPF: ${statusRes.value.bpfFilter}]` : '[ALL WIRE]';
+        if (st.bpfFilter) {
+          bpfEl.textContent = isWire ? `[BPF: ${st.bpfFilter}]` : `[FILTER: ${st.bpfFilter}]`;
+        } else {
+          bpfEl.textContent = isWire ? '[ALL WIRE]' : '[SOCKET STREAM]';
+        }
+      }
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        const wsEl = document.getElementById('wsStatusText');
+        if (wsEl) {
+          wsEl.textContent = isWire ? 'Wire Capture Connected' : 'Socket Telemetry Active';
+        }
       }
     }
 
@@ -807,14 +953,14 @@ async function loadTopbarStats() {
       const anomEl = document.getElementById('topbarAnomaliesCount');
       if (anomEl) {
         anomEl.textContent = anomRes.value.count || 0;
-        anomEl.style.color = anomRes.value.count > 0 ? '#ef4444' : 'var(--warning)';
+        anomEl.style.color = anomRes.value.count > 0 ? 'var(--status-critical, #B83B3B)' : 'var(--status-warning, #B4691E)';
       }
     }
 
     if (topoRes.status === 'fulfilled' && topoRes.value) {
       const nodesEl = document.getElementById('topbarNodesCount');
       if (nodesEl) {
-        nodesEl.textContent = topoRes.value.nodes?.length || 6;
+        nodesEl.textContent = Array.isArray(topoRes.value.nodes) ? topoRes.value.nodes.length : '—';
       }
     }
   } catch (e) {}
@@ -891,31 +1037,32 @@ async function loadLoginTelemetry() {
   }
 }
 
-async function checkAuthConfig() {
-  try {
-    const authConfig = await api('/api/auth/config').catch(() => null);
-    if (authConfig && authConfig.productionStrict === true && authConfig.evaluationMode === false) {
-      const pillsContainer = document.getElementById('evaluationLoginPills');
-      const quickCta = document.getElementById('evaluationQuickCta');
-      const divider = document.getElementById('evaluationLoginDivider');
-      if (pillsContainer) pillsContainer.style.display = 'none';
-      if (quickCta) quickCta.style.display = 'none';
-      if (divider) divider.style.display = 'none';
+window.isEvaluationMode = false;
 
-      const userInp = document.getElementById('loginUsername');
-      const passInp = document.getElementById('loginPassword');
-      if (userInp) userInp.value = '';
-      if (passInp) passInp.value = '';
-      window.isEvaluationMode = false;
-    } else {
+async function checkAuthConfig() {
+  const pillsContainer = document.getElementById('evaluationLoginPills');
+  const quickCta = document.getElementById('evaluationQuickCta');
+  const divider = document.getElementById('evaluationLoginDivider');
+
+  const hideEvaluationUi = () => {
+    window.isEvaluationMode = false;
+    if (pillsContainer) pillsContainer.style.display = 'none';
+    if (quickCta) quickCta.style.display = 'none';
+    if (divider) divider.style.display = 'none';
+  };
+
+  try {
+    const authConfig = await api('/api/auth/config', { silent: true }).catch(() => null);
+    if (authConfig && authConfig.evaluationMode === true && authConfig.productionStrict !== true) {
       window.isEvaluationMode = true;
-      const userInp = document.getElementById('loginUsername');
-      const passInp = document.getElementById('loginPassword');
-      if (userInp && !userInp.value) userInp.value = 'admin';
-      if (passInp && !passInp.value) passInp.value = 'admin2026!';
+      if (pillsContainer) pillsContainer.style.display = 'block';
+      if (quickCta) quickCta.style.display = 'block';
+      if (divider) divider.style.display = 'flex';
+    } else {
+      hideEvaluationUi();
     }
   } catch (e) {
-    window.isEvaluationMode = true;
+    hideEvaluationUi();
   }
 }
 
@@ -929,15 +1076,15 @@ function hideLoginScreen() {
 window.showLoginScreen = showLoginScreen;
 window.hideLoginScreen = hideLoginScreen;
 
-let selectedProfileUsername = 'admin';
+let selectedProfileUsername = null;
 
 window.selectLoginProfile = function(username, password) {
-  if (window.isEvaluationMode === false) return;
+  if (window.isEvaluationMode !== true) return;
   selectedProfileUsername = username;
   const userInp = document.getElementById('loginUsername');
   const passInp = document.getElementById('loginPassword');
-  if (userInp) userInp.value = username;
-  if (passInp) passInp.value = password;
+  if (userInp) userInp.value = username || '';
+  if (passInp && typeof password === 'string') passInp.value = password;
 
   document.querySelectorAll('.login-role-btn').forEach(btn => {
     btn.style.borderColor = 'transparent';
@@ -950,7 +1097,7 @@ window.selectLoginProfile = function(username, password) {
   const activeBtn = document.getElementById(`pill-${username}`);
   if (activeBtn) {
     activeBtn.style.borderColor = 'var(--border-default)';
-    activeBtn.style.background = '#FFFFFF';
+    activeBtn.style.background = 'var(--bg-surface, #FFFFFF)';
     activeBtn.style.color = 'var(--accent-primary)';
     activeBtn.style.boxShadow = 'var(--shadow-xs)';
     activeBtn.classList.add('active-profile');
@@ -958,15 +1105,15 @@ window.selectLoginProfile = function(username, password) {
 };
 
 /**
- * 1-Click Quick Operator Login
+ * 1-Click Quick Operator Login (Evaluation Mode Only)
  */
 window.quickNocLogin = async function() {
-  if (window.isEvaluationMode === false) {
+  if (window.isEvaluationMode !== true) {
     const errAlert = document.getElementById('loginErrorAlert');
     const errMsg = document.getElementById('loginErrorMessage');
     if (errAlert && errMsg) {
       errAlert.style.display = 'flex';
-      errMsg.textContent = 'Quick NOC login is disabled in production environments.';
+      errMsg.textContent = 'Quick evaluation sign-in is disabled in production mode.';
     }
     return;
   }
@@ -1002,17 +1149,26 @@ window.handleLoginFormSubmit = async function(event) {
   event.preventDefault();
   const userInp = document.getElementById('loginUsername');
   const passInp = document.getElementById('loginPassword');
-  const username = (userInp && userInp.value.trim()) ? userInp.value.trim() : 'admin';
-  const password = (passInp && passInp.value) ? passInp.value : 'admin2026!';
+  const username = (userInp && userInp.value) ? userInp.value.trim() : '';
+  const password = (passInp && passInp.value) ? passInp.value : '';
 
   const errAlert = document.getElementById('loginErrorAlert');
   const errMsg = document.getElementById('loginErrorMessage');
   const submitBtn = document.getElementById('btnSubmitLogin');
 
+  if (!username || !password) {
+    if (errAlert && errMsg) {
+      errAlert.style.display = 'flex';
+      errMsg.textContent = 'Please enter both your username and password.';
+    }
+    return;
+  }
+
   if (errAlert) errAlert.style.display = 'none';
   if (submitBtn) {
     submitBtn.disabled = true;
-    document.getElementById('loginBtnText').textContent = 'Authenticating...';
+    const btnText = document.getElementById('loginBtnText');
+    if (btnText) btnText.textContent = 'Authenticating...';
   }
 
   try {
@@ -1042,7 +1198,8 @@ window.handleLoginFormSubmit = async function(event) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      document.getElementById('loginBtnText').textContent = 'Sign In';
+      const btnText = document.getElementById('loginBtnText');
+      if (btnText) btnText.textContent = 'Sign In';
     }
   }
 };
@@ -1054,8 +1211,8 @@ function updateUserBadge() {
 
   if (state.user) {
     if (badgeArea) badgeArea.style.display = 'flex';
-    if (nameEl) nameEl.textContent = state.user.fullName || state.user.username;
-    if (roleEl) roleEl.textContent = 'UNPRIVILEGED NOC';
+    if (nameEl) nameEl.textContent = state.user.fullName || state.user.username || 'Operator';
+    if (roleEl) roleEl.textContent = state.user.role ? String(state.user.role).toUpperCase() : 'OPERATOR';
   }
 }
 
@@ -1117,6 +1274,9 @@ function renderView(viewName = 'chat', options = {}) {
   if (target !== 'chat' && document.body && document.body.classList && typeof document.body.classList.remove === 'function') {
     document.body.classList.remove('ejii-chat-first-active');
   }
+  if (document.body && typeof document.body.setAttribute === 'function') {
+    document.body.setAttribute('data-active-view', target);
+  }
 
   // Manage wire packet streaming: stream when on Packet Sniffer or NOC Dashboard, pause on other views to preserve memory
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -1142,16 +1302,17 @@ function renderView(viewName = 'chat', options = {}) {
 
   // Highlight active nav link and update topbar page context
   const viewMetaMap = {
-    'chat': { eyebrow: 'Conversational Intelligence', title: 'AI Diagnostic Assistant' },
-    'ai-operator': { eyebrow: 'Autonomous Operations', title: 'AI Infrastructure Operator' },
-    'topology': { eyebrow: 'Infrastructure Fabric', title: 'Network overview' },
-    'noc-dashboard': { eyebrow: 'Operations Center', title: 'NOC Dual-Pane Dashboard' },
-    'packet-sniffer': { eyebrow: 'Wire & Socket Forensics', title: 'Packet analysis' },
-    'ultra-ip-scanner': { eyebrow: 'Fleet Discovery', title: 'IP & asset discovery' },
-    'pc-automation': { eyebrow: 'Governed Remediation', title: 'Automation library' },
-    'core-diagnostics': { eyebrow: 'Host & Kernel Telemetry', title: 'Diagnostics & recovery' },
-    'enterprise-noc': { eyebrow: 'Enterprise Infrastructure', title: 'Enterprise NOC — Multi-Site & Edge Fleet' },
-    'learning-center': { eyebrow: 'Engineering Academy', title: 'Sovereign Learning Center' }
+    'overview': { eyebrow: 'Workspace', title: 'Overview' },
+    'chat': { eyebrow: 'Workspace', title: 'AI Assistant' },
+    'ai-operator': { eyebrow: 'Operations', title: 'AI Operator' },
+    'topology': { eyebrow: 'Infrastructure', title: 'Network Overview' },
+    'noc-dashboard': { eyebrow: 'Infrastructure', title: 'NOC Operations Center' },
+    'packet-sniffer': { eyebrow: 'Investigation', title: 'Packet Analysis' },
+    'ultra-ip-scanner': { eyebrow: 'Investigation', title: 'IP & Asset Discovery' },
+    'pc-automation': { eyebrow: 'Operations', title: 'Automation Library' },
+    'core-diagnostics': { eyebrow: 'Investigation', title: 'Diagnostics & Recovery' },
+    'enterprise-noc': { eyebrow: 'Infrastructure', title: 'Enterprise NOC' },
+    'learning-center': { eyebrow: 'Learning', title: 'Sovereign Learning Center' }
   };
 
   document.querySelectorAll('.nav-link').forEach(link => {
@@ -1170,7 +1331,12 @@ function renderView(viewName = 'chat', options = {}) {
   if (titleSpan && meta) titleSpan.textContent = meta.title;
   if (eyebrowEl && meta) eyebrowEl.textContent = meta.eyebrow;
 
-  if (target === 'chat') {
+  if (target === 'overview') {
+    const mainEl = document.getElementById('mainContent');
+    if (mainEl && typeof window.renderOverviewView === 'function') {
+      window.renderOverviewView(mainEl);
+    }
+  } else if (target === 'chat') {
     if (typeof window.renderChatWorkspaceView === 'function') {
       window.renderChatWorkspaceView();
     } else if (typeof window.renderTopologyStandaloneView === 'function') {
@@ -1591,15 +1757,12 @@ window.setTheme = function(theme) {
   ['Light', 'Dark', 'System'].forEach(t => {
     const btn = document.getElementById(`themeBtn${t}`);
     if (btn) {
-      if (t.toLowerCase() === theme.toLowerCase()) {
-        btn.style.background = 'var(--accent-primary, #38BDF8)';
-        btn.style.color = '#FFFFFF';
-        btn.style.fontWeight = '700';
-      } else {
-        btn.style.background = 'transparent';
-        btn.style.color = 'var(--text-secondary, #94A3B8)';
-        btn.style.fontWeight = 'normal';
-      }
+      const isMatch = t.toLowerCase() === theme.toLowerCase();
+      btn.setAttribute('aria-pressed', isMatch ? 'true' : 'false');
+      btn.classList.toggle('is-active', isMatch);
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.fontWeight = '';
     }
   });
 
@@ -1746,7 +1909,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!isAuthenticated) {
       try {
         const authConfig = await api('/api/auth/config', { silent: true }).catch(() => null);
-        if (authConfig && authConfig.evaluationMode !== false) {
+        if (authConfig && authConfig.evaluationMode === true && authConfig.productionStrict !== true) {
+          window.isEvaluationMode = true;
           const res = await api('/api/auth/quick-noc', {
             method: 'POST',
             body: JSON.stringify({}),
@@ -1759,8 +1923,12 @@ window.addEventListener('DOMContentLoaded', async () => {
             try { localStorage.setItem('ejii_token', res.token); } catch (_) {}
             isAuthenticated = true;
           }
+        } else {
+          window.isEvaluationMode = false;
         }
-      } catch (_) {}
+      } catch (_) {
+        window.isEvaluationMode = false;
+      }
     }
 
     if (isAuthenticated) {
@@ -1946,10 +2114,10 @@ window.addEventListener('DOMContentLoaded', async () => {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 window.EJIISituationalMemory = window.EJIISituationalMemory || {
-  activeTarget: '127.0.0.1',
-  activePort: 3000,
-  activeSubnet: '192.168.31.0/24',
-  activeTopologyNode: 'L6-HOST-WORKSTATION',
+  activeTarget: null,
+  activePort: null,
+  activeSubnet: null,
+  activeTopologyNode: null,
   activePacketFilter: '',
   activeRunbookId: 'RB-04',
   activeHypothesis: 'Nominal Multi-Layer Equilibrium (7-Engine Core Active)',

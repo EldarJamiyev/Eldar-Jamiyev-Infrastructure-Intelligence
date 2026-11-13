@@ -34,5 +34,8 @@ jobs:
       - name: Run code quality and type checks
         run: npm run lint
 
+      - name: Run core intelligence and memory unit tests
+        run: node --test --test-concurrency=1 src/core/__tests__/*.test.js
+
       - name: Run complete EJII regression suite
         run: npm test

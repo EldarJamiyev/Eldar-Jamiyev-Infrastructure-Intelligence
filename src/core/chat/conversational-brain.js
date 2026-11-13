@@ -798,14 +798,18 @@ async function answerEpistemicOrFabricQuestion(promptText, sessionContext = {}) 
     !/\b(information[- ]gain|next probe)\b/i.test(lower)
   ) {
     const result = gw.verified
-      ? `The default gateway is currently verified at \`${gw.gatewayIp}\` via \`${gw.collectionMethod}\` in \`${ctx.observedEvidence.environmentScopeCategory}\`.`
-      : `The default gateway is marked **UNVERIFIED (\`${gw.reason}\`)** because the OS kernel routing table (\`${gw.collectionMethod}\`) in this \`${ctx.observedEvidence.environmentScopeCategory}\` does not expose a \`0.0.0.0/0\` default gateway entry.`;
+      ? `On this host (\`${ctx.observedEvidence.environmentScopeCategory}\`), the default gateway is currently verified at \`${gw.gatewayIp}\` via \`${gw.collectionMethod}\` (\`verified: true, status: "${gw.reason}"\`). When a container or cloud sandbox does not expose a \`0.0.0.0/0\` route, EJII marks the default gateway **UNVERIFIED (\`NO_DEFAULT_ROUTE_OBSERVED\`)** rather than guessing an IP.`
+      : `The default gateway is marked **UNVERIFIED (\`${gw.reason || 'NO_DEFAULT_ROUTE_OBSERVED'}\`)** because the OS kernel routing table (\`${gw.collectionMethod}\`) in this \`${ctx.observedEvidence.environmentScopeCategory}\` does not expose a \`0.0.0.0/0\` default gateway entry (\`gatewayIp: null, verified: false\`).`;
+
+    const currentStateLine = gw.verified
+      ? `Current host state: \`gatewayIp: "${gw.gatewayIp}", verified: true, status: "${gw.reason}"\`.`
+      : `Current host state: \`gatewayIp: null, verified: false, status: "${gw.reason || 'NO_DEFAULT_ROUTE_OBSERVED'}"\`.`;
 
     const meaning =
-      `### Epistemic State Explanation: \`${gw.reason}\`\n\n` +
-      `1. **What Was Directly Inspected:** EJII read the live kernel routing table via \`/proc/net/route\` and \`ip route show default\` inside the current execution scope (\`${ctx.observedEvidence.environmentScopeCategory}\`).\n` +
-      `2. **Why No \`0.0.0.0/0\` Route Appears in Container/Sandbox Namespaces:** In isolated cloud sandboxes (such as gVisor / Cloud Run / container virtual switches), outbound IP packets are forwarded transparently by the host hypervisor or virtual switch without exposing a traditional L2 router hop in \`/proc/net/route\`.\n` +
-      `3. **Strict Zero-Fabrication Policy:** Rather than guessing \`.1\` from the local interface address or inventing \`192.168.1.1\`, EJII explicitly reports \`gatewayIp: null, verified: false, status: "${gw.reason}"\` so operators never confuse an unexposed hypervisor route with a physical router outage.`;
+      `### Epistemic State Explanation: \`NO_DEFAULT_ROUTE_OBSERVED\` (\`UNVERIFIED\`)\n\n` +
+      `1. **What Was Directly Inspected:** EJII read the live kernel routing table via \`/proc/net/route\` and \`ip route show default\` inside the current execution scope (\`${ctx.observedEvidence.environmentScopeCategory}\`). ${currentStateLine}\n` +
+      `2. **Why \`NO_DEFAULT_ROUTE_OBSERVED\` Occurs in Container/Sandbox Namespaces:** In isolated cloud sandboxes (such as gVisor / Cloud Run / container virtual switches), outbound IP packets are forwarded transparently by the host hypervisor or virtual switch without exposing a traditional L2 router hop in \`/proc/net/route\`.\n` +
+      `3. **Strict Zero-Fabrication Policy:** When no default route is present in the kernel routing table, rather than guessing \`.1\` from the local interface address or inventing \`192.168.1.1\`, EJII explicitly reports \`gatewayIp: null, verified: false, status: "NO_DEFAULT_ROUTE_OBSERVED"\` (\`UNVERIFIED\`) so operators never confuse an unexposed hypervisor route with a physical router outage.`;
 
     const nextStep =
       `To verify external egress when L3 default gateway routing is abstracted by the container runtime, run **${topProbe.probeName}** (\`ΔH = ${topProbe.expectedInformationGainBits} bits\`), which tests end-to-end L4 TCP transport directly.`;
@@ -1210,7 +1214,7 @@ async function reflectOnToolObservation({
         ].join('\n');
 
         const modelRes = await aiModelOrchestrator.invokeWithBoundedRetry('GOOGLE_GEMINI', reflectionPrompt, {
-          model: process.env.EJII_GEMINI_MODEL || 'gemini-3.1-flash-lite',
+          model: process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
           timeoutMs: 5000,
           maxRetries: 0,
           allowRedactedCloudFallback: true,
@@ -1390,6 +1394,145 @@ async function runAgenticToolLoop({
   };
 }
 
+/**
+ * Resolves multi-turn conversational pronoun references ("it", "that host", "same target", "that port")
+ * against sessionContext.lastValidTarget / lastTarget / lastPorts without silently defaulting to 127.0.0.1
+ * when no target exists in either the prompt or active session context.
+ * Also filters out code/file names (e.g., server.mjs, node.js, SKILL.md) and tracks scope transitions.
+ */
+function resolvePronounInheritedTarget(promptText = '', sessionContext = {}) {
+  const raw = String(promptText || '').trim();
+  const nonHostnameSuffixes = /\.(js|mjs|cjs|ts|tsx|json|yaml|yml|md|sql|sh|ps1|py|css|html|log|txt)$/i;
+  const candidateMatches = Array.from(
+    raw.matchAll(/\b((?:\d{1,3}\.){3}\d{1,3}|localhost|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::(\d{1,5}))?\b/g)
+  );
+  const validHostMatch = candidateMatches.find((m) => {
+    const candidate = String(m[1] || '');
+    if (/^(e\.g|i\.e|v\d+\.\d+|node\.js|next\.js|react\.js|vue\.js)$/i.test(candidate)) return false;
+    if (nonHostnameSuffixes.test(candidate)) return false;
+    return true;
+  });
+
+  const explicitPortMatch = raw.match(/\bport\s+(\d{1,5})\b/i) || raw.match(/(?:^|\s):(\d{2,5})\b/);
+  const refersToLocalMachine = /\b(local\s*host|this\s+host|this\s+machine|this\s+server|local\s+system)\b/i.test(raw);
+  const requestsSamePort = /\b(same\s+port|that\s+port|previous\s+port)\b/i.test(raw);
+  const layerShiftMatch = raw.match(/\b(dns|tls|ssl|cert|certificate|http|https|icmp|ping|traceroute|route|arp|snmp|socket|kernel)\b/i);
+
+  // Enforce 30-minute session target staleness guard when lastTargetTimestampMs is present
+  const maxStaleMs = 30 * 60 * 1000;
+  const isSessionTargetStale =
+    typeof sessionContext.lastTargetTimestampMs === 'number' &&
+    Date.now() - sessionContext.lastTargetTimestampMs > maxStaleMs;
+
+  const sessionCandidate = !isSessionTargetStale
+    ? (sessionContext.lastValidTarget ||
+       sessionContext.lastTarget ||
+       (Array.isArray(sessionContext.targetHistory) && sessionContext.targetHistory[0]) ||
+       null)
+    : null;
+
+  const explicitTarget = (validHostMatch && validHostMatch[1]) || (refersToLocalMachine ? '127.0.0.1' : null);
+  const resolvedTarget = explicitTarget || sessionCandidate || null;
+
+  const isNewExplicitTarget = Boolean(
+    explicitTarget &&
+    sessionCandidate &&
+    String(explicitTarget).toLowerCase() !== String(sessionCandidate).toLowerCase()
+  );
+
+  const explicitPort =
+    (validHostMatch && validHostMatch[2] ? Number(validHostMatch[2]) : null) ||
+    (explicitPortMatch ? Number(explicitPortMatch[1]) : null);
+
+  const sessionLastPort =
+    Array.isArray(sessionContext.lastPorts) && sessionContext.lastPorts[0]
+      ? Number(sessionContext.lastPorts[0])
+      : null;
+
+  // Do not carry over a stale port when the operator pivots to a brand-new target unless explicitly requested
+  const resolvedPorts = explicitPort
+    ? [explicitPort]
+    : ((!isNewExplicitTarget || requestsSamePort) && sessionLastPort ? [sessionLastPort] : []);
+  const inheritedPort = resolvedPorts[0] || (isNewExplicitTarget ? null : 3000);
+
+  const requiresClarification = !resolvedTarget;
+
+  let scopeTransition = 'PRONOUN_CONTINUATION';
+  if (requiresClarification) {
+    scopeTransition = isSessionTargetStale
+      ? 'SESSION_TARGET_EXPIRED_CLARIFICATION'
+      : 'MISSING_TARGET_CLARIFICATION_REQUIRED';
+  } else if (isNewExplicitTarget || (explicitTarget && !sessionCandidate)) {
+    scopeTransition = 'NEW_TARGET_INVESTIGATION';
+  } else if (explicitPort && sessionLastPort && explicitPort !== sessionLastPort) {
+    scopeTransition = 'FOLLOW_UP_SAME_TARGET_NEW_PORT';
+  } else if (layerShiftMatch && sessionContext.lastIntent && !String(sessionContext.lastIntent).toLowerCase().includes(layerShiftMatch[1].toLowerCase())) {
+    scopeTransition = 'FOLLOW_UP_SAME_TARGET_NEW_LAYER';
+  }
+
+  const inheritedFlag = !explicitTarget && Boolean(sessionCandidate);
+
+  return {
+    target: resolvedTarget,
+    port: inheritedPort,
+    ports: resolvedPorts,
+    inherited: inheritedFlag,
+    inheritedFromSession: inheritedFlag,
+    isNewExplicitTarget,
+    scopeTransition,
+    sessionTargetExpired: isSessionTargetStale,
+    requiresClarification,
+    clarificationPrompt: requiresClarification
+      ? (isSessionTargetStale
+          ? 'Your previous session target expired (>30m ago). Which target hostname or IP address would you like me to investigate now?'
+          : 'Which target hostname or IP address would you like me to investigate? (No active target was found in your prompt or current session context.)')
+      : null
+  };
+}
+
+/**
+ * Direct Conversational Bridge to the 159-Manifest Unified Superpowers Synthesis Engine
+ * (Stage-1 Parallel Dispatch + Stage-2 Cross-Engine Epistemic Fusion + Doubt-Driven Audit).
+ */
+async function executeConversationalSuperpowersBridge(promptText = '', sessionContext = {}, options = {}) {
+  const { superpowersSkillsEngine } = require('../skills/superpowers-skills-engine');
+  const resolved = resolvePronounInheritedTarget(promptText, sessionContext);
+  const effectivePort = resolved.port || 3000;
+
+  if (resolved.requiresClarification && options.allowLocalhostFallback !== true) {
+    return {
+      resolvedTarget: null,
+      resolvedPort: effectivePort,
+      inheritedFromSession: false,
+      scopeTransition: resolved.scopeTransition,
+      sessionTargetExpired: resolved.sessionTargetExpired,
+      requiresClarification: true,
+      clarificationPrompt: resolved.clarificationPrompt,
+      synthesis: null
+    };
+  }
+
+  const effectiveTarget = resolved.target || '127.0.0.1';
+  const synthesis = await superpowersSkillsEngine.executeUnifiedSuperpowersSynthesis({
+    objective: promptText || `Conversational unified synthesis on ${effectiveTarget}:${effectivePort}`,
+    target: effectiveTarget,
+    port: effectivePort,
+    executeClosedLoop: true
+  });
+  return {
+    resolvedTarget: effectiveTarget,
+    resolvedPort: effectivePort,
+    inheritedFromSession: resolved.inheritedFromSession,
+    scopeTransition: resolved.scopeTransition,
+    sessionTargetExpired: resolved.sessionTargetExpired,
+    requiresClarification: false,
+    clarificationPrompt: null,
+    compiledContextBlock: synthesis.contextEngineeringWindow?.llmPromptContextBlock || null,
+    crossLayerSemanticInsights: synthesis.hypothesisArbitration?.crossLayerSemanticInsights || [],
+    synthesis
+  };
+}
+
 module.exports = {
   EJII_FUNCTION_DECLARATIONS,
   discoverDynamicRuntimeCapabilities,
@@ -1403,5 +1546,7 @@ module.exports = {
   answerEpistemicOrFabricQuestion,
   mapFunctionCallToExecutionPlan,
   reflectOnToolObservation,
-  runAgenticToolLoop
+  runAgenticToolLoop,
+  resolvePronounInheritedTarget,
+  executeConversationalSuperpowersBridge
 };

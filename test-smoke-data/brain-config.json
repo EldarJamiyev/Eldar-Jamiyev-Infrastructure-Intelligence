@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "brainTickIntervalMs": 5000,
+  "maxEvents": 500,
+  "maxHistory": 100,
+  "adaptiveLatencyMultiplier": 3,
+  "minimumLatencyFloorMs": 100,
+  "minBaselineSamples": 3,
+  "establishedSampleThreshold": 5,
+  "incidentPruneTimeoutMs": 300000,
+  "anomalyDriftTriggerRatio": 0.15,
+  "minEventsForSelfUpdate": 10,
+  "selfUpdateCooldownMs": 60000,
+  "watchdogWindowMs": 30000,
+  "maxConsecutiveRollbacks": 3
+}

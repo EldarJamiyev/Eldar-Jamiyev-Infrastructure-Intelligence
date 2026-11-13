@@ -59,16 +59,37 @@ async function runHeadlessUiVerificationTests() {
   // [Test 14.1b] 4 Dedicated NOC Operations Navigation Items
   console.log('[Test 14.1b] Verifying the 4 Dedicated NOC Operations Workstation Navigation Items...');
   assert.ok(indexHtml.includes('data-view="topology"'), 'Nav link data-view="topology" must exist');
-  assert.ok(indexHtml.includes('1. NOC Network Topology &amp; Dependency Graph Map') || indexHtml.includes('1. NOC Network Topology & Dependency Graph Map'), 'Nav item 1 must be present');
+  assert.ok(
+    indexHtml.includes('Network Topology &amp; Dependency Graph Map') ||
+    indexHtml.includes('Network Topology & Dependency Graph Map') ||
+    indexHtml.includes('Network Overview'),
+    'Nav item 1 (Network Overview / Topology) must be present'
+  );
   
   assert.ok(indexHtml.includes('data-view="packet-sniffer"'), 'Nav link data-view="packet-sniffer" must exist');
-  assert.ok(indexHtml.includes('2. Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector') || indexHtml.includes('2. Wireshark-Grade Live Packet Sniffer & Stream Dissector'), 'Nav item 2 must be present');
+  assert.ok(
+    indexHtml.includes('Wireshark-Grade Live Packet Sniffer &amp; Stream Dissector') ||
+    indexHtml.includes('Wireshark-Grade Live Packet Sniffer & Stream Dissector') ||
+    indexHtml.includes('Packet Analysis'),
+    'Nav item 2 (Packet Analysis / Sniffer) must be present'
+  );
 
   assert.ok(indexHtml.includes('data-view="ultra-ip-scanner"'), 'Nav link data-view="ultra-ip-scanner" must exist');
-  assert.ok(indexHtml.includes('3. Ultra IP Scanner'), 'Nav item 3 must be present');
+  assert.ok(
+    indexHtml.includes('Ultra IP Scanner') ||
+    indexHtml.includes('IP &amp; Asset Discovery') ||
+    indexHtml.includes('IP & Asset Discovery'),
+    'Nav item 3 (IP & Asset Discovery / Ultra IP Scanner) must be present'
+  );
 
   assert.ok(indexHtml.includes('data-view="pc-automation"'), 'Nav link data-view="pc-automation" must exist');
-  assert.ok(indexHtml.includes('Host Automation &amp; Audited Remediation Library') || indexHtml.includes('Host Automation & Audited Remediation Library') || indexHtml.includes('Automation library'), 'Nav item 4 must be present');
+  assert.ok(
+    indexHtml.includes('Host Automation &amp; Audited Remediation Library') ||
+    indexHtml.includes('Host Automation & Audited Remediation Library') ||
+    indexHtml.includes('Automation Library') ||
+    indexHtml.includes('Automation library'),
+    'Nav item 4 (Automation Library) must be present'
+  );
 
   // Verify app.js routing
   assert.ok(appJs.includes('renderTopologyStandaloneView'), 'app.js must call renderTopologyStandaloneView');

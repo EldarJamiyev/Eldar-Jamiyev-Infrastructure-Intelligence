@@ -7,12 +7,30 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { exec, spawn } = require('child_process');
 const { performance } = require('perf_hooks');
-const { DATA_DIR } = require('../config');
+const { DATA_DIR, HMAC_SECRET } = require('../config');
 
 const activeScriptLocks = new Set();
 const DEFAULT_SCRIPTS_DIR = process.env.EJII_SCRIPTS_DIR || 'e:\\Scripts';
+const APPROVAL_HMAC_SECRET = process.env.EJII_APPROVAL_SECRET || HMAC_SECRET;
+const operatorApprovalStore = new Map();
+
+function getVerifiedLiveGateway(overrideGatewayIp) {
+  if (overrideGatewayIp !== undefined) {
+    const clean = String(overrideGatewayIp || '').trim();
+    return (clean && clean !== 'Unknown' && clean !== '0.0.0.0') ? clean : null;
+  }
+  try {
+    const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
+    const gw = netInfo && netInfo.gatewayIp ? String(netInfo.gatewayIp).trim() : '';
+    if (gw && gw !== 'Unknown' && gw !== '0.0.0.0') {
+      return gw;
+    }
+  } catch (_) {}
+  return null;
+}
 
 /**
  * Categorize a script based on filename and content, analyzing administrative privileges and risk.
@@ -429,6 +447,27 @@ function resolveScriptPath(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
     }
   }
 
+  // Symlink & realpath containment enforcement
+  if (fs.existsSync(targetPath)) {
+    try {
+      const lstat = fs.lstatSync(targetPath);
+      if (lstat.isSymbolicLink()) {
+        const err = new Error('Access denied: Symbolic link script targets are forbidden.');
+        err.code = 'TRAVERSAL_ATTEMPT';
+        throw err;
+      }
+      const realBase = fs.realpathSync(baseDir);
+      const realTarget = fs.realpathSync(targetPath);
+      if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+        const err = new Error('Access denied: Resolved realpath escapes base scripts directory.');
+        err.code = 'TRAVERSAL_ATTEMPT';
+        throw err;
+      }
+    } catch (err) {
+      if (err.code === 'TRAVERSAL_ATTEMPT') throw err;
+    }
+  }
+
   return targetPath;
 }
 
@@ -507,13 +546,8 @@ function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
         preview = fs.readFileSync(fullPath, 'utf8');
       } catch (e) {}
 
-      let liveGateway = '192.168.31.1';
-      try {
-        const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
-        liveGateway = netInfo.gatewayIp || '192.168.31.1';
-      } catch (_) {}
-
-      if (preview.includes('10.168.195.1')) {
+      const liveGateway = getVerifiedLiveGateway();
+      if (liveGateway && preview.includes('10.168.195.1')) {
         preview = preview.replace(/10\.168\.195\.1/g, liveGateway);
       }
 
@@ -602,7 +636,7 @@ function listAutomationScripts(scriptsDir = DEFAULT_SCRIPTS_DIR) {
 /**
  * View script raw content
  */
-async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
+async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR, options = {}) {
   const fullPath = resolveScriptPath(scriptName, scriptsDir);
 
   if (!fs.existsSync(fullPath)) {
@@ -612,9 +646,9 @@ async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
   }
 
   let content = await fs.promises.readFile(fullPath, 'utf8');
-  const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
-  const liveGateway = netInfo.gatewayIp || '192.168.31.1';
-  if (content.includes('10.168.195.1')) {
+  const liveGateway = getVerifiedLiveGateway(options.gatewayIp);
+  const containsTemplateGateway = content.includes('10.168.195.1');
+  if (liveGateway && containsTemplateGateway) {
     content = content.replace(/10\.168\.195\.1/g, liveGateway);
   }
   const stat = await fs.promises.stat(fullPath);
@@ -626,20 +660,602 @@ async function getScriptContent(scriptName, scriptsDir = DEFAULT_SCRIPTS_DIR) {
     category: categorizeScript(scriptName, content),
     sizeBytes: stat.size,
     lastModified: stat.mtime.toISOString(),
+    gatewayResolved: Boolean(liveGateway),
+    gatewaySubstitutionStatus: containsTemplateGateway
+      ? (liveGateway ? 'RESOLVED_GATEWAY_SUBSTITUTED' : 'UNRESOLVED_GATEWAY_RETAINED_TEMPLATE')
+      : 'NO_GATEWAY_PLACEHOLDER',
     content
+  };
+}
+
+function sortValueKeysRecursively(val) {
+  if (Array.isArray(val)) {
+    return val.map(sortValueKeysRecursively);
+  }
+  if (val !== null && typeof val === 'object') {
+    const sorted = {};
+    for (const k of Object.keys(val).sort()) {
+      sorted[k] = sortValueKeysRecursively(val[k]);
+    }
+    return sorted;
+  }
+  return val;
+}
+
+function canonicalizeApprovalParams(params) {
+  if (params === undefined || params === null) return '';
+  if (typeof params === 'string') return params.trim();
+  if (typeof params === 'object') {
+    return JSON.stringify(sortValueKeysRecursively(params));
+  }
+  return String(params).trim();
+}
+
+/**
+ * Issues a cryptographically bound operator approval token for high-risk or elevated script execution.
+ * Binds operatorId, operatorRole, scriptName, scriptContentSha256, canonicalized params, target, and expiration timestamp.
+ */
+function issueOperatorScriptApproval(options = {}) {
+  const operatorId = String(options.operatorId || '').trim();
+  const operatorRole = String(options.operatorRole || 'OPERATOR').trim().toUpperCase();
+  const authSource = String(options.authSource || 'SERVER_SESSION_JWT').trim();
+  const scriptName = String(options.scriptName || '').trim();
+  const params = canonicalizeApprovalParams(options.params);
+  const target = String(options.target || 'local_host').trim();
+  const scriptsDir = options.scriptsDir || DEFAULT_SCRIPTS_DIR;
+  const ttlMs = Math.max(1000, Math.min(3600 * 1000, Number(options.ttlMs) || 300000));
+  const secretKey = options.hmacSecret || APPROVAL_HMAC_SECRET;
+
+  if (!operatorId || !scriptName) {
+    throw new Error('operatorId and scriptName are required to issue an operator script approval.');
+  }
+
+  let scriptContentSha256 = options.scriptContentSha256 || null;
+  if (!scriptContentSha256 && typeof options.scriptContent === 'string' && options.scriptContent.length > 0) {
+    scriptContentSha256 = crypto.createHash('sha256').update(options.scriptContent, 'utf8').digest('hex');
+  }
+  if (!scriptContentSha256) {
+    let fullPath = null;
+    try {
+      fullPath = resolveScriptPath(scriptName, scriptsDir);
+    } catch (pathErr) {
+      return {
+        issued: false,
+        valid: false,
+        reasonCode: 'APPROVAL_SCRIPT_PATH_INVALID',
+        error: pathErr.message
+      };
+    }
+    if (fullPath && fs.existsSync(fullPath)) {
+      const rawContent = fs.readFileSync(fullPath, 'utf8');
+      scriptContentSha256 = crypto.createHash('sha256').update(rawContent, 'utf8').digest('hex');
+    } else {
+      if (options.strict === true) {
+        throw new Error(`Cannot issue operator approval for nonexistent script "${scriptName}" in ${scriptsDir}.`);
+      }
+      return {
+        issued: false,
+        valid: false,
+        reasonCode: 'APPROVAL_SCRIPT_NOT_FOUND',
+        error: `Cannot issue cryptographic approval for nonexistent script "${scriptName}": file does not exist in ${scriptsDir} and no explicit scriptContent or scriptContentSha256 was provided.`
+      };
+    }
+  }
+
+  const approvalId = `appr_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+  const issuedAt = new Date().toISOString();
+  const expiresAtMs = Date.now() + ttlMs;
+  const payloadStr = `${approvalId}|${operatorId}|${operatorRole}|${scriptName}|${scriptContentSha256}|${params}|${target}|${expiresAtMs}`;
+  const signature = crypto.createHmac('sha256', secretKey).update(payloadStr).digest('hex');
+  const approvalToken = `${approvalId}.${signature}`;
+
+  let persistenceStatus = 'VOLATILE_MEMORY_ONLY';
+  let persistenceError = null;
+  try {
+    const targetDb = options.db !== undefined ? options.db : require('../db/database').db;
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      targetDb.prepare(`
+        INSERT OR REPLACE INTO operator_approval_ledger (
+          approval_id, approval_token, operator_id, operator_role, auth_source,
+          script_name, script_sha256, params_json, target, issued_at,
+          expires_at_ms, consumed_at, revoked_at, revoked_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+      `).run(
+        approvalId,
+        approvalToken,
+        operatorId,
+        operatorRole,
+        authSource,
+        scriptName,
+        scriptContentSha256,
+        JSON.stringify({ params, scriptsDir }),
+        target,
+        issuedAt,
+        expiresAtMs
+      );
+      try {
+        targetDb.prepare(`
+          INSERT OR REPLACE INTO operator_script_approvals (
+            approval_id, operator_id, operator_role, script_name, script_sha256,
+            params_json, target, issued_at, expires_at_ms, consumed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(
+          approvalId,
+          operatorId,
+          operatorRole,
+          scriptName,
+          scriptContentSha256,
+          JSON.stringify({ params, scriptsDir }),
+          target,
+          issuedAt,
+          expiresAtMs
+        );
+      } catch (_) {}
+      persistenceStatus = 'DURABLE_SQLITE_WAL';
+    }
+  } catch (dbErr) {
+    persistenceStatus = 'PERSISTENCE_WRITE_FAILED';
+    persistenceError = dbErr.message;
+  }
+
+  const record = {
+    issued: true,
+    approvalId,
+    approvalToken,
+    operatorId,
+    operatorRole,
+    authSource,
+    scriptName,
+    scriptContentSha256,
+    params,
+    target,
+    scriptsDir,
+    issuedAt,
+    expiresAtMs,
+    consumedAt: null,
+    revokedAt: null,
+    persistenceStatus,
+    persistenceError
+  };
+  operatorApprovalStore.set(approvalId, record);
+
+  return record;
+}
+
+/**
+ * Atomically marks an operator approval token as consumed (single-use replay protection).
+ * Uses a conditional SQLite UPDATE so concurrent or repeated consumption attempts fail closed.
+ */
+function consumeOperatorScriptApproval(approvalIdOrToken, options = {}) {
+  if (!approvalIdOrToken) return { consumed: false, reasonCode: 'MISSING_APPROVAL_ID' };
+  const approvalId = String(approvalIdOrToken).split('.')[0];
+  const record = operatorApprovalStore.get(approvalId);
+  const consumedAt = new Date().toISOString();
+
+  if (record && record.revokedAt) {
+    return {
+      consumed: false,
+      approvalId,
+      revokedAt: record.revokedAt,
+      reasonCode: 'APPROVAL_TOKEN_REVOKED'
+    };
+  }
+  if (record && record.consumedAt) {
+    return {
+      consumed: false,
+      approvalId,
+      consumedAt: record.consumedAt,
+      reasonCode: 'APPROVAL_TOKEN_ALREADY_CONSUMED'
+    };
+  }
+
+  let dbUpdated = false;
+  let dbPresent = false;
+  try {
+    const targetDb = options.db !== undefined ? options.db : require('../db/database').db;
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      const existingRow = targetDb.prepare('SELECT approval_id, consumed_at, revoked_at FROM operator_approval_ledger WHERE approval_id = ?').get(approvalId);
+      if (existingRow) {
+        dbPresent = true;
+        const info = targetDb.prepare(`
+          UPDATE operator_approval_ledger
+          SET consumed_at = ?
+          WHERE approval_id = ? AND consumed_at IS NULL AND revoked_at IS NULL
+        `).run(consumedAt, approvalId);
+        dbUpdated = Boolean(info && info.changes === 1);
+      }
+      try {
+        targetDb.prepare(`
+          UPDATE operator_script_approvals
+          SET consumed_at = ?
+          WHERE approval_id = ? AND consumed_at IS NULL
+        `).run(consumedAt, approvalId);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  if (dbPresent && !dbUpdated) {
+    if (record && !record.consumedAt) {
+      record.consumedAt = consumedAt;
+    }
+    return {
+      consumed: false,
+      approvalId,
+      reasonCode: 'APPROVAL_TOKEN_ALREADY_CONSUMED'
+    };
+  }
+
+  if (record) {
+    record.consumedAt = consumedAt;
+  }
+
+  return {
+    consumed: true,
+    approvalId,
+    consumedAt,
+    reasonCode: 'APPROVAL_CONSUMED_ATOMICALLY'
+  };
+}
+
+/**
+ * Explicitly revokes an issued operator script approval token before execution.
+ */
+function revokeOperatorScriptApproval(approvalIdOrToken, reason = 'OPERATOR_REVOKED', options = {}) {
+  if (!approvalIdOrToken) return { revoked: false, reasonCode: 'MISSING_APPROVAL_ID' };
+  const approvalId = String(approvalIdOrToken).split('.')[0];
+  let record = operatorApprovalStore.get(approvalId);
+  const revokedAt = new Date().toISOString();
+  if (record) {
+    record.revokedAt = revokedAt;
+    record.revokedReason = reason;
+  } else {
+    record = { approvalId, revokedAt, revokedReason: reason };
+    operatorApprovalStore.set(approvalId, record);
+  }
+  try {
+    const targetDb = options.db !== undefined ? options.db : require('../db/database').db;
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      targetDb.prepare(`
+        UPDATE operator_approval_ledger
+        SET revoked_at = ?, revoked_reason = ?
+        WHERE approval_id = ?
+      `).run(revokedAt, String(reason), approvalId);
+      try {
+        targetDb.prepare('UPDATE operator_script_approvals SET consumed_at = ? WHERE approval_id = ?').run(`REVOKED:${revokedAt}`, approvalId);
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return { revoked: true, approvalId, revokedAt, reason };
+}
+
+/**
+ * Verifies a bound operator approval token against the exact script, live on-disk content SHA-256,
+ * parameters, target, role, single-use state, and expiry.
+ */
+function verifyOperatorScriptApproval(approvalTokenOrOptions, expectedArg = {}) {
+  let approvalToken = approvalTokenOrOptions;
+  let expected = expectedArg || {};
+  if (approvalTokenOrOptions && typeof approvalTokenOrOptions === 'object') {
+    expected = approvalTokenOrOptions;
+    approvalToken = approvalTokenOrOptions.approvalToken;
+  }
+
+  if (!approvalToken || typeof approvalToken !== 'string' || !approvalToken.includes('.')) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'UNVERIFIED_OPERATOR_APPROVAL_PROVENANCE',
+      message: 'Missing or malformed cryptographic operator approval token.'
+    };
+  }
+  const [approvalId, providedSig] = approvalToken.split('.');
+  const skipCache = expected.skipInMemoryCache === true || expected.db !== undefined;
+  let record = skipCache ? null : operatorApprovalStore.get(approvalId);
+
+  // Lookup from SQLite operator_approval_ledger (or legacy operator_script_approvals)
+  try {
+    const targetDb = expected.db !== undefined ? expected.db : require('../db/database').db;
+    if (targetDb && typeof targetDb.prepare === 'function') {
+      const ledgerRow = targetDb.prepare('SELECT * FROM operator_approval_ledger WHERE approval_id = ?').get(approvalId);
+      if (ledgerRow) {
+        let parsedParams = '';
+        let savedScriptsDir = null;
+        try {
+          const pObj = JSON.parse(ledgerRow.params_json || '{}');
+          parsedParams = typeof pObj.params === 'string' ? pObj.params : canonicalizeApprovalParams(pObj.params);
+          savedScriptsDir = pObj.scriptsDir || null;
+        } catch (_) {}
+        record = {
+          approvalId: ledgerRow.approval_id,
+          approvalToken: ledgerRow.approval_token,
+          operatorId: ledgerRow.operator_id,
+          operatorRole: ledgerRow.operator_role,
+          authSource: ledgerRow.auth_source || 'SERVER_SESSION_JWT',
+          scriptName: ledgerRow.script_name,
+          scriptContentSha256: ledgerRow.script_sha256,
+          params: parsedParams,
+          target: ledgerRow.target,
+          scriptsDir: savedScriptsDir,
+          issuedAt: ledgerRow.issued_at,
+          expiresAtMs: Number(ledgerRow.expires_at_ms),
+          consumedAt: ledgerRow.consumed_at || (record ? record.consumedAt : null),
+          revokedAt: ledgerRow.revoked_at || (record ? record.revokedAt : null),
+          revokedReason: ledgerRow.revoked_reason || (record ? record.revokedReason : null)
+        };
+        operatorApprovalStore.set(approvalId, record);
+      } else if (!record) {
+        const row = targetDb.prepare('SELECT * FROM operator_script_approvals WHERE approval_id = ?').get(approvalId);
+        if (row) {
+          let parsedParams = '';
+          let savedScriptsDir = null;
+          try {
+            const pObj = JSON.parse(row.params_json || '{}');
+            parsedParams = typeof pObj.params === 'string' ? pObj.params : canonicalizeApprovalParams(pObj.params);
+            savedScriptsDir = pObj.scriptsDir || null;
+          } catch (_) {}
+          const isRevoked = typeof row.consumed_at === 'string' && row.consumed_at.startsWith('REVOKED:');
+          record = {
+            approvalId: row.approval_id,
+            operatorId: row.operator_id,
+            operatorRole: row.operator_role,
+            scriptName: row.script_name,
+            scriptContentSha256: row.script_sha256,
+            params: parsedParams,
+            target: row.target,
+            scriptsDir: savedScriptsDir,
+            issuedAt: row.issued_at,
+            expiresAtMs: Number(row.expires_at_ms),
+            consumedAt: isRevoked ? null : (row.consumed_at || null),
+            revokedAt: isRevoked ? row.consumed_at.replace(/^REVOKED:/, '') : null
+          };
+          operatorApprovalStore.set(approvalId, record);
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (!record) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_TOKEN_NOT_FOUND',
+      message: `Operator approval token "${approvalId}" was not found in the authorization ledger.`
+    };
+  }
+
+  if (record.revokedAt) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_TOKEN_REVOKED',
+      message: `Operator approval token "${approvalId}" was explicitly revoked at ${record.revokedAt}.`
+    };
+  }
+
+  if (record.consumedAt) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_TOKEN_ALREADY_CONSUMED',
+      message: `Single-use operator approval token "${approvalId}" was already consumed at ${record.consumedAt} (replay blocked).`
+    };
+  }
+
+  const secretKey = expected.hmacSecret || APPROVAL_HMAC_SECRET;
+  const payloadStr = `${record.approvalId}|${record.operatorId}|${record.operatorRole}|${record.scriptName}|${record.scriptContentSha256}|${record.params}|${record.target}|${record.expiresAtMs}`;
+  const expectedSig = crypto.createHmac('sha256', secretKey).update(payloadStr).digest('hex');
+  if (providedSig !== expectedSig) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_SIGNATURE_INVALID',
+      message: 'Cryptographic HMAC signature verification failed for operator approval token.'
+    };
+  }
+
+  if (Date.now() > record.expiresAtMs) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_TOKEN_EXPIRED',
+      message: 'Operator approval token has expired.'
+    };
+  }
+
+  if (expected.scriptName && record.scriptName !== expected.scriptName) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_SCRIPT_MISMATCH',
+      message: `Approval token is bound to script "${record.scriptName}", not "${expected.scriptName}".`
+    };
+  }
+
+  let liveExpectedHash = expected.scriptContentSha256 || null;
+  if (!liveExpectedHash && typeof expected.scriptContent === 'string' && expected.scriptContent.length > 0) {
+    liveExpectedHash = crypto.createHash('sha256').update(expected.scriptContent, 'utf8').digest('hex');
+  }
+  if (!liveExpectedHash) {
+    const checkScriptsDir = expected.scriptsDir || record.scriptsDir || DEFAULT_SCRIPTS_DIR;
+    try {
+      const fullPath = resolveScriptPath(expected.scriptName || record.scriptName, checkScriptsDir);
+      if (fullPath && fs.existsSync(fullPath)) {
+        const rawContent = fs.readFileSync(fullPath, 'utf8');
+        liveExpectedHash = crypto.createHash('sha256').update(rawContent, 'utf8').digest('hex');
+      }
+    } catch (_) {}
+  }
+
+  if (liveExpectedHash && record.scriptContentSha256 !== liveExpectedHash) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_SCRIPT_HASH_MISMATCH',
+      message: 'Script content SHA-256 has changed since operator approval was issued.'
+    };
+  }
+
+  const expectedParams = canonicalizeApprovalParams(expected.params);
+  if (record.params !== expectedParams) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_PARAMS_MISMATCH',
+      message: 'Execution parameters do not match the parameters bound in the operator approval token.'
+    };
+  }
+
+  if (expected.target && record.target !== expected.target) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_TARGET_MISMATCH',
+      message: `Execution target "${expected.target}" does not match approved target "${record.target}".`
+    };
+  }
+
+  if (expected.operatorId && record.operatorId !== expected.operatorId) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_OPERATOR_MISMATCH',
+      message: `Approval token was issued to operator "${record.operatorId}", not "${expected.operatorId}".`
+    };
+  }
+
+  if (expected.operatorRole && record.operatorRole !== String(expected.operatorRole).trim().toUpperCase()) {
+    return {
+      valid: false,
+      verified: false,
+      reasonCode: 'APPROVAL_ROLE_MISMATCH',
+      message: `Approval token role "${record.operatorRole}" does not match execution role "${expected.operatorRole}".`
+    };
+  }
+
+  let consumed = false;
+  if (expected.consumeOnVerify === true) {
+    const consumeRes = consumeOperatorScriptApproval(record.approvalId, { db: expected.db });
+    if (!consumeRes || consumeRes.consumed !== true) {
+      return {
+        valid: false,
+        verified: false,
+        reasonCode: (consumeRes && consumeRes.reasonCode) || 'APPROVAL_TOKEN_ALREADY_CONSUMED',
+        message: `Single-use operator approval token "${record.approvalId}" could not be atomically consumed (already used or revoked).`
+      };
+    }
+    consumed = true;
+  }
+
+  return {
+    valid: true,
+    verified: true,
+    consumed,
+    reasonCode: 'BOUND_OPERATOR_APPROVAL_VERIFIED',
+    approvalRecord: record
+  };
+}
+
+/**
+ * Evaluates execution policy and privilege boundaries before running any automation script.
+ * Blocks shell metacharacter injection in parameters, prevents AI-autonomous execution of
+ * elevated/high-risk scripts, and enforces explicit operator confirmation when required.
+ */
+function evaluateScriptExecutionPolicy(scriptMeta, options = {}) {
+  const paramsStr = canonicalizeApprovalParams(options.params);
+  if (paramsStr && /[;&|`$><\r\n]/.test(paramsStr)) {
+    return {
+      allowed: false,
+      reasonCode: 'SHELL_METACHARACTER_INJECTION_BLOCKED',
+      message: 'Blocked execution: script parameters contain forbidden shell metacharacters.',
+      requiresElevation: Boolean(scriptMeta?.requiresElevation),
+      riskLevel: scriptMeta?.riskLevel || 'UNKNOWN'
+    };
+  }
+
+  const requiresElevation = Boolean(scriptMeta?.requiresElevation);
+  const riskLevel = scriptMeta?.riskLevel || 'LOW';
+  const isHighOrCritical = riskLevel === 'CRITICAL' || riskLevel === 'HIGH' || requiresElevation;
+
+  if (options.initiatedByAi === true && isHighOrCritical) {
+    return {
+      allowed: false,
+      reasonCode: 'AI_AUTONOMOUS_PRIVILEGED_EXECUTION_FORBIDDEN',
+      message: `Blocked autonomous AI execution of privileged/high-risk script (${riskLevel}, privilege: ${scriptMeta?.privilegeRequirement || 'Administrator'}). Human operator confirmation is mandatory.`,
+      requiresElevation,
+      riskLevel
+    };
+  }
+
+  const needsOperatorApproval =
+    riskLevel === 'CRITICAL' || (requiresElevation && options.requireExplicitApproval === true) || options.requireBoundApprovalToken === true;
+
+  if (needsOperatorApproval) {
+    if (options.requireBoundApprovalToken === true || options.approvalToken) {
+      const verification = verifyOperatorScriptApproval(options.approvalToken, {
+        scriptName: options.scriptName,
+        scriptContentSha256: options.scriptContentSha256,
+        params: paramsStr,
+        target: options.target,
+        operatorId: options.operatorId,
+        operatorRole: options.operatorRole,
+        consumeOnVerify: options.consumeApprovalOnVerify === true
+      });
+      if (!verification.valid) {
+        return {
+          allowed: false,
+          reasonCode: verification.reasonCode || 'UNVERIFIED_OPERATOR_APPROVAL_PROVENANCE',
+          message: verification.message,
+          requiresElevation,
+          riskLevel
+        };
+      }
+      return {
+        allowed: true,
+        reasonCode: 'BOUND_OPERATOR_APPROVAL_VERIFIED',
+        message: 'Script execution permitted with verified cryptographic operator approval binding.',
+        requiresElevation,
+        riskLevel,
+        approvalId: verification.approvalRecord.approvalId,
+        operatorId: verification.approvalRecord.operatorId
+      };
+    }
+
+    if (options.explicitOperatorApproval !== true) {
+      return {
+        allowed: false,
+        reasonCode: 'PRIVILEGE_BOUNDARY_HOLD',
+        message: `Execution held at privilege boundary: script requires ${scriptMeta?.privilegeRequirement || 'Administrator'} elevation (${riskLevel} risk) and explicit operator approval.`,
+        requiresElevation,
+        riskLevel
+      };
+    }
+  }
+
+  return {
+    allowed: true,
+    reasonCode: 'POLICY_APPROVED',
+    message: 'Script execution permitted within privilege policy boundaries.',
+    requiresElevation,
+    riskLevel
   };
 }
 
 /**
  * Execute automation script via PowerShell or CMD
  */
-async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIPTS_DIR) {
+async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIPTS_DIR, options = {}) {
   if (activeScriptLocks.has(scriptName)) {
     throw new Error(`Script "${scriptName}" is already actively executing (Atomic execution lock engaged).`);
   }
   activeScriptLocks.add(scriptName);
 
-  const fullPath = resolveScriptPath(scriptName, scriptsDir);
+  let fullPath;
+  try {
+    fullPath = resolveScriptPath(scriptName, scriptsDir);
+  } catch (err) {
+    activeScriptLocks.delete(scriptName);
+    throw err;
+  }
 
   if (!fs.existsSync(fullPath)) {
     activeScriptLocks.delete(scriptName);
@@ -649,10 +1265,68 @@ async function executeScript(scriptName, params = '', scriptsDir = DEFAULT_SCRIP
   }
 
   let content = await fs.promises.readFile(fullPath, 'utf8');
-  const netInfo = require('../network/routing/physical-network-detector').getPhysicalNetworkInfo();
-  const liveGateway = netInfo.gatewayIp || '192.168.31.1';
+  const scriptContentSha256 = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
+  const scriptMeta = categorizeScript(scriptName, content);
+  const policyCheck = evaluateScriptExecutionPolicy(scriptMeta, {
+    ...options,
+    scriptName,
+    scriptContentSha256,
+    params: typeof params === 'string' ? params : (options.params || '')
+  });
+
+  if (!policyCheck.allowed) {
+    activeScriptLocks.delete(scriptName);
+    const blockedRecord = {
+      executionId: 'EXEC-BLOCKED-' + Date.now(),
+      scriptName,
+      timestamp: new Date().toISOString(),
+      exitCode: 126,
+      durationMs: 0,
+      success: false,
+      blockedByPolicy: true,
+      policyDecision: policyCheck,
+      executionType: detectScriptType(scriptName, content),
+      stdout: '',
+      stderr: policyCheck.message
+    };
+    executionLedger.push(blockedRecord);
+    if (executionLedger.length > MAX_LEDGER_ENTRIES) {
+      executionLedger.shift();
+    }
+    return blockedRecord;
+  }
+
+  // Consume single-use approval token upon authorized execution start
+  if (policyCheck.approvalId && options.consumeApprovalOnExecute !== false) {
+    consumeOperatorScriptApproval(policyCheck.approvalId);
+  }
+
+  const liveGateway = getVerifiedLiveGateway(options.gatewayIp);
   if (content.includes('10.168.195.1')) {
-    content = content.replace(/10\.168\.195\.1/g, liveGateway);
+    if (liveGateway) {
+      content = content.replace(/10\.168\.195\.1/g, liveGateway);
+    } else if (options.requireResolvedGateway === true) {
+      activeScriptLocks.delete(scriptName);
+      const gwHoldRecord = {
+        executionId: 'EXEC-GW-HOLD-' + Date.now(),
+        scriptName,
+        timestamp: new Date().toISOString(),
+        exitCode: 126,
+        durationMs: 0,
+        success: false,
+        blockedByPolicy: true,
+        policyDecision: {
+          allowed: false,
+          reasonCode: 'MISSING_GATEWAY_CONFIGURATION',
+          message: 'Script references default gateway placeholder (10.168.195.1), but no verified default gateway was discovered in the host routing table.'
+        },
+        executionType: detectScriptType(scriptName, content),
+        stdout: '',
+        stderr: 'Execution held: missing verified default gateway configuration.'
+      };
+      executionLedger.push(gwHoldRecord);
+      return gwHoldRecord;
+    }
   }
   const activeDir = path.dirname(fullPath);
   const executionType = detectScriptType(scriptName, content);
@@ -861,6 +1535,12 @@ const scriptAutomation = {
   getActiveScriptsDirectory,
   getMountMetadata,
   categorizeScript,
+  canonicalizeApprovalParams,
+  issueOperatorScriptApproval,
+  verifyOperatorScriptApproval,
+  consumeOperatorScriptApproval,
+  revokeOperatorScriptApproval,
+  evaluateScriptExecutionPolicy,
   detectScriptType,
   cleanScriptTitle,
   resolveScriptPath,
@@ -876,6 +1556,12 @@ module.exports = {
   getActiveScriptsDirectory,
   getMountMetadata,
   categorizeScript,
+  canonicalizeApprovalParams,
+  issueOperatorScriptApproval,
+  verifyOperatorScriptApproval,
+  consumeOperatorScriptApproval,
+  revokeOperatorScriptApproval,
+  evaluateScriptExecutionPolicy,
   detectScriptType,
   cleanScriptTitle,
   resolveScriptPath,

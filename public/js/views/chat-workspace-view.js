@@ -10,16 +10,27 @@
 (function () {
   'use strict';
 
-  const esc = (s) => (typeof window.escapeHtml === 'function' ? window.escapeHtml(s) : String(s ?? ''));
+  const esc = (s) => (
+    typeof window.escapeHtml === 'function'
+      ? window.escapeHtml(s)
+      : String(s ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;')
+  );
 
   const STARTER_PROMPTS = [
-    'Something is wrong with our infrastructure. Find out what is causing the problem.',
-    'Why is this server configured differently from the other servers?',
-    'Check whether port 3000 is open on localhost',
-    'Check DNS for example.com',
-    'SYNTRA could not start: Service did not become ready at http://127.0.0.1:3000/ while listening on http://127.0.0.1:3001 {"error":"Route not found."}',
-    'Give me an operational intelligence briefing on active regressions and learned playbooks'
+    'Check whether port 443 is reachable.',
+    'Why is the website not responding?',
+    'Check DNS resolution for this hostname.',
+    'Compare the previous network result.',
+    'Explain the timeout in simple terms.',
+    'Check whether port 3000 is open on localhost'
   ];
+
+  const STARTER_PROMPT_TAGS = ['TCP', 'HTTP', 'DNS', 'Compare', 'Explain', 'Local'];
 
   const chatState = {
     sessionId: null,
@@ -55,15 +66,12 @@
   async function ensureChatAuthToken() {
     let token = (window.state && window.state.token) || localStorage.getItem('ejii_token');
     if (token) return token;
+    if (window.isEvaluationMode !== true) return null;
     try {
-      const uEl = document.getElementById('loginUsername');
-      const pEl = document.getElementById('loginPassword');
-      const username = (uEl && uEl.value) ? uEl.value.trim() : 'admin';
-      const password = (pEl && pEl.value) ? pEl.value : 'admin2026!';
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/quick-noc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({})
       });
       if (res.ok) {
         const data = await res.json().catch(() => null);
@@ -121,25 +129,207 @@
     }
   }
 
+  function formatInlineMarkdown(str) {
+    const raw = String(str || '').replace(/\u0000/g, '');
+    const inlineCodeSpans = [];
+    const withCodeTokens = raw.replace(/`([^`\n]+)`/g, (_, codeText) => {
+      const idx = inlineCodeSpans.length;
+      inlineCodeSpans.push(`<code>${esc(codeText)}</code>`);
+      return `\u0000EJII_INLINE_CODE_${idx}\u0000`;
+    });
+    let safe = esc(withCodeTokens);
+    safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    safe = safe.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    safe = safe.replace(/\u0000EJII_INLINE_CODE_(\d+)\u0000/g, (_, idxStr) => {
+      return inlineCodeSpans[Number(idxStr)] || '';
+    });
+    return safe;
+  }
+
+  async function copyTextToClipboardVerified(text) {
+    const payload = String(text || '');
+    if (!payload) {
+      return { copied: false, method: 'none', error: 'EMPTY_TEXT' };
+    }
+    let lastError = null;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(payload);
+        return { copied: true, method: 'clipboard_api' };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (
+      typeof document !== 'undefined' &&
+      document.body &&
+      typeof document.createElement === 'function' &&
+      typeof document.execCommand === 'function'
+    ) {
+      let ta = null;
+      try {
+        ta = document.createElement('textarea');
+        ta.value = payload;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        if (typeof ta.select === 'function') ta.select();
+        const ok = document.execCommand('copy') === true;
+        document.body.removeChild(ta);
+        if (ok) {
+          return { copied: true, method: 'exec_command_fallback' };
+        }
+      } catch (fallbackErr) {
+        lastError = lastError || fallbackErr;
+        if (ta && ta.parentNode) {
+          try { ta.parentNode.removeChild(ta); } catch (_) {}
+        }
+      }
+    }
+    return {
+      copied: false,
+      method: 'none',
+      error: lastError && lastError.message ? lastError.message : 'CLIPBOARD_UNAVAILABLE'
+    };
+  }
+
+  window.copyTextToClipboardVerified = copyTextToClipboardVerified;
+
+  window.copyEjiiCodeBlock = async function (btnEl) {
+    if (!btnEl) return { copied: false, error: 'MISSING_BUTTON' };
+    const wrap = typeof btnEl.closest === 'function' ? btnEl.closest('.ejii-code-block-wrap') : null;
+    const codeEl = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('code') : null;
+    const text = codeEl ? codeEl.textContent : (btnEl.dataset && btnEl.dataset.copyText ? btnEl.dataset.copyText : '');
+    if (!text) return { copied: false, error: 'EMPTY_CODE' };
+    const prevLabel = btnEl.dataset && btnEl.dataset.originalLabel ? btnEl.dataset.originalLabel : (btnEl.textContent || 'Copy');
+    if (btnEl.dataset && !btnEl.dataset.originalLabel) {
+      btnEl.dataset.originalLabel = prevLabel;
+    }
+    const result = await copyTextToClipboardVerified(text);
+    if (result.copied) {
+      btnEl.textContent = '✓ Copied';
+      if (btnEl.dataset) btnEl.dataset.copyState = 'copied';
+      if (typeof btnEl.setAttribute === 'function') btnEl.setAttribute('aria-label', 'Code copied to clipboard');
+    } else {
+      btnEl.textContent = '✕ Copy failed';
+      if (btnEl.dataset) btnEl.dataset.copyState = 'failed';
+      if (typeof btnEl.setAttribute === 'function') btnEl.setAttribute('aria-label', 'Failed to copy code to clipboard');
+    }
+    setTimeout(() => {
+      btnEl.textContent = prevLabel;
+      if (btnEl.dataset) delete btnEl.dataset.copyState;
+    }, 1800);
+    return result;
+  };
+
+  window.copyEjiiReportText = async function (btnEl, reportText) {
+    if (!btnEl) return { copied: false, error: 'MISSING_BUTTON' };
+    const prevLabel = btnEl.dataset && btnEl.dataset.originalLabel ? btnEl.dataset.originalLabel : (btnEl.textContent || 'Copy Incident Report');
+    if (btnEl.dataset && !btnEl.dataset.originalLabel) {
+      btnEl.dataset.originalLabel = prevLabel;
+    }
+    const result = await copyTextToClipboardVerified(reportText);
+    if (result.copied) {
+      btnEl.textContent = '✓ Report Copied';
+      if (btnEl.dataset) btnEl.dataset.copyState = 'copied';
+    } else {
+      btnEl.textContent = '✕ Copy failed';
+      if (btnEl.dataset) btnEl.dataset.copyState = 'failed';
+    }
+    setTimeout(() => {
+      btnEl.textContent = prevLabel;
+      if (btnEl.dataset) delete btnEl.dataset.copyState;
+    }, 2000);
+    return result;
+  };
+
+  window.clearEjiiChatTargetContext = function () {
+    chatState.lastContext = null;
+    updateThreadDom();
+    const inp = document.getElementById('ejiiChatInput');
+    if (inp) inp.focus();
+  };
+
   function formatStructuredMarkdown(text) {
-    const raw = String(text || '');
-    const paragraphs = raw.split(/\n\n+/).filter(Boolean);
+    const raw = String(text || '').replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
+    if (!raw.trim()) return '';
+
+    // Extract fenced code blocks first (supporting LF/CRLF, optional language tag, and unclosed trailing fences)
+    const codeBlocks = [];
+    const pushCodeBlock = (lang, code) => {
+      const idx = codeBlocks.length;
+      const cleanLang = (lang || 'shell').trim() || 'shell';
+      codeBlocks.push(`
+        <div class="ejii-code-block-wrap">
+          <div class="ejii-code-block-header">
+            <span>${esc(cleanLang)}</span>
+            <button type="button" class="ejii-code-copy-btn" onclick="window.copyEjiiCodeBlock(this)">Copy</button>
+          </div>
+          <pre class="ejii-code-pre"><code>${esc(String(code || '').replace(/^\n+|\n+$/g, ''))}</code></pre>
+        </div>
+      `);
+      return `\n\n\u0000EJII_CODE_BLOCK_${idx}\u0000\n\n`;
+    };
+
+    let withPlaceholders = raw.replace(/```([a-zA-Z0-9_.-]*)[ \t]*\n([\s\S]*?)```/g, (_, lang, code) => {
+      return pushCodeBlock(lang, code);
+    });
+    // Also handle unclosed trailing fenced code blocks at the end of a message
+    withPlaceholders = withPlaceholders.replace(/```([a-zA-Z0-9_.-]*)[ \t]*\n([\s\S]+)$/g, (_, lang, code) => {
+      return pushCodeBlock(lang, code);
+    });
+
+    const paragraphs = withPlaceholders.split(/\n\n+/).filter(Boolean);
     return paragraphs.map((p) => {
       const trimmed = p.trim();
+      const codeMatch = trimmed.match(/^\u0000EJII_CODE_BLOCK_(\d+)\u0000$/);
+      if (codeMatch) {
+        return codeBlocks[Number(codeMatch[1])] || '';
+      }
+
+      // Executive hierarchy callouts: **Result:**, **Meaning:**, **Next step:**
+      const execMatch = trimmed.match(/^\*\*(Result|Meaning|Next step|Direct Answer|Root Cause|Recommended Action):\*\*\s*([\s\S]*)$/i);
+      if (execMatch) {
+        const rawLabel = execMatch[1];
+        const bodyText = (execMatch[2] || '').trim();
+        if (!bodyText || /^(none|n\/a|not applicable|-)$/i.test(bodyText)) {
+          return '';
+        }
+        const lowerLabel = rawLabel.toLowerCase();
+        const modClass = lowerLabel.includes('result') || lowerLabel.includes('answer')
+          ? 'ejii-exec-callout-result'
+          : lowerLabel.includes('next') || lowerLabel.includes('action')
+            ? 'ejii-exec-callout-next'
+            : 'ejii-exec-callout-meaning';
+        return `
+          <div class="ejii-exec-callout-block ${modClass}">
+            <span class="ejii-exec-callout-label">${esc(rawLabel)}:</span>
+            <span>${formatInlineMarkdown(bodyText).replace(/\n/g, '<br>')}</span>
+          </div>
+        `;
+      }
+
+      // Bulleted or numbered lists
+      const lines = trimmed.split('\n');
+      const isBulletList = lines.length > 0 && lines.every((l) => /^\s*[-*•]\s+/.test(l));
+      if (isBulletList) {
+        const items = lines.map((l) => `<li>${formatInlineMarkdown(l.replace(/^\s*[-*•]\s+/, ''))}</li>`).join('');
+        return `<ul class="ejii-answer-list">${items}</ul>`;
+      }
+      const isNumberedList = lines.length > 1 && lines.every((l) => /^\s*\d+\.\s+/.test(l));
+      if (isNumberedList) {
+        const items = lines.map((l) => `<li>${formatInlineMarkdown(l.replace(/^\s*\d+\.\s+/, ''))}</li>`).join('');
+        return `<ol class="ejii-answer-list">${items}</ol>`;
+      }
+
       const isCallout = trimmed.startsWith('> ');
       const isHeading = /^#{1,4}\s+/.test(trimmed);
       const contentText = isCallout
         ? trimmed.slice(2)
         : (isHeading ? trimmed.replace(/^#{1,4}\s+/, '') : trimmed);
-      let safe = esc(contentText);
-      // Format **bold**
-      safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      // Format *italic*
-      safe = safe.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      // Format `code`
-      safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // Format newline inside paragraph
-      safe = safe.replace(/\n/g, '<br>');
+      const safe = formatInlineMarkdown(contentText).replace(/\n/g, '<br>');
       if (isCallout) {
         return `<div class="ejii-answer-section ejii-callout-surface">${safe}</div>`;
       }
@@ -149,6 +339,9 @@
       return `<p class="ejii-answer-section">${safe}</p>`;
     }).join('');
   }
+
+  window.formatEjiiChatMarkdown = formatStructuredMarkdown;
+  window.formatEjiiInlineMarkdown = formatInlineMarkdown;
 
   function renderMessageItem(msg) {
     if (msg.role === 'user') {
@@ -373,7 +566,7 @@
           <button
             type="button"
             class="ejii-header-btn"
-            onclick="navigator.clipboard && navigator.clipboard.writeText(${esc(JSON.stringify(meta.reportMarkdown))}); this.textContent = '✓ Report Copied';"
+            onclick="window.copyEjiiReportText(this, ${esc(JSON.stringify(meta.reportMarkdown))})"
           >
             Copy Incident Report
           </button>
@@ -537,12 +730,12 @@
             <strong>6-Specialist Collaborative Consensus (${esc(collab.consensusConfidencePct)}% · ${esc(collab.observedDomainCount ?? collab.specialistCount ?? 6)}/${esc(collab.specialistCount || 6)} Observed Domains):</strong> ${esc(collab.unifiedDiagnosis)}
           </div>
           ${collab.evidenceWeightingRationale ? `
-            <div class="ejii-memory-note" style="font-size: 11px; color: #64748b;">
+            <div class="ejii-memory-note ejii-text-muted-sm">
               <strong>Evidence Weighting &amp; Calibration:</strong> ${esc(collab.evidenceWeightingRationale)}
             </div>
           ` : ''}
           ${collab.compoundMultiCauseAnalysis?.isCompoundIncident ? `
-            <div class="ejii-memory-note" style="color: #b45309;">
+            <div class="ejii-memory-note ejii-text-warning-strong">
               <strong>Compound Multi-Cause Incident Detected (${esc(collab.compoundMultiCauseAnalysis.activeFaultCount)} concurrent faults):</strong> ${esc(collab.compoundMultiCauseAnalysis.explanation)}
             </div>
           ` : ''}
@@ -552,7 +745,7 @@
             </div>
           ` : ''}
           ${closedLoop && closedLoop.executed ? `
-            <div class="ejii-memory-note" style="color: ${closedLoop.confidenceDeltaPct < 0 ? '#b45309' : '#047857'};">
+            <div class="ejii-memory-note ${closedLoop.confidenceDeltaPct < 0 ? 'ejii-text-warning-strong' : ''}">
               <strong>Closed-Loop Autonomous Blind-Spot Verification:</strong> Executed ${esc(closedLoop.probesRun.length)} follow-up probe(s) (${esc(closedLoop.probesRun.map(p => `${p.probeType}:${p.status}`).join(', '))}) &bull; Confidence ${esc(closedLoop.beforeConfidencePct)}% &rarr; <strong>${esc(closedLoop.afterConfidencePct)}%</strong> (${esc(closedLoop.hypothesisReassessment?.status || 'VERIFIED')})
             </div>
           ` : ''}
@@ -564,11 +757,14 @@
           ${Array.isArray(collab.recommendedFollowUpProbes) && collab.recommendedFollowUpProbes.length > 0 ? `
             <div class="ejii-memory-note" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">
               <strong>Recommended Verification Probes:</strong>
-              ${collab.recommendedFollowUpProbes.map((fp) => `
-                <button type="button" class="ejii-followup-chip" data-followup-prompt="${esc(`Run ${fp.probeType} on ${fp.target}`)}" style="padding:2px 8px;font-size:11px;">
-                  Verify ${esc(fp.probeType)} (${esc(fp.target)}) →
-                </button>
-              `).join('')}
+              ${collab.recommendedFollowUpProbes.map((fp) => {
+                const probePrompt = `Run ${fp.probeType} on ${fp.target}`;
+                return `
+                  <button type="button" class="ejii-followup-chip" data-followup-prompt="${esc(probePrompt)}" onclick="window.sendEjiiChatMessage(${esc(JSON.stringify(probePrompt))})" style="padding:2px 8px;font-size:11px;">
+                    Verify ${esc(fp.probeType)} (${esc(fp.target)}) →
+                  </button>
+                `;
+              }).join('')}
             </div>
           ` : ''}
         ` : ''}
@@ -583,6 +779,109 @@
       </div>
     ` : '';
 
+    const epDist = meta.epistemicDistinctions || meta.technicalEvidence?.epistemicDistinctions || null;
+    const compExp = meta.competingExplanationsComparison || null;
+    const epDistHtml = (epDist && (hasDiagnosticActivity || (epDist.observedConditions || []).length > 0 || (epDist.unavailableMetrics || []).length > 0)) ? `
+      <div class="ejii-memory-strip" role="region" aria-label="Epistemic Truth and Provenance Disambiguation">
+        <div class="ejii-memory-strip-header">
+          <span class="ejii-memory-badge">Project Falcon Epistemic Contract</span>
+          <span class="ejii-memory-pill">Observed Facts: <strong>${esc((epDist.observedConditions || []).length)}</strong></span>
+          <span class="ejii-memory-pill">Suspected / Inferred: <strong>${esc((epDist.suspectedProblems || []).length)}</strong></span>
+          <span class="ejii-memory-pill">Historical Priors: <strong>${esc((epDist.historicalPriors || []).length)}</strong></span>
+          <span class="ejii-memory-pill">Unavailable Metrics: <strong>${esc((epDist.unavailableMetrics || []).length)}</strong></span>
+          ${epDist.verifiedRecoveryState ? `<span class="ejii-memory-pill">Recovery State: <strong>${esc(epDist.verifiedRecoveryState.recoveryState || (epDist.verifiedRecoveryState.postActionHealthy ? 'VERIFIED_HEALTHY_AFTER_REMEDIATION' : epDist.verifiedRecoveryState.actionExecuted ? 'ACTION_EXECUTED_POST_PROBE_PENDING_OR_UNVERIFIED' : 'REMEDIATION_NOT_EXECUTED'))}</strong></span>` : ''}
+        </div>
+        ${epDist.verifiedRecoveryState && epDist.verifiedRecoveryState.verificationProbe ? `
+          <div class="ejii-memory-note">
+            <strong>Post-Action Verification Probe (${esc(epDist.verifiedRecoveryState.verificationProbe.probeType)} on ${esc(epDist.verifiedRecoveryState.verificationProbe.target)}):</strong> ${esc(epDist.verifiedRecoveryState.verificationProbe.observedResult)} (${epDist.verifiedRecoveryState.postActionHealthy ? 'VERIFIED HEALTHY' : esc(epDist.verifiedRecoveryState.rejectionReason || 'UNVERIFIED / FAILED')})
+          </div>
+        ` : ''}
+        ${compExp && compExp.leadingHypothesis ? `
+          <div class="ejii-memory-note">
+            <strong>Why Leading Hypothesis Outweighs Alternatives (${esc(compExp.leadingHypothesis.confidenceType)}):</strong> ${esc(compExp.leadingHypothesis.evidentialRankingRationale || compExp.leadingHypothesis.whyLeadingOutweighsAlternatives)}
+          </div>
+        ` : ''}
+        ${Array.isArray(epDist.unavailableMetrics) && epDist.unavailableMetrics.length > 0 ? `
+          <div class="ejii-memory-note">
+            <strong>Unmeasured / Unavailable Metrics:</strong> ${esc(epDist.unavailableMetrics.slice(0, 4).join(' · '))}
+          </div>
+        ` : ''}
+      </div>
+    ` : '';
+
+    // Build truthful Interpreted Intent & Target Context Strip when backend metadata is present
+    const hasIntentContext = Boolean(meta.intent || meta.target || (Array.isArray(meta.ports) && meta.ports.length > 0));
+    const cleanTarget = meta.target && !String(meta.target).startsWith('local_') && !String(meta.target).startsWith('operational_')
+      ? String(meta.target)
+      : (meta.target ? String(meta.target).replace(/_/g, ' ') : '');
+    const portsList = Array.isArray(meta.ports) && meta.ports.length > 0 ? meta.ports.join(', ') : '';
+    const intentContextHtml = hasIntentContext ? `
+      <div class="ejii-intent-context-strip" role="region" aria-label="Interpreted diagnostic intent and target context">
+        <div class="ejii-intent-context-left">
+          ${meta.intent ? `<span class="ejii-intent-pill ejii-intent-pill-primary">Intent: ${esc(String(meta.intent).replace(/_/g, ' '))}</span>` : ''}
+          ${cleanTarget ? `<span class="ejii-intent-pill ejii-intent-pill-target">Target: ${esc(cleanTarget)}</span>` : ''}
+          ${portsList ? `<span class="ejii-intent-pill">Port${meta.ports.length > 1 ? 's' : ''}: ${esc(portsList)}</span>` : ''}
+          ${meta.mode ? `<span class="ejii-intent-pill">Mode: ${esc(String(meta.mode))}</span>` : ''}
+        </div>
+        <div class="ejii-intent-context-right">
+          ${steps.length > 0 ? `<span class="ejii-intent-pill">${esc(String(steps.length))} live probe${steps.length === 1 ? '' : 's'}</span>` : ''}
+        </div>
+      </div>
+    ` : '';
+
+    const isOperationalOrEpistemic = meta.mode === 'operational' || meta.intent === 'epistemic_fabric_query' || meta.intent === 'log_and_startup_triage';
+    const cmem = meta.claudeMemContext || null;
+    const sroute = meta.skillRoutingContext || null;
+    const claudeMemHtml = ((cmem || sroute) && (isOperationalOrEpistemic || hasDiagnosticActivity)) ? `
+      <div class="ejii-memory-strip" role="region" aria-label="Claude-Mem progressive disclosure and context-budgeted skill routing">
+        <div class="ejii-memory-strip-header">
+          <span class="ejii-memory-badge">Claude-Mem 3-Layer Progressive Disclosure</span>
+          ${cmem && cmem.layer1IndexSearch ? `
+            <span class="ejii-memory-pill">L1 Index Hits: <strong>${esc(String(cmem.layer1IndexSearch.hitCount))}</strong> (${esc(String(cmem.layer1IndexSearch.indexTokensUsed))} tok)</span>
+            <span class="ejii-memory-pill">Saved: <strong>${esc(String(cmem.layer1IndexSearch.tokensSaved))} tok (${esc(String(cmem.layer1IndexSearch.compressionRatioPct))}%)</strong></span>
+          ` : ''}
+          ${sroute ? `
+            <span class="ejii-memory-pill">Taxonomy: <strong>85+74=159 Manifests · 111 Modules · 71 Locks</strong></span>
+            <span class="ejii-memory-pill">Deduped Collisions: <strong>${esc(String(sroute.overlapCollisionsSuppressedCount || 0))}</strong></span>
+          ` : ''}
+        </div>
+        ${cmem && cmem.layer1IndexSearch && Array.isArray(cmem.layer1IndexSearch.topHits) && cmem.layer1IndexSearch.topHits.length > 0 ? `
+          <div class="ejii-memory-note">
+            <strong>Recent Episodic Observations:</strong> ${cmem.layer1IndexSearch.topHits.slice(0, 3).map((h) => `<code>${esc(h.observationId)}</code> ${esc(h.title)}`).join(' · ')}
+          </div>
+        ` : ''}
+      </div>
+    ` : '';
+
+    // Deep epistemic & multi-layer diagnostic blocks: grouped into an accessible progressive-disclosure section
+    const deepBlocks = [
+      claudeMemHtml,
+      stateDiffHtml,
+      epDistHtml,
+      hypHtml,
+      epistemicHtml,
+      journeyHtml,
+      commandCenterHtml,
+      scenarioSimHtml,
+      memoryHtml
+    ].filter(Boolean);
+
+    const deepIntelHtml = deepBlocks.length > 0 ? `
+      <details class="ejii-deep-intel-details">
+        <summary class="ejii-deep-intel-summary">
+          <span>Deep Diagnostic &amp; Epistemic Intelligence (${deepBlocks.length} layer${deepBlocks.length === 1 ? '' : 's'})</span>
+          <span class="ejii-deep-intel-summary-badges">
+            ${hypEval && hypEval.primaryRootCause ? `<span class="ejii-intent-pill ejii-intent-pill-primary">${esc(hypEval.primaryRootCause.layer)} (${esc(String(hypEval.primaryRootCause.posteriorProbabilityPct ?? hypEval.primaryRootCause.confidencePct ?? 90))}%)</span>` : ''}
+            ${epDist ? `<span class="ejii-intent-pill">Observed: ${esc(String((epDist.observedConditions || []).length))}</span>` : ''}
+            <span>▾</span>
+          </span>
+        </summary>
+        <div class="ejii-deep-intel-body">
+          ${deepBlocks.join('')}
+        </div>
+      </details>
+    ` : '';
+
     return `
       <div class="ejii-msg-row ejii-msg-assistant" data-msg-id="${esc(msg.id)}">
         <div class="ejii-msg-assistant-card">
@@ -590,19 +889,14 @@
             <span class="ejii-assistant-badge">EJII Diagnostic Assistant</span>
             ${durationLabel ? `<span class="ejii-tabular-nums">Completed in ${esc(durationLabel)}</span>` : ''}
           </div>
-          ${stepsHtml}
-          ${findingsHtml}
-          ${stateDiffHtml}
-          ${hypHtml}
-          ${epistemicHtml}
-          ${journeyHtml}
-          ${commandCenterHtml}
-          ${scenarioSimHtml}
-          ${memoryHtml}
-          ${tableHtml}
+          ${intentContextHtml}
           <div class="ejii-answer-body">
             ${formatStructuredMarkdown(msg.content)}
           </div>
+          ${findingsHtml}
+          ${stepsHtml}
+          ${tableHtml}
+          ${deepIntelHtml}
           ${workstationActionsHtml}
           ${followUpsHtml}
           ${evidenceHtml}
@@ -618,6 +912,31 @@
     const sendBtn = document.getElementById('ejiiChatSendBtn');
     const stopBtn = document.getElementById('ejiiChatStopBtn');
     const inputEl = document.getElementById('ejiiChatInput');
+    const ctxBarEl = document.getElementById('ejiiActiveSessionContextBar');
+
+    if (ctxBarEl) {
+      const activeTarget = chatState.lastContext && (chatState.lastContext.lastValidTarget || chatState.lastContext.lastTarget);
+      const activePorts = chatState.lastContext && Array.isArray(chatState.lastContext.lastPorts) && chatState.lastContext.lastPorts.length > 0
+        ? chatState.lastContext.lastPorts.join(', ')
+        : '';
+      if (activeTarget) {
+        ctxBarEl.style.display = 'flex';
+        ctxBarEl.innerHTML = `
+          <div class="ejii-active-context-items">
+            <span>Active follow-up context:</span>
+            <span class="ejii-active-context-tag">Target: ${esc(activeTarget)}</span>
+            ${activePorts ? `<span class="ejii-active-context-tag">Ports: ${esc(activePorts)}</span>` : ''}
+            <span class="ejii-text-muted-sm">Follow-ups like &ldquo;that server&rdquo; or &ldquo;check port 443&rdquo; inherit this target automatically</span>
+          </div>
+          <button type="button" class="ejii-active-context-clear" onclick="window.clearEjiiChatTargetContext()" title="Clear inherited target context">
+            ✕ Clear context
+          </button>
+        `;
+      } else {
+        ctxBarEl.style.display = 'none';
+        ctxBarEl.innerHTML = '';
+      }
+    }
 
     const hasMessages = chatState.messages.length > 0 || chatState.inFlight;
     if (emptyStateEl) {
@@ -811,6 +1130,8 @@
             ports: d.ports,
             totalDurationMs: d.totalDurationMs,
             structuredAnswer: d.structuredAnswer,
+            epistemicDistinctions: d.epistemicDistinctions || d.technicalEvidence?.epistemicDistinctions || null,
+            competingExplanationsComparison: d.competingExplanationsComparison || null,
             steps: d.steps || [],
             findings: d.findings || [],
             connectionTable: d.connectionTable || null,
@@ -1221,15 +1542,22 @@
     document.body.classList.add('ejii-chat-first-active');
     getOrInitSessionId();
 
-    const username = (window.state && window.state.user && (window.state.user.username || window.state.user.fullName)) || 'operator';
-    const userRole = (window.state && window.state.user && window.state.user.role) || 'ADMIN';
+    const activePinned = (window.EJIIInvestigationPinboard && typeof window.EJIIInvestigationPinboard.getPinned === 'function')
+      ? window.EJIIInvestigationPinboard.getPinned()
+      : null;
+    const sitTarget = (activePinned && !activePinned.incompleteContext && activePinned.target)
+      || (window.EJIISituationalMemory && (window.EJIISituationalMemory.activeTargetIp || window.EJIISituationalMemory.activeTarget))
+      || (chatState.lastContext && chatState.lastContext.lastTarget)
+      || null;
+    const sitHyp = (window.EJIISituationalMemory && window.EJIISituationalMemory.activeHypothesis) || null;
+    const sitRunbook = (window.EJIISituationalMemory && window.EJIISituationalMemory.activeRunbookId) || 'RB-04';
 
     main.innerHTML = `
       <div class="ejii-chat-shell" id="ejiiChatWorkspace">
-        <!-- Region 1: Compact Workspace Subheader -->
+        <!-- Region 1: Calm Workspace Header -->
         <header class="ejii-minimal-header" id="ejiiMinimalHeader">
           <div class="ejii-minimal-brand">
-            <span class="ejii-minimal-mark">AI BRAIN v7.0</span>
+            <span class="ejii-minimal-mark">AI Assistant</span>
             <span class="ejii-minimal-title">Conversational Infrastructure &amp; Protocol Investigator</span>
           </div>
 
@@ -1252,11 +1580,14 @@
                 Workstations ▾
               </summary>
               <div class="ejii-tools-menu" role="menu">
+                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('overview')">
+                  <span>Workspace Overview</span><span>→</span>
+                </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ai-operator')">
                   <span>AI Operator Console</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('topology')">
-                  <span>Network Topology</span><span>→</span>
+                  <span>Network Overview</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('noc-dashboard')">
                   <span>NOC Dual-Pane Center</span><span>→</span>
@@ -1265,10 +1596,10 @@
                   <span>Packet Analysis</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ultra-ip-scanner')">
-                  <span>IP &amp; Asset Scanner</span><span>→</span>
+                  <span>IP &amp; Asset Discovery</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('core-diagnostics')">
-                  <span>Diagnostics Workbench</span><span>→</span>
+                  <span>Diagnostics &amp; Recovery</span><span>→</span>
                 </button>
                 <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('pc-automation')">
                   <span>Host Automation</span><span>→</span>
@@ -1278,14 +1609,6 @@
                 </button>
               </div>
             </details>
-
-            <button type="button" class="ejii-header-btn" id="btnChatThemeToggle" onclick="window.toggleChatTheme()" title="Toggle light or dark theme" aria-label="Toggle theme">
-              ◐
-            </button>
-
-            <span class="ejii-connection-indicator" id="ejiiChatUserBadge" style="padding:0 4px;">
-              ${esc(username)} (${esc(userRole)})
-            </span>
           </div>
         </header>
 
@@ -1298,21 +1621,22 @@
           <div id="ejiiChatMemoryDrawerBody" class="ejii-memory-drawer-body"></div>
         </section>
 
-        <!-- Unified 7-Engine Situational Memory & Co-Pilot Action Ribbon -->
-        <div id="ejiiChatSituationalRibbon" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 18px;background:var(--bg-surface-subtle, #f8fafc);border-bottom:1px solid var(--border-default, #e2e8f0);font-size:11.5px;">
+        <!-- Contextual Situational Memory Bar (Only visible when an active target is pinned or selected) -->
+        <div id="ejiiChatSituationalRibbon" style="display:${sitTarget ? 'flex' : 'none'};align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:6px 20px;background:var(--bg-surface-subtle, #F9F8F5);border-bottom:1px solid var(--border-default, #E6E3DB);font-size:11.5px;color:var(--text-secondary, #666B66);">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span style="font-family:var(--font-mono);font-weight:700;color:var(--accent-primary, #1d4ed8);">SITUATIONAL MEMORY SYNC:</span>
-            <span>Target: <code id="chatSitMemTarget">${esc((window.EJIISituationalMemory && window.EJIISituationalMemory.activeTargetIp) || '192.168.31.1')}</code></span>
-            <span>·</span>
-            <span>Hypothesis: <strong id="chatSitMemHyp">${esc((window.EJIISituationalMemory && window.EJIISituationalMemory.activeHypothesis) || '7-Engine Nominal')}</strong></span>
+            <span style="font-weight:600;color:var(--accent-primary, #3A6653);">Active Target Context:</span>
+            <code id="chatSitMemTarget" style="font-family:var(--font-mono);color:var(--text-primary, #1F2421);">${esc(sitTarget || 'None selected')}</code>
+            ${sitHyp ? `<span>·</span><span id="chatSitMemHyp">${esc(sitHyp)}</span>` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <button type="button" class="ejii-header-btn" onclick="window.launchRunbookWizardModal && window.launchRunbookWizardModal((window.EJIISituationalMemory && window.EJIISituationalMemory.activeRunbookId) || 'RB-04')">
-              Execute Runbook (${esc((window.EJIISituationalMemory && window.EJIISituationalMemory.activeRunbookId) || 'RB-04')}) →
-            </button>
-            <button type="button" class="ejii-header-btn" onclick="window.openAiBrainDrawer && window.openAiBrainDrawer((window.EJIISituationalMemory && window.EJIISituationalMemory.activeTargetIp) || '192.168.31.1')">
-              7-Engine Brain Drawer
-            </button>
+            ${sitTarget ? `
+              <button type="button" class="ejii-header-btn" onclick="window.launchRunbookWizardModal && window.launchRunbookWizardModal('${esc(sitRunbook)}', '${esc(sitTarget)}')">
+                Runbook (${esc(sitRunbook)})
+              </button>
+              <button type="button" class="ejii-header-btn" onclick="window.openAiBrainDrawer && window.openAiBrainDrawer('${esc(sitTarget)}')">
+                7-Engine Analysis
+              </button>
+            ` : ''}
           </div>
         </div>
 
@@ -1325,6 +1649,10 @@
               <p class="ejii-empty-subtitle">
                 Ask in plain language to check DNS, ping a host, test TCP ports, verify HTTPS, or investigate why a service is unreachable.
               </p>
+              <div class="ejii-nl-guidance-banner" role="note" aria-label="Natural language input guidance">
+                <span class="ejii-nl-guidance-badge">Natural Language Ready</span>
+                <span>No strict command syntax required — everyday questions, shorthand (<code>check dns example.com</code>), raw error logs, and follow-ups (<code>that server</code>, <code>check port 443 on same host</code>) work naturally.</span>
+              </div>
               <div class="ejii-starter-prompts" id="ejiiStarterPrompts">
                 ${STARTER_PROMPTS.map((prompt, i) => `
                   <button
@@ -1333,7 +1661,10 @@
                     id="ejiiStarterPrompt${i + 1}"
                     onclick="window.sendEjiiChatMessage(${esc(JSON.stringify(prompt))})"
                   >
-                    <span>${esc(prompt)}</span>
+                    <span class="ejii-starter-prompt-left">
+                      <span class="ejii-starter-protocol-tag">${esc(STARTER_PROMPT_TAGS[i] || 'Probe')}</span>
+                      <span>${esc(prompt)}</span>
+                    </span>
                     <span class="ejii-starter-arrow" aria-hidden="true">→</span>
                   </button>
                 `).join('')}
@@ -1351,12 +1682,13 @@
           id="ejiiChatComposerForm"
           onsubmit="event.preventDefault(); window.sendEjiiChatMessage();"
         >
+          <div id="ejiiActiveSessionContextBar" class="ejii-active-context-bar" style="display:none" aria-live="polite"></div>
           <div class="ejii-composer-box">
             <textarea
               id="ejiiChatInput"
               class="ejii-composer-textarea"
               rows="1"
-              placeholder="Ask EJII to diagnose a host, check DNS, test a port, or investigate a network problem..."
+              placeholder="Ask in plain English — e.g. 'Check whether port 3000 is open on localhost', 'dns example.com', or paste an error log..."
               aria-label="Ask EJII to diagnose a host, check DNS, test a port, or investigate a network problem"
             ></textarea>
             <div class="ejii-composer-actions">
@@ -1374,8 +1706,9 @@
               </button>
             </div>
           </div>
-          <div class="ejii-composer-hint">
-            Press Enter to send · Shift+Enter for a new line · Backed by live host &amp; network probes
+          <div class="ejii-composer-footer-hints">
+            <span><span class="ejii-composer-kbd">Enter</span> to send · <span class="ejii-composer-kbd">Shift+Enter</span> for new line · <span class="ejii-composer-kbd">/</span> to focus · <span class="ejii-composer-kbd">Ctrl+K</span> Command Palette</span>
+            <span>Backed by live OS &amp; network protocol probes · Never alters your input</span>
           </div>
         </form>
       </div>
@@ -1402,6 +1735,24 @@
       });
 
       inputEl.focus();
+    }
+
+    if (!window._ejiiChatSlashShortcutBound) {
+      window._ejiiChatSlashShortcutBound = true;
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+        const activeTag = document.activeElement && document.activeElement.tagName
+          ? document.activeElement.tagName.toUpperCase()
+          : '';
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable)) {
+          return;
+        }
+        const chatInp = document.getElementById('ejiiChatInput');
+        if (chatInp && chatInp.offsetParent !== null) {
+          e.preventDefault();
+          chatInp.focus();
+        }
+      });
     }
 
     updateThreadDom();

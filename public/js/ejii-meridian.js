@@ -11,13 +11,17 @@
   const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
 
   const viewMeta = {
-    'ai-operator': { title: 'AI Infrastructure Operator', eyebrow: 'Autonomous Command & Control' },
-    topology: { title: 'Network overview', eyebrow: 'Observe & understand' },
-    'packet-sniffer': { title: 'Packet analysis', eyebrow: 'Inspect & investigate' },
-    'ultra-ip-scanner': { title: 'IP & asset discovery', eyebrow: 'Discover & map' },
-    'pc-automation': { title: 'Automation library', eyebrow: 'Execute & maintain' },
-    'core-diagnostics': { title: 'Diagnostics & recovery', eyebrow: 'Diagnose & resolve' },
-    'learning-center': { title: 'Sovereign Learning Center', eyebrow: 'Academies & Labs' }
+    overview: { title: 'Overview', eyebrow: 'Workspace' },
+    chat: { title: 'AI Assistant', eyebrow: 'Workspace' },
+    'ai-operator': { title: 'AI Operator', eyebrow: 'Operations' },
+    topology: { title: 'Network Overview', eyebrow: 'Infrastructure' },
+    'enterprise-noc': { title: 'Enterprise NOC', eyebrow: 'Infrastructure' },
+    'noc-dashboard': { title: 'NOC Operations Center', eyebrow: 'Infrastructure' },
+    'packet-sniffer': { title: 'Packet Analysis', eyebrow: 'Investigation' },
+    'ultra-ip-scanner': { title: 'IP & Asset Discovery', eyebrow: 'Investigation' },
+    'pc-automation': { title: 'Automation Library', eyebrow: 'Operations' },
+    'core-diagnostics': { title: 'Diagnostics & Recovery', eyebrow: 'Investigation' },
+    'learning-center': { title: 'Sovereign Learning Center', eyebrow: 'Learning' }
   };
 
   function setup() {
@@ -96,7 +100,7 @@
 
     const active = $('.nav-link.active, .nav-links li a.active', sidebar);
     if (!active) return;
-    const view = active.dataset.view || 'topology';
+    const view = active.dataset.view || active.dataset.targetView || 'topology';
     const meta = viewMeta[view] || viewMeta.topology;
     const name = $('.page-name', title);
     const eyebrow = $('.page-eyebrow', title);

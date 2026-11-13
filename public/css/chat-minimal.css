@@ -1,54 +1,55 @@
 /**
  * EJII Aurora Conversational AI Workspace Stylesheet
- * Unified with the Project Aurora Architectural Slate & Executive Blue Design System.
+ * Unified with the Quiet Luxury Warm Stone & Sage Design System.
  * Renders seamlessly inside the main EJII application shell alongside Sidebar & Topbar.
  */
 
 :root {
-  --chat-bg: var(--bg-canvas, #F8FAFC);
+  --chat-bg: var(--bg-canvas, #F6F5F1);
   --chat-surface: var(--bg-surface, #FFFFFF);
-  --chat-surface-subtle: var(--bg-surface-subtle, #F1F5F9);
-  --chat-user-bubble: #0F172A;
+  --chat-surface-subtle: var(--bg-surface-subtle, #F9F8F5);
+  --chat-user-bubble: #2A4B3C;
   --chat-user-text: #FFFFFF;
-  --chat-border: var(--border-default, #E2E8F0);
-  --chat-border-strong: var(--border-strong, #CBD5E1);
-  --chat-text: var(--text-primary, #0F172A);
-  --chat-text-secondary: var(--text-secondary, #475569);
-  --chat-text-muted: var(--text-muted, #64748B);
-  --chat-accent: var(--accent-primary, #2563EB);
+  --chat-border: var(--border-default, #E6E3DB);
+  --chat-border-strong: var(--border-strong, #D4D0C5);
+  --chat-text: var(--text-primary, #1F2421);
+  --chat-text-secondary: var(--text-secondary, #666B66);
+  --chat-text-muted: var(--text-muted, #858B85);
+  --chat-accent: var(--accent-primary, #3A6653);
   --chat-accent-contrast: #FFFFFF;
-  --chat-ok: var(--status-nominal, #059669);
-  --chat-ok-bg: var(--status-nominal-subtle, #ECFDF5);
-  --chat-warn: var(--status-warning, #D97706);
-  --chat-warn-bg: var(--status-warning-subtle, #FFFBEB);
-  --chat-danger: var(--status-critical, #DC2626);
-  --chat-danger-bg: var(--status-critical-subtle, #FEF2F2);
-  --chat-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04);
-  --chat-shadow-composer: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --chat-ok: var(--status-nominal, #2E6B4E);
+  --chat-ok-bg: var(--status-nominal-subtle, #EAF3EE);
+  --chat-warn: var(--status-warning, #B4691E);
+  --chat-warn-bg: var(--status-warning-subtle, #FDF5EB);
+  --chat-danger: var(--status-critical, #B83B3B);
+  --chat-danger-bg: var(--status-critical-subtle, #FDEEEE);
+  --chat-shadow-sm: 0 1px 3px rgba(24, 28, 25, 0.04);
+  --chat-shadow-composer: 0 8px 24px rgba(24, 28, 25, 0.06);
 }
 
-html[data-theme="dark"] {
-  --chat-bg: var(--bg-canvas, #060B09);
-  --chat-surface: var(--bg-surface, #0F172A);
-  --chat-surface-subtle: var(--bg-surface-subtle, #1E293B);
-  --chat-user-bubble: #2563EB;
+html[data-theme="dark"], body.theme-dark {
+  --chat-bg: var(--bg-canvas, #121513);
+  --chat-surface: var(--bg-surface, #181C19);
+  --chat-surface-subtle: var(--bg-surface-subtle, #1F2521);
+  --chat-user-bubble: #3A6653;
   --chat-user-text: #FFFFFF;
-  --chat-border: var(--border-default, #1E293B);
-  --chat-border-strong: var(--border-strong, #334155);
-  --chat-text: var(--text-primary, #F8FAFC);
-  --chat-text-secondary: var(--text-secondary, #94A3B8);
-  --chat-text-muted: var(--text-muted, #64748B);
-  --chat-accent: var(--accent-primary, #38BDF8);
-  --chat-accent-contrast: #0F172A;
-  --chat-ok: #34D399;
-  --chat-ok-bg: rgba(16, 185, 129, 0.14);
-  --chat-warn: #FBBF24;
-  --chat-warn-bg: rgba(245, 158, 11, 0.14);
-  --chat-danger: #F87171;
-  --chat-danger-bg: rgba(239, 68, 68, 0.14);
-  --chat-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --chat-shadow-composer: 0 8px 28px rgba(0, 0, 0, 0.4);
+  --chat-border: var(--border-default, #28302B);
+  --chat-border-strong: var(--border-strong, #36403A);
+  --chat-text: var(--text-primary, #ECEFE9);
+  --chat-text-secondary: var(--text-secondary, #A3ACA5);
+  --chat-text-muted: var(--text-muted, #768079);
+  --chat-accent: var(--accent-primary, #528B72);
+  --chat-accent-contrast: #121513;
+  --chat-ok: #4E9A76;
+  --chat-ok-bg: rgba(78, 154, 118, 0.15);
+  --chat-warn: #D99441;
+  --chat-warn-bg: rgba(217, 148, 65, 0.15);
+  --chat-danger: #D96565;
+  --chat-danger-bg: rgba(217, 101, 101, 0.15);
+  --chat-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --chat-shadow-composer: 0 8px 28px rgba(0, 0, 0, 0.36);
 }
+
 
 /* ==========================================================================
    1. UNIFIED CONVERSATIONAL WORKSPACE CONTAINER INSIDE #mainContent
@@ -113,9 +114,9 @@ body.ejii-chat-first-active #mainContent {
   letter-spacing: 0.05em;
   padding: 3px 8px;
   border-radius: 5px;
-  background: var(--accent-subtle, #EFF6FF);
-  color: var(--accent-primary, #2563EB);
-  border: 1px solid var(--accent-border, #BFDBFE);
+  background: var(--accent-subtle, #EDF3F0);
+  color: var(--accent-primary, #3A6653);
+  border: 1px solid var(--accent-border, #C5D9CE);
 }
 
 .ejii-minimal-title {
@@ -238,7 +239,7 @@ body.ejii-chat-first-active #mainContent {
 /* Empty State */
 .ejii-chat-empty-state {
   margin: auto 0;
-  padding: 40px 0;
+  padding: 20px 0 24px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -246,27 +247,33 @@ body.ejii-chat-first-active #mainContent {
 }
 
 .ejii-empty-heading {
-  font-size: 26px;
+  font-size: 25px;
   font-weight: 600;
   letter-spacing: -0.025em;
   color: var(--chat-text);
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
 }
 
 .ejii-empty-subtitle {
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--chat-text-secondary);
-  max-width: 520px;
-  margin: 0 0 28px 0;
+  max-width: 560px;
+  margin: 0 0 16px 0;
 }
 
 .ejii-starter-prompts {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   width: 100%;
-  max-width: 520px;
+  max-width: 680px;
+}
+
+@media (max-width: 640px) {
+  .ejii-starter-prompts {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ejii-starter-prompt-btn {
@@ -274,14 +281,16 @@ body.ejii-chat-first-active #mainContent {
   background: var(--chat-surface);
   border: 1px solid var(--chat-border);
   border-radius: 10px;
-  padding: 11px 16px;
-  font-size: 13.5px;
+  padding: 11px 14px;
+  font-size: 13px;
+  line-height: 1.4;
   color: var(--chat-text);
   text-align: left;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   transition: border-color 0.15s ease, background 0.15s ease;
   box-shadow: var(--chat-shadow-sm);
 }
@@ -291,9 +300,37 @@ body.ejii-chat-first-active #mainContent {
   border-color: var(--chat-border-strong);
 }
 
+.ejii-starter-prompt-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ejii-starter-protocol-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--accent-subtle, #EDF3F0);
+  color: var(--accent-primary, #3A6653);
+  border: 1px solid var(--accent-border, #C5D9CE);
+  flex-shrink: 0;
+}
+
 .ejii-starter-arrow {
   color: var(--chat-text-muted);
   font-size: 14px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.ejii-starter-prompt-btn:hover .ejii-starter-arrow {
+  color: var(--chat-accent);
+  transform: translateX(2px);
 }
 
 /* Conversation Messages */
@@ -637,34 +674,66 @@ body.ejii-chat-first-active #mainContent {
   text-align: center;
 }
 
-/* Mobile Responsive Adjustments (390x844) */
+/* Mobile Responsive Adjustments (390x844 & 360x800) */
 @media (max-width: 640px) {
   .ejii-minimal-header {
-    padding: 0 12px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0 10px;
+    gap: 6px;
+  }
+  .ejii-minimal-brand {
+    gap: 6px;
   }
   .ejii-minimal-title,
   #ejiiChatUserBadge {
-    display: none;
+    display: none !important;
+  }
+  .ejii-minimal-header-right {
+    gap: 4px;
+  }
+  .ejii-connection-indicator {
+    padding: 2px 4px;
   }
   .ejii-connection-indicator span:last-child {
-    display: none;
+    display: none !important;
   }
   .ejii-header-btn {
     white-space: nowrap;
-    padding: 5px 8px;
-    font-size: 12px;
+    padding: 4px 7px;
+    font-size: 11px;
+    height: 28px;
+    border-radius: 6px;
   }
   .ejii-chat-scroll-container {
-    padding: 18px 12px 12px 12px;
+    padding: 14px 10px 10px 10px;
   }
   .ejii-empty-heading {
-    font-size: 21px;
+    font-size: 20px;
+  }
+  .ejii-empty-subtitle {
+    font-size: 13px;
+  }
+  .ejii-nl-guidance-banner {
+    padding: 8px 10px;
+    font-size: 11.5px;
   }
   .ejii-composer-region {
-    padding: 8px 12px 14px 12px;
+    padding: 6px 10px 12px 10px;
+  }
+  .ejii-composer-box {
+    padding: 8px 10px;
+  }
+  .ejii-composer-footer-hints {
+    font-size: 10px;
+    padding: 0 2px;
   }
   .ejii-msg-user-bubble {
     max-width: 92%;
+    padding: 9px 13px;
+  }
+  .ejii-msg-assistant-card {
+    padding: 14px 14px;
   }
 }
 
@@ -954,11 +1023,407 @@ body.ejii-chat-first-active #mainContent {
   align-items: center;
 }
 
+/* ============================================================================
+ * Aurora / Meridian — Conversational Experience Evolution (Phase Atlas XII)
+ * ============================================================================ */
+
+/* Natural Language Tolerance Banner & Categorized Starter Grid */
+.ejii-nl-guidance-banner {
+  margin: 0 auto 18px;
+  max-width: 660px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--chat-text-secondary);
+  text-align: left;
+}
+
+.ejii-nl-guidance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--accent-subtle, #EDF3F0);
+  color: var(--chat-accent);
+  border: 1px solid var(--accent-border, #C5D9CE);
+  flex-shrink: 0;
+}
+
+.ejii-starter-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.ejii-starter-category-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ejii-starter-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.ejii-starter-category-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--chat-text-muted);
+}
+
+.ejii-starter-category-hint {
+  font-size: 11px;
+  color: var(--chat-text-muted);
+}
+
+.ejii-starter-chip-title {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--chat-text);
+  margin-bottom: 2px;
+}
+
+.ejii-starter-chip-example {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--chat-text-secondary);
+}
+
+/* Active Session Context Bar above Composer */
+.ejii-active-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 11px;
+  margin-bottom: 8px;
+  border-radius: 7px;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface);
+  font-size: 11.5px;
+  color: var(--chat-text-secondary);
+}
+
+.ejii-active-context-items {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ejii-active-context-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--chat-surface-subtle);
+  color: var(--chat-text);
+  border: 1px solid var(--chat-border);
+}
+
+.ejii-active-context-clear {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.ejii-active-context-clear:hover {
+  color: var(--chat-text);
+  background: var(--chat-surface-subtle);
+}
+
+.ejii-composer-footer-hints {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--chat-text-muted);
+}
+
+.ejii-composer-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--chat-text-secondary);
+}
+
+/* Interpreted Intent & Target Context Strip inside Assistant Card */
+.ejii-intent-context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 11px;
+  margin-bottom: 12px;
+  border-radius: 7px;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface-subtle);
+  font-size: 11.5px;
+}
+
+.ejii-intent-context-left,
+.ejii-intent-context-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ejii-intent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg);
+  color: var(--chat-text-secondary);
+}
+
+.ejii-intent-pill-primary {
+  color: var(--chat-accent);
+  border-color: var(--accent-border, #C5D9CE);
+  background: var(--accent-subtle, #EDF3F0);
+}
+
+.ejii-intent-pill-target {
+  color: var(--chat-text);
+  font-weight: 700;
+}
+
+.ejii-intent-pill-inherited {
+  color: var(--chat-warning);
+  border-color: rgba(180, 83, 9, 0.28);
+  background: rgba(180, 83, 9, 0.06);
+}
+
+/* Executive Response Callout Hierarchy (Result / Meaning / Next step) */
+.ejii-exec-callout-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.ejii-exec-callout-block {
+  padding: 10px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  border-left-width: 3px;
+  background: var(--chat-surface);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--chat-text);
+}
+
+.ejii-exec-callout-result {
+  border-left-color: var(--chat-accent);
+}
+
+.ejii-exec-callout-meaning {
+  border-left-color: var(--chat-text-muted);
+}
+
+.ejii-exec-callout-next {
+  border-left-color: var(--chat-success);
+  background: var(--chat-surface-subtle);
+}
+
+.ejii-exec-callout-label {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 6px;
+  color: var(--chat-text-secondary);
+}
+
+.ejii-exec-callout-result .ejii-exec-callout-label {
+  color: var(--chat-accent);
+}
+
+.ejii-exec-callout-next .ejii-exec-callout-label {
+  color: var(--chat-success);
+}
+
+/* Markdown Lists & Code Blocks */
+.ejii-answer-list {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+  color: var(--chat-text);
+}
+
+.ejii-answer-list li {
+  margin-bottom: 4px;
+  line-height: 1.55;
+}
+
+.ejii-code-block-wrap {
+  margin: 10px 0;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--chat-surface-subtle);
+}
+
+.ejii-code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 11px;
+  background: var(--chat-surface);
+  border-bottom: 1px solid var(--chat-border);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--chat-text-muted);
+}
+
+.ejii-code-copy-btn {
+  appearance: none;
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg);
+  color: var(--chat-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ejii-code-copy-btn:hover {
+  color: var(--chat-text);
+  border-color: var(--chat-border-strong);
+}
+
+.ejii-code-pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--chat-text);
+}
+
+/* Collapsible Deep Diagnostic & Epistemic Intelligence Accordion */
+.ejii-deep-intel-details {
+  margin: 12px 0;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  background: var(--chat-surface);
+  overflow: hidden;
+}
+
+.ejii-deep-intel-summary {
+  padding: 9px 13px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chat-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  user-select: none;
+  list-style: none;
+}
+
+.ejii-deep-intel-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ejii-deep-intel-summary:hover {
+  color: var(--chat-text);
+  background: var(--chat-surface-subtle);
+}
+
+.ejii-deep-intel-summary-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ejii-deep-intel-body {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--chat-border);
+  background: var(--chat-bg);
+}
+
+/* Theme-safe helper classes replacing inline colors */
+.ejii-text-muted-sm {
+  font-size: 11.5px;
+  color: var(--chat-text-muted);
+}
+
+.ejii-text-warning-strong {
+  color: var(--chat-warning);
+}
+
+.ejii-hypothesis-elim-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--chat-surface-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--chat-border);
+}
+
 @media (max-width: 640px) {
   .ejii-memory-kpi-bar,
   .ejii-playbook-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-

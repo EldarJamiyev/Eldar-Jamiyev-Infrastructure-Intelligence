@@ -185,6 +185,37 @@ function extractBrandHostnameShorthand(rawText) {
 }
 
 /**
+ * Detect user language (English 'en', Azerbaijani 'az', Turkish 'tr', Russian 'ru')
+ * based on script characteristics and unambiguous vocabulary tokens.
+ */
+function detectLanguage(rawText) {
+  if (!rawText || typeof rawText !== 'string') return 'en';
+  const lower = rawText.toLowerCase();
+
+  // Russian / Cyrillic script
+  if (/[\u0400-\u04FF]/.test(rawText)) {
+    return 'ru';
+  }
+
+  // Azerbaijani specific letters or characteristic vocabulary
+  if (
+    /[əğıöşü]/i.test(rawText) ||
+    /\b(salam|necəsən|necesen|necəsiniz|necesiz|oglan|oğlan|qız|qiz|harada|haradadır|haradasan|kimdir|kimsən|kimsen|nədir|nedir|nə\s+var|ne\s+var|çox\s+sağ\s+ol|cox\s+sag\s+ol|təşəkkür|tesekkur|hələlik|helelik|bəli|xeyr|yox|müəllim|yaxşıyam|yaxsiyam|bu\s+gün|baki|bakı|paytaxtı)\b/i.test(lower)
+  ) {
+    return 'az';
+  }
+
+  // Turkish specific vocabulary
+  if (
+    /\b(merhaba|selam|nasılsın|nasilsin|nasılsınız|nasilsiniz|nerede|neredesin|kimdir|kimsin|erkek|kız|kiz|teşekkürler|tesekkurler|sağol|sagol|hoşçakal|hoscakal|günaydın|gunaydin|iyi\s+günler|iyi\s+aksamlar|evet|hayır|hayir|başkenti)\b/i.test(lower)
+  ) {
+    return 'tr';
+  }
+
+  return 'en';
+}
+
+/**
  * Determine whether a user message is a natural conversational exchange
  * (greetings, "how are you?", "do you understand me?", "that was interesting", thanks, etc.)
  * Returns { matched: true, subtype, reply, summary } or null.
@@ -523,6 +554,323 @@ function classifyConversationalTurn(rawText, session = null) {
     };
   }
 
+  // 14. Ambiguous Person / Third-Party Entity Inquiry
+  // e.g. "is muhammed oglan?", "məhəmməd oğlandır?", "is john a boy?", "who is muhammed?", "кто такой Мухаммед?", "Ali kimdir?"
+  const lang = detectLanguage(raw);
+
+  const personQueryMatch =
+    clean.match(/^(?:is\s+)?([a-z0-9_\u00C0-\u024F\u0400-\u04FF]+)\s+(?:a\s+)?(boy|girl|man|woman|person|oglan|oğlan|qız|qiz|erkek|kız|kişi|kisi|мальчик|девочка|парень|мужчина|женщина|he|she|here|coming|alive|online)\??$/i) ||
+    clean.match(/^([a-z0-9_\u00C0-\u024F\u0400-\u04FF]+)\s+(?:oğlandır|oglandir|qızdır|qizdir|erkek\s+mi|erkek\s+midir|kız\s+mı|kiz\s+mi|мальчик|девочка)\??$/i) ||
+    clean.match(/^(?:who\s+is|who's|whos)\s+([a-z0-9_\u00C0-\u024F\u0400-\u04FF]+)\??$/i) ||
+    clean.match(/^([a-z0-9_\u00C0-\u024F\u0400-\u04FF]+)\s+(?:kimdir|kim)\??$/i) ||
+    clean.match(/^(?:кто\s+такой|кто\s+такая)\s+([a-z0-9_\u00C0-\u024F\u0400-\u04FF]+)\??$/i);
+
+  if (personQueryMatch) {
+    const rawCandidate = personQueryMatch[1].trim();
+    const candidateLower = rawCandidate.toLowerCase();
+    if (
+      !NON_NAME_TOKENS.has(candidateLower) &&
+      !WELL_KNOWN_BRAND_DOMAINS[candidateLower] &&
+      !['dns', 'tcp', 'udp', 'icmp', 'bgp', 'ip', 'http', 'https', 'tls', 'ssl', 'ssh', 'dhcp', 'arp', 'snmp', 'ftp', 'smtp'].includes(candidateLower)
+    ) {
+      const name = rawCandidate.charAt(0).toUpperCase() + rawCandidate.slice(1);
+
+      if (candidateLower === 'eldar' || candidateLower === 'eldar jamiyev') {
+        return {
+          matched: true,
+          subtype: 'system_creator_identity',
+          type: 'identity_query',
+          reply: "Eldar Jamiyev is the creator and lead software architect of EJII (Eldar Jamiyev's Infrastructure Intelligence).",
+          summary: "Identified platform author Eldar Jamiyev."
+        };
+      }
+
+      const knownUserName = session?.entityMemory?.userName || session?.userName;
+      if (knownUserName && knownUserName.toLowerCase() === candidateLower) {
+        return {
+          matched: true,
+          subtype: 'known_user_inquiry',
+          type: 'conversational_question',
+          reply: `That's you! You are authenticated as \`${session.username || 'operator'}\` in this session.`,
+          summary: `Identified user as ${name}.`
+        };
+      }
+
+      let clarificationReply;
+      if (lang === 'az') {
+        clarificationReply = `Hansı ${name} haqqında soruşursunuz? Kimi nəzərdə tutduğunuzu dəqiqləşdirsəniz, sizə dəqiq cavab verə bilərəm.`;
+      } else if (lang === 'tr') {
+        clarificationReply = `Hangi ${name} hakkında soruyorsunuz? Kimi kastettiğinizi biraz daha açabilir misiniz?`;
+      } else if (lang === 'ru') {
+        clarificationReply = `Какого именно ${name} вы имеете в виду? Уточните, пожалуйста, о ком идет речь.`;
+      } else {
+        clarificationReply = `Which ${name} are you referring to? Could you clarify who you mean so I can answer accurately?`;
+      }
+
+      return {
+        matched: true,
+        subtype: 'ambiguous_person_query',
+        type: 'clarification_needed',
+        subjectPerson: name,
+        reply: clarificationReply,
+        summary: `Requested clarification on ambiguous person reference: ${name}.`
+      };
+    }
+  }
+
+  // 15. Multilingual Greetings (Azerbaijani, Turkish, Russian)
+  if (/^(salam|salam\s+aleykum|salam\s+əleykum|salam\s+aleykum|hər\s+vaxtınız\s+xeyir|her\s+vaxtiniz\s+xeyir|sabahınız\s+xeyir|sabahiniz\s+xeyir|axşamınız\s+xeyir|axsaminiz\s+xeyir)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'greeting',
+      type: 'greeting',
+      reply: 'Salam! Sizə infrastruktur diaqnostikası və ya şəbəkə suallarında necə kömək edə bilərəm?',
+      summary: 'Greeted user in Azerbaijani.'
+    };
+  }
+  if (/^(merhaba|selam|selamlar|günaydın|gunaydin|iyi\s+günler|iyi\s+gunler|iyi\s+akşamlar|iyi\s+aksamlar)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'greeting',
+      type: 'greeting',
+      reply: 'Merhaba! Ağ teşhisi, sunucu kontrolü veya teknik konularda size nasıl yardımcı olabilirim?',
+      summary: 'Greeted user in Turkish.'
+    };
+  }
+  if (/^(привет|здравствуйте|здравствуй|добрый\s+день|доброе\s+утро|добрый\s+вечер|салют)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'greeting',
+      type: 'greeting',
+      reply: 'Здравствуйте! Чем я могу помочь вам в диагностике сети или решении технических вопросов?',
+      summary: 'Greeted user in Russian.'
+    };
+  }
+
+  // 16. Multilingual "How are you?" / Status
+  if (/^(necəsən|necesen|necəsiniz|necesiz|nə\s+var\s+nə\s+yox|ne\s+var\s+ne\s+yox|işlər\s+necədir|isler\s+necedir)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'how_are_you',
+      type: 'casual_conversation',
+      reply: 'Çox sağ olun, hər şey qaydasındadır! İnfrastruktur və şəbəkə monitorinqinə hazıram. Bu gün hansı məsələni yoxlayırıq?',
+      summary: 'Responded to how are you in Azerbaijani.'
+    };
+  }
+  if (/^(nasılsın|nasilsin|nasılsınız|nasilsiniz|ne\s+haber|naber|ne\s+var\s+ne\s+yok)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'how_are_you',
+      type: 'casual_conversation',
+      reply: 'Teşekkürler, gayet iyiyim! Ağ ve altyapı teşhisine hazırım. Bugün ne üzerinde çalışıyoruz?',
+      summary: 'Responded to how are you in Turkish.'
+    };
+  }
+  if (/^(как\s+дела|как\s+поживаешь|как\s+жизнь|как\s+успехи|что\s+нового)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'how_are_you',
+      type: 'casual_conversation',
+      reply: 'Спасибо, все отлично! Готов к мониторингу и диагностике сетевой инфраструктуры. Какую задачу проверим сегодня?',
+      summary: 'Responded to how are you in Russian.'
+    };
+  }
+
+  // 17. Weather inquiries
+  if (/^(what(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+today|\s+like)?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+today)?|weather\s+today|hava\s+necədir|hava\s+necedir|bu\s+gün\s+hava\s+necədir|bugün\s+hava\s+nasıl|hava\s+nasıl|какая\s+погода(?:\s+сегодня)?|погода\s+сегодня)\??$/i.test(clean)) {
+    let wReply;
+    if (lang === 'az') {
+      wReply = "Mən canlı hava məlumatı sensorlarına çıxışa malik deyiləm. Əsas ixtisasım şəbəkə protokolları, serverlər və infrastruktur diaqnostikasıdır. Şəbəkə ilə bağlı hansısa məsələni araşdırmaq istərdiniz?";
+    } else if (lang === 'tr') {
+      wReply = "Canlı hava durumu verilerine erişimim bulunmuyor. Ağ protokolleri, sunucu teşhisi ve altyapı analitiği konusunda uzmanım. İncelemek istediğiniz bir ağ konusu var mı?";
+    } else if (lang === 'ru') {
+      wReply = "У меня нет доступа к текущим данным метеорологических датчиков. Моя специализация — диагностика сетевой инфраструктуры, протоколов и серверов. Хотите проверить сетевое соединение или узел?";
+    } else {
+      wReply = "I don't have access to live meteorological sensors or current weather telemetry. I specialize in computer networking, infrastructure diagnostics, and protocol analysis. What network or service would you like to inspect?";
+    }
+    return {
+      matched: true,
+      subtype: 'weather_inquiry',
+      type: 'casual_conversation',
+      reply: wReply,
+      summary: 'Responded to weather inquiry.'
+    };
+  }
+
+  // 18. Multilingual Thanks & Farewells
+  if (/^(çox\s+sağ\s+ol|cox\s+sag\s+ol|sağ\s+ol|sag\s+ol|təşəkkür\s+edirəm|tesekkur\s+edirem|təşəkkürlər|tesekkurlar|minnətdaram)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'acknowledgment',
+      type: 'casual_conversation',
+      reply: 'Dəyməz! Nə zaman şəbəkə və ya infrastrukturla bağlı kömək lazım olsa, buradayam.',
+      summary: 'Acknowledged thanks in Azerbaijani.'
+    };
+  }
+  if (/^(teşekkürler|tesekkurler|teşekkür\s+ederim|tesekkur\s+ederim|sağol|sagol|çok\s+sağol|cok\s+sagol|eyvallah)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'acknowledgment',
+      type: 'casual_conversation',
+      reply: 'Rica ederim! Altyapı ve ağ kontrolleri için her zaman buradayım.',
+      summary: 'Acknowledged thanks in Turkish.'
+    };
+  }
+  if (/^(спасибо|большое\s+спасибо|благодарю|отлично|понял|ясно|хорошо)$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'acknowledgment',
+      type: 'casual_conversation',
+      reply: 'Пожалуйста! Обращайтесь в любое время, если потребуется проверить сетевой узел или диагностику сервиса.',
+      summary: 'Acknowledged thanks in Russian.'
+    };
+  }
+  if (/^(hələlik|helelik|sağ\s+olun|sag\s+olun|görüşənədək|gorusenedek|hoşçakal|hoscakal|görüşürüz|gorusuruz|до\s+свидания|пока|до\s+встречи)$/i.test(clean)) {
+    let fReply;
+    if (lang === 'az') fReply = "Xudahafiz! Şəbəkə diaqnostikası üçün istənilən vaxt müraciət edə bilərsiniz.";
+    else if (lang === 'tr') fReply = "Görüşmek üzere! Altyapı veya sunucu kontrolleri için her zaman buradayım.";
+    else if (lang === 'ru') fReply = "До свидания! Обращайтесь, когда потребуется проверить сеть или работу сервисов.";
+    else fReply = "Take care! Feel free to reach out anytime you need to debug a network or service issue.";
+    return {
+      matched: true,
+      subtype: 'farewell',
+      type: 'farewell',
+      reply: fReply,
+      summary: 'Farewell acknowledgment.'
+    };
+  }
+
+  // 19. General Knowledge & Factual Queries
+  const capitalMatch =
+    clean.match(/^(?:what\s+is\s+the\s+capital\s+of|capital\s+of)\s+([a-z\s]+)\??$/i) ||
+    clean.match(/^([a-z\s]+)(?:'s)?\s+paytaxtı\s+haradır\??$/i) ||
+    clean.match(/^([a-z\s]+)(?:'s)?\s+başkenti\s+neresidir\??$/i) ||
+    clean.match(/^какая\s+столица\s+([a-zа-яё\s]+)\??$/i);
+
+  if (capitalMatch) {
+    const country = capitalMatch[1].trim().toLowerCase();
+    const capitals = {
+      'azerbaijan': { en: 'Baku (Bakı)', az: 'Bakı', tr: 'Bakü', ru: 'Баку' },
+      'azərbaycan': { en: 'Baku (Bakı)', az: 'Bakı', tr: 'Bakü', ru: 'Баку' },
+      'азербайджана': { en: 'Baku (Bakı)', az: 'Bakı', tr: 'Bakü', ru: 'Баку' },
+      'азербайджан': { en: 'Baku (Bakı)', az: 'Bakı', tr: 'Bakü', ru: 'Баку' },
+      'turkey': { en: 'Ankara', az: 'Ankara', tr: 'Ankara', ru: 'Анкара' },
+      'türkiyə': { en: 'Ankara', az: 'Ankara', tr: 'Ankara', ru: 'Анкара' },
+      'türkiye': { en: 'Ankara', az: 'Ankara', tr: 'Ankara', ru: 'Анкара' },
+      'турции': { en: 'Ankara', az: 'Ankara', tr: 'Ankara', ru: 'Анкара' },
+      'united states': { en: 'Washington, D.C.', az: 'Vaşinqton', tr: 'Washington, D.C.', ru: 'Вашингтон' },
+      'usa': { en: 'Washington, D.C.', az: 'Vaşinqton', tr: 'Washington, D.C.', ru: 'Вашингтон' },
+      'сша': { en: 'Washington, D.C.', az: 'Vaşinqton', tr: 'Washington, D.C.', ru: 'Вашингтон' },
+      'france': { en: 'Paris', az: 'Paris', tr: 'Paris', ru: 'Париж' },
+      'франции': { en: 'Paris', az: 'Paris', tr: 'Paris', ru: 'Париж' },
+      'germany': { en: 'Berlin', az: 'Berlin', tr: 'Berlin', ru: 'Берлин' },
+      'германии': { en: 'Berlin', az: 'Berlin', tr: 'Berlin', ru: 'Берлин' },
+      'united kingdom': { en: 'London', az: 'London', tr: 'Londra', ru: 'Лондон' },
+      'uk': { en: 'London', az: 'London', tr: 'Londra', ru: 'Лондон' },
+      'великобритании': { en: 'London', az: 'London', tr: 'Лондон' }
+    };
+    if (capitals[country]) {
+      const cap = capitals[country][lang] || capitals[country].en;
+      let reply;
+      if (lang === 'az') reply = `${capitalMatch[1].trim()} dövlətinin paytaxtı ${cap} şəhəridir.`;
+      else if (lang === 'tr') reply = `${capitalMatch[1].trim()} ülkesinin başkenti ${cap}'dır.`;
+      else if (lang === 'ru') reply = `Столицей государства ${capitalMatch[1].trim()} является ${cap}.`;
+      else reply = `The capital of ${capitalMatch[1].trim()} is ${cap}.`;
+      return {
+        matched: true,
+        subtype: 'geography_capital',
+        type: 'general_knowledge',
+        reply,
+        summary: `Answered capital query: ${cap}`
+      };
+    }
+  }
+
+  if (/^(what\s+is\s+the\s+speed\s+of\s+light|speed\s+of\s+light|işığın\s+sürəti|isigin\s+sureti|скорость\s+света)\??$/i.test(clean)) {
+    let reply;
+    if (lang === 'az') reply = "Vakuumda işığın sürəti saniyədə təxminən 299,792,458 metrdir (təxminən 300,000 km/san).";
+    else if (lang === 'tr') reply = "Vakumda ışık hızı saniyede yaklaşık 299.792.458 metredir (yaklaşık 300.000 km/s).";
+    else if (lang === 'ru') reply = "Скорость света в вакууме составляет точно 299 792 458 метров в секунду (около 300 000 км/с).";
+    else reply = "The speed of light in a vacuum is exactly 299,792,458 meters per second (approximately 300,000 km/s).";
+    return {
+      matched: true,
+      subtype: 'physics_fact',
+      type: 'general_knowledge',
+      reply,
+      summary: "Answered speed of light query."
+    };
+  }
+
+  if (/^(what\s+is\s+photosynthesis|fotosintez\s+nədir|fotosintez\s+nedir|что\s+такое\s+фотосинтез)\??$/i.test(clean)) {
+    let reply;
+    if (lang === 'az') reply = "Fotosintez — yaşıl bitkilərin, yosunların və bəzi bakteriyaların günəş işığı enerjisindən istifadə edərək karbon qazı və sudan üzvi maddələr (qlükoza) və oksigen sintez etməsi prosesidir.";
+    else if (lang === 'ru') reply = "Фотосинтез — это процесс образования органических веществ из углекислого газа и воды на свету при участии хлорофилла.";
+    else reply = "Photosynthesis is the biological process used by plants, algae, and certain bacteria to convert light energy into chemical energy, synthesizing glucose and oxygen from carbon dioxide and water.";
+    return {
+      matched: true,
+      subtype: 'biology_fact',
+      type: 'general_knowledge',
+      reply,
+      summary: "Answered photosynthesis query."
+    };
+  }
+
+  if (/^(what\s+is\s+the\s+highest\s+mountain|dünyanın\s+ən\s+hündür\s+dağı|dünyanın\s+en\s+yüksek\s+dağı|самая\s+высокая\s+гора)\??$/i.test(clean)) {
+    let reply;
+    if (lang === 'az') reply = "Dünyanın ən hündür zirvəsi Himalay dağlarında yerləşən Everest (Comolunqma) dağıdır. Hündürlüyü 8,848.86 metrdir.";
+    else if (lang === 'ru') reply = "Самой высокой горой в мире является Эверест (Джомолунгма) в Гималаях, его высота составляет 8848,86 метров.";
+    else reply = "The highest mountain above sea level is Mount Everest (Chomolungma) in the Himalayas, with an elevation of 8,848.86 meters (29,031.7 ft).";
+    return {
+      matched: true,
+      subtype: 'geography_mountain',
+      type: 'general_knowledge',
+      reply,
+      summary: "Answered highest mountain query."
+    };
+  }
+
+  // 20. Identity & System Author Inquiries in EN, AZ, TR, RU
+  if (/^(who\s+created\s+you|who\s+made\s+you|who\s+built\s+you|səni\s+kim\s+yaradıb|seni\s+kim\s+yaptı|кто\s+тебя\s+создал)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'creator_inquiry',
+      type: 'identity',
+      reply: "I am EJII (Eldar Jamiyev's Infrastructure Intelligence), designed and built by Eldar Jamiyev as a dedicated deep infrastructure intelligence and protocol diagnostic system.",
+      summary: "Identified platform author Eldar Jamiyev."
+    };
+  }
+
+  if (/^(who\s+is\s+eldar(?:\s+jamiyev)?|eldar\s+jamiyev\s+kimdir|eldar\s+kimdir|кто\s+такой\s+эльдар(?:\s+джамиев)?)\??$/i.test(clean)) {
+    return {
+      matched: true,
+      subtype: 'system_creator_identity',
+      type: 'identity',
+      reply: "Eldar Jamiyev is the creator and lead software architect of EJII (Eldar Jamiyev's Infrastructure Intelligence).",
+      summary: "Identified platform author Eldar Jamiyev."
+    };
+  }
+
+  // Jokes
+  if (/^(tell\s+me\s+a\s+joke|joke|zarafat\s+et|mənə\s+bir\s+zarafat\s+de|bir\s+fıkra\s+anlat|расскажи\s+шутку|расскажи\s+анекдот)\??$/i.test(clean)) {
+    let jReply;
+    if (lang === 'az') {
+      jReply = "Deyirlər dünyada yalnız 10 cür insan var: ikilik say sistemini (binary) başa düşənlər və düşməyənlər!";
+    } else if (lang === 'tr') {
+      jReply = "Dünyada sadece 10 tür insan vardır: İkilik sistemi (binary) anlayanlar ve anlamayanlar!";
+    } else if (lang === 'ru') {
+      jReply = "В мире есть 10 категорий людей: те, кто понимает двоичный код, и те, кто его не понимает.";
+    } else {
+      jReply = "Why do programmers prefer dark mode? Because light attracts bugs!";
+    }
+    return {
+      matched: true,
+      subtype: 'humor',
+      type: 'casual_conversation',
+      reply: jReply,
+      summary: 'Shared a technical joke.'
+    };
+  }
+
   return null;
 }
 
@@ -541,6 +889,12 @@ function isGreetingPrompt(rawText) {
 function isInformationalTechnicalQuestion(rawText) {
   const clean = String(rawText || '').trim();
   const lower = clean.toLowerCase();
+
+  // Conversational turns (greetings, casual conversation, ambiguous entity queries, general knowledge) are handled by the conversational layer
+  const conv = classifyConversationalTurn(rawText);
+  if (conv && conv.matched) {
+    return false;
+  }
 
   // Explicit negative constraint ("Explain why this happens, but don't run anything yet")
   if (hasNegativeExecutionConstraint(clean)) {
@@ -578,9 +932,9 @@ function isInformationalTechnicalQuestion(rawText) {
     return true;
   }
 
-  // Conceptual questions about DNS, gateway, DHCP, TCP/UDP, timeout vs refused, commands, checklists
+  // Conceptual questions about DNS, gateway, DHCP, TCP/UDP, timeout vs refused, commands, checklists, or conversational phrases resembling commands
   if (
-    /\b(what (?:exactly )?is a default gateway|what is default gateway|what (?:exactly )?is dhcp|what does dhcp do|difference between tcp and udp|tcp vs\.? udp|difference between (?:a )?connection refused and (?:a )?timeout|is a timeout the same(?: thing)? as connection refused|timeout vs\.? connection refused|connection refused vs\.? timeout|what does (?:this|the) (?:powershell|bash|linux|ss|netstat|ipconfig) command do|prepare a troubleshooting checklist|troubleshooting checklist for|can you explain what dns (?:actually )?does|what does dns (?:actually )?do|how does (?:dns|tls|https|arp|nat|traceroute|icmp|tcp handshake|dhcp) work|what is (?:nat|arp|dns|icmp|tls|ssl|mtu|cidr|subnet mask|loopback|localhost|econnrefused|etimedout|nxdomain|apipa|bgp|ospf|quic))\b/i.test(lower)
+    /\b(what (?:exactly )?is a default gateway|what is default gateway|what (?:exactly )?is dhcp|what does dhcp do|difference between tcp and udp|tcp vs\.? udp|difference between (?:a )?connection refused and (?:a )?timeout|is a timeout the same(?: thing)? as connection refused|timeout vs\.? connection refused|connection refused vs\.? timeout|what does (?:this|the) (?:powershell|bash|linux|ss|netstat|ipconfig) command do|prepare a troubleshooting checklist|troubleshooting checklist for|can you explain what dns (?:actually )?does|what does dns (?:actually )?do|how does (?:dns|tls|https|arp|nat|traceroute|icmp|tcp handshake|dhcp) work|tell me how (?:dns|tls|https|arp|nat|traceroute|icmp|tcp|dhcp) works|what is (?:nat|arp|dns|icmp|tls|ssl|mtu|cidr|subnet mask|loopback|localhost|econnrefused|etimedout|nxdomain|apipa|bgp|ospf|quic)|ping spike.*what (?:usually )?causes|what (?:usually )?causes (?:a )?(?:ping|latency|packet loss|dns) spike|why do ping spikes happen|when should i use (?:traceroute|ping|mtr|tcp))\b/i.test(lower)
   ) {
     return true;
   }
@@ -591,7 +945,7 @@ function isInformationalTechnicalQuestion(rawText) {
   }
 
   if (
-    /^(what is|what are|what exactly is|can you explain|explain|how does|how do|describe|define|is a |why can a |why does a |why do |since our |if a port is open|does an open)\b/i.test(lower) &&
+    /^(what is|what are|what exactly is|can you explain|explain|how does|how do|describe|define|is a |why can a |why does a |why do |since our |if a port is open|does an open|tell me how|when should i)\b/i.test(lower) &&
     !/\b(my name|your name|who am i|who are you|my identity|my ip|my gateway|my network|my dns|my dhcp|active connections|running applications|talking to|what happened|what changed|previous test|previous result|last check|same host|that host|google's ip)\b/i.test(lower)
   ) {
     return true;
@@ -607,6 +961,24 @@ function answerInformationalQuestion(rawText) {
   const lower = String(rawText || '').toLowerCase();
   const clean = lower.replace(/[!?.]+$/, '').trim();
 
+  // Conversational question mentioning ping/latency spikes ("We had a ping spike yesterday, what usually causes that?")
+  if (/\b(ping spike|latency spike|why do ping spikes happen|what (?:usually )?causes (?:a )?(?:ping|latency) spike)\b/i.test(lower)) {
+    const result = 'Transient ping (ICMP RTT) spikes are most commonly caused by bufferbloat/queue congestion, Wi-Fi radio airtime contention, ISP transit routing shifts, or router CPU control-plane rate-limiting.';
+    const meaning =
+      '- **Bufferbloat & Queue Congestion (Layer 2/3):** Bulk uploads or downloads saturate egress queues on the local gateway or ISP CPE, forcing small ICMP echo packets to wait behind large MTU frames.\n' +
+      '- **Wi-Fi CSMA/CA & Channel Scanning (Layer 1/2):** Wireless interfaces periodically scan off-channel for roaming (BGScan) or experience co-channel interference, causing sudden 40–250ms RTT jumps on Hop 1.\n' +
+      '- **Control-Plane ICMP Deprioritization (Layer 3):** Transit routers forward hardware-switched data traffic at line rate in ASICs while punting ICMP TTL/echo processing to a rate-limited CPU.\n' +
+      '- **Asymmetric Route Flap or BGP Reconvergence:** Upstream path changes temporarily shift traffic onto a higher-latency backup link.';
+    const nextStep = 'To isolate whether a spike originates on your local LAN or upstream ISP, compare simultaneous ICMP RTT to your default gateway (Hop 1) against an external anycast target such as `1.1.1.1`.';
+    return {
+      topic: 'Root Causes of Transient Ping & Latency Spikes',
+      result,
+      meaning,
+      nextStep,
+      naturalReply: `${result}\n\n${meaning}\n\n${nextStep}`
+    };
+  }
+
   // Conceptual question: Does an open TCP socket (e.g. port 3000) prove the L7 application layer is healthy?
   if (
     (/\b(open|responsive)\b/i.test(lower) && /\b(tcp|socket|port)\b/i.test(lower) && /\b(application layer|application is healthy|definitively declare|prove|guarantee|mean (?:the )?(?:app|application|service) is healthy)\b/i.test(lower)) ||
@@ -620,7 +992,7 @@ function answerInformationalQuestion(rawText) {
       '  2. **HTTP 5xx Application Failures:** The server may accept the TCP connection and immediately return `500 Internal Server Error`, `502 Bad Gateway`, or `503 Service Unavailable`.\n' +
       '  3. **Downstream Dependency Failure:** The web server process may be running, but its database connection pool, Redis cache, or upstream microservice is offline.\n' +
       '  4. **TLS / Protocol Mismatch:** If TLS is expected, an expired certificate or cipher mismatch at Layer 6 will fail after the TCP handshake completes.';
-    const nextStep = 'To verify true Layer 7 application health, perform an HTTP/HTTPS health-endpoint request (e.g., checking status code `200 OK`, response latency, and payload validity on `http://localhost:3000`).';
+    const nextStep = 'To confirm true Layer 7 application health, perform an HTTP/HTTPS health-endpoint request (e.g., checking status code `200 OK`, response latency, and payload validity on `http://localhost:3000`).';
     return {
       topic: 'Layer 4 TCP Socket State vs. Layer 7 Application Health',
       result,
@@ -790,6 +1162,7 @@ module.exports = {
   UNAMBIGUOUS_TLD_TYPO_MAP,
   KNOWN_HOST_TYPO_MAP,
   WELL_KNOWN_BRAND_DOMAINS,
+  detectLanguage,
   classifyDomainTypo,
   detectDomainTypo,
   hasNegativeExecutionConstraint,

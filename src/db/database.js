@@ -27,33 +27,18 @@ db.exec('PRAGMA synchronous = NORMAL;');
 db.exec('PRAGMA cache_size = -64000;');
 db.exec('PRAGMA foreign_keys = ON;');
 
+let lastMigrationStatus = 'UNINITIALIZED';
+let lastMigrationError = null;
+let lastMigrationResult = null;
+
 /**
- * Drop all obsolete tables and initialize lean NOC schema
+ * Initialize NOC schema non-destructively (preserving all existing tables and records)
  */
-function initSchema() {
-  db.exec('PRAGMA foreign_keys = OFF;');
+function initSchema(targetDb = db) {
+  targetDb.exec('PRAGMA foreign_keys = OFF;');
 
-  // 1. Explicit Purge of Obsolete Enterprise Tables
-  const tablesToDrop = [
-    'tickets', 'helpdesk_tickets', 'ticket_comments', 'slas', 'sla_policies',
-    'cmdb_ci', 'cmdb_relations', 'cmdb_hardware', 'cmdb_software', 'cmdb_interfaces',
-    'cmdb_subnets', 'cmdb_relationships', 'cmdb_reconciliation_log',
-    'drift_baselines', 'drift_records', 'drift_observations', 'drift_reconciliation_runs',
-    'chaos_experiments', 'chaos_scenarios', 'chaos_executions',
-    'dual_custody_actions', 'automation_actions', 'audit_trail_hmac',
-    'change_requests', 'known_errors', 'service_catalog',
-    'service_dependencies', 'tenants', 'monitoring_alert_rules', 'monitoring_alerts',
-    'monitoring_notifications'
-  ];
-
-  for (const tbl of tablesToDrop) {
-    try {
-      db.exec(`DROP TABLE IF EXISTS ${tbl};`);
-    } catch (e) {}
-  }
-
-  // 2. Pure NOC Workstation Schema
-  db.exec(`
+  // Non-destructive schema initialization: existing tables and records are strictly preserved.
+  targetDb.exec(`
     -- Cryptographic HMAC Audit Trail
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +64,11 @@ function initSchema() {
       full_name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'noc_operator',
       is_active INTEGER DEFAULT 1,
+      mfa_enabled INTEGER DEFAULT 0,
+      mfa_secret TEXT,
+      mfa_pending_secret TEXT,
+      mfa_last_counter INTEGER DEFAULT 0,
+      mfa_updated_at TEXT,
       created_at TEXT NOT NULL,
       last_login TEXT
     );
@@ -377,16 +367,152 @@ function initSchema() {
   `);
 
   try {
-    const { runMigrations } = require('./migrations');
-    runMigrations(db);
+    const userCols = targetDb.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+    const mfaCols = [
+      ['mfa_enabled', 'INTEGER DEFAULT 0'],
+      ['mfa_secret', 'TEXT'],
+      ['mfa_pending_secret', 'TEXT'],
+      ['mfa_last_counter', 'INTEGER DEFAULT 0'],
+      ['mfa_updated_at', 'TEXT']
+    ];
+    for (const [colName, colDef] of mfaCols) {
+      if (!userCols.includes(colName)) {
+        targetDb.exec(`ALTER TABLE users ADD COLUMN ${colName} ${colDef};`);
+      }
+    }
   } catch (_) {}
 
-  db.exec('PRAGMA foreign_keys = ON;');
+  try {
+    const { runMigrations } = require('./migrations');
+    const migResult = runMigrations(targetDb);
+    targetDb._ejiiMigrationResult = migResult;
+    targetDb._ejiiMigrationStatus = 'SUCCESS';
+    targetDb._ejiiMigrationError = null;
+    if (targetDb === db) {
+      lastMigrationResult = migResult;
+      lastMigrationStatus = 'SUCCESS';
+      lastMigrationError = null;
+    }
+  } catch (err) {
+    const errMsg = err && err.message ? err.message : String(err);
+    targetDb._ejiiMigrationStatus = 'FAILED';
+    targetDb._ejiiMigrationError = errMsg;
+    if (targetDb === db) {
+      lastMigrationStatus = 'FAILED';
+      lastMigrationError = errMsg;
+    }
+    console.error('[EJII Database Migration Error]:', errMsg);
+  }
+
+  targetDb.exec('PRAGMA foreign_keys = ON;');
 }
 
-initSchema();
+function getDatabaseHealth(targetDb = db) {
+  const probeStartNs = process.hrtime.bigint();
+  try {
+    if (!targetDb || typeof targetDb.prepare !== 'function') {
+      throw new Error('Database handle is null or closed');
+    }
+    const journalRow = targetDb.prepare('PRAGMA journal_mode').get();
+    const fkRow = targetDb.prepare('PRAGMA foreign_keys').get();
+    const queryOnlyRow = targetDb.prepare('PRAGMA query_only').get();
+    const isQueryOnly = queryOnlyRow ? Boolean(Number(Object.values(queryOnlyRow)[0])) : false;
+    const journalMode = journalRow ? String(Object.values(journalRow)[0]).toLowerCase() : 'unknown';
+    const migRows = targetDb
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
+      .all();
+    const appliedMigrations = migRows.length > 0
+      ? targetDb.prepare('SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version ASC').all()
+      : [];
+
+    // Execute a bounded, non-destructive transactional write probe using SAVEPOINT + ROLLBACK
+    // so we verify actual write capability (detecting read-only filesystems, query_only, or lock contention)
+    // without mutating any persistent rows.
+    let writeCapable = !isQueryOnly;
+    let writeProbeError = null;
+    let lockContentionDetected = false;
+    if (writeCapable) {
+      try {
+        targetDb.exec('SAVEPOINT ejii_write_health_probe;');
+        try {
+          if (migRows.length > 0) {
+            targetDb.prepare('UPDATE schema_migrations SET version = version WHERE version = -999999').run();
+          } else {
+            targetDb.exec('CREATE TEMP TABLE IF NOT EXISTS _ejii_write_probe (id INTEGER); INSERT INTO _ejii_write_probe VALUES (1);');
+          }
+        } finally {
+          try { targetDb.exec('ROLLBACK TO SAVEPOINT ejii_write_health_probe;'); } catch (_) {}
+          try { targetDb.exec('RELEASE SAVEPOINT ejii_write_health_probe;'); } catch (_) {}
+        }
+      } catch (probeErr) {
+        writeCapable = false;
+        writeProbeError = probeErr && probeErr.message ? probeErr.message : String(probeErr);
+        if (/BUSY|LOCKED/i.test(writeProbeError)) {
+          lockContentionDetected = true;
+        }
+      }
+    } else {
+      writeProbeError = 'Connection has PRAGMA query_only = 1 (read-only mode)';
+    }
+
+    const instanceMigrationStatus = targetDb._ejiiMigrationStatus || (targetDb === db ? lastMigrationStatus : (migRows.length > 0 ? 'SUCCESS' : 'UNINITIALIZED'));
+    const instanceMigrationError = targetDb._ejiiMigrationError !== undefined
+      ? targetDb._ejiiMigrationError
+      : (targetDb === db ? lastMigrationError : null);
+
+    const probeLatencyMs = Number((Number(process.hrtime.bigint() - probeStartNs) / 1e6).toFixed(3));
+    const healthy = instanceMigrationStatus !== 'FAILED' && writeCapable;
+    let operationalState = 'HEALTHY_DURABLE_WAL';
+    if (instanceMigrationStatus === 'FAILED') {
+      operationalState = 'MIGRATION_FAILED';
+    } else if (instanceMigrationStatus === 'UNINITIALIZED') {
+      operationalState = 'INITIALIZATION_IN_PROGRESS';
+    } else if (lockContentionDetected) {
+      operationalState = 'TEMPORARY_LOCK_CONTENTION';
+    } else if (!writeCapable) {
+      operationalState = 'TEMPORARY_WRITE_FAILURE';
+    } else if (journalMode !== 'wal') {
+      operationalState = 'HEALTHY_DURABLE';
+    }
+    return {
+      healthy,
+      operationalState,
+      writeCapable,
+      queryOnlyPragma: isQueryOnly,
+      writeProbeVerified: writeCapable,
+      writeProbeError,
+      probeLatencyMs,
+      journalMode,
+      foreignKeysEnabled: fkRow ? Boolean(Object.values(fkRow)[0]) : false,
+      migrationStatus: instanceMigrationStatus,
+      lastMigrationError: instanceMigrationError,
+      appliedMigrationsCount: appliedMigrations.length,
+      appliedMigrations
+    };
+  } catch (err) {
+    const probeLatencyMs = Number((Number(process.hrtime.bigint() - probeStartNs) / 1e6).toFixed(3));
+    return {
+      healthy: false,
+      operationalState: 'DATABASE_UNAVAILABLE',
+      writeCapable: false,
+      queryOnlyPragma: false,
+      writeProbeVerified: false,
+      writeProbeError: err && err.message ? err.message : String(err),
+      probeLatencyMs,
+      journalMode: 'error',
+      foreignKeysEnabled: false,
+      migrationStatus: 'ERROR',
+      lastMigrationError: err && err.message ? err.message : String(err),
+      appliedMigrationsCount: 0,
+      appliedMigrations: []
+    };
+  }
+}
+
+initSchema(db);
 
 module.exports = {
   db,
-  initSchema
+  initSchema,
+  getDatabaseHealth
 };

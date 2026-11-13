@@ -144,6 +144,45 @@ function verifyTOTP(secret, token, window = 1, timestampMs = Date.now(), stepSec
 }
 
 /**
+ * Validate TOTP token with RFC 6238 time-step replay protection.
+ * Rejects any token whose matched time-step counter is <= lastUsedCounter.
+ */
+function verifyTOTPWithReplayGuard(secret, token, lastUsedCounter = null, window = 1, timestampMs = Date.now(), stepSeconds = 30) {
+  if (!secret || !token) {
+    return { valid: false, matchedCounter: null, replayDetected: false };
+  }
+  const cleanToken = token.toString().trim();
+  if (!/^\d{6}$/.test(cleanToken)) {
+    return { valid: false, matchedCounter: null, replayDetected: false };
+  }
+
+  const currentCounter = Math.floor(timestampMs / 1000 / stepSeconds);
+  const parsedLastCounter = Number(lastUsedCounter);
+  const hasPriorCounter = Number.isFinite(parsedLastCounter) && parsedLastCounter > 0;
+
+  for (let i = -window; i <= window; i++) {
+    const candidateCounter = currentCounter + i;
+    const candidate = generateHOTP(secret, candidateCounter, 6);
+    if (crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(cleanToken))) {
+      if (hasPriorCounter && candidateCounter <= parsedLastCounter) {
+        return {
+          valid: false,
+          matchedCounter: candidateCounter,
+          replayDetected: true
+        };
+      }
+      return {
+        valid: true,
+        matchedCounter: candidateCounter,
+        replayDetected: false
+      };
+    }
+  }
+
+  return { valid: false, matchedCounter: null, replayDetected: false };
+}
+
+/**
  * Generate standard otpauth URI for QR codes and authenticator apps
  * @param {string} issuer e.g. "EJI Security"
  * @param {string} accountName e.g. "eldar.jamiyev@caspel.az"
@@ -163,5 +202,6 @@ module.exports = {
   generateHOTP,
   generateTOTP,
   verifyTOTP,
+  verifyTOTPWithReplayGuard,
   getOtpAuthUrl
 };

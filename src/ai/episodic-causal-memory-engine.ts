@@ -21,24 +21,50 @@ export interface EpisodicIncidentRecord {
   episodeId: string;
   recordedAt: string;
   target: string;
+  environmentScope?: string;
+  provenance?: 'LIVE_RUNTIME_OBSERVATION' | 'SEEDED_REFERENCE_PATTERN' | string;
+  isSimulated?: boolean;
+  lifecycleStage?: string;
+  lifecycleHistory?: string[];
+  measuredFields?: string[];
+  missingFields?: string[];
+  derivedFields?: string[];
+  fieldProvenance?: Record<string, string>;
+  rawMeasuredMetrics?: Record<string, number | null>;
   signature: TelemetrySignatureVector;
   rootCauseDomain: string;
   emergentHypothesisId: string | null;
   operatorObservation?: string;
   executedRunbookId: string;
-  preActionRttMs: number;
-  postActionRttMs: number;
+  preActionRttMs: number | null;
+  postActionRttMs: number | null;
+  hasSeparatePostActionMeasurement?: boolean;
   resolved: boolean;
-  lyapunovDelta: number;
+  resolutionRejectedReason?: string | null;
+  persistenceStatus?: string;
+  lyapunovDelta: number | null;
   lessonsLearned: string;
 }
 
 export interface SimilarEpisodeMatch {
   episode: EpisodicIncidentRecord;
   cosineSimilarity: number;
+  sharedMeasuredDimensionsCount?: number;
   recommendedRunbookId: string;
   priorBoostDomain: string;
   priorBoostWeight: number;
+  memorySourceType?: 'LIVE_HISTORICAL_INCIDENT' | 'REFERENCE_SEED_ARCHETYPE';
+  environmentScope?: string;
+  environmentMatches?: boolean;
+  environmentMismatch?: boolean;
+  remediationApplicability?:
+    | 'CONTEXTUALLY_CORROBORATED'
+    | 'AUTO_RECOMMENDATION_WITHHELD_LOW_SIMILARITY'
+    | 'AUTO_RECOMMENDATION_WITHHELD_UNRESOLVED_HISTORY'
+    | 'AUTO_RECOMMENDATION_WITHHELD_DOMAIN_MISMATCH'
+    | 'AUTO_RECOMMENDATION_WITHHELD_ENVIRONMENT_MISMATCH'
+    | 'AUTO_RECOMMENDATION_WITHHELD_INSUFFICIENT_MEASURED_OVERLAP';
+  autoRecommendSafe?: boolean;
 }
 
 export interface TopologyCausalNode {
@@ -95,13 +121,15 @@ export interface ClosedLoopLearningOutcome {
   target: string;
   executedActionId: string;
   improvementVerified: boolean;
-  rttDeltaMs: number;
-  lossDeltaPct: number;
-  lyapunovEnergyBefore: number;
-  lyapunovEnergyAfter: number;
+  rttDeltaMs: number | null;
+  lossDeltaPct: number | null;
+  lyapunovEnergyBefore: number | null;
+  lyapunovEnergyAfter: number | null;
   beliefShiftExplanation: string;
   pivotedToHypothesisId: string | null;
   updatedDomainPriors: Record<string, number>;
+  persistenceStatus?: string;
+  lifecycleStage?: string;
 }
 
 const SEEDED_EPISODES: EpisodicIncidentRecord[] = [
@@ -109,6 +137,8 @@ const SEEDED_EPISODES: EpisodicIncidentRecord[] = [
     episodeId: 'ep-seed-pmtu-tls-cascade',
     recordedAt: '2026-10-15T09:12:00.000Z',
     target: '192.168.1.1',
+    provenance: 'SEEDED_REFERENCE_PATTERN',
+    isSimulated: true,
     signature: {
       cusumShiftSigma: 4.8,
       spectralFlatness: 0.31,
@@ -132,6 +162,8 @@ const SEEDED_EPISODES: EpisodicIncidentRecord[] = [
     episodeId: 'ep-seed-routing-dns-exhaustion',
     recordedAt: '2026-10-19T14:40:00.000Z',
     target: '10.20.30.10',
+    provenance: 'SEEDED_REFERENCE_PATTERN',
+    isSimulated: true,
     signature: {
       cusumShiftSigma: 5.4,
       spectralFlatness: 0.22,
@@ -155,6 +187,8 @@ const SEEDED_EPISODES: EpisodicIncidentRecord[] = [
     episodeId: 'ep-seed-bufferbloat-rst-storm',
     recordedAt: '2026-10-24T11:05:00.000Z',
     target: '192.168.31.50',
+    provenance: 'SEEDED_REFERENCE_PATTERN',
+    isSimulated: true,
     signature: {
       cusumShiftSigma: 4.1,
       spectralFlatness: 0.18,
@@ -332,6 +366,7 @@ export interface PreOutageTtcPrediction {
 
 export class EpisodicCausalMemoryEngine {
   private static episodes: EpisodicIncidentRecord[] = [...SEEDED_EPISODES];
+  private static sqliteInitialized = false;
   private static feedbackLedger: OperatorFeedbackEntry[] = [];
   private static learnedDomainWeights: Record<string, number> = {
     PHYSICAL_L2_L3: 1.0,
@@ -383,6 +418,192 @@ export class EpisodicCausalMemoryEngine {
     }
   };
 
+  private static _classifyEnvironmentScope(target: string): 'LOOPBACK_CONTROL_PLANE' | 'RFC1918_PRIVATE_LAN' | 'LINK_LOCAL_APIPA' | 'CGNAT_SHARED_SPACE' | 'PUBLIC_WAN_OR_CLOUD' | 'UNSPECIFIED_SCOPE' {
+    const raw = String(target || '').trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+    const clean = raw.startsWith('[')
+      ? raw.slice(1, raw.indexOf(']') > 0 ? raw.indexOf(']') : undefined)
+      : (raw.split(':').length > 2 ? raw : raw.replace(/:\d+$/, ''));
+    if (!clean || clean === 'unspecified_target' || clean === 'operational_intelligence_fabric') {
+      return 'UNSPECIFIED_SCOPE';
+    }
+    if (clean === '127.0.0.1' || clean === 'localhost' || clean === '::1' || clean.startsWith('127.')) {
+      return 'LOOPBACK_CONTROL_PLANE';
+    }
+    if (clean.startsWith('169.254.') || clean.startsWith('fe80:')) {
+      return 'LINK_LOCAL_APIPA';
+    }
+    if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(clean)) {
+      return 'CGNAT_SHARED_SPACE';
+    }
+    if (
+      clean.startsWith('10.') ||
+      clean.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(clean) ||
+      clean.startsWith('fc') ||
+      clean.startsWith('fd') ||
+      clean.endsWith('.local') ||
+      clean.endsWith('.internal') ||
+      clean.endsWith('.lan') ||
+      clean.endsWith('.corp') ||
+      clean.endsWith('.home.arpa')
+    ) {
+      return 'RFC1918_PRIVATE_LAN';
+    }
+    return 'PUBLIC_WAN_OR_CLOUD';
+  }
+
+  private static lastPersistenceStatus: 'DURABLE_SQLITE_WAL' | 'VOLATILE_IN_MEMORY_FALLBACK' | 'PERSISTENCE_WRITE_FAILED' = 'VOLATILE_IN_MEMORY_FALLBACK';
+  private static lastPersistenceError: string | null = null;
+  private static recentCalibrationSignatures: Set<string> = new Set();
+
+  public static readonly INCIDENT_LIFECYCLE_STAGES = [
+    'DIAGNOSTIC_INVESTIGATION',
+    'HYPOTHESIS_FORMATION',
+    'PROPOSED_REMEDIATION',
+    'OPERATOR_AUTHORIZATION',
+    'REMEDIATION_EXECUTION',
+    'EXECUTION_RESULT',
+    'INDEPENDENT_POST_ACTION_MEASUREMENT',
+    'OUTCOME_ASSESSMENT',
+    'HISTORICAL_LEARNING'
+  ] as const;
+
+  public static validateLifecycleTransition(fromStage: string, toStage: string): { valid: boolean; reason: string } {
+    const idxFrom = this.INCIDENT_LIFECYCLE_STAGES.indexOf(fromStage as any);
+    const idxTo = this.INCIDENT_LIFECYCLE_STAGES.indexOf(toStage as any);
+    if (idxFrom === -1 || idxTo === -1) {
+      return { valid: false, reason: `UNRECOGNIZED_LIFECYCLE_STAGE:${fromStage}->${toStage}` };
+    }
+    if (idxTo < idxFrom) {
+      return { valid: false, reason: `RETROGRADE_LIFECYCLE_TRANSITION_FORBIDDEN:${fromStage}->${toStage}` };
+    }
+    if (toStage === 'HISTORICAL_LEARNING' && idxFrom < this.INCIDENT_LIFECYCLE_STAGES.indexOf('INDEPENDENT_POST_ACTION_MEASUREMENT')) {
+      return { valid: false, reason: 'HISTORICAL_LEARNING_REQUIRES_POST_ACTION_MEASUREMENT' };
+    }
+    return { valid: true, reason: 'VALID_FORWARD_TRANSITION' };
+  }
+
+  private static _ensureSqlitePersistence(forceRetry = false): void {
+    if (this.sqliteInitialized && !forceRetry && this.lastPersistenceStatus === 'DURABLE_SQLITE_WAL') return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const dbMod = require('../db/database');
+      const db = dbMod?.db || (typeof dbMod?.getDb === 'function' ? dbMod.getDb() : null);
+      if (db && typeof db.exec === 'function') {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS ejii_episodic_causal_memory (
+            episode_id TEXT PRIMARY KEY,
+            recorded_at TEXT NOT NULL,
+            target TEXT NOT NULL,
+            provenance TEXT NOT NULL,
+            is_simulated INTEGER NOT NULL DEFAULT 0,
+            root_cause_domain TEXT NOT NULL,
+            executed_runbook_id TEXT,
+            resolved INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT NOT NULL
+          );
+        `);
+        const rows = db
+          .prepare('SELECT payload_json FROM ejii_episodic_causal_memory ORDER BY recorded_at DESC LIMIT 60')
+          .all();
+        const existingIds = new Set(this.episodes.map((e) => e.episodeId));
+        for (const r of rows) {
+          if (r && r.payload_json) {
+            const parsed = JSON.parse(r.payload_json);
+            if (parsed && parsed.episodeId && !existingIds.has(parsed.episodeId)) {
+              existingIds.add(parsed.episodeId);
+              this.episodes.unshift(parsed);
+            }
+          }
+        }
+        this.sqliteInitialized = true;
+        if (this.lastPersistenceStatus !== 'PERSISTENCE_WRITE_FAILED' || forceRetry) {
+          this.lastPersistenceStatus = 'DURABLE_SQLITE_WAL';
+          this.lastPersistenceError = null;
+        }
+      } else {
+        this.sqliteInitialized = false;
+        this.lastPersistenceStatus = 'VOLATILE_IN_MEMORY_FALLBACK';
+        this.lastPersistenceError = 'SQLite database handle unavailable';
+      }
+    } catch (err: any) {
+      this.sqliteInitialized = false;
+      this.lastPersistenceStatus = 'VOLATILE_IN_MEMORY_FALLBACK';
+      this.lastPersistenceError = err?.message || 'SQLite initialization fallback';
+    }
+  }
+
+  private static _saveLiveEpisodeToSqlite(ep: EpisodicIncidentRecord): 'DURABLE_SQLITE_WAL' | 'VOLATILE_IN_MEMORY_FALLBACK' | 'PERSISTENCE_WRITE_FAILED' {
+    this._ensureSqlitePersistence();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const dbMod = require('../db/database');
+      const db = dbMod?.db || (typeof dbMod?.getDb === 'function' ? dbMod.getDb() : null);
+      if (db && typeof db.prepare === 'function') {
+        db.prepare(`
+          INSERT INTO ejii_episodic_causal_memory (
+            episode_id, recorded_at, target, provenance, is_simulated,
+            root_cause_domain, executed_runbook_id, resolved, payload_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(episode_id) DO UPDATE SET
+            resolved = excluded.resolved,
+            payload_json = excluded.payload_json
+        `).run(
+          ep.episodeId,
+          ep.recordedAt,
+          ep.target,
+          ep.provenance || 'LIVE_RUNTIME_OBSERVATION',
+          ep.isSimulated ? 1 : 0,
+          ep.rootCauseDomain,
+          ep.executedRunbookId,
+          ep.resolved ? 1 : 0,
+          JSON.stringify(ep)
+        );
+        this.sqliteInitialized = true;
+        this.lastPersistenceStatus = 'DURABLE_SQLITE_WAL';
+        this.lastPersistenceError = null;
+        return 'DURABLE_SQLITE_WAL';
+      }
+      this.sqliteInitialized = false;
+      this.lastPersistenceStatus = 'VOLATILE_IN_MEMORY_FALLBACK';
+      return 'VOLATILE_IN_MEMORY_FALLBACK';
+    } catch (err: any) {
+      this.lastPersistenceStatus = 'PERSISTENCE_WRITE_FAILED';
+      this.lastPersistenceError = err?.message || 'SQLite write failed';
+      return 'PERSISTENCE_WRITE_FAILED';
+    }
+  }
+
+  public static getPersistenceHealth() {
+    this._ensureSqlitePersistence();
+    let dbHealth: any = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getDatabaseHealth } = require('../db/database');
+      if (typeof getDatabaseHealth === 'function') {
+        dbHealth = getDatabaseHealth();
+      }
+    } catch (_) {}
+
+    const writeFailed = this.lastPersistenceStatus === 'PERSISTENCE_WRITE_FAILED' || (dbHealth && dbHealth.writeCapable === false);
+    const effectiveStatus = writeFailed
+      ? 'PERSISTENCE_WRITE_FAILED'
+      : this.lastPersistenceStatus;
+    const liveCount = this.episodes.filter((ep) => !ep.episodeId.startsWith('ep-seed-') && ep.isSimulated !== true).length;
+    const seedCount = this.episodes.length - liveCount;
+    return {
+      persistenceState: effectiveStatus === 'DURABLE_SQLITE_WAL' ? 'SQLITE_DURABLE_ACTIVE' : effectiveStatus,
+      persistenceStatus: effectiveStatus,
+      storageMode: effectiveStatus,
+      sqliteInitialized: this.sqliteInitialized,
+      lastError: this.lastPersistenceError || (dbHealth?.lastMigrationError ?? null),
+      durableSqliteActive: Boolean(this.sqliteInitialized && effectiveStatus === 'DURABLE_SQLITE_WAL' && (!dbHealth || dbHealth.healthy)),
+      databaseOperationalState: dbHealth?.operationalState || (this.sqliteInitialized ? 'HEALTHY_DURABLE_WAL' : 'DATABASE_UNAVAILABLE'),
+      liveHistoricalCount: liveCount,
+      seededReferenceCount: seedCount
+    };
+  }
+
   private static normalizeVector(sig: TelemetrySignatureVector): number[] {
     return [
       Math.min(1, Math.max(0, (sig.cusumShiftSigma || 0) / 8.0)),
@@ -395,31 +616,116 @@ export class EpisodicCausalMemoryEngine {
     ];
   }
 
-  public static computeCosineSimilarity(a: TelemetrySignatureVector, b: TelemetrySignatureVector): number {
+  public static computeCosineSimilarity(
+    a: TelemetrySignatureVector,
+    b: TelemetrySignatureVector,
+    aMeasuredFields?: string[],
+    bMeasuredFields?: string[]
+  ): number {
     const va = this.normalizeVector(a);
     const vb = this.normalizeVector(b);
+    const dimNames = [
+      'cusumShiftSigma',
+      'spectralFlatness',
+      'rttMs',
+      'packetLossPct',
+      'dnsLatencyMs',
+      'cpuSaturationPct',
+      'tcpRetransmitRate'
+    ];
+    const hasA = Array.isArray(aMeasuredFields) && aMeasuredFields.length > 0 ? new Set(aMeasuredFields) : null;
+    const hasB = Array.isArray(bMeasuredFields) && bMeasuredFields.length > 0 ? new Set(bMeasuredFields) : null;
+
     let dot = 0;
     let magA = 0;
     let magB = 0;
     for (let i = 0; i < va.length; i++) {
-      dot += va[i] * vb[i];
-      magA += va[i] * va[i];
-      magB += vb[i] * vb[i];
+      const dim = dimNames[i];
+      // If provenance lists are available and a dimension was NOT measured in either vector, downweight it so missing=0 never inflates similarity
+      const aMeasured = !hasA || hasA.has(dim);
+      const bMeasured = !hasB || hasB.has(dim);
+      const weight = (aMeasured && bMeasured) ? 1.0 : 0.1;
+      dot += weight * va[i] * vb[i];
+      magA += weight * va[i] * va[i];
+      magB += weight * vb[i] * vb[i];
     }
     if (magA < 1e-9 || magB < 1e-9) return 0;
     return Number((dot / (Math.sqrt(magA) * Math.sqrt(magB))).toFixed(4));
   }
 
-  public static findSimilarEpisodes(liveSig: TelemetrySignatureVector, topK = 3): SimilarEpisodeMatch[] {
-    const scored = this.episodes.map((ep) => {
-      const sim = this.computeCosineSimilarity(liveSig, ep.signature);
-      const boostWeight = ep.resolved ? Number((sim * 0.18).toFixed(4)) : Number((-sim * 0.08).toFixed(4));
+  public static findSimilarEpisodes(
+    liveSig: TelemetrySignatureVector,
+    topK = 3,
+    options: {
+      includeSimulated?: boolean;
+      target?: string;
+      currentDomain?: string;
+      winningDomainId?: string;
+      currentTopHypothesisId?: string;
+      measuredFields?: string[];
+    } = {}
+  ): SimilarEpisodeMatch[] {
+    this._ensureSqlitePersistence();
+    const pool = options.includeSimulated === false
+      ? this.episodes.filter((ep) => !ep.episodeId.startsWith('ep-seed-') && ep.isSimulated !== true)
+      : this.episodes;
+
+    const queryScope = options.target ? this._classifyEnvironmentScope(options.target) : null;
+    const expectedDomain = options.currentDomain || options.winningDomainId || options.currentTopHypothesisId || null;
+
+    const scored = pool.map((ep) => {
+      const sim = this.computeCosineSimilarity(liveSig, ep.signature, options.measuredFields, ep.measuredFields);
+      const isSeed = ep.episodeId.startsWith('ep-seed-') || ep.isSimulated === true;
+      const memorySourceType: 'LIVE_HISTORICAL_INCIDENT' | 'REFERENCE_SEED_ARCHETYPE' = isSeed
+        ? 'REFERENCE_SEED_ARCHETYPE'
+        : 'LIVE_HISTORICAL_INCIDENT';
+
+      const epScope = ep.environmentScope || this._classifyEnvironmentScope(ep.target);
+      const environmentMismatch = Boolean(
+        queryScope &&
+        queryScope !== 'UNSPECIFIED_SCOPE' &&
+        epScope !== 'UNSPECIFIED_SCOPE' &&
+        queryScope !== epScope
+      );
+      const environmentMatches = !environmentMismatch;
+
+      let sharedMeasuredDimensionsCount = 7;
+      if (Array.isArray(options.measuredFields) && Array.isArray(ep.measuredFields)) {
+        const setB = new Set(ep.measuredFields);
+        sharedMeasuredDimensionsCount = options.measuredFields.filter((f) => setB.has(f)).length;
+      }
+
+      let remediationApplicability: SimilarEpisodeMatch['remediationApplicability'] = 'CONTEXTUALLY_CORROBORATED';
+      if (!ep.resolved) {
+        remediationApplicability = 'AUTO_RECOMMENDATION_WITHHELD_UNRESOLVED_HISTORY';
+      } else if (environmentMismatch) {
+        remediationApplicability = 'AUTO_RECOMMENDATION_WITHHELD_ENVIRONMENT_MISMATCH';
+      } else if (expectedDomain && ep.rootCauseDomain !== expectedDomain) {
+        remediationApplicability = 'AUTO_RECOMMENDATION_WITHHELD_DOMAIN_MISMATCH';
+      } else if (sim < 0.65) {
+        remediationApplicability = 'AUTO_RECOMMENDATION_WITHHELD_LOW_SIMILARITY';
+      } else if (sharedMeasuredDimensionsCount < 1) {
+        remediationApplicability = 'AUTO_RECOMMENDATION_WITHHELD_INSUFFICIENT_MEASURED_OVERLAP';
+      }
+
+      const autoRecommendSafe = remediationApplicability === 'CONTEXTUALLY_CORROBORATED';
+      const boostWeight = ep.resolved && !environmentMismatch && sim >= 0.55
+        ? Number((sim * 0.18).toFixed(4))
+        : Number((-sim * 0.08).toFixed(4));
+
       return {
         episode: ep,
         cosineSimilarity: sim,
+        sharedMeasuredDimensionsCount,
         recommendedRunbookId: ep.executedRunbookId,
         priorBoostDomain: ep.rootCauseDomain,
-        priorBoostWeight: boostWeight
+        priorBoostWeight: boostWeight,
+        memorySourceType,
+        environmentScope: epScope,
+        environmentMatches,
+        environmentMismatch,
+        remediationApplicability,
+        autoRecommendSafe
       };
     });
     scored.sort((a, b) => b.cosineSimilarity - a.cosineSimilarity);
@@ -427,75 +733,276 @@ export class EpisodicCausalMemoryEngine {
   }
 
   public static getAllEpisodes(options: { includeSimulated?: boolean } = {}): EpisodicIncidentRecord[] {
+    this._ensureSqlitePersistence();
     if (options && options.includeSimulated === false) {
-      const liveOnly = this.episodes.filter((ep) => !ep.episodeId.startsWith('ep-seed-'));
-      if (liveOnly.length > 0) {
-        return [...liveOnly];
-      }
-      // Return genuine live host baseline verification episode when no operator incident has been recorded yet
-      const liveBaselineEpisode: EpisodicIncidentRecord = {
-        episodeId: 'ep-live-runtime-baseline',
-        recordedAt: new Date().toISOString(),
-        target: '127.0.0.1:3000',
-        signature: {
-          cusumShiftSigma: 0.4,
-          spectralFlatness: 0.84,
-          rttMs: 1.2,
-          packetLossPct: 0.0,
-          dnsLatencyMs: 2.1,
-          cpuSaturationPct: 14,
-          tcpRetransmitRate: 0.0
-        },
-        rootCauseDomain: 'TRANSPORT_L4',
-        emergentHypothesisId: null,
-        operatorObservation: 'Autonomous runtime boot verification across L4 TCP socket and L7 HTTP health endpoint on 127.0.0.1:3000',
-        executedRunbookId: 'LIVE-VERIFY-L4-L7',
-        preActionRttMs: 1.8,
-        postActionRttMs: 1.1,
-        resolved: true,
-        lyapunovDelta: -0.7,
-        lessonsLearned: 'Verified L4 TCP SYN/ACK and L7 HTTP 200 OK in 1.1ms; container raw-socket ICMP restriction classified as benign environment policy.'
-      };
-      return [liveBaselineEpisode];
+      return this.episodes.filter((ep) => !ep.episodeId.startsWith('ep-seed-') && ep.isSimulated !== true);
     }
     return [...this.episodes];
   }
 
   public static recordLiveSynthesisEpisode(params: {
-    target: string;
-    winningDomainId: string;
-    probabilityPct: number;
-    rttMs: number;
-    lossPct: number;
-    summary: string;
-  }): EpisodicIncidentRecord {
+    target?: string;
+    postActionTarget?: string;
+    winningDomainId?: string;
+    rootCauseCategory?: string;
+    rootCauseLayer?: string;
+    probabilityPct?: number;
+    rttMs?: number | null;
+    lossPct?: number | null;
+    packetLossPct?: number | null;
+    dnsLatencyMs?: number | null;
+    cpuSaturationPct?: number | null;
+    cpuUtilizationPct?: number | null;
+    cusumShiftSigma?: number | null;
+    spectralFlatness?: number | null;
+    tcpRetransmitRate?: number | null;
+    retransmitsPerSec?: number | null;
+    preActionRttMs?: number | null;
+    postActionRttMs?: number | null;
+    postActionMetrics?: {
+      rttMs?: number | null;
+      packetLossPct?: number | null;
+      dnsLatencyMs?: number | null;
+      dnsResolvedSuccess?: boolean;
+      tcpHandshakeSuccess?: boolean;
+      httpStatusCode?: number;
+      tlsVerified?: boolean;
+      cpuSaturationPct?: number | null;
+      activeSocketsReduced?: boolean;
+    } | null;
+    preActionTimestampMs?: number;
+    postActionTimestampMs?: number;
+    hasSeparatePostActionMeasurement?: boolean;
+    operatorAuthorized?: boolean;
+    remediationProposed?: string;
+    remediationExecuted?: boolean;
+    remediationApplied?: string;
+    resolved?: boolean;
+    verificationPassed?: boolean;
+    executedRunbookId?: string;
+    summary?: string;
+  }): EpisodicIncidentRecord & { provenance: string; isSimulated: boolean; lifecycleStage: string; persistenceStatus: string } {
+    this._ensureSqlitePersistence();
     const episodeId = `ep-live-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-    const rtt = Number(params.rttMs ?? 1.2);
-    const loss = Number(params.lossPct ?? 0);
-    const ep: EpisodicIncidentRecord = {
+    const cleanTarget = String(params.target || '').trim() || 'UNSPECIFIED_TARGET';
+    const domainId = params.winningDomainId || params.rootCauseCategory || params.rootCauseLayer || 'UNCLASSIFIED_DOMAIN';
+
+    const measuredFields: string[] = [];
+    const missingFields: string[] = [];
+    const derivedFields: string[] = [];
+    const fieldProvenance: Record<string, string> = {};
+
+    const hasRtt = params.rttMs !== undefined && params.rttMs !== null && Number.isFinite(Number(params.rttMs));
+    if (hasRtt) {
+      measuredFields.push('rttMs');
+      fieldProvenance.rttMs = 'DIRECT_MEASUREMENT';
+    } else {
+      missingFields.push('rttMs');
+      fieldProvenance.rttMs = 'UNMEASURED_MISSING';
+    }
+    const rtt = hasRtt ? Number(params.rttMs) : 0;
+
+    const rawLoss = params.lossPct !== undefined ? params.lossPct : params.packetLossPct;
+    const hasLoss = rawLoss !== undefined && rawLoss !== null && Number.isFinite(Number(rawLoss));
+    if (hasLoss) {
+      measuredFields.push('packetLossPct');
+      fieldProvenance.packetLossPct = 'DIRECT_MEASUREMENT';
+    } else {
+      missingFields.push('packetLossPct');
+      fieldProvenance.packetLossPct = 'UNMEASURED_MISSING';
+    }
+    const loss = hasLoss ? Number(rawLoss) : 0;
+
+    const hasDns = params.dnsLatencyMs !== undefined && params.dnsLatencyMs !== null && Number.isFinite(Number(params.dnsLatencyMs));
+    if (hasDns) {
+      measuredFields.push('dnsLatencyMs');
+      fieldProvenance.dnsLatencyMs = 'DIRECT_MEASUREMENT';
+    } else {
+      missingFields.push('dnsLatencyMs');
+      fieldProvenance.dnsLatencyMs = 'UNMEASURED_MISSING';
+    }
+    const dnsMs = hasDns ? Number(params.dnsLatencyMs) : 0;
+
+    const rawCpu = params.cpuSaturationPct !== undefined ? params.cpuSaturationPct : params.cpuUtilizationPct;
+    const hasCpu = rawCpu !== undefined && rawCpu !== null && Number.isFinite(Number(rawCpu));
+    if (hasCpu) {
+      measuredFields.push('cpuSaturationPct');
+      fieldProvenance.cpuSaturationPct = 'DIRECT_MEASUREMENT';
+    } else {
+      missingFields.push('cpuSaturationPct');
+      fieldProvenance.cpuSaturationPct = 'UNMEASURED_MISSING';
+    }
+    const cpuPct = hasCpu ? Number(rawCpu) : 0;
+
+    const rawRetrans = params.tcpRetransmitRate !== undefined ? params.tcpRetransmitRate : params.retransmitsPerSec;
+    const hasRetrans = rawRetrans !== undefined && rawRetrans !== null && Number.isFinite(Number(rawRetrans));
+    if (hasRetrans) {
+      measuredFields.push('tcpRetransmitRate');
+      fieldProvenance.tcpRetransmitRate = 'DIRECT_MEASUREMENT';
+    } else {
+      missingFields.push('tcpRetransmitRate');
+      fieldProvenance.tcpRetransmitRate = 'UNMEASURED_MISSING';
+    }
+    const retransmit = hasRetrans ? Number(rawRetrans) : 0;
+
+    const hasCusum = params.cusumShiftSigma !== undefined && params.cusumShiftSigma !== null && Number.isFinite(Number(params.cusumShiftSigma));
+    if (hasCusum) {
+      derivedFields.push('cusumShiftSigma');
+      fieldProvenance.cusumShiftSigma = 'DERIVED_STATISTIC';
+    } else {
+      missingFields.push('cusumShiftSigma');
+      fieldProvenance.cusumShiftSigma = 'UNPROBED_DEFAULT_PRIOR';
+    }
+    const cusum = hasCusum ? Number(params.cusumShiftSigma) : (hasLoss && loss > 0 ? 2.8 : 0.5);
+
+    const hasFlatness = params.spectralFlatness !== undefined && params.spectralFlatness !== null && Number.isFinite(Number(params.spectralFlatness));
+    if (hasFlatness) {
+      derivedFields.push('spectralFlatness');
+      fieldProvenance.spectralFlatness = 'DERIVED_STATISTIC';
+    } else {
+      missingFields.push('spectralFlatness');
+      fieldProvenance.spectralFlatness = 'UNPROBED_DEFAULT_PRIOR';
+    }
+    const flatness = hasFlatness ? Number(params.spectralFlatness) : 0.78;
+
+    const rawMeasuredMetrics: Record<string, number | null> = {
+      rttMs: hasRtt ? rtt : null,
+      packetLossPct: hasLoss ? loss : null,
+      dnsLatencyMs: hasDns ? dnsMs : null,
+      cpuSaturationPct: hasCpu ? cpuPct : null,
+      tcpRetransmitRate: hasRetrans ? retransmit : null,
+      cusumShiftSigma: hasCusum ? cusum : null,
+      spectralFlatness: hasFlatness ? flatness : null
+    };
+
+    // CRITICAL INCIDENT LIFECYCLE & DOMAIN-RELEVANT RESOLUTION INVARIANT:
+    // An incident must NOT become resolved merely because a caller supplies resolved: true.
+    // Resolution requires actual remediation execution + verification + an independent post-action measurement
+    // appropriate to the fault domain (RTT, DNS resolution/latency, L4 TCP handshake, L7 HTTP status, TLS verification, or host CPU/socket relief)
+    // measured on the same target at a timestamp >= pre-action observation.
+    const pm = params.postActionMetrics || {};
+    const hasPostRtt =
+      (params.postActionRttMs !== undefined && params.postActionRttMs !== null && Number.isFinite(Number(params.postActionRttMs))) ||
+      (pm.rttMs !== undefined && pm.rttMs !== null && Number.isFinite(Number(pm.rttMs)));
+    const hasDomainSpecificPostEvidence = Boolean(
+      hasPostRtt ||
+      (pm.dnsLatencyMs !== undefined && pm.dnsLatencyMs !== null && Number.isFinite(Number(pm.dnsLatencyMs))) ||
+      pm.dnsResolvedSuccess === true ||
+      pm.tcpHandshakeSuccess === true ||
+      (typeof pm.httpStatusCode === 'number' && pm.httpStatusCode >= 200 && pm.httpStatusCode < 400) ||
+      pm.tlsVerified === true ||
+      (pm.cpuSaturationPct !== undefined && pm.cpuSaturationPct !== null && Number.isFinite(Number(pm.cpuSaturationPct))) ||
+      pm.activeSocketsReduced === true
+    );
+
+    const targetComparable = !params.postActionTarget || String(params.postActionTarget).trim() === cleanTarget;
+    const timestampComparable =
+      params.preActionTimestampMs === undefined ||
+      params.postActionTimestampMs === undefined ||
+      Number(params.postActionTimestampMs) >= Number(params.preActionTimestampMs);
+
+    const hasSeparatePostMeasurement =
+      params.hasSeparatePostActionMeasurement !== false &&
+      hasDomainSpecificPostEvidence &&
+      targetComparable &&
+      timestampComparable;
+
+    const remediationExecuted = Boolean(params.remediationExecuted === true);
+    const verificationPassed = Boolean(params.verificationPassed === true);
+    const resolvedTruth = Boolean(remediationExecuted && verificationPassed && hasSeparatePostMeasurement);
+
+    let resolutionRejectedReason: string | null = null;
+    if (params.resolved === true && !resolvedTruth) {
+      if (!remediationExecuted) {
+        resolutionRejectedReason = 'CALLER_RESOLVED_REJECTED_NO_REMEDIATION_EXECUTED';
+      } else if (!targetComparable) {
+        resolutionRejectedReason = 'CALLER_RESOLVED_REJECTED_INCOMPARABLE_POST_ACTION_TARGET';
+      } else if (!timestampComparable) {
+        resolutionRejectedReason = 'CALLER_RESOLVED_REJECTED_STALE_PRE_ACTION_TIMESTAMP';
+      } else if (!hasSeparatePostMeasurement) {
+        resolutionRejectedReason = 'CALLER_RESOLVED_REJECTED_NO_INDEPENDENT_POST_ACTION_MEASUREMENT';
+      } else {
+        resolutionRejectedReason = 'CALLER_RESOLVED_REJECTED_VERIFICATION_FAILED';
+      }
+    }
+
+    const lifecycleHistory: string[] = ['DIAGNOSTIC_INVESTIGATION', 'HYPOTHESIS_FORMATION'];
+    if (params.remediationProposed || params.executedRunbookId) lifecycleHistory.push('PROPOSED_REMEDIATION');
+    if (params.operatorAuthorized) lifecycleHistory.push('OPERATOR_AUTHORIZATION');
+    if (remediationExecuted) {
+      lifecycleHistory.push('REMEDIATION_EXECUTION', 'EXECUTION_RESULT');
+    }
+    if (hasSeparatePostMeasurement) {
+      lifecycleHistory.push('INDEPENDENT_POST_ACTION_MEASUREMENT', 'OUTCOME_ASSESSMENT');
+    }
+    if (resolvedTruth) {
+      lifecycleHistory.push('HISTORICAL_LEARNING');
+    }
+
+    const lifecycleStage = resolvedTruth
+      ? 'POST_REMEDIATION_VERIFIED'
+      : (remediationExecuted ? 'REMEDIATION_UNVERIFIED' : 'DIAGNOSTIC_INVESTIGATION_ONLY');
+
+    const preRttVal = params.preActionRttMs !== undefined && params.preActionRttMs !== null
+      ? Number(params.preActionRttMs)
+      : (hasRtt ? Number(rtt.toFixed(2)) : null);
+    const effectivePostRtt = params.postActionRttMs !== undefined && params.postActionRttMs !== null
+      ? Number(params.postActionRttMs)
+      : (pm.rttMs !== undefined && pm.rttMs !== null ? Number(pm.rttMs) : null);
+    const postRttVal = (hasSeparatePostMeasurement && effectivePostRtt !== null && Number.isFinite(effectivePostRtt))
+      ? Number(effectivePostRtt.toFixed(2))
+      : null;
+    let lyapunovDeltaVal: number | null = null;
+    if (hasSeparatePostMeasurement) {
+      if (preRttVal !== null && postRttVal !== null) {
+        lyapunovDeltaVal = Number((postRttVal - preRttVal).toFixed(2));
+      } else if (hasDns && pm.dnsLatencyMs !== undefined && pm.dnsLatencyMs !== null && Number.isFinite(Number(pm.dnsLatencyMs))) {
+        lyapunovDeltaVal = Number((Number(pm.dnsLatencyMs) - dnsMs).toFixed(2));
+      } else if (hasCpu && pm.cpuSaturationPct !== undefined && pm.cpuSaturationPct !== null && Number.isFinite(Number(pm.cpuSaturationPct))) {
+        lyapunovDeltaVal = Number((Number(pm.cpuSaturationPct) - cpuPct).toFixed(2));
+      }
+    }
+
+    const ep: any = {
       episodeId,
+      incidentId: episodeId,
       recordedAt: new Date().toISOString(),
-      target: params.target || '127.0.0.1',
+      target: cleanTarget,
+      environmentScope: this._classifyEnvironmentScope(cleanTarget),
+      provenance: 'LIVE_RUNTIME_OBSERVATION',
+      isSimulated: false,
+      lifecycleStage,
+      lifecycleHistory,
+      measuredFields,
+      missingFields,
+      derivedFields,
+      fieldProvenance,
+      rawMeasuredMetrics,
       signature: {
-        cusumShiftSigma: loss > 0 || rtt > 25 ? 2.8 : 0.5,
-        spectralFlatness: 0.78,
+        cusumShiftSigma: cusum,
+        spectralFlatness: flatness,
         rttMs: rtt,
         packetLossPct: loss,
-        dnsLatencyMs: 2.4,
-        cpuSaturationPct: 18,
-        tcpRetransmitRate: loss > 0 ? 0.02 : 0.0
+        dnsLatencyMs: dnsMs,
+        cpuSaturationPct: cpuPct,
+        tcpRetransmitRate: retransmit
       },
-      rootCauseDomain: params.winningDomainId || 'TRANSPORT_L4',
+      rootCauseDomain: domainId,
       emergentHypothesisId: null,
-      operatorObservation: `Live 4-Phase Superpowers Synthesis on ${params.target}`,
-      executedRunbookId: 'SYNTHESIS-AUDIT',
-      preActionRttMs: Number((rtt * 1.15).toFixed(2)),
-      postActionRttMs: Number(rtt.toFixed(2)),
-      resolved: loss < 5,
-      lyapunovDelta: Number((-0.15 * rtt).toFixed(2)),
-      lessonsLearned: params.summary || `Isolated ${params.winningDomainId} (${params.probabilityPct}% posterior) via empirical L4/L7 probes.`
+      operatorObservation: params.remediationApplied || `Live 4-Phase Superpowers Synthesis on ${cleanTarget}`,
+      executedRunbookId: params.executedRunbookId || 'SYNTHESIS-AUDIT',
+      preActionRttMs: preRttVal,
+      postActionRttMs: postRttVal,
+      postActionMetrics: hasSeparatePostMeasurement ? pm : null,
+      hasSeparatePostActionMeasurement: hasSeparatePostMeasurement,
+      resolved: resolvedTruth,
+      resolutionRejectedReason,
+      lyapunovDelta: lyapunovDeltaVal,
+      lessonsLearned: params.summary || `Isolated ${domainId} (${params.probabilityPct ?? 0}% posterior) via empirical L4/L7 probes.`
     };
-    this.episodes = [ep, ...this.episodes.filter((e) => e.episodeId !== 'ep-live-runtime-baseline')].slice(0, 100);
+    const persistenceStatus = this._saveLiveEpisodeToSqlite(ep);
+    ep.persistenceStatus = persistenceStatus;
+    this.episodes = [ep, ...this.episodes].slice(0, 100);
     return ep;
   }
 
@@ -677,61 +1184,196 @@ export class EpisodicCausalMemoryEngine {
     executedActionId: string;
     winningDomainId: string;
     runnerUpDomainId: string;
-    preMetrics: { rttMs: number; packetLossPct: number; dnsLatencyMs?: number; cpuSaturationPct?: number };
-    postMetrics: { rttMs: number; packetLossPct: number; dnsLatencyMs?: number; cpuSaturationPct?: number };
+    hasSeparatePostActionMeasurement?: boolean;
+    preMetrics: {
+      rttMs?: number | null;
+      packetLossPct?: number | null;
+      dnsLatencyMs?: number | null;
+      cpuSaturationPct?: number | null;
+      httpStatusCode?: number;
+      tlsVerified?: boolean;
+    };
+    postMetrics?: {
+      rttMs?: number | null;
+      packetLossPct?: number | null;
+      dnsLatencyMs?: number | null;
+      cpuSaturationPct?: number | null;
+      dnsResolvedSuccess?: boolean;
+      tcpHandshakeSuccess?: boolean;
+      httpStatusCode?: number;
+      tlsVerified?: boolean;
+    } | null;
     operatorObservation?: string;
-  }): ClosedLoopLearningOutcome {
-    const preEnergy = Number((params.preMetrics.rttMs * 1.2 + params.preMetrics.packetLossPct * 15 + (params.preMetrics.dnsLatencyMs || 10) * 0.4).toFixed(2));
-    const postEnergy = Number((params.postMetrics.rttMs * 1.2 + params.postMetrics.packetLossPct * 15 + (params.postMetrics.dnsLatencyMs || 10) * 0.4).toFixed(2));
-    const energyDelta = Number((postEnergy - preEnergy).toFixed(2));
-    const rttDelta = Number((params.postMetrics.rttMs - params.preMetrics.rttMs).toFixed(2));
-    const lossDelta = Number((params.postMetrics.packetLossPct - params.preMetrics.packetLossPct).toFixed(2));
+  }): ClosedLoopLearningOutcome & { duplicateObservationDamped?: boolean } {
+    this._ensureSqlitePersistence();
+    const hasValidPreRtt =
+      params.preMetrics &&
+      typeof params.preMetrics.rttMs === 'number' &&
+      Number.isFinite(params.preMetrics.rttMs) &&
+      typeof params.preMetrics.packetLossPct === 'number' &&
+      Number.isFinite(params.preMetrics.packetLossPct);
 
-    const improvementVerified = postEnergy <= preEnergy && params.postMetrics.packetLossPct <= params.preMetrics.packetLossPct;
+    const hasDomainPreMetrics = Boolean(
+      hasValidPreRtt ||
+      (params.preMetrics && typeof params.preMetrics.dnsLatencyMs === 'number' && Number.isFinite(params.preMetrics.dnsLatencyMs)) ||
+      (params.preMetrics && typeof params.preMetrics.cpuSaturationPct === 'number' && Number.isFinite(params.preMetrics.cpuSaturationPct)) ||
+      (params.preMetrics && typeof params.preMetrics.httpStatusCode === 'number') ||
+      (params.preMetrics && typeof params.preMetrics.tlsVerified === 'boolean')
+    );
+
+    const hasDistinctPostRtt =
+      params.hasSeparatePostActionMeasurement !== false &&
+      Boolean(
+        params.postMetrics &&
+        typeof params.postMetrics.rttMs === 'number' &&
+        Number.isFinite(params.postMetrics.rttMs) &&
+        typeof params.postMetrics.packetLossPct === 'number' &&
+        Number.isFinite(params.postMetrics.packetLossPct)
+      );
+
+    const hasDomainPostMetrics =
+      params.hasSeparatePostActionMeasurement !== false &&
+      Boolean(
+        hasDistinctPostRtt ||
+        (params.postMetrics && typeof params.postMetrics.dnsLatencyMs === 'number' && Number.isFinite(params.postMetrics.dnsLatencyMs)) ||
+        params.postMetrics?.dnsResolvedSuccess === true ||
+        params.postMetrics?.tcpHandshakeSuccess === true ||
+        (params.postMetrics && typeof params.postMetrics.httpStatusCode === 'number') ||
+        params.postMetrics?.tlsVerified === true ||
+        (params.postMetrics && typeof params.postMetrics.cpuSaturationPct === 'number' && Number.isFinite(params.postMetrics.cpuSaturationPct))
+      );
+
+    const preRtt = hasValidPreRtt ? Number(params.preMetrics.rttMs) : 0;
+    const preLoss = hasValidPreRtt ? Number(params.preMetrics.packetLossPct) : 0;
+    const preDns = (params.preMetrics && typeof params.preMetrics.dnsLatencyMs === 'number') ? params.preMetrics.dnsLatencyMs : 0;
+    const preCpu = (params.preMetrics && typeof params.preMetrics.cpuSaturationPct === 'number') ? params.preMetrics.cpuSaturationPct : 0;
+
+    const preEnergy = hasDomainPreMetrics
+      ? Number((preRtt * 1.2 + preLoss * 15 + preDns * 0.4 + preCpu * 0.25).toFixed(2))
+      : null;
+
+    const postRtt = hasDistinctPostRtt ? Number(params.postMetrics!.rttMs) : (hasDomainPostMetrics ? preRtt : null);
+    const postLoss = hasDistinctPostRtt ? Number(params.postMetrics!.packetLossPct) : (hasDomainPostMetrics ? preLoss : null);
+    const postDns = (hasDomainPostMetrics && typeof params.postMetrics?.dnsLatencyMs === 'number')
+      ? params.postMetrics!.dnsLatencyMs!
+      : preDns;
+    const postCpu = (hasDomainPostMetrics && typeof params.postMetrics?.cpuSaturationPct === 'number')
+      ? params.postMetrics!.cpuSaturationPct!
+      : preCpu;
+
+    const postEnergy = (hasDomainPostMetrics && postRtt !== null && postLoss !== null)
+      ? Number((postRtt * 1.2 + postLoss * 15 + postDns * 0.4 + postCpu * 0.25).toFixed(2))
+      : null;
+
+    const energyDelta = (preEnergy !== null && postEnergy !== null)
+      ? Number((postEnergy - preEnergy).toFixed(2))
+      : null;
+    const rttDelta = (hasValidPreRtt && postRtt !== null)
+      ? Number((postRtt - preRtt).toFixed(2))
+      : null;
+    const lossDelta = (hasValidPreRtt && postLoss !== null)
+      ? Number((postLoss - preLoss).toFixed(2))
+      : null;
+
+    const domainSpecificVerified = Boolean(
+      params.postMetrics?.dnsResolvedSuccess === true ||
+      params.postMetrics?.tcpHandshakeSuccess === true ||
+      params.postMetrics?.tlsVerified === true ||
+      (typeof params.postMetrics?.httpStatusCode === 'number' && params.postMetrics.httpStatusCode >= 200 && params.postMetrics.httpStatusCode < 400)
+    );
+
+    const improvementVerified = Boolean(
+      hasDomainPreMetrics &&
+      hasDomainPostMetrics &&
+      (
+        domainSpecificVerified ||
+        (preEnergy !== null && postEnergy !== null && postLoss !== null && postEnergy <= preEnergy && postLoss <= preLoss)
+      )
+    );
+
+    // Guard against repeated/correlated observation distortion
+    const dedupeKey = `${params.target}|${params.executedActionId}|${params.winningDomainId}|${preEnergy}|${postEnergy}|${improvementVerified}`;
+    const duplicateObservationDamped = this.recentCalibrationSignatures.has(dedupeKey);
+    if (!duplicateObservationDamped && hasDomainPreMetrics && hasDomainPostMetrics) {
+      this.recentCalibrationSignatures.add(dedupeKey);
+      if (this.recentCalibrationSignatures.size > 200) {
+        const firstKey = this.recentCalibrationSignatures.values().next().value;
+        if (firstKey) this.recentCalibrationSignatures.delete(firstKey);
+      }
+    }
 
     let pivotedToHypothesisId: string | null = null;
     let beliefShiftExplanation = '';
 
-    if (improvementVerified) {
+    if (!hasDomainPreMetrics || !hasDomainPostMetrics) {
+      beliefShiftExplanation = `Closed-Loop Verification Pending: Action [${params.executedActionId}] lacks an independent post-action telemetry observation (hasSeparatePostActionMeasurement=${hasDomainPostMetrics}). Domain weights remain unchanged until post-action verification completes.`;
+    } else if (improvementVerified) {
+      const stepDelta = duplicateObservationDamped ? 0.01 : 0.08;
       this.learnedDomainWeights[params.winningDomainId] = Number(
-        Math.min(1.6, (this.learnedDomainWeights[params.winningDomainId] || 1.0) + 0.08).toFixed(3)
+        Math.min(1.6, (this.learnedDomainWeights[params.winningDomainId] || 1.0) + stepDelta).toFixed(3)
       );
-      beliefShiftExplanation = `Closed-Loop Reinforcement: Action [${params.executedActionId}] reduced Lyapunov anomaly energy from V=${preEnergy} to V=${postEnergy} (ΔV=${energyDelta}, ΔRTT=${rttDelta}ms). Reinforced ${params.winningDomainId} reliability weight to ${this.learnedDomainWeights[params.winningDomainId]}.`;
+      beliefShiftExplanation = `Closed-Loop Reinforcement: Action [${params.executedActionId}] verified post-action recovery (V=${preEnergy} -> V=${postEnergy}, ΔV=${energyDelta}). Reinforced ${params.winningDomainId} reliability weight to ${this.learnedDomainWeights[params.winningDomainId]}${duplicateObservationDamped ? ' (correlated observation damped)' : ''}.`;
     } else {
+      const penaltyDelta = duplicateObservationDamped ? 0.02 : 0.12;
+      const boostDelta = duplicateObservationDamped ? 0.02 : 0.14;
       this.learnedDomainWeights[params.winningDomainId] = Number(
-        Math.max(0.5, (this.learnedDomainWeights[params.winningDomainId] || 1.0) - 0.12).toFixed(3)
+        Math.max(0.5, (this.learnedDomainWeights[params.winningDomainId] || 1.0) - penaltyDelta).toFixed(3)
       );
       this.learnedDomainWeights[params.runnerUpDomainId] = Number(
-        Math.min(1.6, (this.learnedDomainWeights[params.runnerUpDomainId] || 1.0) + 0.14).toFixed(3)
+        Math.min(1.6, (this.learnedDomainWeights[params.runnerUpDomainId] || 1.0) + boostDelta).toFixed(3)
       );
       pivotedToHypothesisId = params.runnerUpDomainId;
-      beliefShiftExplanation = `Closed-Loop Contradiction Pivot: Post-action telemetry did not improve (V=${preEnergy} -> V=${postEnergy}). Penalized ${params.winningDomainId} weight to ${this.learnedDomainWeights[params.winningDomainId]} and automatically pivoted primary hypothesis to [${params.runnerUpDomainId}].`;
+      beliefShiftExplanation = `Closed-Loop Contradiction Pivot: Post-action telemetry did not verify improvement (V=${preEnergy} -> V=${postEnergy}). Penalized ${params.winningDomainId} weight to ${this.learnedDomainWeights[params.winningDomainId]} and automatically pivoted primary hypothesis to [${params.runnerUpDomainId}].`;
     }
 
+    const measuredFields: string[] = [];
+    const missingFields: string[] = [];
+    if (hasValidPreRtt) measuredFields.push('rttMs', 'packetLossPct');
+    else missingFields.push('rttMs', 'packetLossPct');
+    if (params.preMetrics && typeof params.preMetrics.dnsLatencyMs === 'number') measuredFields.push('dnsLatencyMs');
+    else missingFields.push('dnsLatencyMs');
+    if (params.preMetrics && typeof params.preMetrics.cpuSaturationPct === 'number') measuredFields.push('cpuSaturationPct');
+    else missingFields.push('cpuSaturationPct');
+
     const episodeId = `ep-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const newEpisode: EpisodicIncidentRecord = {
+    const cleanTarget = String(params.target || '').trim() || 'UNSPECIFIED_TARGET';
+    const lifecycleStage = !hasDomainPostMetrics
+      ? 'REMEDIATION_UNVERIFIED'
+      : (improvementVerified ? 'POST_REMEDIATION_VERIFIED' : 'REMEDIATION_UNVERIFIED');
+
+    const newEpisode: any = {
       episodeId,
       recordedAt: new Date().toISOString(),
-      target: params.target,
+      target: cleanTarget,
+      environmentScope: this._classifyEnvironmentScope(cleanTarget),
+      provenance: 'LIVE_RUNTIME_OBSERVATION',
+      isSimulated: false,
+      lifecycleStage,
+      measuredFields,
+      missingFields,
       signature: {
         cusumShiftSigma: improvementVerified ? 1.2 : 4.5,
         spectralFlatness: 0.42,
-        rttMs: params.preMetrics.rttMs,
-        packetLossPct: params.preMetrics.packetLossPct,
-        dnsLatencyMs: params.preMetrics.dnsLatencyMs || 15,
-        cpuSaturationPct: params.preMetrics.cpuSaturationPct || 28,
-        tcpRetransmitRate: params.preMetrics.packetLossPct > 1 ? 0.06 : 0.01
+        rttMs: preRtt,
+        packetLossPct: preLoss,
+        dnsLatencyMs: preDns,
+        cpuSaturationPct: preCpu,
+        tcpRetransmitRate: preLoss > 1 ? 0.06 : 0.0
       },
       rootCauseDomain: pivotedToHypothesisId || params.winningDomainId,
       emergentHypothesisId: null,
       operatorObservation: params.operatorObservation,
       executedRunbookId: params.executedActionId,
-      preActionRttMs: params.preMetrics.rttMs,
-      postActionRttMs: params.postMetrics.rttMs,
+      preActionRttMs: hasValidPreRtt ? preRtt : null,
+      postActionRttMs: hasDistinctPostRtt ? postRtt : null,
+      hasSeparatePostActionMeasurement: hasDomainPostMetrics,
       resolved: improvementVerified,
       lyapunovDelta: energyDelta,
       lessonsLearned: beliefShiftExplanation
     };
+
+    const persistenceStatus = this._saveLiveEpisodeToSqlite(newEpisode);
+    newEpisode.persistenceStatus = persistenceStatus;
 
     this.episodes.unshift(newEpisode);
     if (this.episodes.length > 100) {
@@ -740,16 +1382,19 @@ export class EpisodicCausalMemoryEngine {
 
     return {
       episodeId,
-      target: params.target,
+      target: cleanTarget,
       executedActionId: params.executedActionId,
       improvementVerified,
+      duplicateObservationDamped,
       rttDeltaMs: rttDelta,
       lossDeltaPct: lossDelta,
       lyapunovEnergyBefore: preEnergy,
       lyapunovEnergyAfter: postEnergy,
       beliefShiftExplanation,
       pivotedToHypothesisId,
-      updatedDomainPriors: { ...this.learnedDomainWeights }
+      updatedDomainPriors: { ...this.learnedDomainWeights },
+      persistenceStatus,
+      lifecycleStage
     };
   }
 
@@ -1355,5 +2000,57 @@ export class EpisodicCausalMemoryEngine {
       };
     });
   }
+
+  // Instance-method delegates for callers instantiating `new EpisodicCausalMemoryEngine()`
+  public validateLifecycleTransition(fromStage: string, toStage: string) {
+    return EpisodicCausalMemoryEngine.validateLifecycleTransition(fromStage, toStage);
+  }
+
+  public getPersistenceHealth() {
+    return EpisodicCausalMemoryEngine.getPersistenceHealth();
+  }
+
+  public recordLiveSynthesisEpisode(params: any) {
+    return EpisodicCausalMemoryEngine.recordLiveSynthesisEpisode(params);
+  }
+
+  public recordIncidentMemory(params: any) {
+    const tv = params?.telemetryVector || {};
+    return EpisodicCausalMemoryEngine.recordLiveSynthesisEpisode({
+      ...params,
+      winningDomainId: params?.winningDomainId || params?.winningDomain,
+      probabilityPct: params?.probabilityPct ?? params?.winningPosteriorPct,
+      rttMs: params?.rttMs ?? tv.rttMs,
+      packetLossPct: params?.packetLossPct ?? tv.packetLossPct,
+      dnsLatencyMs: params?.dnsLatencyMs ?? tv.dnsLatencyMs,
+      cpuSaturationPct: params?.cpuSaturationPct ?? tv.cpuSaturationPct,
+      remediationApplied: params?.remediationApplied || params?.remediationAction
+    });
+  }
+
+  public ingestActionOutcomeAndRecalibrate(params: any) {
+    const hasPostMetric =
+      (params?.postActionRttMs !== undefined && params?.postActionRttMs !== null) ||
+      Boolean(params?.postMetrics);
+    return EpisodicCausalMemoryEngine.ingestActionOutcomeAndRecalibrate({
+      target: params?.target || 'UNSPECIFIED_TARGET',
+      executedActionId: params?.executedActionId || params?.incidentId || 'RB-04',
+      winningDomainId: params?.winningDomainId || params?.hypothesizedDomain || 'DNS_NAMING',
+      runnerUpDomainId: params?.runnerUpDomainId || 'TRANSPORT_L4',
+      hasSeparatePostActionMeasurement: params?.hasSeparatePostActionMeasurement ?? hasPostMetric,
+      preMetrics: params?.preMetrics || {
+        rttMs: params?.preActionRttMs ?? 100,
+        packetLossPct: params?.preActionLossPct ?? 0,
+        dnsLatencyMs: params?.preActionDnsMs
+      },
+      postMetrics: params?.postMetrics || (hasPostMetric ? {
+        rttMs: params?.postActionRttMs ?? 10,
+        packetLossPct: params?.postActionLossPct ?? 0,
+        dnsLatencyMs: params?.postActionDnsMs
+      } : null),
+      operatorObservation: params?.operatorObservation
+    });
+  }
 }
+
 

@@ -9,39 +9,12 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-// Workspace scratch sanitizer: eliminate transient batch/script artifacts before boot
-function sanitizeWorkspaceScratchFiles() {
-  const rootDir = path.join(__dirname, '..');
-  const filesToClean = ['sync_now.bat', 'update_reports.js'];
-  try {
-    for (const f of filesToClean) {
-      const p = path.join(rootDir, f);
-      if (fs.existsSync(p)) {
-        try { fs.unlinkSync(p); } catch (_) {}
-      }
-    }
-    const dirEntries = fs.readdirSync(rootDir);
-    for (const entry of dirEntries) {
-      if (/^patch_.*\.js$/i.test(entry)) {
-        try { fs.unlinkSync(path.join(rootDir, entry)); } catch (_) {}
-      }
-    }
-  } catch (_) {}
-}
-sanitizeWorkspaceScratchFiles();
-
 process.on('uncaughtException', (err) => {
   console.error('[EJII Server] Uncaught Exception:', err);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[EJII Server] Unhandled Promise Rejection:', reason);
 });
-
-const origExit = process.exit;
-process.exit = function (code) {
-  console.error(`[EJII Server] process.exit(${code}) called! Caller stack:`, new Error().stack);
-  return origExit.call(process, code);
-};
 
 if (process.stdout && typeof process.stdout.on === 'function') {
   process.stdout.on('error', (err) => {
@@ -122,14 +95,22 @@ const app = express();
 app.locals.neuroSymbolicApex = new NeuroSymbolicApexEngine();
 app.locals.wireDissectorApex = WireDissectorApex;
 app.locals.spectralGNNTopology = new SpectralGNNTopologyEngine();
-const vaultHmacSecret = config.HMAC_SECRET || process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026';
+const vaultHmacSecret = config.getPurposeSeparatedSecret
+  ? config.getPurposeSeparatedSecret('dsrl-lyapunov-vault-v1')
+  : config.HMAC_SECRET;
+const flightRecorderSecret = config.getPurposeSeparatedSecret
+  ? config.getPurposeSeparatedSecret('incident-flight-recorder-v1')
+  : config.HMAC_SECRET;
+const warRoomSecret = config.getPurposeSeparatedSecret
+  ? config.getPurposeSeparatedSecret('sre-war-room-v1')
+  : config.HMAC_SECRET;
 app.locals.dsrlLyapunovSafetyVault = new DSRLLyapunovSafetyVault(vaultHmacSecret, []);
 app.locals.pcapngEngine = PcapngEngine;
 app.locals.routingRadixIntelligence = RoutingRadixIntelligenceEngine;
 app.locals.processSocketCorrelator = ProcessSocketCorrelatorEngine;
 app.locals.tlsPostureAuditor = TlsPostureAuditor;
 app.locals.cusumChangepointEngine = new CusumChangepointEngine();
-app.locals.incidentFlightRecorder = new IncidentFlightRecorder(vaultHmacSecret);
+app.locals.incidentFlightRecorder = new IncidentFlightRecorder(flightRecorderSecret);
 app.locals.tcpStreamWaterfallEngine = new TcpStreamWaterfallEngine();
 app.locals.aimdTurboScanner = new AimdTurboScanner();
 app.locals.holtWintersForecaster = new HoltWintersForecaster();
@@ -140,7 +121,7 @@ app.locals.zeroTrustPolicySynthesizer = ZeroTrustPolicySynthesizer;
 app.locals.multipathQosAuditor = MultipathQosAuditor;
 app.locals.hardwareKernelInspector = HardwareKernelInspector;
 app.locals.telemetryDvrTimeMachine = new TelemetryDvrTimeMachine();
-app.locals.autonomousWarRoom = new AutonomousWarRoomOrchestrator(vaultHmacSecret);
+app.locals.autonomousWarRoom = new AutonomousWarRoomOrchestrator(warRoomSecret);
 
 // Phase 3 & Mega Directive: Wire Production Semantic AI Interpreter into ChatOperatorService
 const { chatOperatorService } = require('./core/chat/chat-operator-service');
@@ -341,6 +322,13 @@ app.use('/api/observability', observabilityRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/v6', v6FabricRoutes);
 app.use('/api/enterprise', enterpriseRoutes);
+const atlasRoutes = require('./api/routes-atlas');
+const { githubRoutes, handleGitHubOAuthCallback } = require('./api/routes-github');
+app.use('/api/atlas', atlasRoutes);
+app.use('/api/v6/atlas', atlasRoutes);
+app.use('/api/github', githubRoutes);
+app.get('/auth/github/callback', handleGitHubOAuthCallback);
+app.get('/auth/github/callback/', handleGitHubOAuthCallback);
 app.get('/api/automation/actions', handleActionsList);
 app.post('/api/automation/actions/:id/review', authenticate, requireRole('OPERATOR', 'NOC_OPERATOR', 'SYSADMIN', 'NETWORK_ADMIN', 'ADMIN'), handleActionReview);
 

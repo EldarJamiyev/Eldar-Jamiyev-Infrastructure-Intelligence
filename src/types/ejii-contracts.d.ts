@@ -508,4 +508,238 @@ export interface ModelOrchestrationResult {
 
 export type OrchestrationEnvelope = ModelOrchestrationResult;
 
+/**
+ * Phase Atlas V — Unified Cross-Layer & Control-Plane TypeScript Contracts (Cycle 2 & Cycle 12)
+ */
+
+export type IndirectConfidenceType =
+  | 'EMPIRICALLY_CALIBRATED'
+  | 'BAYESIAN_LIKELIHOOD_POSTERIOR'
+  | 'RULE_HEURISTIC'
+  | 'INSUFFICIENT_DATA';
+
+export interface IControlPlaneApprovalContract {
+  approvalId: string;
+  approvalToken: string;
+  approverId: string;
+  approverRole: 'ADMIN' | 'SYSADMIN' | 'NETWORK_ADMIN' | 'OPERATOR' | 'NOC_OPERATOR';
+  targetId: string;
+  actionType: string;
+  controlPlaneGeneration: number;
+  keyId: string;
+  reason: string;
+  issuedAtMs: number;
+  expiresAtMs: number;
+  consumed: boolean;
+  consumedByOperatorId: string | null;
+  consumedAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+  revocationReason: string | null;
+  signature: string;
+  durablyPersisted?: boolean;
+}
+
+export interface IVerifiedRecoveryState {
+  incidentId?: string | null;
+  status: string;
+  postActionHealthy: boolean;
+  uninspectedProxiesCount?: number;
+  verifiedAt?: string;
+}
+
+export interface IProjectFalconEpistemicDistinctions {
+  observedConditions: string[];
+  suspectedProblems: string[];
+  historicalPriors: string[];
+  unavailableMetrics: string[];
+  verifiedRecoveryState: IVerifiedRecoveryState | null;
+}
+
+export interface ICompetingExplanationsComparison {
+  leadingHypothesis: {
+    layer: string;
+    probabilityPct: number;
+    confidenceType: IndirectConfidenceType;
+    whyLeadingOutweighsAlternatives: string;
+  } | null;
+  alternativeHypotheses: Array<{
+    layer: string;
+    probabilityPct: number;
+    status: string;
+    reasonRankedLower: string;
+  }>;
+  contradictoryObservations: Array<{
+    type: string;
+    explanation: string;
+  }>;
+  recommendedNextActionWithEig: {
+    actionOrProbe: string;
+    targetLayer: string;
+    expectedInformationGainBits: number;
+    rationale: string;
+  } | null;
+}
+
+export interface IChatStreamEventEnvelope {
+  type: 'progress' | 'final_result' | 'error';
+  requestId: string;
+  sessionId?: string;
+  timestamp: string;
+  stage?: string;
+  label?: string;
+  data?: IChatFinalResultEnvelope;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface IChatFinalResultEnvelope {
+  sessionId: string;
+  requestId: string;
+  intent: string;
+  mode: 'operational' | 'informational' | 'conversational';
+  status: 'ok' | 'degraded' | 'failed' | 'rejected' | 'clarification_needed' | 'cancelled';
+  target: string | null;
+  ports: number[];
+  totalDurationMs: number;
+  reply: string;
+  structuredAnswer: {
+    result: string;
+    meaning: string;
+    nextStep: string;
+    layerFailedFirst: string | null;
+    uncertainty?: string | null;
+  };
+  epistemicDistinctions: IProjectFalconEpistemicDistinctions;
+  competingExplanationsComparison?: ICompetingExplanationsComparison | null;
+  steps: Array<{
+    stepNumber: number;
+    label: string;
+    tool: string;
+    status: string;
+    summary: string;
+    durationMs: number | null;
+  }>;
+  findings: Array<{
+    label: string;
+    value: string;
+    tone: 'ok' | 'warn' | 'danger' | 'neutral';
+  }>;
+  technicalEvidence: Record<string, unknown> | null;
+}
+
+export interface IIndirectCrossLayerDomainHypothesis {
+  domain: string;
+  probabilityPct: number;
+  ruleHeuristicScorePct?: number;
+  bayesianPosteriorPct?: number;
+  confidenceType: IndirectConfidenceType;
+  evidenceType: string;
+  evidenceSources: string[];
+  isDirectObservation: boolean;
+  isHistoricalPriorOnly: boolean;
+  supportingReasons: string[];
+}
+
+export interface IIndirectCrossLayerSynthesisContract {
+  abstentionPrevented: boolean;
+  inferenceMode:
+    | 'INSUFFICIENT_EVIDENCE'
+    | 'INDIRECT_CROSS_LAYER_BAYESIAN_SYNTHESIS'
+    | 'DIRECT_AND_PRIOR_GROUNDED_SYNTHESIS'
+    | 'HISTORICAL_EPISODIC_PRIOR_ONLY';
+  confidenceType: IndirectConfidenceType;
+  statisticalMethodology: string;
+  inferredPacketLossRatio: number | null;
+  measuredMetrics: {
+    tcpRttMs: number | null;
+    tcpJitterMs: number | null;
+    tlsHandshakeMs: number | null;
+    httpLatencyMs: number | null;
+    dnsLatencyMs: number | null;
+    icmpLossPct: number | null;
+    hostSocketQueueDepth: number | null;
+  };
+  inferredEstimates: {
+    inferredPacketLossRatio: number | null;
+    evidenceType: string;
+    confidence?: number;
+    confidenceType?: IndirectConfidenceType;
+  };
+  episodicPriors: Array<{
+    domain: string;
+    similarityScore: number;
+    priorBoost: number;
+    incidentId: string | null;
+    evidenceClass: 'HISTORICAL_EPISODIC_PRIOR';
+  }>;
+  contradictoryObservations: Array<{
+    code: string;
+    layersInvolved: string[];
+    description: string;
+    adjustmentApplied: string;
+  }>;
+  unmeasuredLayers: string[];
+  domains: IIndirectCrossLayerDomainHypothesis[];
+  dominantIndirectHypothesis: IIndirectCrossLayerDomainHypothesis | null;
+  posteriorEntropyBits: number;
+  explanatoryReasoning: string;
+  recommendedNextProbe: {
+    probeType: string;
+    targetLayer: string;
+    expectedInformationGainBits: number;
+    rationale: string;
+  };
+}
+
+export type VirtualNetDeliveryLifecycleStage =
+  | 'FRAME_CONSTRUCTED'
+  | 'LOCAL_SOCKET_SUBMISSION'
+  | 'LOCAL_TRANSMISSION_ACCEPTED'
+  | 'REMOTE_FRAME_RECEIVED'
+  | 'REMOTE_FRAME_DECAPSULATED'
+  | 'AUTHENTICATED_PEER_ACKNOWLEDGED'
+  | 'APPLICATION_PAYLOAD_DELIVERED';
+
+export interface IVirtualNetDeliveryEnvelope {
+  delivered: boolean;
+  vnetId: string;
+  srcPeerIp: string;
+  dstPeerIp: string;
+  protocol: string;
+  dstPort: number;
+  deliveryMode:
+    | 'IN_MEMORY_CONTROL_PLANE_EMULATION'
+    | 'LIVE_LOOPBACK_UDP_OR_TCP_SOCKET'
+    | 'AUTHENTICATED_REMOTE_PEER_ACK_TRANSPORT';
+  remoteDeliveryVerified: boolean;
+  deliveryLifecycleStages: VirtualNetDeliveryLifecycleStage[];
+  fragmentCount: number;
+  mtuBytes: number;
+  payloadLength: number;
+  reassembledPayloadSha256: string;
+}
+
+export type EnterpriseNocLifecycleState =
+  | 'LOADING'
+  | 'OBSERVED'
+  | 'PARTIALLY_AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'ERROR'
+  | 'HISTORICAL';
+
+export interface IEnterpriseNocDataLifecycleState {
+  overallState: EnterpriseNocLifecycleState;
+  statusEndpointState: EnterpriseNocLifecycleState;
+  sitesEndpointState: EnterpriseNocLifecycleState;
+  agentsEndpointState: EnterpriseNocLifecycleState;
+  auditEndpointState: EnterpriseNocLifecycleState;
+  chainVerificationState: 'UNVERIFIED_PENDING' | 'CHAIN_VERIFIED' | 'CHAIN_DISCREPANCY_DETECTED' | 'AUDIT_ENDPOINT_UNAVAILABLE';
+  chainVerified: boolean | null;
+  lastObservedAt: string | null;
+  errorSummary: string | null;
+}
+
 

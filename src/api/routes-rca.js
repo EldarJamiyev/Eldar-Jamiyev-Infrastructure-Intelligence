@@ -1052,18 +1052,170 @@ function getWarRoomInstance(req) {
   return sharedAutonomousWarRoom;
 }
 
+function extractVerifiedAuthContext(req) {
+  let verifiedUser = req.user && req.user.id && req.user.role ? req.user : null;
+  if (!verifiedUser && req?.headers?.authorization) {
+    const authHeader = String(req.headers.authorization);
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+      const decoded = verifyToken(token);
+      if (decoded && decoded.id && decoded.role) {
+        verifiedUser = decoded;
+      }
+    }
+  }
+  if (verifiedUser) {
+    return {
+      authenticated: true,
+      userId: String(verifiedUser.username || verifiedUser.id),
+      role: String(verifiedUser.role).toUpperCase(),
+      source: 'SERVER_SESSION_JWT'
+    };
+  }
+  return undefined;
+}
+
 router.post('/war-room/execute', (req, res) => {
   try {
     const warRoom = getWarRoomInstance(req);
-    const payload = req.body || {};
+    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
 
-    const result = warRoom.execute(payload);
+    // Section 9: Strip any caller-supplied authContext from request body so unauthenticated callers can never spoof SERVER_SESSION_JWT
+    delete body.authContext;
+    const verifiedAuth = extractVerifiedAuthContext(req);
+    if (verifiedAuth) {
+      body.authContext = verifiedAuth;
+    }
+
+    if (body.executeProbes === true) {
+      return warRoom
+        .executeActiveProbes(body)
+        .then((result) => res.json({ success: true, ...result }))
+        .catch((err) => {
+          const status = err.statusCode || 500;
+          res.status(status).json({ success: false, code: err.code || 'WAR_ROOM_EXECUTION_ERROR', error: err.message });
+        });
+    }
+
+    const result = warRoom.execute(body);
     res.json({
       success: true,
       ...result
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const status = err.statusCode || 500;
+    res.status(status).json({ success: false, code: err.code || 'WAR_ROOM_EXECUTION_ERROR', error: err.message });
+  }
+});
+
+/**
+ * POST /api/rca/war-room/execute-probes
+ * Dispatches and executes read-only collector probes for an existing or newly created War-Room session
+ */
+router.post('/war-room/execute-probes', async (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const rawBody = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    delete rawBody.authContext;
+    const verifiedAuth = extractVerifiedAuthContext(req);
+    if (verifiedAuth) {
+      rawBody.authContext = verifiedAuth;
+    }
+    const { sessionId, probeIds, ...telemetryPayload } = rawBody;
+    const targetArg = typeof sessionId === 'string' && sessionId.trim().length > 0 ? sessionId.trim() : telemetryPayload;
+    const result = await warRoom.executeActiveProbes(targetArg, { probeIds });
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    const status = err.statusCode || (err.code === 'WAR_ROOM_SESSION_NOT_FOUND' ? 404 : 500);
+    res.status(status).json({
+      success: false,
+      code: err.code || 'WAR_ROOM_PROBE_EXECUTION_ERROR',
+      error: err.message
+    });
+  }
+});
+
+/**
+ * POST /api/rca/war-room/approve-dual
+ * Issues a cryptographically signed and SQLite-persisted Dual-Operator Approval token bound to verified JWT identity
+ */
+router.post('/war-room/approve-dual', authenticate, (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const verifiedAuth = extractVerifiedAuthContext(req);
+    if (!verifiedAuth || !verifiedAuth.authenticated) {
+      return res.status(401).json({
+        success: false,
+        code: 'AUTHENTICATION_REQUIRED',
+        error: 'Dual-operator approval requires a valid server-verified operator JWT session.'
+      });
+    }
+    const { sessionId, remediationAction, target, slot, ttlMs } = req.body || {};
+    const approval = warRoom.issueDualOperatorApproval({
+      sessionId,
+      remediationAction,
+      target,
+      operatorId: verifiedAuth.userId,
+      operatorUsername: verifiedAuth.userId,
+      operatorRole: verifiedAuth.role,
+      slot: slot === 'SECONDARY' ? 'SECONDARY' : 'PRIMARY',
+      ttlMs
+    });
+    res.json({
+      success: true,
+      approval
+    });
+  } catch (err) {
+    const status = err.statusCode || 400;
+    res.status(status).json({
+      success: false,
+      code: err.code || 'DUAL_APPROVAL_ERROR',
+      error: err.message
+    });
+  }
+});
+
+/**
+ * POST /api/rca/war-room/record-remediation
+ * Records a cryptographically signed remediation execution in SQLite war_room_remediation_ledger
+ */
+router.post('/war-room/record-remediation', authenticate, (req, res) => {
+  try {
+    const warRoom = getWarRoomInstance(req);
+    const verifiedAuth = extractVerifiedAuthContext(req);
+    if (!verifiedAuth || !verifiedAuth.authenticated) {
+      return res.status(401).json({
+        success: false,
+        code: 'AUTHENTICATION_REQUIRED',
+        error: 'Recording remediation execution requires a valid server-verified operator JWT session.'
+      });
+    }
+    const { sessionId, remediationAction, target, executorSource, exitCode, success, outputSummary, startedAt, completedAt } = req.body || {};
+    const receipt = warRoom.recordRemediationExecution({
+      sessionId,
+      remediationAction,
+      target,
+      executorSource,
+      operatorId: verifiedAuth.userId,
+      exitCode,
+      success: Boolean(success),
+      outputSummary,
+      startedAt,
+      completedAt
+    });
+    res.json({
+      success: true,
+      receipt
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      code: err.code || 'REMEDIATION_LEDGER_ERROR',
+      error: err.message
+    });
   }
 });
 
@@ -1098,6 +1250,7 @@ router.get('/war-room/sessions', (req, res) => {
     res.json({
       success: true,
       count: sessions.length,
+      diagnostics: typeof warRoom.getDiagnostics === 'function' ? warRoom.getDiagnostics() : undefined,
       sessions
     });
   } catch (err) {
@@ -1114,7 +1267,11 @@ router.get('/war-room/sessions/:sessionId', (req, res) => {
     const warRoom = getWarRoomInstance(req);
     const session = warRoom.getSession(req.params.sessionId);
     if (!session) {
-      return res.status(404).json({ success: false, error: 'War Room session not found.' });
+      return res.status(404).json({
+        success: false,
+        code: 'WAR_ROOM_SESSION_NOT_FOUND',
+        error: 'War Room session not found.'
+      });
     }
     res.json({
       success: true,
@@ -1132,11 +1289,27 @@ router.get('/war-room/sessions/:sessionId', (req, res) => {
 router.post('/war-room/reevaluate', (req, res) => {
   try {
     const warRoom = getWarRoomInstance(req);
-    const { sessionId, constraints, forbiddenRemediations, requiredRemediations, requireDualApproval } = req.body || {};
+    const {
+      sessionId,
+      constraints,
+      forbiddenRemediations,
+      requiredRemediations,
+      targetVlan,
+      targetEntityFilter,
+      requireDualApproval,
+      operatorNote,
+      operatorQuestion,
+      dualApprovalContext
+    } = req.body || {};
     const effectiveConstraints = constraints || {
       forbiddenRemediations,
       requiredRemediations,
-      requireDualApproval
+      targetVlan,
+      targetEntityFilter,
+      requireDualApproval,
+      operatorNote,
+      operatorQuestion,
+      dualApprovalContext
     };
     const result = warRoom.reevaluateWithConstraint(sessionId || '', effectiveConstraints);
     res.json({
@@ -1144,7 +1317,12 @@ router.post('/war-room/reevaluate', (req, res) => {
       ...result
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const status = err.statusCode || (err.code === 'WAR_ROOM_SESSION_NOT_FOUND' ? 404 : 500);
+    res.status(status).json({
+      success: false,
+      code: err.code || 'WAR_ROOM_REEVALUATE_ERROR',
+      error: err.message
+    });
   }
 });
 

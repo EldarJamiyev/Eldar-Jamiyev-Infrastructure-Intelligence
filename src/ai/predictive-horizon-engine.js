@@ -46,6 +46,51 @@ function computeMm1QueueingAmplification(rho) {
 }
 
 /**
+ * Computes Burst-Aware M/G/1 Pollaczek-Khinchine Queueing Amplification:
+ *   Phi_{M/G/1}(rho, C_s^2) = (rho / (1 - rho)) * ((1 + C_s^2) / 2)
+ * alongside Index of Dispersion I_D = sigma^2 / mu and squared coefficient of variation C_s^2 = sigma^2 / mu^2.
+ */
+function computeMg1PollaczekKhinchineQueueing(rho, series = []) {
+  const clampedRho = Math.min(0.985, Math.max(0.01, Number(rho || 0.1)));
+  const clean = (Array.isArray(series) ? series : [])
+    .map((v) => (typeof v === 'object' ? Number(v.latencyMs ?? v.value ?? 0) : Number(v)))
+    .filter((v) => Number.isFinite(v) && v > 0);
+
+  let mean = 10;
+  let variance = 4;
+  if (clean.length >= 2) {
+    mean = clean.reduce((a, b) => a + b, 0) / clean.length;
+    variance = clean.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / clean.length;
+  } else if (clean.length === 1) {
+    mean = Math.max(0.5, clean[0]);
+    variance = Math.max(0.25, mean * 0.18);
+  }
+
+  const indexOfDispersion = Number((variance / Math.max(0.1, mean)).toFixed(4));
+  const coefficientOfVariationSq = Number(Math.max(0.05, variance / Math.max(0.1, mean * mean)).toFixed(4));
+  const mm1Base = clampedRho / (1 - clampedRho);
+  const mg1Factor = mm1Base * ((1 + coefficientOfVariationSq) / 2);
+
+  let burstRegime = 'STEADY_STATE_POISSON';
+  if (clampedRho >= 0.82 && (indexOfDispersion > 2.5 || coefficientOfVariationSq > 1.2)) {
+    burstRegime = 'CRITICAL_QUEUE_CLIFF';
+  } else if (indexOfDispersion > 2.5 || coefficientOfVariationSq > 1.2) {
+    burstRegime = 'HEAVY_TAILED_MICROBURST';
+  } else if (indexOfDispersion > 1.0 || coefficientOfVariationSq > 0.45) {
+    burstRegime = 'MODERATE_VARIANCE';
+  }
+
+  return {
+    utilizationRho: Number(clampedRho.toFixed(4)),
+    indexOfDispersion,
+    coefficientOfVariationSq,
+    mm1AmplificationFactor: Number(mm1Base.toFixed(3)),
+    mg1PollaczekKhinchineFactor: Number(mg1Factor.toFixed(3)),
+    burstRegime
+  };
+}
+
+/**
  * Holt's Double Exponential Smoothing (Level + Trend) with non-linear M/M/1 cliff acceleration.
  */
 function computeHoltWintersForecast(series = [], alpha = 0.45, beta = 0.35, horizonSteps = 6) {
@@ -164,6 +209,9 @@ function findTarjanCutVertices(nodes = [], edges = []) {
       neighborCount: depTargets.length,
       downstreamDependentCount: depTargets.length,
       dependentTargets: depTargets,
+      blastRadiusSeverity: depTargets.length >= 3 ? 'CRITICAL_TRANSIT_HUB' : 'ELEVATED_CUT_VERTEX',
+      redundancyStatus: 'NO_ALTERNATE_L3_PATH_DETECTED',
+      mitigationPlaybook: 'RB-06',
       isSinglePointOfFailure: true
     };
   });
@@ -319,11 +367,13 @@ class PredictiveHorizonEngine {
       );
 
       const mm1 = computeMm1QueueingAmplification(rho);
+      const mg1 = computeMg1PollaczekKhinchineQueueing(rho, samples);
       const hw = computeHoltWintersForecast(samples, 0.5, 0.4, 5);
 
-      // Non-linear cliff-adjusted latency projection
+      // Non-linear cliff-adjusted latency projection incorporating M/G/1 burst variance
+      const effectiveQueueFactor = Math.max(mm1.amplificationFactor, mg1.mg1PollaczekKhinchineFactor);
       const nonlinearProjectedLatencyMs = Number(
-        (hw.projectedHorizonValue * (1 + Math.max(0, mm1.amplificationFactor - 1) * 0.28)).toFixed(2)
+        (hw.projectedHorizonValue * (1 + Math.max(0, effectiveQueueFactor - 1) * 0.28)).toFixed(2)
       );
 
       const isSpof = cutVertexSet.has(target);
@@ -363,6 +413,10 @@ class PredictiveHorizonEngine {
         utilizationRho: mm1.utilizationRho,
         utilizationPct: mm1.utilizationPct,
         mm1QueueingAmplification: mm1.amplificationFactor,
+        mg1PollaczekKhinchineFactor: mg1.mg1PollaczekKhinchineFactor,
+        indexOfDispersion: mg1.indexOfDispersion,
+        coefficientOfVariationSq: mg1.coefficientOfVariationSq,
+        burstRegime: mg1.burstRegime,
         inSaturationCliffRegime: mm1.inSaturationCliffRegime,
         holtWintersForecast: {
           ...hw,
@@ -402,8 +456,14 @@ class PredictiveHorizonEngine {
       overallRiskScore >= 30 ? 'ELEVATED' : 'LOW';
 
     const executiveSummary =
-      `Non-Linear Predictive Horizon evaluated ${predictions.length} endpoint(s) using M/M/1 queueing cliff amplification Φ(ρ)=ρ/(1-ρ) and Holt-Winters double exponential smoothing. ` +
+      `Non-Linear Predictive Horizon evaluated ${predictions.length} endpoint(s) using M/M/1 & M/G/1 Pollaczek-Khinchine queueing cliff amplification Φ(ρ)=ρ/(1-ρ) and Holt-Winters double exponential smoothing. ` +
       `Peak compound risk: ${overallRiskScore}/100 (${overallRiskTier}). Identified ${cutVertices.length} topological cut-vertex SPOF(s).`;
+
+    let totalSamplesCount = 0;
+    for (const sArr of seriesByTarget.values()) {
+      totalSamplesCount += Array.isArray(sArr) ? sArr.length : 0;
+    }
+    const bytesEvaluated = Buffer.byteLength(JSON.stringify(predictions), 'utf8');
 
     return {
       horizonId: `hrz_${crypto.randomBytes(6).toString('hex')}`,
@@ -412,6 +472,8 @@ class PredictiveHorizonEngine {
       overallRiskScore,
       overallRiskTier,
       endpointsEvaluatedCount: predictions.length,
+      samplesEvaluatedCount: totalSamplesCount,
+      bytesEvaluated,
       cutVerticesCount: cutVertices.length,
       cutVertices,
       predictions,
@@ -448,8 +510,10 @@ const predictiveHorizonEngine = new PredictiveHorizonEngine();
 
 module.exports = {
   computeMm1QueueingAmplification,
+  computeMg1PollaczekKhinchineQueueing,
   computeHoltWintersForecast,
   findTarjanCutVertices,
   PredictiveHorizonEngine,
   predictiveHorizonEngine
 };
+

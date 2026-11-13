@@ -21,7 +21,9 @@ async function runWiresharkAiWorkstationTests() {
   assert.ok(interfaces.length >= 2, 'Must discover at least physical and loopback adapters');
   const physicalNic = interfaces.find(i => i.isPhysical);
   assert.ok(physicalNic, 'Must identify at least one physical network interface');
-  const loopbackNic = interfaces.find(i => i.name === '\\Device\\NPF_Loopback' || i.alias === 'Loopback');
+  const loopbackNic = interfaces.find(
+    i => i.name === '\\Device\\NPF_Loopback' || i.alias === 'Loopback' || i.name === 'lo' || i.ip === '127.0.0.1'
+  );
   assert.ok(loopbackNic, 'Must identify loopback capture adapter');
   console.log(`✓ Interfaces Enumerated (${interfaces.length} devices found, Active Physical: ${physicalNic.description})`);
 

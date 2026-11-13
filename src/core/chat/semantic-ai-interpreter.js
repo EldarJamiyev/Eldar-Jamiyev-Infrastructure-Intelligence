@@ -54,6 +54,8 @@ const VALID_INTENTS = new Set([
   'mail_troubleshooting_intake',
   'informational_question',
   'greeting',
+  'casual_conversation',
+  'general_knowledge',
   'clarification_needed',
   'remediation',
   'host_health',
@@ -159,22 +161,51 @@ async function semanticAiInterpreter(promptText, context = {}) {
         return {
           intent: 'clarification_needed',
           mode: 'conversational',
-          clarificationReason: 'BARE_TOPIC',
+          clarificationReason: conv.subtype === 'ambiguous_person_query' ? 'AMBIGUOUS_PERSON_REFERENCE' : 'BARE_TOPIC',
           clarificationPrompt: conv.reply,
           target: null,
           explicitTarget: null,
           ports: [],
-          preserveContextOnly: true
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(context.lastTarget)
+        };
+      }
+      if (conv.type === 'casual_conversation') {
+        return {
+          intent: 'casual_conversation',
+          mode: 'conversational',
+          conversationalType: conv.subtype || 'casual_conversation',
+          naturalReply: conv.reply,
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(context.lastTarget)
+        };
+      }
+      if (conv.type === 'general_knowledge') {
+        return {
+          intent: 'general_knowledge',
+          mode: 'informational',
+          conversationalType: conv.subtype || 'general_knowledge',
+          naturalReply: conv.reply,
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(context.lastTarget)
         };
       }
       return {
         intent: 'greeting',
         mode: 'conversational',
         conversationalType: conv.type || conv.subtype,
-        target: context.lastTarget || null,
+        naturalReply: conv.reply || null,
+        target: null,
         explicitTarget: null,
-        ports: context.lastPorts || [],
-        preserveContextOnly: true
+        ports: [],
+        preserveContextOnly: true,
+        contextPivotDetected: Boolean(context.lastTarget)
       };
     }
 
@@ -438,10 +469,10 @@ async function semanticAiInterpreter(promptText, context = {}) {
       };
     }
 
-    // 9B. Multi-turn State Differential & Implicit Follow-Up Comparison ("what changed since the last check?", "compare with earlier", "did the port come back up?")
+    // 9B. Multi-turn State Differential & Implicit Follow-Up Comparison ("what changed since the last check?", "compare it with the previous result", "what does that timeout mean?", "could DNS be the problem?")
     if (
       context.lastTarget &&
-      /\b(what changed|has anything changed|compare (?:the )?(?:latest|current)|compare with (?:earlier|previous|before)|did (?:it|the port|the service) (?:come back|recover)|diff since last)\b/i.test(lower)
+      /\b(what changed|has anything changed|compare (?:the )?(?:latest|current)|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior)|compare with (?:the )?(?:earlier|previous|last|before)|did (?:it|the port|the service) (?:come back|recover)|diff since last|what does (?:that|this|the) (?:timeout|time out|error|refusal|failure|result) mean|why (?:is|isn't|isnt) (?:it|that|the server|the host) (?:not responding|timing out)|could dns be (?:the |a )?(?:problem|issue|cause))\b/i.test(lower)
     ) {
       deterministicFastPathCount++;
       successfulInterpretations++;
@@ -493,7 +524,7 @@ async function semanticAiInterpreter(promptText, context = {}) {
 
     try {
       const modelRes = await aiModelOrchestrator.invokeWithBoundedRetry(provider, promptForModel, {
-        model: process.env.EJII_GEMINI_MODEL || 'gemini-3.1-flash-lite',
+        model: process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
         timeoutMs: 10000,
         maxRetries: 0,
         allowRedactedCloudFallback: Boolean(context.allowCloudFallback || !aiModelOrchestrator.localOnlyPolicy),
@@ -528,7 +559,7 @@ async function semanticAiInterpreter(promptText, context = {}) {
               secondaryToolPlans: mappedPlans.slice(1),
               modelInterpreted: true,
               modelProvider: modelRes.provider || provider,
-              executedModel: modelRes.executedModel || modelRes.model || 'gemini-3.1-flash-lite',
+              executedModel: modelRes.executedModel || modelRes.model || (process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash'),
               isMockModel: Boolean(modelRes.isMock || isCustomProviderHook)
             };
           }
@@ -594,8 +625,8 @@ async function semanticAiInterpreter(promptText, context = {}) {
             successfulInterpretations++;
             lastModelProvider = modelRes.provider || provider;
 
-            const isConversational = parsed.intent === 'greeting' || parsed.intent === 'clarification_needed' || parsed.intent === 'mail_troubleshooting_intake';
-            const isInformational = parsed.intent === 'informational_question' || parsed.intent === 'epistemic_fabric_query';
+            const isConversational = parsed.intent === 'greeting' || parsed.intent === 'casual_conversation' || parsed.intent === 'clarification_needed' || parsed.intent === 'mail_troubleshooting_intake';
+            const isInformational = parsed.intent === 'informational_question' || parsed.intent === 'general_knowledge' || parsed.intent === 'epistemic_fabric_query';
 
             return {
               intent: parsed.intent,

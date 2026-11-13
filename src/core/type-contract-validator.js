@@ -408,6 +408,184 @@ class TypeContractValidator {
   static validateModelOrchestrationResult(res) {
     return TypeContractValidator.validateOrchestrationEnvelope(res);
   }
+
+  /**
+   * Validate IControlPlaneApprovalContract (Phase Atlas V — Cycle 1 & Cycle 2)
+   */
+  static validateControlPlaneApproval(approval) {
+    if (!approval || typeof approval !== 'object') {
+      return { valid: false, error: 'ControlPlaneApproval must be a non-null object' };
+    }
+    const requiredStrings = ['approvalId', 'approvalToken', 'approverId', 'approverRole', 'targetId', 'actionType', 'signature'];
+    for (const k of requiredStrings) {
+      if (typeof approval[k] !== 'string' || !approval[k].trim()) {
+        return { valid: false, error: `Missing or invalid required string field: ${k}` };
+      }
+    }
+    if (typeof approval.controlPlaneGeneration !== 'number' || !Number.isFinite(approval.controlPlaneGeneration)) {
+      return { valid: false, error: 'controlPlaneGeneration must be a finite number' };
+    }
+    if (typeof approval.issuedAtMs !== 'number' || typeof approval.expiresAtMs !== 'number' || approval.expiresAtMs <= approval.issuedAtMs) {
+      return { valid: false, error: 'issuedAtMs and expiresAtMs must be valid timestamps with expiresAtMs > issuedAtMs' };
+    }
+    if (typeof approval.consumed !== 'boolean') {
+      return { valid: false, error: 'consumed must be a boolean' };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate IProjectFalconEpistemicDistinctions (Phase Atlas V — Cycle 2 & Cycle 3)
+   */
+  static validateEpistemicDistinctions(distinctions) {
+    if (!distinctions || typeof distinctions !== 'object') {
+      return { valid: false, error: 'EpistemicDistinctions must be a non-null object' };
+    }
+    const arrayKeys = ['observedConditions', 'suspectedProblems', 'historicalPriors', 'unavailableMetrics'];
+    for (const k of arrayKeys) {
+      if (!Array.isArray(distinctions[k])) {
+        return { valid: false, error: `EpistemicDistinctions.${k} must be an array` };
+      }
+    }
+    if (
+      distinctions.verifiedRecoveryState !== null &&
+      distinctions.verifiedRecoveryState !== undefined &&
+      typeof distinctions.verifiedRecoveryState !== 'object'
+    ) {
+      return { valid: false, error: 'verifiedRecoveryState must be an object or null' };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate IChatFinalResultEnvelope (Phase Atlas V — Cycle 2 & Cycle 3)
+   */
+  static validateChatFinalResultEnvelope(envelope) {
+    if (!envelope || typeof envelope !== 'object') {
+      return { valid: false, error: 'ChatFinalResultEnvelope must be a non-null object' };
+    }
+    if (typeof envelope.sessionId !== 'string' || !envelope.sessionId) {
+      return { valid: false, error: 'Missing sessionId' };
+    }
+    if (typeof envelope.requestId !== 'string' || !envelope.requestId) {
+      return { valid: false, error: 'Missing requestId' };
+    }
+    if (typeof envelope.reply !== 'string') {
+      return { valid: false, error: 'Missing reply string' };
+    }
+    if (!envelope.structuredAnswer || typeof envelope.structuredAnswer !== 'object') {
+      return { valid: false, error: 'Missing structuredAnswer object' };
+    }
+    if (!Array.isArray(envelope.steps) || !Array.isArray(envelope.findings)) {
+      return { valid: false, error: 'steps and findings must be arrays' };
+    }
+    if (envelope.epistemicDistinctions) {
+      const epCheck = TypeContractValidator.validateEpistemicDistinctions(envelope.epistemicDistinctions);
+      if (!epCheck.valid) return epCheck;
+    } else {
+      return { valid: false, error: 'Missing required epistemicDistinctions in ChatFinalResultEnvelope' };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate IIndirectCrossLayerSynthesisContract (Phase Atlas V — Cycle 2 & Cycle 5)
+   */
+  static validateIndirectCrossLayerSynthesis(synthesis) {
+    if (!synthesis || typeof synthesis !== 'object') {
+      return { valid: false, error: 'IndirectCrossLayerSynthesis must be a non-null object' };
+    }
+    const validModes = new Set([
+      'INSUFFICIENT_EVIDENCE',
+      'INDIRECT_CROSS_LAYER_BAYESIAN_SYNTHESIS',
+      'DIRECT_AND_PRIOR_GROUNDED_SYNTHESIS',
+      'HISTORICAL_EPISODIC_PRIOR_ONLY'
+    ]);
+    if (!validModes.has(synthesis.inferenceMode)) {
+      return { valid: false, error: `Invalid inferenceMode: ${synthesis.inferenceMode}` };
+    }
+    const validConfTypes = new Set([
+      'EMPIRICALLY_CALIBRATED',
+      'BAYESIAN_LIKELIHOOD_POSTERIOR',
+      'RULE_HEURISTIC',
+      'INSUFFICIENT_DATA'
+    ]);
+    if (!validConfTypes.has(synthesis.confidenceType)) {
+      return { valid: false, error: `Invalid confidenceType: ${synthesis.confidenceType}` };
+    }
+    if (!Array.isArray(synthesis.domains) || !Array.isArray(synthesis.unmeasuredLayers)) {
+      return { valid: false, error: 'domains and unmeasuredLayers must be arrays' };
+    }
+    if (!Array.isArray(synthesis.contradictoryObservations)) {
+      return { valid: false, error: 'contradictoryObservations must be an array' };
+    }
+    if (!synthesis.recommendedNextProbe || typeof synthesis.recommendedNextProbe.expectedInformationGainBits !== 'number') {
+      return { valid: false, error: 'recommendedNextProbe with numeric expectedInformationGainBits is required' };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate IVirtualNetDeliveryEnvelope (Phase Atlas V — Cycle 2 & Cycle 6)
+   */
+  static validateVirtualNetDeliveryEnvelope(delivery) {
+    if (!delivery || typeof delivery !== 'object') {
+      return { valid: false, error: 'VirtualNetDeliveryEnvelope must be a non-null object' };
+    }
+    if (typeof delivery.delivered !== 'boolean') {
+      return { valid: false, error: 'delivered must be a boolean' };
+    }
+    if (typeof delivery.remoteDeliveryVerified !== 'boolean') {
+      return { valid: false, error: 'remoteDeliveryVerified must be a boolean' };
+    }
+    if (!Array.isArray(delivery.deliveryLifecycleStages) || delivery.deliveryLifecycleStages.length === 0) {
+      return { valid: false, error: 'deliveryLifecycleStages must be a non-empty array' };
+    }
+    // Critical invariant: if remoteDeliveryVerified is false, AUTHENTICATED_PEER_ACKNOWLEDGED must not be claimed
+    if (!delivery.remoteDeliveryVerified && delivery.deliveryLifecycleStages.includes('AUTHENTICATED_PEER_ACKNOWLEDGED')) {
+      return {
+        valid: false,
+        error: 'Cannot claim AUTHENTICATED_PEER_ACKNOWLEDGED when remoteDeliveryVerified is false'
+      };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Validate IEnterpriseNocDataLifecycleState (Phase Atlas V — Cycle 2 & Cycle 4)
+   */
+  static validateEnterpriseNocState(state) {
+    if (!state || typeof state !== 'object') {
+      return { valid: false, error: 'EnterpriseNocDataLifecycleState must be a non-null object' };
+    }
+    const validStates = new Set([
+      'LOADING',
+      'OBSERVED',
+      'PARTIALLY_AVAILABLE',
+      'UNAVAILABLE',
+      'ERROR',
+      'HISTORICAL'
+    ]);
+    if (!validStates.has(state.overallState)) {
+      return { valid: false, error: `Invalid overallState: ${state.overallState}` };
+    }
+    const validChainStates = new Set([
+      'UNVERIFIED_PENDING',
+      'CHAIN_VERIFIED',
+      'CHAIN_DISCREPANCY_DETECTED',
+      'AUDIT_ENDPOINT_UNAVAILABLE'
+    ]);
+    if (!validChainStates.has(state.chainVerificationState)) {
+      return { valid: false, error: `Invalid chainVerificationState: ${state.chainVerificationState}` };
+    }
+    if (state.chainVerificationState === 'AUDIT_ENDPOINT_UNAVAILABLE' && state.chainVerified === true) {
+      return {
+        valid: false,
+        error: 'chainVerified cannot be true when chainVerificationState is AUDIT_ENDPOINT_UNAVAILABLE'
+      };
+    }
+    return { valid: true };
+  }
 }
 
 function attachEpistemicEnvelope(target, meta = {}) {
@@ -442,6 +620,30 @@ function validateModelOrchestrationResult(res) {
   return TypeContractValidator.validateModelOrchestrationResult(res);
 }
 
+function validateControlPlaneApproval(approval) {
+  return TypeContractValidator.validateControlPlaneApproval(approval);
+}
+
+function validateEpistemicDistinctions(distinctions) {
+  return TypeContractValidator.validateEpistemicDistinctions(distinctions);
+}
+
+function validateChatFinalResultEnvelope(envelope) {
+  return TypeContractValidator.validateChatFinalResultEnvelope(envelope);
+}
+
+function validateIndirectCrossLayerSynthesis(synthesis) {
+  return TypeContractValidator.validateIndirectCrossLayerSynthesis(synthesis);
+}
+
+function validateVirtualNetDeliveryEnvelope(delivery) {
+  return TypeContractValidator.validateVirtualNetDeliveryEnvelope(delivery);
+}
+
+function validateEnterpriseNocState(state) {
+  return TypeContractValidator.validateEnterpriseNocState(state);
+}
+
 module.exports = {
   TypeContractValidator,
   VALID_EPISTEMIC_STATES,
@@ -459,5 +661,11 @@ module.exports = {
   validateEvidenceRecord,
   validateHypothesisEvaluation,
   validateOrchestrationEnvelope,
-  validateModelOrchestrationResult
+  validateModelOrchestrationResult,
+  validateControlPlaneApproval,
+  validateEpistemicDistinctions,
+  validateChatFinalResultEnvelope,
+  validateIndirectCrossLayerSynthesis,
+  validateVirtualNetDeliveryEnvelope,
+  validateEnterpriseNocState
 };

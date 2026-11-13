@@ -166,18 +166,43 @@ function computeDeterministicQualityScore({
 }
 
 class EvidenceFabric {
-  constructor(hmacSecret = 'EJII-V6-SOVEREIGN-EVIDENCE-FABRIC-KEY') {
-    this.hmacSecret = hmacSecret;
+  constructor(hmacSecret = null, options = {}) {
+    let resolvedSecret = hmacSecret;
+    if (!resolvedSecret) {
+      try {
+        const config = require('../../config');
+        resolvedSecret = typeof config.getPurposeSeparatedSecret === 'function'
+          ? config.getPurposeSeparatedSecret('telemetry-provenance-v1')
+          : config.HMAC_SECRET;
+      } catch (_) {}
+    }
+    this.hmacSecret = resolvedSecret || crypto.randomBytes(32).toString('hex');
+    this.dbHandle = options.dbHandle !== undefined ? options.dbHandle : db;
     this.memoryRecords = new Map();
     this.memoryFindings = new Map();
     this.lastChainHash = 'GENESIS_EVIDENCE_CHAIN_V6_0000000000000000';
+    this.storageDiagnostics = {
+      writeSuccessCount: 0,
+      writeFailuresCount: 0,
+      lastWriteError: null
+    };
     ensureEvidenceTables();
     this._hydrateChainTail();
   }
 
+  getStorageDiagnostics() {
+    return {
+      ...this.storageDiagnostics,
+      lastChainHash: this.lastChainHash,
+      inMemoryRecordCount: this.memoryRecords.size,
+      inMemoryFindingCount: this.memoryFindings.size
+    };
+  }
+
   _hydrateChainTail() {
     try {
-      const row = db.prepare('SELECT integrity_hash FROM evidence_records ORDER BY ingested_at DESC, rowid DESC LIMIT 1').get();
+      if (!this.dbHandle) return;
+      const row = this.dbHandle.prepare('SELECT integrity_hash FROM evidence_records ORDER BY ingested_at DESC, rowid DESC LIMIT 1').get();
       if (row && row.integrity_hash) {
         this.lastChainHash = row.integrity_hash;
       }
@@ -193,6 +218,7 @@ class EvidenceFabric {
 
   /**
    * Record a typed EvidenceRecord in the Evidence Fabric and SQLite ledger.
+   * Does not advance lastChainHash if the SQLite insert fails.
    * @param {Object} input
    * @returns {Object} EvidenceRecord
    */
@@ -257,7 +283,55 @@ class EvidenceFabric {
       derivedFrom: safeDerivedFrom
     });
     const integrityHash = this._computeHash(canonicalPayload, prevHash);
-    this.lastChainHash = integrityHash;
+
+    let persistedToSqlite = false;
+    let persistenceStatus = 'MEMORY_ONLY';
+    let persistenceError = null;
+
+    try {
+      if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
+        throw new Error('SQLite database handle is unavailable');
+      }
+      this.dbHandle.prepare(`
+        INSERT OR REPLACE INTO evidence_records (
+          id, type, subject, claim, raw_value_json, normalized_value_json, unit,
+          source_capability_id, collection_method, observed_at, ingested_at, expires_at,
+          freshness_state, quality_score, corroborates_json, contradicts_json, derived_from_json,
+          prev_hash, integrity_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        type,
+        subject,
+        claim,
+        JSON.stringify(rawValue),
+        JSON.stringify(normalizedValue),
+        unit,
+        sourceCapabilityId,
+        collectionMethod,
+        observedAt,
+        ingestedAt,
+        expiresAt,
+        freshnessState,
+        qualityScore,
+        JSON.stringify(corroborates),
+        JSON.stringify(contradicts),
+        JSON.stringify(safeDerivedFrom),
+        prevHash,
+        integrityHash
+      );
+      this.lastChainHash = integrityHash;
+      persistedToSqlite = true;
+      persistenceStatus = 'PERSISTED_SQLITE';
+      this.storageDiagnostics.writeSuccessCount += 1;
+    } catch (dbErr) {
+      this.lastChainHash = prevHash;
+      persistedToSqlite = false;
+      persistenceStatus = 'SQLITE_WRITE_FAILED';
+      persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
+      this.storageDiagnostics.writeFailuresCount += 1;
+      this.storageDiagnostics.lastWriteError = persistenceError;
+    }
 
     const record = {
       id,
@@ -278,41 +352,13 @@ class EvidenceFabric {
       contradicts,
       derivedFrom: safeDerivedFrom,
       prevHash,
-      integrityHash
+      integrityHash,
+      persistedToSqlite,
+      persistenceStatus,
+      persistenceError
     };
 
     this.memoryRecords.set(id, record);
-
-    try {
-      db.prepare(`
-        INSERT OR REPLACE INTO evidence_records (
-          id, type, subject, claim, raw_value_json, normalized_value_json, unit,
-          source_capability_id, collection_method, observed_at, ingested_at, expires_at,
-          freshness_state, quality_score, corroborates_json, contradicts_json, derived_from_json,
-          prev_hash, integrity_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        record.id,
-        record.type,
-        record.subject,
-        record.claim,
-        JSON.stringify(record.rawValue),
-        JSON.stringify(record.normalizedValue),
-        record.unit,
-        record.sourceCapabilityId,
-        record.collectionMethod,
-        record.observedAt,
-        record.ingestedAt,
-        record.expiresAt,
-        record.freshnessState,
-        record.qualityScore,
-        JSON.stringify(record.corroborates),
-        JSON.stringify(record.contradicts),
-        JSON.stringify(record.derivedFrom),
-        record.prevHash,
-        record.integrityHash
-      );
-    } catch (_) {}
 
     return record;
   }
@@ -450,6 +496,48 @@ class EvidenceFabric {
       .update(JSON.stringify({ findingId, subject, ruleId, status, supportingEvidenceIds, counterEvidenceIds, missingEvidenceIds, calibratedConfidence }))
       .digest('hex');
 
+    let persistedToSqlite = false;
+    let persistenceStatus = 'MEMORY_ONLY';
+    let persistenceError = null;
+
+    try {
+      if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
+        throw new Error('SQLite database handle is unavailable');
+      }
+      this.dbHandle.prepare(`
+        INSERT OR REPLACE INTO evidence_findings (
+          finding_id, title, subject, rule_id, inference_step, status, confidence,
+          supporting_evidence_json, counter_evidence_json, missing_evidence_json,
+          assumptions_json, disconfirming_conditions_json, created_at, updated_at, integrity_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        findingId,
+        title,
+        subject,
+        ruleId,
+        inferenceStep,
+        status,
+        calibratedConfidence,
+        JSON.stringify(supportingEvidenceIds),
+        JSON.stringify(counterEvidenceIds),
+        JSON.stringify(missingEvidenceIds),
+        JSON.stringify(assumptions),
+        JSON.stringify(disconfirmingConditions),
+        nowIso,
+        nowIso,
+        integrityHash
+      );
+      persistedToSqlite = true;
+      persistenceStatus = 'PERSISTED_SQLITE';
+      this.storageDiagnostics.writeSuccessCount += 1;
+    } catch (dbErr) {
+      persistedToSqlite = false;
+      persistenceStatus = 'SQLITE_WRITE_FAILED';
+      persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
+      this.storageDiagnostics.writeFailuresCount += 1;
+      this.storageDiagnostics.lastWriteError = persistenceError;
+    }
+
     const finding = {
       findingId,
       title,
@@ -466,36 +554,13 @@ class EvidenceFabric {
       downgradeWarnings,
       createdAt: nowIso,
       updatedAt: nowIso,
-      integrityHash
+      integrityHash,
+      persistedToSqlite,
+      persistenceStatus,
+      persistenceError
     };
 
     this.memoryFindings.set(findingId, finding);
-
-    try {
-      db.prepare(`
-        INSERT OR REPLACE INTO evidence_findings (
-          finding_id, title, subject, rule_id, inference_step, status, confidence,
-          supporting_evidence_json, counter_evidence_json, missing_evidence_json,
-          assumptions_json, disconfirming_conditions_json, created_at, updated_at, integrity_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        finding.findingId,
-        finding.title,
-        finding.subject,
-        finding.ruleId,
-        finding.inferenceStep,
-        finding.status,
-        finding.confidence,
-        JSON.stringify(finding.supportingEvidenceIds),
-        JSON.stringify(finding.counterEvidenceIds),
-        JSON.stringify(finding.missingEvidenceIds),
-        JSON.stringify(finding.assumptions),
-        JSON.stringify(finding.disconfirmingConditions),
-        finding.createdAt,
-        finding.updatedAt,
-        finding.integrityHash
-      );
-    } catch (_) {}
 
     return finding;
   }

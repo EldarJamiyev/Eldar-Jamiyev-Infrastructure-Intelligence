@@ -22,7 +22,33 @@
     agents: [],
     auditLogs: [],
     approvals: [],
-    chainVerified: true,
+    chainVerified: null,
+    chainVerificationState: 'UNVERIFIED_PENDING',
+    lifecycleState: {
+      overallState: 'LOADING',
+      statusEndpointState: 'LOADING',
+      sitesEndpointState: 'LOADING',
+      agentsEndpointState: 'LOADING',
+      auditEndpointState: 'LOADING',
+      chainVerificationState: 'UNVERIFIED_PENDING',
+      chainVerified: null,
+      lastObservedAt: null,
+      errorSummary: null
+    },
+    freshnessThresholds: {
+      statusMaxAgeMs: 60000,
+      auditMaxAgeMs: 120000,
+      siteTelemetryMaxAgeMs: 90000,
+      agentsTelemetryMaxAgeMs: 90000,
+      approvalsMaxAgeMs: 120000
+    },
+    endpointFreshness: {
+      status: { latestSuccessfulObservationAt: null, freshnessState: 'UNINITIALIZED', isHistoricalFallback: false, isStaleTelemetry: false, currentlyAvailable: false, ageMs: null, maxAgeMs: 60000 },
+      sites: { latestSuccessfulObservationAt: null, freshnessState: 'UNINITIALIZED', isHistoricalFallback: false, isStaleTelemetry: false, currentlyAvailable: false, ageMs: null, maxAgeMs: 90000 },
+      agents: { latestSuccessfulObservationAt: null, freshnessState: 'UNINITIALIZED', isHistoricalFallback: false, isStaleTelemetry: false, currentlyAvailable: false, ageMs: null, maxAgeMs: 90000 },
+      audit: { latestSuccessfulObservationAt: null, freshnessState: 'UNINITIALIZED', isHistoricalFallback: false, isStaleTelemetry: false, currentlyAvailable: false, ageMs: null, maxAgeMs: 120000 },
+      approvals: { latestSuccessfulObservationAt: null, freshnessState: 'UNINITIALIZED', isHistoricalFallback: false, isStaleTelemetry: false, currentlyAvailable: false, ageMs: null, maxAgeMs: 120000 }
+    },
     horizon: null,
     arbitration: null,
     timeline: null,
@@ -39,7 +65,417 @@
       .replace(/"/g, '&quot;');
   }
 
+  function getMaxAgeForEndpoint(endpointKey, customThresholds) {
+    const t = customThresholds || enterpriseData.freshnessThresholds || {};
+    if (endpointKey === 'status') return Number(t.statusMaxAgeMs) || 60000;
+    if (endpointKey === 'audit') return Number(t.auditMaxAgeMs) || 120000;
+    if (endpointKey === 'sites') return Number(t.siteTelemetryMaxAgeMs) || 90000;
+    if (endpointKey === 'agents') return Number(t.agentsTelemetryMaxAgeMs || t.siteTelemetryMaxAgeMs) || 90000;
+    if (endpointKey === 'approvals') return Number(t.approvalsMaxAgeMs || t.auditMaxAgeMs) || 120000;
+    return 90000;
+  }
+
+  function extractItemTimestamp(item, endpointKey) {
+    if (!item || typeof item !== 'object') return null;
+    if (endpointKey === 'agents') {
+      return item.lastHeartbeat || item.lastSeen || item.observedAt || item.timestamp || item.updatedAt || null;
+    }
+    if (endpointKey === 'sites') {
+      return item.observedAt || item.lastSeen || item.updatedAt || item.timestamp || null;
+    }
+    return item.observedAt || item.timestamp || item.verifiedAt || item.lastSeen || item.created_at || item.createdAt || null;
+  }
+
+  function evaluateCollectionResourcesFreshness(endpointKey, items, nowMs, maxAgeMs, maxClockSkewMs) {
+    if (!Array.isArray(items)) return null;
+    const perResourceStates = [];
+    let freshCount = 0;
+    let staleCount = 0;
+    let missingTimestampCount = 0;
+    let clockSkewCount = 0;
+    let freshestAgeMs = null;
+    let oldestAgeMs = null;
+    let oldestTimestampIso = null;
+    let freshestTimestampIso = null;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const resourceId = item?.id || item?.siteId || item?.agentId || item?.clientId || item?.code || item?.name || `idx-${i}`;
+      const rawTs = extractItemTimestamp(item, endpointKey);
+      if (rawTs === null || rawTs === undefined || String(rawTs).trim() === '') {
+        missingTimestampCount++;
+        perResourceStates.push({
+          resourceId,
+          freshnessState: 'MISSING_SOURCE_TIMESTAMP',
+          ageMs: null,
+          observedAt: null
+        });
+        continue;
+      }
+      const parsedMs = Date.parse(String(rawTs));
+      if (!Number.isFinite(parsedMs)) {
+        missingTimestampCount++;
+        perResourceStates.push({
+          resourceId,
+          freshnessState: 'INVALID_OR_INCOMPLETE_RESPONSE',
+          ageMs: null,
+          observedAt: String(rawTs)
+        });
+        continue;
+      }
+      const skewMs = parsedMs - nowMs;
+      if (skewMs > maxClockSkewMs) {
+        clockSkewCount++;
+        perResourceStates.push({
+          resourceId,
+          freshnessState: 'CLOCK_SKEW_DETECTED',
+          clockSkewMs: skewMs,
+          ageMs: null,
+          observedAt: new Date(parsedMs).toISOString()
+        });
+        continue;
+      }
+      const ageMs = Math.max(0, nowMs - parsedMs);
+      const isStale = ageMs > maxAgeMs;
+      if (isStale) {
+        staleCount++;
+      } else {
+        freshCount++;
+      }
+      if (freshestAgeMs === null || ageMs < freshestAgeMs) {
+        freshestAgeMs = ageMs;
+        freshestTimestampIso = new Date(parsedMs).toISOString();
+      }
+      if (oldestAgeMs === null || ageMs > oldestAgeMs) {
+        oldestAgeMs = ageMs;
+        oldestTimestampIso = new Date(parsedMs).toISOString();
+      }
+      perResourceStates.push({
+        resourceId,
+        freshnessState: isStale ? 'AVAILABLE_STALE_TELEMETRY' : 'LIVE_FRESH',
+        ageMs,
+        observedAt: new Date(parsedMs).toISOString()
+      });
+    }
+
+    return {
+      totalCount: items.length,
+      freshCount,
+      staleCount,
+      missingTimestampCount,
+      clockSkewCount,
+      freshestAgeMs,
+      oldestAgeMs,
+      freshestTimestampIso,
+      oldestTimestampIso,
+      perResourceStates
+    };
+  }
+
+  function extractSourceObservationTimestamp(endpointKey, payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    if (endpointKey === 'audit') {
+      if (payload.verification?.verifiedAt) return payload.verification.verifiedAt;
+      if (payload.verifiedAt || payload.observedAt || payload.timestamp) {
+        return payload.verifiedAt || payload.observedAt || payload.timestamp;
+      }
+      if (Array.isArray(payload.auditLogs) && payload.auditLogs[0]) {
+        return payload.auditLogs[0].timestamp || payload.auditLogs[0].created_at || payload.auditLogs[0].createdAt || null;
+      }
+    }
+    if (endpointKey === 'sites' && Array.isArray(payload.sites) && payload.sites.length > 0) {
+      for (const s of payload.sites) {
+        const ts = extractItemTimestamp(s, 'sites');
+        if (ts) return ts;
+      }
+    }
+    if (endpointKey === 'agents' && Array.isArray(payload.agents) && payload.agents.length > 0) {
+      for (const a of payload.agents) {
+        const ts = extractItemTimestamp(a, 'agents');
+        if (ts) return ts;
+      }
+    }
+    if (payload.observedAt || payload.timestamp || payload.verifiedAt || payload.lastSeen) {
+      return payload.observedAt || payload.timestamp || payload.verifiedAt || payload.lastSeen;
+    }
+    return null;
+  }
+
+  function validateEndpointResponseSchema(endpointKey, payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    if (endpointKey === 'status') {
+      if (!payload.fleetSummary || typeof payload.fleetSummary !== 'object' || Array.isArray(payload.fleetSummary)) {
+        return false;
+      }
+      if (payload.fleetSummary.totalSites !== undefined && (!Number.isFinite(Number(payload.fleetSummary.totalSites)) || Number(payload.fleetSummary.totalSites) < 0)) {
+        return false;
+      }
+      return true;
+    }
+    if (endpointKey === 'sites') {
+      if (!Array.isArray(payload.sites)) return false;
+      for (const s of payload.sites) {
+        if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
+        const idVal = s.id || s.siteId || s.code || s.name;
+        if (!idVal || typeof idVal !== 'string' || !idVal.trim()) return false;
+      }
+      return true;
+    }
+    if (endpointKey === 'agents') {
+      if (!Array.isArray(payload.agents)) return false;
+      for (const a of payload.agents) {
+        if (!a || typeof a !== 'object' || Array.isArray(a)) return false;
+        const idVal = a.id || a.agentId || a.clientId || a.name;
+        if (!idVal || typeof idVal !== 'string' || !idVal.trim()) return false;
+      }
+      return true;
+    }
+    if (endpointKey === 'audit') {
+      if (!Array.isArray(payload.auditLogs)) return false;
+      for (const log of payload.auditLogs) {
+        if (!log || typeof log !== 'object' || Array.isArray(log)) return false;
+      }
+      return true;
+    }
+    if (endpointKey === 'approvals') {
+      if (!Array.isArray(payload.approvals)) return false;
+      for (const app of payload.approvals) {
+        if (!app || typeof app !== 'object' || Array.isArray(app)) return false;
+      }
+      return true;
+    }
+    return true;
+  }
+
+  /**
+   * Phase Atlas VII (Cycle 7) & Phase Atlas VIII (Cycle 6):
+   * Evaluates endpoint response and underlying telemetry timestamps against configurable per-source
+   * freshness thresholds without ever substituting client-side Date.now() for missing timestamps.
+   * Distinguishes:
+   *   - LIVE_FRESH
+   *   - AVAILABLE_STALE_TELEMETRY
+   *   - MISSING_SOURCE_TIMESTAMP
+   *   - CLOCK_SKEW_DETECTED
+   *   - HISTORICAL_FALLBACK
+   *   - TEMPORARILY_UNAVAILABLE
+   *   - UNINITIALIZED
+   *   - INVALID_OR_INCOMPLETE_RESPONSE
+   */
+  function evaluateEndpointFreshness(endpointKey, settlement, options = {}) {
+    if (!enterpriseData.endpointFreshness) enterpriseData.endpointFreshness = {};
+    const nowMs = typeof options.nowMs === 'number' ? options.nowMs : Date.now();
+    const maxAgeMs = getMaxAgeForEndpoint(endpointKey, options.thresholds);
+    const maxClockSkewMs = Number(options.maxClockSkewMs ?? enterpriseData.freshnessThresholds?.maxClockSkewMs) || 30000;
+    const prior = enterpriseData.endpointFreshness[endpointKey] || {
+      latestSuccessfulObservationAt: null,
+      freshnessState: 'UNINITIALIZED',
+      isHistoricalFallback: false,
+      isStaleTelemetry: false,
+      currentlyAvailable: false,
+      ageMs: null,
+      maxAgeMs
+    };
+
+    if (!settlement) {
+      prior.maxAgeMs = maxAgeMs;
+      enterpriseData.endpointFreshness[endpointKey] = prior;
+      return prior;
+    }
+
+    const isFulfilled = settlement.status === 'fulfilled';
+    const val = isFulfilled ? settlement.value : null;
+
+    // Check for malformed / incomplete schema when endpoint responds without explicit transport error
+    if (isFulfilled && val && typeof val === 'object' && val.success === true && !validateEndpointResponseSchema(endpointKey, val)) {
+      const invalidEntry = {
+        latestSuccessfulObservationAt: prior.latestSuccessfulObservationAt || null,
+        freshnessState: 'INVALID_OR_INCOMPLETE_RESPONSE',
+        isHistoricalFallback: Boolean(prior.latestSuccessfulObservationAt),
+        isStaleTelemetry: false,
+        currentlyAvailable: false,
+        ageMs: prior.latestSuccessfulObservationAt
+          ? Math.max(0, nowMs - Date.parse(prior.latestSuccessfulObservationAt))
+          : null,
+        maxAgeMs
+      };
+      enterpriseData.endpointFreshness[endpointKey] = invalidEntry;
+      return invalidEntry;
+    }
+
+    if (isFulfilled && val && typeof val === 'object' && val.success === true) {
+      let resourceFreshnessSummary = null;
+      if (endpointKey === 'sites' && Array.isArray(val.sites)) {
+        resourceFreshnessSummary = evaluateCollectionResourcesFreshness('sites', val.sites, nowMs, maxAgeMs, maxClockSkewMs);
+      } else if (endpointKey === 'agents' && Array.isArray(val.agents)) {
+        resourceFreshnessSummary = evaluateCollectionResourcesFreshness('agents', val.agents, nowMs, maxAgeMs, maxClockSkewMs);
+      }
+
+      const sourceTs = extractSourceObservationTimestamp(endpointKey, val);
+
+      // Multi-item collection checks first so a fresh index 0 never masks stale or missing-timestamp items
+      if (resourceFreshnessSummary && resourceFreshnessSummary.totalCount > 0) {
+        if (resourceFreshnessSummary.clockSkewCount > 0) {
+          const skewEntry = {
+            latestSuccessfulObservationAt: resourceFreshnessSummary.freshestTimestampIso || prior.latestSuccessfulObservationAt || null,
+            freshnessState: 'CLOCK_SKEW_DETECTED',
+            isHistoricalFallback: false,
+            isStaleTelemetry: true,
+            currentlyAvailable: true,
+            ageMs: null,
+            maxAgeMs,
+            resourceFreshnessSummary
+          };
+          enterpriseData.endpointFreshness[endpointKey] = skewEntry;
+          return skewEntry;
+        }
+        if (resourceFreshnessSummary.missingTimestampCount > 0 && (sourceTs === null || sourceTs === undefined || String(sourceTs).trim() === '')) {
+          const missingEntry = {
+            latestSuccessfulObservationAt: prior.latestSuccessfulObservationAt || null,
+            freshnessState: 'MISSING_SOURCE_TIMESTAMP',
+            isHistoricalFallback: false,
+            isStaleTelemetry: true,
+            currentlyAvailable: true,
+            ageMs: null,
+            maxAgeMs,
+            resourceFreshnessSummary
+          };
+          enterpriseData.endpointFreshness[endpointKey] = missingEntry;
+          return missingEntry;
+        }
+        if (resourceFreshnessSummary.staleCount > 0 || (resourceFreshnessSummary.missingTimestampCount > 0 && resourceFreshnessSummary.freshCount > 0)) {
+          const updatedCollectionEntry = {
+            latestSuccessfulObservationAt: resourceFreshnessSummary.oldestTimestampIso || resourceFreshnessSummary.freshestTimestampIso || null,
+            freshnessState: 'AVAILABLE_STALE_TELEMETRY',
+            isHistoricalFallback: false,
+            isStaleTelemetry: true,
+            currentlyAvailable: true,
+            ageMs: resourceFreshnessSummary.oldestAgeMs,
+            maxAgeMs,
+            resourceFreshnessSummary
+          };
+          enterpriseData.endpointFreshness[endpointKey] = updatedCollectionEntry;
+          return updatedCollectionEntry;
+        }
+      }
+
+      // Never substitute nowMs when source timestamp is missing or unparseable
+      if (sourceTs === null || sourceTs === undefined || String(sourceTs).trim() === '') {
+        const missingTsEntry = {
+          latestSuccessfulObservationAt: prior.latestSuccessfulObservationAt || null,
+          freshnessState: 'MISSING_SOURCE_TIMESTAMP',
+          isHistoricalFallback: false,
+          isStaleTelemetry: true,
+          currentlyAvailable: true,
+          ageMs: null,
+          maxAgeMs,
+          resourceFreshnessSummary
+        };
+        enterpriseData.endpointFreshness[endpointKey] = missingTsEntry;
+        return missingTsEntry;
+      }
+
+      const parsedTsMs = Date.parse(String(sourceTs));
+      if (!Number.isFinite(parsedTsMs)) {
+        const malformedTsEntry = {
+          latestSuccessfulObservationAt: prior.latestSuccessfulObservationAt || null,
+          freshnessState: 'INVALID_OR_INCOMPLETE_RESPONSE',
+          reason: 'MALFORMED_SOURCE_TIMESTAMP',
+          isHistoricalFallback: Boolean(prior.latestSuccessfulObservationAt),
+          isStaleTelemetry: true,
+          currentlyAvailable: false,
+          ageMs: null,
+          maxAgeMs,
+          resourceFreshnessSummary
+        };
+        enterpriseData.endpointFreshness[endpointKey] = malformedTsEntry;
+        return malformedTsEntry;
+      }
+
+      const clockSkewMs = parsedTsMs - nowMs;
+      if (clockSkewMs > maxClockSkewMs) {
+        const skewEntry = {
+          latestSuccessfulObservationAt: new Date(parsedTsMs).toISOString(),
+          freshnessState: 'CLOCK_SKEW_DETECTED',
+          clockSkewMs,
+          isHistoricalFallback: false,
+          isStaleTelemetry: true,
+          currentlyAvailable: true,
+          ageMs: null,
+          maxAgeMs,
+          resourceFreshnessSummary
+        };
+        enterpriseData.endpointFreshness[endpointKey] = skewEntry;
+        return skewEntry;
+      }
+
+      const ageMs = resourceFreshnessSummary && typeof resourceFreshnessSummary.oldestAgeMs === 'number'
+        ? resourceFreshnessSummary.oldestAgeMs
+        : Math.max(0, nowMs - parsedTsMs);
+      const isStale = ageMs > maxAgeMs;
+
+      const updated = {
+        latestSuccessfulObservationAt: new Date(parsedTsMs).toISOString(),
+        freshnessState: isStale ? 'AVAILABLE_STALE_TELEMETRY' : 'LIVE_FRESH',
+        isHistoricalFallback: false,
+        isStaleTelemetry: isStale,
+        currentlyAvailable: true,
+        ageMs,
+        maxAgeMs,
+        resourceFreshnessSummary
+      };
+      enterpriseData.endpointFreshness[endpointKey] = updated;
+      return updated;
+    }
+
+    // Endpoint failed or returned success: false
+    const hasPriorState = Boolean(prior.latestSuccessfulObservationAt);
+    const priorAgeMs = hasPriorState ? Math.max(0, nowMs - Date.parse(prior.latestSuccessfulObservationAt)) : null;
+    const failedEntry = {
+      latestSuccessfulObservationAt: prior.latestSuccessfulObservationAt || null,
+      freshnessState: hasPriorState ? 'HISTORICAL_FALLBACK' : 'TEMPORARILY_UNAVAILABLE',
+      isHistoricalFallback: hasPriorState,
+      isStaleTelemetry: hasPriorState,
+      currentlyAvailable: false,
+      ageMs: priorAgeMs,
+      maxAgeMs
+    };
+    enterpriseData.endpointFreshness[endpointKey] = failedEntry;
+    return failedEntry;
+  }
+
+  function renderFreshnessBadgeHtml(endpointKey) {
+    const ep = enterpriseData.endpointFreshness?.[endpointKey] || {
+      freshnessState: 'UNINITIALIZED',
+      ageMs: null
+    };
+    const st = ep.freshnessState || 'UNINITIALIZED';
+    const ageLabel = typeof ep.ageMs === 'number' && Number.isFinite(ep.ageMs)
+      ? ` · ${Math.round(ep.ageMs / 1000)}s old`
+      : '';
+    let bg = 'rgba(30, 41, 59, 0.8)';
+    let fg = '#94a3b8';
+    let border = 'rgba(148, 163, 184, 0.3)';
+    if (st === 'LIVE_FRESH') {
+      bg = 'rgba(6, 78, 59, 0.55)';
+      fg = '#6ee7b7';
+      border = 'rgba(16, 185, 129, 0.4)';
+    } else if (st === 'AVAILABLE_STALE_TELEMETRY' || st === 'HISTORICAL_FALLBACK' || st === 'MISSING_SOURCE_TIMESTAMP' || st === 'CLOCK_SKEW_DETECTED') {
+      bg = 'rgba(120, 53, 15, 0.55)';
+      fg = '#fcd34d';
+      border = 'rgba(245, 158, 11, 0.45)';
+    } else if (st === 'TEMPORARILY_UNAVAILABLE' || st === 'INVALID_OR_INCOMPLETE_RESPONSE') {
+      bg = 'rgba(127, 29, 29, 0.55)';
+      fg = '#fca5a5';
+      border = 'rgba(239, 68, 68, 0.45)';
+    }
+    return `<span class="noc-freshness-badge" data-endpoint="${escHtml(endpointKey)}" data-freshness-state="${escHtml(st)}" style="display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${bg};color:${fg};border:1px solid ${border};font-family:var(--font-mono, monospace);">${escHtml(st)}${escHtml(ageLabel)}</span>`;
+  }
+
+  let _nocLoadSeqId = 0;
+  let _nocSynthesisSeqId = 0;
+
   async function loadEnterpriseData() {
+    const mySeq = ++_nocLoadSeqId;
     try {
       const activeTarget = window.EJIISituationalMemory?.activeTarget || '127.0.0.1';
       const activePort = window.EJIISituationalMemory?.activePort || 3000;
@@ -69,21 +505,109 @@
         window.api('/api/enterprise/ai/episodic-memory?includeSimulated=false')
       ]);
 
-      if (statusRes.status === 'fulfilled' && statusRes.value?.success) {
+      if (mySeq !== _nocLoadSeqId) return;
+
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const errors = [];
+
+      const statusFresh = evaluateEndpointFreshness('status', statusRes, { nowMs });
+      if (statusFresh.currentlyAvailable) {
         enterpriseData.status = statusRes.value;
+        enterpriseData.lifecycleState.statusEndpointState = statusFresh.isStaleTelemetry ? 'STALE' : 'OBSERVED';
+      } else {
+        if (!statusFresh.isHistoricalFallback) {
+          enterpriseData.status = null;
+        }
+        enterpriseData.lifecycleState.statusEndpointState =
+          statusFresh.freshnessState === 'INVALID_OR_INCOMPLETE_RESPONSE'
+            ? 'INVALID_RESPONSE'
+            : statusRes.status === 'rejected'
+              ? 'ERROR'
+              : 'UNAVAILABLE';
+        errors.push(`status_${statusFresh.freshnessState.toLowerCase()}`);
       }
-      if (sitesRes.status === 'fulfilled' && sitesRes.value?.success) {
+
+      const sitesFresh = evaluateEndpointFreshness('sites', sitesRes, { nowMs });
+      if (sitesFresh.currentlyAvailable) {
         enterpriseData.sites = sitesRes.value.sites || [];
         enterpriseData.wanLinks = sitesRes.value.wanLinks || [];
+        enterpriseData.lifecycleState.sitesEndpointState = sitesFresh.isStaleTelemetry ? 'STALE' : 'OBSERVED';
+      } else {
+        enterpriseData.lifecycleState.sitesEndpointState =
+          sitesFresh.freshnessState === 'INVALID_OR_INCOMPLETE_RESPONSE'
+            ? 'INVALID_RESPONSE'
+            : sitesRes.status === 'rejected'
+              ? 'ERROR'
+              : 'UNAVAILABLE';
+        errors.push(`sites_${sitesFresh.freshnessState.toLowerCase()}`);
       }
-      if (agentsRes.status === 'fulfilled' && agentsRes.value?.success) {
+
+      const agentsFresh = evaluateEndpointFreshness('agents', agentsRes, { nowMs });
+      if (agentsFresh.currentlyAvailable) {
         enterpriseData.agents = agentsRes.value.agents || [];
+        enterpriseData.lifecycleState.agentsEndpointState = agentsFresh.isStaleTelemetry ? 'STALE' : 'OBSERVED';
+      } else {
+        enterpriseData.lifecycleState.agentsEndpointState =
+          agentsFresh.freshnessState === 'INVALID_OR_INCOMPLETE_RESPONSE'
+            ? 'INVALID_RESPONSE'
+            : agentsRes.status === 'rejected'
+              ? 'ERROR'
+              : 'UNAVAILABLE';
+        errors.push(`agents_${agentsFresh.freshnessState.toLowerCase()}`);
       }
-      if (auditRes.status === 'fulfilled' && auditRes.value?.success) {
+
+      const auditFresh = evaluateEndpointFreshness('audit', auditRes, { nowMs });
+      if (auditFresh.currentlyAvailable) {
         enterpriseData.auditLogs = auditRes.value.auditLogs || [];
-        enterpriseData.chainVerified = auditRes.value.verification?.valid ?? true;
+        enterpriseData.lifecycleState.auditEndpointState = auditFresh.isStaleTelemetry ? 'STALE' : 'OBSERVED';
+        if (typeof auditRes.value.verification?.valid === 'boolean') {
+          enterpriseData.chainVerified = auditRes.value.verification.valid;
+          enterpriseData.chainVerificationState = auditRes.value.verification.valid
+            ? 'CHAIN_VERIFIED'
+            : 'CHAIN_DISCREPANCY_DETECTED';
+        } else {
+          enterpriseData.chainVerified = null;
+          enterpriseData.chainVerificationState = 'UNVERIFIED_PENDING';
+        }
+      } else {
+        enterpriseData.chainVerified = null;
+        enterpriseData.chainVerificationState = 'AUDIT_ENDPOINT_UNAVAILABLE';
+        enterpriseData.lifecycleState.auditEndpointState =
+          auditFresh.freshnessState === 'INVALID_OR_INCOMPLETE_RESPONSE'
+            ? 'INVALID_RESPONSE'
+            : auditRes.status === 'rejected'
+              ? 'ERROR'
+              : 'UNAVAILABLE';
+        errors.push(`audit_${auditFresh.freshnessState.toLowerCase()}`);
       }
-      if (approvalsRes.status === 'fulfilled' && approvalsRes.value?.success) {
+
+      const subStates = [
+        enterpriseData.lifecycleState.statusEndpointState,
+        enterpriseData.lifecycleState.sitesEndpointState,
+        enterpriseData.lifecycleState.agentsEndpointState,
+        enterpriseData.lifecycleState.auditEndpointState
+      ];
+      const availableCount = subStates.filter((s) => s === 'OBSERVED' || s === 'STALE').length;
+      const freshObservedCount = subStates.filter((s) => s === 'OBSERVED').length;
+      enterpriseData.lifecycleState.overallState =
+        freshObservedCount === subStates.length
+          ? 'OBSERVED'
+          : availableCount === subStates.length
+            ? 'AVAILABLE_WITH_STALE_TELEMETRY'
+            : availableCount > 0
+              ? 'PARTIALLY_AVAILABLE'
+              : subStates.some((s) => s === 'ERROR' || s === 'INVALID_RESPONSE')
+                ? 'ERROR'
+                : 'UNAVAILABLE';
+      enterpriseData.lifecycleState.chainVerificationState = enterpriseData.chainVerificationState;
+      enterpriseData.lifecycleState.chainVerified = enterpriseData.chainVerified;
+      enterpriseData.lifecycleState.lastObservedAt = availableCount > 0 ? nowIso : enterpriseData.lifecycleState.lastObservedAt;
+      enterpriseData.lifecycleState.errorSummary = errors.length > 0 ? errors.join(', ') : null;
+      enterpriseData.lifecycleState.endpointFreshness = enterpriseData.endpointFreshness;
+
+      const approvalsFresh = evaluateEndpointFreshness('approvals', approvalsRes, { nowMs });
+      if (approvalsFresh.currentlyAvailable) {
         enterpriseData.approvals = approvalsRes.value.approvals || [];
       }
       if (horizonRes.status === 'fulfilled' && horizonRes.value?.success) {
@@ -108,6 +632,10 @@
         window.syncSituationalMemoryFromBackend();
       }
     } catch (e) {
+      enterpriseData.chainVerified = null;
+      enterpriseData.chainVerificationState = 'AUDIT_ENDPOINT_UNAVAILABLE';
+      enterpriseData.lifecycleState.overallState = 'ERROR';
+      enterpriseData.lifecycleState.errorSummary = e?.message || 'loadEnterpriseData failed';
       console.warn('[Enterprise NOC View] Data load error:', e);
     }
   }
@@ -121,7 +649,7 @@
       container = document.createElement('div');
       container.id = 'enterpriseNocContainer';
       container.className = 'view-container';
-      container.style.cssText = 'padding: 28px 32px; overflow-y: auto; height: 100%; color: #e2e8f0; font-family: var(--font-sans, "Inter", -apple-system, BlinkMacSystemFont, sans-serif); font-variant-numeric: tabular-nums;';
+      container.style.cssText = 'padding: 24px 28px; overflow-y: auto; height: 100%; background: #0b1120; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 12px; color: #e2e8f0; font-family: var(--font-sans, "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif); font-variant-numeric: tabular-nums;';
       mainContent.appendChild(container);
     }
 
@@ -135,21 +663,50 @@
     const sites = enterpriseData.sites || [];
     const wanLinks = enterpriseData.wanLinks || [];
     const agents = enterpriseData.agents || [];
+    const totalZonesCount = sites.reduce((acc, s) => acc + (s.zones?.length || 0), 0);
+    const rawTimelineEvents = (enterpriseData.timeline && enterpriseData.timeline.timelineEvents) || [];
+    const timelinePartition = partitionBoundedNocTableRows(rawTimelineEvents, { maxRenderedRows: 50 });
+    const rawAuditLogs = enterpriseData.auditLogs || [];
+    const auditPartition = partitionBoundedNocTableRows(rawAuditLogs, { maxRenderedRows: 10 });
+
+    // Cycle 4 & Cycle 7: Never invent healthySites === sites.length or fake '0.16 MB' WAL health when status endpoint is unavailable
+    const statusEpState = enterpriseData.lifecycleState.statusEndpointState;
+    const hasObservedStatus = Boolean(enterpriseData.status && (statusEpState === 'OBSERVED' || statusEpState === 'STALE'));
+    const observedHealthySites = hasObservedStatus
+      ? (enterpriseData.status.fleetSummary?.healthySites ?? sites.filter((s) => s.status === 'ONLINE' || s.status === 'HEALTHY').length)
+      : sites.filter((s) => s.status === 'ONLINE' || s.status === 'HEALTHY').length;
+    const observedOptimalWan = hasObservedStatus
+      ? (enterpriseData.status.fleetSummary?.optimalWanLinks ?? wanLinks.filter((l) => l.status === 'UP' || l.status === 'OPTIMAL' || l.status === 'ONLINE').length)
+      : wanLinks.filter((l) => l.status === 'UP' || l.status === 'OPTIMAL' || l.status === 'ONLINE').length;
+
     const status = enterpriseData.status || {
-      deploymentMode: 'ENTERPRISE',
-      governanceMode: 'ADVISORY',
+      deploymentMode: 'UNVERIFIED_STATUS',
+      governanceMode: 'UNAVAILABLE',
       fleetSummary: {
         totalSites: sites.length,
-        healthySites: sites.length,
-        totalZones: sites.reduce((acc, s) => acc + (s.zones?.length || 0), 0),
+        healthySites: hasObservedStatus ? observedHealthySites : null,
+        totalZones: totalZonesCount,
         totalWanLinks: wanLinks.length,
-        optimalWanLinks: wanLinks.length
+        optimalWanLinks: hasObservedStatus ? observedOptimalWan : null
       },
-      storage: { mode: 'WAL', sizeFormatted: '0.16 MB', status: 'HEALTHY' }
+      storage: { mode: 'UNKNOWN', sizeFormatted: 'TELEMETRY_UNAVAILABLE', status: 'UNAVAILABLE' }
     };
 
     const primaryLocalIp = sites[0]?.primaryGateway || agents[0]?.ipAddress || '127.0.0.1';
-    const totalZonesCount = sites.reduce((acc, s) => acc + (s.zones?.length || 0), 0);
+    const chainLabel =
+      enterpriseData.chainVerificationState === 'CHAIN_VERIFIED' && enterpriseData.chainVerified === true
+        ? '✔ SHA-256 Chain Intact'
+        : enterpriseData.chainVerificationState === 'CHAIN_DISCREPANCY_DETECTED' || enterpriseData.chainVerified === false
+          ? '⚠ Chain Discrepancy Detected'
+          : enterpriseData.chainVerificationState === 'AUDIT_ENDPOINT_UNAVAILABLE'
+            ? '○ Audit Endpoint Unavailable (Unverified)'
+            : '⋯ Audit Verification Pending';
+    const chainColor =
+      enterpriseData.chainVerificationState === 'CHAIN_VERIFIED' && enterpriseData.chainVerified === true
+        ? '#10b981'
+        : enterpriseData.chainVerificationState === 'CHAIN_DISCREPANCY_DETECTED' || enterpriseData.chainVerified === false
+          ? '#ef4444'
+          : '#f59e0b';
 
     container.innerHTML = `
       <!-- Tier 1: Quiet Luxury Executive Header & Action Bar -->
@@ -159,7 +716,7 @@
             <h1 style="font-size: 19px; font-weight: 600; letter-spacing: -0.02em; margin: 0; color: #f8fafc;">Enterprise NOC Command Center</h1>
             <span style="background: rgba(30, 58, 138, 0.45); color: #93c5fd; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);">${escHtml(status.deploymentMode)} MODE</span>
             <span style="background: rgba(6, 78, 59, 0.45); color: #6ee7b7; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.35);">GOVERNANCE: ${escHtml(status.governanceMode)}</span>
-            <span style="background: rgba(15, 23, 42, 0.9); color: #38bdf8; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);">ZERO-SIMULATION LIVE TELEMETRY</span>
+            <span style="background: rgba(15, 23, 42, 0.9); color: #38bdf8; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);">STATE: ${escHtml(enterpriseData.lifecycleState.overallState)}</span>
           </div>
           <p style="margin: 0; font-size: 13px; color: #94a3b8; max-width: 72ch; line-height: 1.5;">
             Live OS kernel &amp; network interface observability, genuine upstream egress telemetry, 6-domain Bayesian arbitration, and tamper-evident SHA-256 governance.
@@ -182,27 +739,39 @@
       </div>
 
       <!-- Tier 1: Minimalist 4-Metric Operational Pulse Strip -->
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 8px; padding: 16px 18px;">
-          <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Live Runtime Sites &amp; Subnets</div>
-          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${status.fleetSummary?.healthySites ?? sites.length} / ${status.fleetSummary?.totalSites ?? sites.length}</div>
-          <div style="font-size: 12px; color: #10b981; margin-top: 4px;">● ${totalZonesCount} Active OS Interface Zone${totalZonesCount === 1 ? '' : 's'}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <span style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Live Runtime Sites &amp; Subnets</span>
+            ${renderFreshnessBadgeHtml('sites')}
+          </div>
+          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${status.fleetSummary?.healthySites !== null && status.fleetSummary?.healthySites !== undefined ? `${status.fleetSummary.healthySites} / ${status.fleetSummary?.totalSites ?? sites.length}` : `UNVERIFIED (${sites.length})`}</div>
+          <div style="font-size: 12px; color: ${hasObservedStatus ? '#10b981' : '#f59e0b'}; margin-top: 4px;">● ${totalZonesCount} Active OS Interface Zone${totalZonesCount === 1 ? '' : 's'} (${escHtml(enterpriseData.lifecycleState.sitesEndpointState)})</div>
         </div>
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 8px; padding: 16px 18px;">
-          <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Upstream &amp; DNS Egress Links</div>
-          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${status.fleetSummary?.optimalWanLinks ?? wanLinks.length} / ${status.fleetSummary?.totalWanLinks ?? wanLinks.length}</div>
-          <div style="font-size: 12px; color: #10b981; margin-top: 4px;">● Kernel Default Route &amp; DNS Active</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <span style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Upstream &amp; DNS Egress Links</span>
+            ${renderFreshnessBadgeHtml('status')}
+          </div>
+          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${status.fleetSummary?.optimalWanLinks !== null && status.fleetSummary?.optimalWanLinks !== undefined ? `${status.fleetSummary.optimalWanLinks} / ${status.fleetSummary?.totalWanLinks ?? wanLinks.length}` : `UNVERIFIED (${wanLinks.length})`}</div>
+          <div style="font-size: 12px; color: ${hasObservedStatus ? '#10b981' : '#f59e0b'}; margin-top: 4px;">● Kernel Default Route &amp; DNS (${escHtml(enterpriseData.lifecycleState.statusEndpointState)})</div>
         </div>
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 8px; padding: 16px 18px;">
-          <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Active Telemetry Daemons</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <span style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Active Telemetry Daemons</span>
+            ${renderFreshnessBadgeHtml('agents')}
+          </div>
           <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${agents.length} Online</div>
-          <div style="font-size: 12px; color: #38bdf8; margin-top: 4px;">Local Host Daemon + Enrolled Agents</div>
+          <div style="font-size: 12px; color: #38bdf8; margin-top: 4px;">Local Host Daemon + Enrolled Agents (${escHtml(enterpriseData.lifecycleState.agentsEndpointState)})</div>
         </div>
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 8px; padding: 16px 18px;">
-          <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Storage &amp; Audit Ledger</div>
-          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${escHtml(status.storage?.sizeFormatted || '0.16 MB')}</div>
-          <div style="font-size: 12px; color: ${enterpriseData.chainVerified ? '#10b981' : '#ef4444'}; margin-top: 4px;">
-            ${enterpriseData.chainVerified ? '✔ SHA-256 Chain Intact' : '⚠ Chain Discrepancy'}
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <span style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Storage &amp; Audit Ledger</span>
+            ${renderFreshnessBadgeHtml('audit')}
+          </div>
+          <div style="font-size: 24px; font-weight: 700; color: #f8fafc; margin-top: 6px; font-family: var(--font-mono, monospace);">${escHtml(status.storage?.sizeFormatted || 'TELEMETRY_UNAVAILABLE')}</div>
+          <div style="font-size: 12px; color: ${chainColor}; margin-top: 4px;">
+            ${escHtml(chainLabel)}
           </div>
         </div>
       </div>
@@ -370,10 +939,12 @@
               <option value="CONTROLLED_CANARY" ${status.governanceMode === 'CONTROLLED_CANARY' ? 'selected' : ''}>CONTROLLED_CANARY (Single Node + Damped Lyapunov)</option>
               <option value="RESTRICTED_AUTONOMOUS" ${status.governanceMode === 'RESTRICTED_AUTONOMOUS' ? 'selected' : ''}>RESTRICTED_AUTONOMOUS (Low-Risk Idempotent Only)</option>
             </select>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+            <div style="font-size: 12px; color: #94a3b8;">Recent Audit Blocks (Tamper-Evident SHA-256 Chain):</div>
+            <div style="font-size: 10px; color: #64748b;">${escHtml(auditPartition.overflowSummaryText)}</div>
           </div>
-          <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">Recent Audit Blocks (Tamper-Evident SHA-256 Chain):</div>
           <div style="background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 6px; padding: 10px 12px; max-height: 180px; overflow-y: auto; font-family: var(--font-mono, monospace); font-size: 11px;">
-            ${(enterpriseData.auditLogs || []).slice(0, 6).map(log => `
+            ${auditPartition.renderedRows.map(log => `
               <div style="border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding: 5px 0;">
                 <span style="color: #38bdf8; font-weight: 600;">[${escHtml(log.action_type || log.actionType || 'AUDIT_EVENT')}]</span>
                 <span style="color: #e2e8f0;">${escHtml(log.target || 'system')}</span> by <span style="color: #93c5fd;">${escHtml(log.user_id || log.userId || 'operator')}</span>
@@ -474,7 +1045,7 @@
                     </span>
                   </div>
                   <div style="color: #94a3b8; font-size: 10.5px; font-family: var(--font-mono, monospace);">
-                    Util ρ=${escHtml(p.utilizationPct)}% · Queueing Φ(ρ)=${escHtml(p.mm1QueueingAmplification)} · Time-to-SLA: <strong style="color:#e2e8f0;">${p.timeToSlaBreachMinutes !== null ? escHtml(p.timeToSlaBreachMinutes) + ' min' : 'Stable (>60m)'}</strong>
+                    Util ρ=${escHtml(p.utilizationPct)}% · M/M/1 Φ(ρ)=${escHtml(p.mm1QueueingAmplification)} · M/G/1 Φ=${escHtml(p.mg1PollaczekKhinchineFactor ?? p.mm1QueueingAmplification)} (I_D=${escHtml(p.indexOfDispersion ?? '0.40')}) · Time-to-SLA: <strong style="color:#e2e8f0;">${p.timeToSlaBreachMinutes !== null ? escHtml(p.timeToSlaBreachMinutes) + ' min' : 'Stable (>60m)'}</strong>
                   </div>
                   <div style="color: #10b981; font-size: 10.5px; margin-top: 3px;">Action: ${escHtml(p.preventativeAction)}</div>
                 </div>
@@ -492,11 +1063,14 @@
                 Origin: ${escHtml(enterpriseData.timeline?.patientZero?.target || '127.0.0.1')} (${escHtml(enterpriseData.timeline?.patientZero?.causalRole || 'BASELINE_CHECKPOINT')})
               </span>
             </div>
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.45;">
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; line-height: 1.45;">
               ${escHtml(enterpriseData.timeline?.narrativeSummary || 'Chronological event correlation across live host baselines, socket states, and packet streams.')}
             </div>
+            <div style="font-size: 10px; color: #64748b; margin-bottom: 8px;">
+              ${escHtml(timelinePartition.overflowSummaryText)}
+            </div>
             <div style="max-height: 165px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; font-family: var(--font-mono, monospace); font-size: 10.5px;">
-              ${((enterpriseData.timeline && enterpriseData.timeline.timelineEvents) || []).map(ev => {
+              ${timelinePartition.renderedRows.map(ev => {
                 const evTime = (ev.timestamp || '').slice(11, 19) || ev.timestamp || 'NOW';
                 const evDetail = ev.detail || ev.summary || 'Nominal telemetry checkpoint verified.';
                 const borderCol = ev.causalRole === 'PATIENT_ZERO_ORIGIN' ? '#f59e0b' : '#38bdf8';
@@ -515,8 +1089,8 @@
           <!-- Section 4: Composable Superpowers Skills Library (.agents/skills & agent/skills integration) -->
           <div id="nocSuperpowersPanel" style="background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 8px; padding: 16px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 6px;">
-              <strong style="font-size: 13px; color: #f8fafc;">4. Composable Superpowers Skills Engine (${(enterpriseData.superpowersSkills || []).length || 8} Active)</strong>
-              <span style="font-size: 10px; color: #6ee7b7; background: rgba(6, 78, 59, 0.6); border: 1px solid rgba(5, 150, 105, 0.5); padding: 2px 7px; border-radius: 4px; font-weight: 700;">BOUND TO .agents/skills &amp; agent/skills</span>
+              <strong style="font-size: 13px; color: #f8fafc;">4. Composable Superpowers Skills Engine (${(enterpriseData.superpowersSkills || []).length || 8} Core / ${escHtml(status.skillsSummary?.topLevelPackagesCount || 85)} Primary + ${escHtml(status.skillsSummary?.nestedGstackWorkflowsCount || 74)} Nested GStack = ${escHtml(status.skillsSummary?.totalManifestsCount || 159)} Manifests)</strong>
+              <span style="font-size: 10px; color: #6ee7b7; background: rgba(6, 78, 59, 0.6); border: 1px solid rgba(5, 150, 105, 0.5); padding: 2px 7px; border-radius: 4px; font-weight: 700;">159-MANIFEST ECOSYSTEM [IMMUTABLE READ-ONLY]</span>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 7px; max-height: 195px; overflow-y: auto;">
               ${(enterpriseData.superpowersSkills || []).map(sk => {
@@ -535,6 +1109,12 @@
                 `;
               }).join('')}
             </div>
+            ${enterpriseData.arbitration?.doubtDrivenAudit ? `
+              <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.14); font-size: 10.5px; color: #cbd5e1; font-family: var(--font-mono, monospace);">
+                <span style="color:#6ee7b7; font-weight:700;">[DOUBT-DRIVEN 4-CONTRACT AUDIT]</span> ${escHtml(enterpriseData.arbitration.doubtDrivenAudit.claim)} · ${escHtml(enterpriseData.arbitration.doubtDrivenAudit.contract)}
+                ${enterpriseData.crossEngineEpistemicFusion ? ` · <span style="color:#38bdf8;">Stage-2 Consensus: ${escHtml(enterpriseData.crossEngineEpistemicFusion.crossEngineConsensusScore)}%</span>` : ''}
+              </div>
+            ` : ''}
           </div>
         </div>
 
@@ -717,6 +1297,7 @@
   };
 
   window.runNocUnifiedSynthesis = async function() {
+    const mySynSeq = ++_nocSynthesisSeqId;
     const target = (document.getElementById('nocSynthesisTarget')?.value || '127.0.0.1').trim();
     const port = Number(document.getElementById('nocSynthesisPort')?.value || 3000);
     const btn = document.getElementById('btnRunUnifiedSynthesis');
@@ -731,10 +1312,12 @@
           executeClosedLoop: true
         })
       });
+      if (mySynSeq !== _nocSynthesisSeqId) return;
       if (res && res.success) {
         enterpriseData.arbitration = res.hypothesisArbitration;
         enterpriseData.horizon = res.predictiveHorizon;
         enterpriseData.timeline = res.timelineReconstruction;
+        enterpriseData.crossEngineEpistemicFusion = res.crossEngineEpistemicFusion || null;
         if (Array.isArray(res.superpowersSkills)) {
           enterpriseData.superpowersSkills = res.superpowersSkills;
         }
@@ -1029,9 +1612,128 @@
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Phase Atlas IX (Cycle 6): Bounded NOC Table Rendering & High-Frequency Update Coalescing
+   * Prevents main-thread layout thrashing during large telemetry bursts by capping rendered DOM rows
+   * while surfacing an explicit overflow count summary, and coalescing rapid WebSocket state updates
+   * into a single scheduled render pass.
+   */
+  function partitionBoundedNocTableRows(rows, options = {}) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const maxRenderedRows = Math.max(
+      1,
+      Math.min(500, Number(options.maxRenderedRows ?? options.limit ?? 100))
+    );
+    const totalRowsCount = safeRows.length;
+    const renderedRows = safeRows.slice(0, maxRenderedRows);
+    const overflowRowsCount = Math.max(0, totalRowsCount - renderedRows.length);
+    const isTruncatedForRenderPerformance = overflowRowsCount > 0;
+    return {
+      renderedRows,
+      renderedRowsCount: renderedRows.length,
+      totalRowsCount,
+      maxRenderedRows,
+      overflowRowsCount,
+      isTruncatedForRenderPerformance,
+      overflowSummaryText: isTruncatedForRenderPerformance
+        ? `Showing top ${renderedRows.length} of ${totalRowsCount} records (${overflowRowsCount} additional records bounded to preserve 60fps NOC responsiveness).`
+        : `Showing all ${totalRowsCount} record(s).`
+    };
+  }
+
+  function createCoalescedNocRenderScheduler(renderFn, options = {}) {
+    const coalesceWindowMs = Math.max(4, Number(options.coalesceWindowMs ?? 16));
+    let timerId = null;
+    let pendingPayloads = [];
+    const metrics = {
+      scheduledCallsCount: 0,
+      executedRendersCount: 0,
+      coalescedSkippedRendersCount: 0,
+      lastBatchSize: 0
+    };
+
+    const flush = () => {
+      timerId = null;
+      if (pendingPayloads.length === 0) return;
+      const batch = pendingPayloads;
+      pendingPayloads = [];
+      metrics.executedRendersCount += 1;
+      metrics.lastBatchSize = batch.length;
+      if (typeof renderFn === 'function') {
+        renderFn(batch[batch.length - 1], batch);
+      }
+    };
+
+    return {
+      schedule(payload = null) {
+        metrics.scheduledCallsCount += 1;
+        pendingPayloads.push(payload);
+        if (timerId !== null) {
+          metrics.coalescedSkippedRendersCount += 1;
+          return { scheduled: false, coalescedIntoPendingPass: true, pendingBatchSize: pendingPayloads.length };
+        }
+        timerId = setTimeout(flush, coalesceWindowMs);
+        if (timerId && typeof timerId.unref === 'function') {
+          timerId.unref();
+        }
+        return { scheduled: true, coalescedIntoPendingPass: false, pendingBatchSize: pendingPayloads.length };
+      },
+      flushNow() {
+        if (timerId !== null) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+        flush();
+        return this.getMetrics();
+      },
+      getMetrics() {
+        return {
+          ...metrics,
+          pendingBatchSize: pendingPayloads.length,
+          coalesceWindowMs
+        };
+      }
+    };
+  }
+
+  const defaultCoalescedScheduler = createCoalescedNocRenderScheduler(() => {
+    renderEnterpriseNocView();
+  }, { coalesceWindowMs: 16 });
+
+  window.getEnterpriseNocLifecycleState = function() {
+    return enterpriseData.lifecycleState;
+  };
+  window.evaluateEnterpriseNocEndpointFreshness = evaluateEndpointFreshness;
+  window.validateEnterpriseNocEndpointSchema = validateEndpointResponseSchema;
+  window.partitionBoundedNocTableRows = partitionBoundedNocTableRows;
+  window.createCoalescedNocRenderScheduler = createCoalescedNocRenderScheduler;
+  window.scheduleCoalescedEnterpriseNocRender = function(payload) {
+    return defaultCoalescedScheduler.schedule(payload);
+  };
+  window.configureEnterpriseNocFreshnessThresholds = function(customThresholds = {}) {
+    enterpriseData.freshnessThresholds = {
+      ...enterpriseData.freshnessThresholds,
+      ...customThresholds
+    };
+    return enterpriseData.freshnessThresholds;
+  };
+  window.EJIIEnterpriseNocData = enterpriseData;
+
   window.renderEnterpriseNocView = async function() {
     await loadEnterpriseData();
     renderEnterpriseNocView();
   };
 
-})(window);
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      evaluateEnterpriseNocEndpointFreshness: evaluateEndpointFreshness,
+      validateEnterpriseNocEndpointSchema: validateEndpointResponseSchema,
+      partitionBoundedNocTableRows,
+      createCoalescedNocRenderScheduler,
+      configureEnterpriseNocFreshnessThresholds: window.configureEnterpriseNocFreshnessThresholds,
+      EJIIEnterpriseNocData: enterpriseData
+    };
+  }
+
+})(typeof window !== 'undefined' ? window : globalThis);
+

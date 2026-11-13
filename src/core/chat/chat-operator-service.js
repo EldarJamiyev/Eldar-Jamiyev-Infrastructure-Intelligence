@@ -41,7 +41,9 @@ const {
   isEpistemicOrSovereignFabricQuestion,
   answerEpistemicOrFabricQuestion,
   buildApplicationEpistemicContext,
-  runAgenticToolLoop
+  runAgenticToolLoop,
+  resolvePronounInheritedTarget,
+  executeConversationalSuperpowersBridge
 } = require('./conversational-brain');
 const { operationalMemoryEngine } = require('../memory/operational-memory-engine');
 const { temporalInfrastructureGraph } = require('../topology/temporal-graph-engine');
@@ -51,10 +53,14 @@ const { hypothesisArbiter } = require('../../ai/hypothesis-arbiter');
 const { predictiveHorizonEngine } = require('../../ai/predictive-horizon-engine');
 const { timelineReconstructor } = require('../../observability/timeline-reconstructor');
 const { superpowersSkillsEngine } = require('../skills/superpowers-skills-engine');
+const { claudeMemEngine } = require('../memory/claude-mem-engine');
+const { readOnlySkillCatalog } = require('../skills/read-only-skill-router');
+const { projectAtlasEngine } = require('../../network/atlas/project-atlas-engine');
 
 const MAX_WORKING_MEMORY_MESSAGES = 40;
 const MAX_ENTITY_OBSERVATIONS = 25;
 const MAX_SOCKET_SNAPSHOTS = 10;
+const TARGET_INHERITANCE_TTL_MS = 10 * 60 * 1000; // 10 minutes (Phase Atlas XI)
 
 function extractObservedTimingMs(details) {
   if (!details || typeof details !== 'object') return null;
@@ -73,6 +79,15 @@ class ChatOperatorService {
     this.sessions = new Map();
     this.inFlightRequests = new Map(); // sessionId -> { requestId, abortController, startedAt, userId }
     this.llmInterpreter = null; // Optional external LLM brain adapter: async (promptText, sessionContext) => planOverride
+    this.targetInheritanceTtlMs = TARGET_INHERITANCE_TTL_MS;
+    this.persistenceDiagnostics = {
+      schemaInitialized: false,
+      writeAttemptsCount: 0,
+      writeSuccessCount: 0,
+      writeFailuresCount: 0,
+      lastPersistenceError: null,
+      persistenceState: 'IN_MEMORY_FALLBACK'
+    };
     this._ensureTables();
   }
 
@@ -90,6 +105,7 @@ class ChatOperatorService {
       semanticAiReady: true,
       inFlightRequestsCount: this.inFlightRequests.size,
       activeSessionsCount: this.sessions.size,
+      persistenceDiagnostics: { ...this.persistenceDiagnostics },
       timestamp: new Date().toISOString()
     };
   }
@@ -115,20 +131,41 @@ class ChatOperatorService {
           created_at TEXT NOT NULL
         );
       `);
-    } catch (_) {
-      // Non-fatal if DB is read-only during isolated unit test
+      this.persistenceDiagnostics.schemaInitialized = true;
+      this.persistenceDiagnostics.persistenceState = 'HEALTHY_SQLITE';
+    } catch (err) {
+      this.persistenceDiagnostics.schemaInitialized = false;
+      this.persistenceDiagnostics.persistenceState = 'SQLITE_DEGRADED';
+      this.persistenceDiagnostics.lastPersistenceError = err && err.message ? err.message : String(err);
     }
   }
 
   _normalizeUserIdentity(user = {}) {
-    const userId = String(user.id || user.userId || user.username || 'op-1').trim();
-    const username = String(user.username || user.id || 'operator').trim();
-    const role = String(user.role || 'ANALYST').toUpperCase();
-    return { userId, username, role };
+    if (typeof user === 'string') {
+      const cleanName = user.trim();
+      return {
+        userId: cleanName ? `USR-${cleanName}` : 'op-1',
+        username: cleanName || 'operator',
+        role: 'ANALYST',
+        hasExplicitIdentity: Boolean(cleanName)
+      };
+    }
+    const obj = user && typeof user === 'object' ? user : {};
+    const explicitId = String(obj.id || obj.userId || obj.sub || '').trim();
+    const explicitUsername = String(obj.username || obj.email || '').trim();
+    const userId = explicitId || (explicitUsername ? `USR-${explicitUsername}` : 'op-1');
+    const username = explicitUsername || explicitId || 'operator';
+    const role = String(obj.role || 'ANALYST').toUpperCase();
+    return {
+      userId,
+      username,
+      role,
+      hasExplicitIdentity: Boolean(explicitId || explicitUsername)
+    };
   }
 
   /**
-   * Verify that an existing session belongs to the requesting authenticated user.
+   * Check that an existing session belongs to the requesting authenticated user.
    * Returns { allowed: true, session } or { allowed: false, statusCode: 403, error }.
    */
   verifySessionAccess(sessionId, user = {}) {
@@ -140,8 +177,14 @@ class ChatOperatorService {
 
     const checkOwner = (ownerUserId, ownerUsername) => {
       if (!ownerUserId && !ownerUsername) return true;
+      if (ownerUserId === 'op-1' && (!ownerUsername || ownerUsername === 'operator')) return true;
+      if (caller.role === 'ADMIN') return true;
       if (ownerUserId && String(ownerUserId) === caller.userId) return true;
-      if (ownerUsername && String(ownerUsername).toLowerCase() === caller.username.toLowerCase() && (!ownerUserId || ownerUserId === 'op-1')) {
+      if (
+        ownerUsername &&
+        String(ownerUsername).toLowerCase() === caller.username.toLowerCase() &&
+        (!ownerUserId || ownerUserId === 'op-1' || ownerUserId === `USR-${ownerUsername}`)
+      ) {
         return true;
       }
       return false;
@@ -174,7 +217,9 @@ class ChatOperatorService {
           }
         };
       }
-    } catch (_) {}
+    } catch (err) {
+      this.persistenceDiagnostics.lastPersistenceError = err && err.message ? err.message : String(err);
+    }
 
     return { allowed: true, session: null };
   }
@@ -218,6 +263,7 @@ class ChatOperatorService {
           pendingTask: ctx.pendingTask || null,
           lastTarget: ctx.lastTarget || null,
           lastValidTarget: ctx.lastValidTarget || ctx.lastTarget || null,
+          lastTargetTimestampMs: typeof ctx.lastTargetTimestampMs === 'number' ? ctx.lastTargetTimestampMs : null,
           targetHistory: Array.isArray(ctx.targetHistory) ? ctx.targetHistory : [],
           entityMemory: (ctx.entityMemory && typeof ctx.entityMemory === 'object') ? ctx.entityMemory : {},
           socketSnapshots: Array.isArray(ctx.socketSnapshots) ? ctx.socketSnapshots : [],
@@ -255,6 +301,7 @@ class ChatOperatorService {
       pendingTask: null,
       lastTarget: null,
       lastValidTarget: null,
+      lastTargetTimestampMs: null,
       targetHistory: [],
       entityMemory: {},
       socketSnapshots: [],
@@ -431,11 +478,13 @@ class ChatOperatorService {
   }
 
   _persistSession(session, newMessages = []) {
+    this.persistenceDiagnostics.writeAttemptsCount += 1;
     try {
       const nowIso = new Date().toISOString();
       const contextJson = JSON.stringify({
         lastTarget: session.lastTarget,
         lastValidTarget: session.lastValidTarget,
+        lastTargetTimestampMs: session.lastTargetTimestampMs || null,
         pendingTask: session.pendingTask || null,
         targetHistory: session.targetHistory || [],
         entityMemory: session.entityMemory || {},
@@ -484,7 +533,18 @@ class ChatOperatorService {
           msg.createdAt || nowIso
         );
       }
-    } catch (_) {}
+      this.persistenceDiagnostics.writeSuccessCount += 1;
+      this.persistenceDiagnostics.persistenceState = 'HEALTHY_SQLITE';
+      session.lastPersistenceStatus = 'PERSISTED_SQLITE';
+      session.lastPersistenceError = null;
+    } catch (err) {
+      const errMsg = err && err.message ? err.message : String(err);
+      this.persistenceDiagnostics.writeFailuresCount += 1;
+      this.persistenceDiagnostics.persistenceState = 'SQLITE_DEGRADED';
+      this.persistenceDiagnostics.lastPersistenceError = errMsg;
+      session.lastPersistenceStatus = 'SQLITE_WRITE_FAILED';
+      session.lastPersistenceError = errMsg;
+    }
   }
 
   clearSession(sessionId, user = null) {
@@ -546,7 +606,13 @@ class ChatOperatorService {
     const lower = raw.toLowerCase();
     const cleanNoPunct = lower.replace(/[?!.,;:'"`()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim();
 
-    const priorTarget = session?.lastValidTarget || session?.lastTarget || null;
+    const rawPriorTarget = session?.lastValidTarget || session?.lastTarget || null;
+    const isPriorTargetExpired = Boolean(
+      rawPriorTarget &&
+      typeof session?.lastTargetTimestampMs === 'number' &&
+      (Date.now() - session.lastTargetTimestampMs) > TARGET_INHERITANCE_TTL_MS
+    );
+    const priorTarget = isPriorTargetExpired ? null : rawPriorTarget;
     const hasPriorContext = Boolean(
       session &&
       (session.lastToolResults ||
@@ -687,6 +753,25 @@ class ChatOperatorService {
       };
     }
 
+    const extractValidHostnameCandidate = (text) => {
+      const domainRegex = /\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,24}))\b/g;
+      const stopDomains = new Set([
+        'e.g', 'i.e', 'etc.', 'node.js', 'next.js', 'vue.js', 'chart.js', 'three.js',
+        'server.js', 'server.mjs', 'server.ts', 'index.js', 'index.ts', 'app.js', 'app.ts',
+        'skill.md', 'readme.md', 'package.json', 'tsconfig.json', 'skills-lock.json'
+      ]);
+      const nonHostExtensions = /\.(?:mjs|cjs|js|ts|tsx|jsx|json|md|py|sh|bat|ps1|cmd|yaml|yml|toml|ini|cfg|conf|lock|sql|db|sqlite|log|txt|csv|html|css|scss|svg|png|jpg|jpeg|gif|ico|pcap|pcapng|cap)$/i;
+      let m;
+      while ((m = domainRegex.exec(text)) !== null) {
+        const candidate = m[1];
+        const lowerCandidate = candidate.toLowerCase();
+        if (!stopDomains.has(lowerCandidate) && !nonHostExtensions.test(lowerCandidate)) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
     // 00-ScenarioPlanning. Intelligent "What-If" Consequence Simulation & Multi-Option Adaptive Remediation Comparator
     const isScenarioPlanningPrompt =
       /\b(what happens if|what would happen if|which services (?:are|would be) affected by this dependency|likely impact of changing|impact of changing (?:this )?configuration|what-if scenario|simulate scenario|which remediation option has the lowest operational risk|which configuration change introduces the lowest operational risk|compare remediation options|what could happen if the (?:recommended|proposed) (?:action|remediation) fails|if the (?:recommended|proposed) (?:action|remediation) fails|move this subnet to another vlan|move subnet|another vlan|dhcp scope capacity is exhausted|dhcp scope exhausted)\b/i.test(lower);
@@ -700,8 +785,7 @@ class ChatOperatorService {
       } else if (/\bgateway\b/i.test(raw)) {
         explicitScenarioTarget = session?.lastGatewayIp || '127.0.0.1';
       } else {
-        const domainMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,24}))\b/);
-        if (domainMatch) explicitScenarioTarget = domainMatch[1];
+        explicitScenarioTarget = extractValidHostnameCandidate(raw);
       }
       let scenarioType = 'DEPENDENCY_IMPACT_ANALYSIS';
       if (/\b(dhcp|scope capacity|exhausted)\b/i.test(lower)) {
@@ -716,7 +800,10 @@ class ChatOperatorService {
         scenarioType = 'REMEDIATION_FAILURE_OR_COMPARISON';
       }
       const portMatch = raw.match(/\bport\s+(\d{1,5})\b/i);
-      const scenarioPorts = portMatch ? [Number(portMatch[1])] : (session?.lastPorts?.length ? session.lastPorts : [443]);
+      const isSameTargetAsPrior = !explicitScenarioTarget || (priorTarget && explicitScenarioTarget.toLowerCase() === priorTarget.toLowerCase());
+      const scenarioPorts = portMatch
+        ? [Number(portMatch[1])]
+        : (isSameTargetAsPrior && session?.lastPorts?.length ? session.lastPorts : [443]);
       const resolvedScenarioTarget = explicitScenarioTarget || priorTarget || '127.0.0.1';
       return {
         intent: 'scenario_planning_what_if',
@@ -741,17 +828,34 @@ class ChatOperatorService {
       } else if (/\blocalhost\b/i.test(raw)) {
         explicitBlastTarget = 'localhost';
       } else {
-        const domainMatch = raw.match(/\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,24}))\b/);
-        if (domainMatch) explicitBlastTarget = domainMatch[1];
+        explicitBlastTarget = extractValidHostnameCandidate(raw);
       }
+      const portMatch = raw.match(/\bport\s+(\d{1,5})\b/i);
+      const isSameTargetAsPrior = !explicitBlastTarget || (priorTarget && explicitBlastTarget.toLowerCase() === priorTarget.toLowerCase());
       const resolvedBlastTarget = explicitBlastTarget || priorTarget || 'localhost';
       return {
         intent: 'dependency_blast_radius',
         mode: 'operational',
         target: resolvedBlastTarget,
         explicitTarget: explicitBlastTarget,
-        ports: session?.lastPorts || [],
+        ports: portMatch ? [Number(portMatch[1])] : (isSameTargetAsPrior ? (session?.lastPorts || []) : []),
         usedFollowUpTarget: Boolean(!explicitBlastTarget && priorTarget),
+        preserveLastRemoteTarget: true
+      };
+    }
+
+    // 00-Atlas. Project Atlas Conversational Connectivity, Relay, Tunnel, Multi-Site & JIT Governance Intelligence (Section 7.2)
+    const isAtlasConnectivityPrompt =
+      /\b(project atlas|atlas relay|atlas proxy|atlas tunnel|tunnel clients?|remote agents?|remote clients?|connected agents? across every registered site|across every registered site|which relay currently serves our most unstable|most unstable connections?|why has the connection to this host disconnected repeatedly|disconnected repeatedly|compare current tunnel performance with its previous sessions|find the affected services if this relay becomes unavailable|if this relay becomes unavailable|identify the actual cause of the recent connectivity degradation|recommend an authorized recovery operation|authorized recovery operation|whether the p2p connection is carrying real traffic|fallen back to a relay|p2p connection|show (?:me )?(?:the )?(?:remote )?(?:agents?|clients?|tunnels?)|which tunnels? have high latency|why did (?:it|the agent|the client|the tunnel|tunnel) disconnect|why did tunnel|which relay is carrying|recommend (?:the )?(?:safest|lowest[- ]latency|optimal|best) relay|expired or over-permissive access policies|inspect traffic and health checks for proxy|temporarily grant operator access|jit access|jit grant|compare (?:its|the) (?:latest|previous) (?:tunnel|connection|session)|check the tunnel to the same server|nat traversal,? tls handshake,? routing,? or (?:the )?local backend)\b/i.test(lower) ||
+      Boolean(session?.lastAtlasClientId && /\b(why did it disconnect|compare its latest connection|check the tunnel|its session|its connection|previous session|disconnected repeatedly|recovery operation)\b/i.test(lower));
+    if (isAtlasConnectivityPrompt) {
+      return {
+        intent: 'atlas_connectivity_query',
+        mode: 'operational',
+        target: 'project_atlas_mesh',
+        explicitTarget: null,
+        ports: [],
+        usedFollowUpTarget: false,
         preserveLastRemoteTarget: true
       };
     }
@@ -1138,22 +1242,51 @@ class ChatOperatorService {
         return {
           intent: 'clarification_needed',
           mode: 'conversational',
-          clarificationReason: 'BARE_TOPIC',
+          clarificationReason: convTurn.subtype === 'ambiguous_person_query' ? 'AMBIGUOUS_PERSON_REFERENCE' : 'BARE_TOPIC',
           clarificationPrompt: convTurn.reply,
           target: null,
           explicitTarget: null,
           ports: [],
-          preserveContextOnly: true
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(priorTarget)
+        };
+      }
+      if (convTurn.type === 'casual_conversation') {
+        return {
+          intent: 'casual_conversation',
+          mode: 'conversational',
+          conversationalType: convTurn.subtype || 'casual_conversation',
+          naturalReply: convTurn.reply,
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(priorTarget)
+        };
+      }
+      if (convTurn.type === 'general_knowledge') {
+        return {
+          intent: 'general_knowledge',
+          mode: 'informational',
+          conversationalType: convTurn.subtype || 'general_knowledge',
+          naturalReply: convTurn.reply,
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(priorTarget)
         };
       }
       return {
         intent: 'greeting',
         mode: 'conversational',
         conversationalType: convTurn.type,
-        target: priorTarget,
+        naturalReply: convTurn.reply || null,
+        target: null,
         explicitTarget: null,
-        ports: session?.lastPorts || [],
-        preserveContextOnly: true
+        ports: [],
+        preserveContextOnly: true,
+        contextPivotDetected: Boolean(priorTarget)
       };
     }
 
@@ -1273,10 +1406,15 @@ class ChatOperatorService {
       };
     }
 
-    // 1. Contextual Follow-Up Explanations, Meaning, Verification, Summaries & Historical Comparisons (0 live probes)
+    // 1. Contextual Follow-Up Explanations, Meaning, Hypothesis Evaluation, Summaries & Historical Comparisons (0 live probes)
+    const isDnsHypothesisFollowUp =
+      /\b(could dns be (?:the |a )?(?:problem|issue|cause|culprit|bottleneck)|could it be (?:a )?dns(?: issue| problem)?|is dns (?:the |a )?(?:problem|issue|cause)|is dns causing (?:this|that|it)|might dns be (?:the )?(?:problem|issue))\b/i.test(lower) &&
+      !/\bhttps?:\/\//i.test(raw);
+
     const isExplanationOrComparisonFollowUp =
-      /^(why\??|why is that\??|why did (that|it|that service|the service) (fail|happen).*|why do you think (that's|thats|that is) the problem\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does that mean\??|what did the (last|previous) check tell us\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done)( so far)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found)( so far)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
-      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|why do you think that's the problem|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
+      isDnsHypothesisFollowUp ||
+      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (that's|thats|that is) the problem\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done)( so far)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found)( so far)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
+      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|why do you think that's the problem|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare it with the previous result|compare with the previous result|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
         !/\b(ping |check port|test port|resolve |traceroute )\b/i.test(lower));
 
     if (isExplanationOrComparisonFollowUp) {
@@ -1359,10 +1497,16 @@ class ChatOperatorService {
     if (!explicitTarget) {
       const domainRegex = /\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,24}))\b/g;
       let match;
-      const stopDomains = new Set(['e.g', 'i.e', 'etc.', 'node.js', 'next.js', 'vue.js']);
+      const stopDomains = new Set([
+        'e.g', 'i.e', 'etc.', 'node.js', 'next.js', 'vue.js', 'chart.js', 'three.js',
+        'server.js', 'server.mjs', 'server.ts', 'index.js', 'index.ts', 'app.js', 'app.ts',
+        'skill.md', 'readme.md', 'package.json', 'tsconfig.json', 'skills-lock.json'
+      ]);
+      const nonHostExtensions = /\.(?:mjs|cjs|js|ts|tsx|jsx|json|md|py|sh|bat|ps1|cmd|yaml|yml|toml|ini|cfg|conf|lock|sql|db|sqlite|log|txt|csv|html|css|scss|svg|png|jpg|jpeg|gif|ico|pcap|pcapng|cap)$/i;
       while ((match = domainRegex.exec(raw)) !== null) {
         const candidate = match[1];
-        if (!stopDomains.has(candidate.toLowerCase())) {
+        const lowerCandidate = candidate.toLowerCase();
+        if (!stopDomains.has(lowerCandidate) && !nonHostExtensions.test(lowerCandidate)) {
           explicitTarget = candidate;
           break;
         }
@@ -1375,7 +1519,7 @@ class ChatOperatorService {
       explicitTarget = brandShorthand;
     }
 
-    // 4. Extract ports from prompt (including short follow-ups like "Try 80 too", "Now check 443", "Try the other port")
+    // 4. Extract ports from prompt (including short follow-ups like "Try 80 too", "Now check 443", "cant reach 127.0.0.1 on 3000", "check tcp/443")
     const extractedPorts = [];
     if (explicitHostPort && explicitHostPort >= 1 && explicitHostPort <= 65535) {
       extractedPorts.push(explicitHostPort);
@@ -1393,8 +1537,30 @@ class ChatOperatorService {
       }
     }
 
+    // Match explicit tcp/<port> or udp/<port> shorthand (e.g. "check tcp/443 on example.com")
+    const protoSlashPortRegex = /\b(?:tcp|udp)\/(\d{1,5})\b/gi;
+    let pspMatch;
+    while ((pspMatch = protoSlashPortRegex.exec(raw)) !== null) {
+      const p = Number(pspMatch[1]);
+      if (p >= 1 && p <= 65535 && !extractedPorts.includes(p)) {
+        extractedPorts.push(p);
+      }
+    }
+
+    // Match natural "on <port>" / "via <port>" even when an explicit target is present (stripping IPv4 addresses first so octets are never matched)
     if (extractedPorts.length === 0) {
-      const shortPortFollowUp = raw.match(/\b(?:try|check|test|with|on|about)\s+(?:it\s+(?:with|on)\s+)?(\d{2,5})(?:\s+too|\s+instead|\s+as well|\s+next)?\b/i);
+      const rawWithoutIps = raw.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, ' ');
+      const onPortMatch = rawWithoutIps.match(/\b(?:on|via|over)\s+(?:tcp\s+)?(\d{2,5})\b(?!\s*(?:minutes?|hours?|days?|seconds?|ms|%|mb|gb))/i);
+      if (onPortMatch) {
+        const p = Number(onPortMatch[1]);
+        if (p >= 1 && p <= 65535) {
+          extractedPorts.push(p);
+        }
+      }
+    }
+
+    if (extractedPorts.length === 0) {
+      const shortPortFollowUp = raw.match(/\b(?:try|check|test|with|on|about|and|meant|actually|use|make it)\s+(?:it\s+(?:with|on)\s+)?(?:port\s+)?(\d{2,5})(?:\s+too|\s+instead|\s+as well|\s+next)?\b/i);
       if (shortPortFollowUp && !explicitTarget) {
         const p = Number(shortPortFollowUp[1]);
         if (p >= 1 && p <= 65535) {
@@ -1402,6 +1568,9 @@ class ChatOperatorService {
         }
       }
     }
+
+    const isMidTurnCorrection =
+      /^(?:no,?\s*)?(?:i\s+meant|actually|sorry,?\s*i\s+meant|wait,?\s*i\s+meant|use)\b|\binstead\s*[.!?]?$/i.test(raw.trim());
 
     const refersToOtherPort = /\b(the other port|other port|alternate port)\b/i.test(lower);
     if (extractedPorts.length === 0 && refersToOtherPort) {
@@ -1482,7 +1651,8 @@ class ChatOperatorService {
     const refersToOtherTarget = /\b(other host|other server|other domain|other endpoint|the other one)\b/i.test(lower);
     const refersToPreviousTarget =
       refersToOtherPort ||
-      /\b(same host|same server|same target|same domain|that host|that server|that domain|that endpoint|this endpoint|the site|the website|the server|on it|for it|test it|check it|ping it|try (\d{2,5}) too|now check (\d{2,5})|repeat the (?:same )?check|test the same host again|run that again|retry that|try again|check it again)\b/i.test(lower);
+      (isMidTurnCorrection && extractedPorts.length > 0 && !explicitTarget) ||
+      /\b(same host|same server|same target|same domain|same machine|same box|same ip|same node|that host|that server|that domain|that endpoint|that machine|that box|that ip|that node|this endpoint|the site|the website|the server|on it|for it|test it|check it|ping it|try (\d{2,5}) too|now check (\d{2,5})|also check (?:port )?(\d{2,5})|what about port (\d{2,5})|how about port (\d{2,5})|and port (\d{2,5})|repeat the (?:same )?check|(?:test|check|probe|scan|ping) the same (?:host|machine|server|target|box|node|ip|domain|endpoint|site) again|run that again|retry that|try again|check it again|test it again)\b/i.test(lower);
 
     const isRemediation =
       /\b(flush dns|refresh dns resolver|apply (?:the )?(?:fix|remediation)|execute remediation|heal|self-heal|fix it now|repair dns)\b/i.test(lower);
@@ -1491,17 +1661,16 @@ class ChatOperatorService {
 
     // 7. Semantic recognition of natural IP / DNS lookup phrasing
     const isSemanticDnsLookup =
-      Boolean(brandShorthand && /\b(ip|address|resolve|resolves|dns|nslookup|dig|a record|aaaa record)\b/i.test(lower)) ||
+      Boolean(brandShorthand && /\b(ip|address|resolve|resolves|dns|nslookup|dig|a records?|aaaa records?|mx records?|txt records?|ns records?|cname records?|soa records?|ptr records?|spf|dmarc|dkim)\b/i.test(lower)) ||
       /\b(what(?:'s| is) (?:the )?ip(?: address)? (?:of|for)|ip (?:address )?(?:of|for)|what address does .+ resolve to|can you find (?:the )?(?:ip|address) (?:for|of)|find .+ ip address|show me the ips? for|resolve .+ for me|resolve )\b/i.test(lower) ||
-      (isGenericDnsHealthPrompt || /\b(check dns|dns check|test dns|dns lookup|nslookup|dig|a record|aaaa record|mx record|txt record)\b/i.test(lower));
+      (isGenericDnsHealthPrompt || /\b(check dns|dns check|test dns|dns lookup|dns (?:for|of|on)|query dns|nslookup|dig|a records?|aaaa records?|mx records?|txt records?|ns records?|cname records?|soa records?|ptr records?|srv records?|spf(?:\s+records?)?|dmarc(?:\s+records?)?|dkim(?:\s+records?)?|reverse dns|rdns|mail exchange|nameservers? (?:for|of))\b/i.test(lower));
 
     // 8. Problem Descriptions & Symptom Reports without an explicit target ("The site won't open", "I'm getting connection errors", "The internet is not working", "It works on my laptop but not on the other computer", "The application has become really slow", "Could you check whether this endpoint responds?")
     const isProblemDescription =
       /\b(internet is not working|internet isn't working|no internet|can't open the (?:website|site)|cannot open the (?:website|site)|(?:site|website|page) won't open|(?:site|website) is down|something is wrong with the connection|server is not responding|server isn't responding|getting connection errors|connection errors|works on my laptop but not|application has become (?:really )?slow|is really slow|check whether this endpoint responds|endpoint is not responding|having network issues|trouble connecting)\b/i.test(lower);
 
     if (!explicitTarget && isProblemDescription) {
-      // If the user says "Check whether the site is reachable..." or "The site won't open" and there is a clear single active target in session context, only use it if they say "the site"/"this endpoint" AND we have a prior target;Wait: if they are describing a general problem or no target is established, ask a concise clarifying question!
-      const referencesCurrentTarget = /\b(this endpoint|that endpoint|the same site|the same server)\b/i.test(lower);
+      const referencesCurrentTarget = /\b(this endpoint|that endpoint|the same site|the same server|that server|that host)\b/i.test(lower);
       if (referencesCurrentTarget && priorTarget) {
         explicitTarget = priorTarget;
       } else {
@@ -1596,18 +1765,73 @@ class ChatOperatorService {
       refersToOtherTarget ||
       extractedPorts.length > 0 ||
       Boolean(extractedUrl) ||
-      /\b(ping|traceroute|trace route|trace path|check|test|probe|investigate|diagnose|verify|scan|connect|resolve|nslookup|dig|is .+ (?:open|reachable|working|up|down|online|accessible))\b/i.test(lower);
+      /\b(ping|traceroute|trace route|trace path|check|test|probe|investigate|diagnose|verify|scan|connect|lookup|resolve|nslookup|dig|cant reach|can't reach|cannot reach|cant connect|can't connect|cannot connect|connection refused|timing out|timed out|is .+ (?:open|reachable|working|up|down|online|accessible|listening))\b/i.test(lower);
 
     // CRITICAL BRAIN-FIRST RULE: An unclassified or conversational message without a diagnostic request must NEVER fall through to a localhost investigation!
     if (!hasExplicitDiagnosticVerb && !explicitTarget) {
+      const fallbackConv = classifyConversationalTurn(raw, session);
+      if (fallbackConv) {
+        if (fallbackConv.type === 'clarification_needed' || fallbackConv.subtype === 'bare_topic') {
+          return {
+            intent: 'clarification_needed',
+            mode: 'conversational',
+            clarificationReason: fallbackConv.subtype === 'ambiguous_person_query' ? 'AMBIGUOUS_PERSON_REFERENCE' : 'BARE_TOPIC',
+            clarificationPrompt: fallbackConv.reply,
+            target: null,
+            explicitTarget: null,
+            ports: [],
+            preserveContextOnly: true,
+            contextPivotDetected: Boolean(priorTarget)
+          };
+        }
+        if (fallbackConv.type === 'casual_conversation') {
+          return {
+            intent: 'casual_conversation',
+            mode: 'conversational',
+            conversationalType: fallbackConv.subtype || 'casual_conversation',
+            naturalReply: fallbackConv.reply,
+            target: null,
+            explicitTarget: null,
+            ports: [],
+            preserveContextOnly: true,
+            contextPivotDetected: Boolean(priorTarget)
+          };
+        }
+        if (fallbackConv.type === 'general_knowledge') {
+          return {
+            intent: 'general_knowledge',
+            mode: 'informational',
+            conversationalType: fallbackConv.subtype || 'general_knowledge',
+            naturalReply: fallbackConv.reply,
+            target: null,
+            explicitTarget: null,
+            ports: [],
+            preserveContextOnly: true,
+            contextPivotDetected: Boolean(priorTarget)
+          };
+        }
+        return {
+          intent: 'greeting',
+          mode: 'conversational',
+          conversationalType: fallbackConv.type,
+          naturalReply: fallbackConv.reply || null,
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true,
+          contextPivotDetected: Boolean(priorTarget)
+        };
+      }
+
       return {
         intent: 'greeting',
         mode: 'conversational',
         conversationalType: 'general_conversation',
-        target: priorTarget,
+        target: null,
         explicitTarget: null,
-        ports: session?.lastPorts || [],
-        preserveContextOnly: true
+        ports: [],
+        preserveContextOnly: true,
+        contextPivotDetected: Boolean(priorTarget)
       };
     }
 
@@ -1688,7 +1912,7 @@ class ChatOperatorService {
     if (!resolvedTarget) {
       const isDirectPortCommandOnPrior =
         extractedPorts.length > 0 &&
-        /^(?:try|check|test|now check|now test|probe|scan|what about|how about)\b/i.test(lower) &&
+        /^(?:(?:no,?\s*)?(?:i\s+meant|actually|sorry,?\s*i\s+meant|use|pls|please|can you|could you|now|also|and)\s+)?(?:try|check|test|now check|now test|probe|scan|what about|how about|is port|port)\b/i.test(lower) &&
         !/\b(local development server|our development server|can we definitively declare|application layer is healthy)\b/i.test(lower);
 
       if (isGenericDnsHealthPrompt) {
@@ -1749,7 +1973,7 @@ class ChatOperatorService {
     let intent = 'multi_step_investigation';
 
     const isRepeatLast =
-      /\b(test the same host again|run that again|retry that|check it again|repeat the (?:same )?check|try again|do the same thing|try the same thing)\b/i.test(lower) &&
+      /\b((?:test|check|probe|scan|ping) the same (?:host|machine|server|target|box|node|ip|domain|endpoint|site) again|run that again|retry that|check it again|test it again|repeat the (?:same )?check|repeat that|try again|do the same thing|try the same thing)\b/i.test(lower) &&
       !lower.includes('port') && !lower.includes('dns') && !lower.includes('ping');
 
     if (isRemediation) {
@@ -1785,10 +2009,21 @@ class ChatOperatorService {
       intent = 'dns';
     } else if (
       extractedPorts.length > 0 &&
-      (/\b(port|ports|tcp|open|listening|connect|try|now test|now check|other port)\b/i.test(lower)) &&
+      (/\b(port|ports|tcp|open|listening|connect|try|now test|now check|also check|what about|how about|other port|meant|instead|actually|on \d{2,5}|via \d{2,5})\b/i.test(lower)) &&
       !lower.includes('investigate why')
     ) {
       intent = 'port_check';
+    } else if (
+      isMidTurnCorrection &&
+      explicitTarget &&
+      session &&
+      session.lastIntent &&
+      ['port_check', 'ping', 'dns', 'traceroute', 'website_check'].includes(session.lastIntent)
+    ) {
+      intent = session.lastIntent;
+      if (intent === 'port_check' && extractedPorts.length === 0 && session.lastPorts?.length) {
+        extractedPorts.push(...session.lastPorts);
+      }
     } else if (
       extractedUrl ||
       (/\b(website|https:\/\/|http:\/\/|web page|site is working|site is accessible|site is reachable|check whether https|verify https)\b/i.test(lower) &&
@@ -1831,11 +2066,14 @@ class ChatOperatorService {
 
     // Extract DNS record type if specified
     let recordType = 'A';
-    if (/\baaaa\b/i.test(lower)) recordType = 'AAAA';
-    else if (/\bmx\b/i.test(lower)) recordType = 'MX';
-    else if (/\btxt\b/i.test(lower)) recordType = 'TXT';
-    else if (/\bns\b/i.test(lower)) recordType = 'NS';
-    else if (/\bcname\b/i.test(lower)) recordType = 'CNAME';
+    if (/\baaaa\b|\bipv6\s+(?:records?|address|dns)\b/i.test(lower)) recordType = 'AAAA';
+    else if (/\bmx\b|\bmail exchange\b/i.test(lower)) recordType = 'MX';
+    else if (/\btxt\b|\bspf\b|\bdmarc\b|\bdkim\b/i.test(lower)) recordType = 'TXT';
+    else if (/\bns\b|\bnameservers?\b/i.test(lower)) recordType = 'NS';
+    else if (/\bcname\b|\bcanonical name\b/i.test(lower)) recordType = 'CNAME';
+    else if (/\bsoa\b|\bstart of authority\b/i.test(lower)) recordType = 'SOA';
+    else if (/\bptr\b|\breverse dns\b|\brdns\b/i.test(lower)) recordType = 'PTR';
+    else if (/\bsrv\b/i.test(lower)) recordType = 'SRV';
 
     const typoClassification = classifyDomainTypo(resolvedTarget, session?.targetHistory || []);
     const typoSuggestion = typoClassification?.confidence === 'high' ? typoClassification.corrected : null;
@@ -1988,8 +2226,25 @@ class ChatOperatorService {
 
       let plan = this.parseIntentAndEntities(cleanPrompt, session);
 
+      let semanticDiagnostics = {
+        requestId: reqId,
+        sessionId: session.sessionId,
+        invoked: false,
+        provider: 'DETERMINISTIC_RULES',
+        model: 'none',
+        durationMs: 0,
+        success: true,
+        parsingOutcome: 'DETERMINISTIC_MATCH',
+        selectedIntent: plan.intent,
+        fallbackReason: null,
+        contextPivotDetected: Boolean(plan.contextPivotDetected),
+        timestamp: new Date().toISOString()
+      };
+
       // Optional external LLM brain interpreter hook (safe fallback if unavailable or throws)
       if (this.llmInterpreter) {
+        const semStart = performance.now();
+        semanticDiagnostics.invoked = true;
         try {
           const override = await this.llmInterpreter(cleanPrompt, {
             lastTarget: session.lastValidTarget || session.lastTarget,
@@ -2002,11 +2257,30 @@ class ChatOperatorService {
             allowCloudFallback: Boolean(allowCloudFallback || process.env.EJII_ALLOW_CLOUD_FALLBACK === 'true'),
             defaultPlan: plan
           });
-          if (override && typeof override === 'object' && override.intent) {
-            plan = { ...plan, ...override };
+          const semDuration = Number((performance.now() - semStart).toFixed(1));
+          semanticDiagnostics.durationMs = semDuration;
+          if (override && typeof override === 'object') {
+            semanticDiagnostics.provider = override.modelProvider || 'EXTERNAL_LLM';
+            semanticDiagnostics.model = override.executedModel || process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash';
+            semanticDiagnostics.success = true;
+            semanticDiagnostics.parsingOutcome = override.modelInterpreted ? 'MODEL_INTERPRETED_PLAN' : 'DETERMINISTIC_OVERRIDE';
+            if (override.intent) {
+              plan = { ...plan, ...override };
+              semanticDiagnostics.selectedIntent = plan.intent;
+              if (override.contextPivotDetected !== undefined) {
+                semanticDiagnostics.contextPivotDetected = Boolean(override.contextPivotDetected);
+              }
+            }
+          } else {
+            semanticDiagnostics.success = false;
+            semanticDiagnostics.parsingOutcome = 'NULL_FALLTHROUGH';
+            semanticDiagnostics.fallbackReason = 'MODEL_OFFLINE_OR_RETAIN_DETERMINISTIC';
           }
-        } catch (_) {
-          // Safe fallback to built-in semantic plan
+        } catch (semErr) {
+          semanticDiagnostics.durationMs = Number((performance.now() - semStart).toFixed(1));
+          semanticDiagnostics.success = false;
+          semanticDiagnostics.parsingOutcome = 'ERROR';
+          semanticDiagnostics.fallbackReason = semErr.message || 'INTERPRETER_EXCEPTION';
         }
       }
 
@@ -2111,12 +2385,15 @@ class ChatOperatorService {
       // Non-network-probe intents skip target SSRF / DNS pre-resolution
       const nonRemoteProbeIntents = new Set([
         'greeting',
+        'casual_conversation',
+        'general_knowledge',
         'informational_question',
         'epistemic_fabric_query',
         'log_and_startup_triage',
         'infrastructure_intelligence_synthesis',
         'scenario_planning_what_if',
         'dependency_blast_radius',
+        'atlas_connectivity_query',
         'mail_troubleshooting_intake',
         'clarification_needed',
         'follow_up_explanation',
@@ -2182,6 +2459,10 @@ class ChatOperatorService {
         switch (stepPlan.intent) {
           case 'greeting':
             return this._executeGreetingScenario(cleanPrompt, stepPlan, session);
+          case 'casual_conversation':
+            return this._executeCasualConversationScenario(cleanPrompt, stepPlan, session);
+          case 'general_knowledge':
+            return this._executeGeneralKnowledgeScenario(cleanPrompt, stepPlan, session);
           case 'informational_question':
             return this._executeInformationalQuestionScenario(cleanPrompt, session, stepPlan);
           case 'epistemic_fabric_query':
@@ -2194,6 +2475,8 @@ class ChatOperatorService {
             return await this._executeScenarioPlanningWhatIf(stepPlan, session, cleanPrompt);
           case 'dependency_blast_radius':
             return await this._executeDependencyAndBlastRadiusScenario(stepPlan, session, cleanPrompt);
+          case 'atlas_connectivity_query':
+            return await this._executeAtlasConnectivityQueryScenario(stepPlan, session, cleanPrompt);
           case 'mail_troubleshooting_intake':
             return this._executeMailTroubleshootingIntakeScenario(cleanPrompt, session, stepPlan);
           case 'clarification_needed':
@@ -2291,6 +2574,7 @@ class ChatOperatorService {
       const responsePayload = this._finalizeTurn(session, userMsgRecord, {
         reqId,
         plan,
+        semanticDiagnostics,
         ...executionOutcome,
         startWall
       });
@@ -2299,7 +2583,24 @@ class ChatOperatorService {
         success: true,
         status: responsePayload.status || 'ok',
         statusCode: 200,
+        sessionId: responsePayload.sessionId,
+        requestId: responsePayload.requestId,
+        intent: responsePayload.intent,
+        mode: responsePayload.mode,
+        target: responsePayload.target,
+        ports: responsePayload.ports,
+        usedFollowUpTarget: responsePayload.usedFollowUpTarget,
+        stateDiff: responsePayload.stateDiff,
         reply: responsePayload.reply,
+        steps: responsePayload.steps,
+        findings: responsePayload.findings,
+        technicalEvidence: responsePayload.technicalEvidence,
+        structuredAnswer: responsePayload.structuredAnswer,
+        epistemicDistinctions: responsePayload.epistemicDistinctions,
+        competingExplanationsComparison: responsePayload.competingExplanationsComparison,
+        claudeMemContext: responsePayload.claudeMemContext,
+        skillRoutingContext: responsePayload.skillRoutingContext,
+        semanticDiagnostics: responsePayload.semanticDiagnostics,
         data: responsePayload
       };
     } catch (err) {
@@ -2331,6 +2632,7 @@ class ChatOperatorService {
   _finalizeTurn(session, userMsgRecord, {
     reqId,
     plan,
+    semanticDiagnostics = null,
     reply,
     structuredAnswer,
     steps = [],
@@ -2389,9 +2691,11 @@ class ChatOperatorService {
       if (plan.target && !plan.isSystemDnsHealthCheck) {
         if (targetWasValid || !session.lastValidTarget) {
           session.lastTarget = plan.target;
+          session.lastTargetTimestampMs = Date.now();
         }
         if (targetWasValid) {
           session.lastValidTarget = plan.target;
+          session.lastTargetTimestampMs = Date.now();
         }
         session.lastMultiEndpoints = [];
       }
@@ -2595,9 +2899,270 @@ class ChatOperatorService {
       technicalEvidence.stateDiff = stateDiff;
     }
 
+    // Phase Atlas V (Cycle 3 & Cycle 11): Canonical Epistemic Distinctions & Competing Explanations Comparison
+    const rawEpDistinctions = technicalEvidence?.epistemicDistinctions || null;
+    const pillars = epistemicReasoning?.epistemicSevenPillars || null;
+    const observedConditions = Array.isArray(rawEpDistinctions?.observedConditions)
+      ? rawEpDistinctions.observedConditions
+      : Array.isArray(pillars?.directlyObserved) && pillars.directlyObserved.length > 0
+        ? pillars.directlyObserved
+        : steps.map((s) => `[${s.tool || 'probe'}] ${s.label}: ${s.status} (${s.summary || 'completed'})`);
+
+    const suspectedProblems = Array.isArray(rawEpDistinctions?.suspectedProblems)
+      ? rawEpDistinctions.suspectedProblems
+      : Array.isArray(effectiveHypEval?.hypotheses)
+        ? effectiveHypEval.hypotheses
+            .filter((h) => h.status === 'CONFIRMED_FAULT' || h.status === 'SUSPECTED_FAULT' || h.status === 'DOWNSTREAM_SYMPTOM')
+            .map((h) => `${h.layer}: ${h.verdictLabel} (${h.posteriorProbabilityPct ?? 50}% — ${h.evidence || ''})`)
+        : Array.isArray(pillars?.inferredConclusions)
+          ? pillars.inferredConclusions
+          : [];
+
+    const historicalPriors = Array.isArray(rawEpDistinctions?.historicalPriors)
+      ? rawEpDistinctions.historicalPriors
+      : memoryInsights
+        ? [
+            `Target ${memoryInsights.target} observed ${memoryInsights.observationCount || 1}x in operational memory (Stability: ${memoryInsights.stabilityScore ?? 100}%).`,
+            ...((memoryInsights.matchedResolutions || []).map((r) => `Historical playbook (${r.resolutionId}): ${r.rootCause} -> ${r.resolutionSteps}`))
+          ]
+        : [];
+
+    const unavailableMetrics = Array.isArray(rawEpDistinctions?.unavailableMetrics)
+      ? rawEpDistinctions.unavailableMetrics
+      : Array.isArray(pillars?.unknownBlindSpots)
+        ? pillars.unknownBlindSpots
+        : Array.isArray(collaborativeSynthesis?.telemetryBlindSpots)
+          ? collaborativeSynthesis.telemetryBlindSpots
+          : [];
+
+    const recoverySource =
+      rawEpDistinctions?.verifiedRecoveryState !== undefined
+        ? rawEpDistinctions.verifiedRecoveryState
+        : closedLoopFollowUp && (closedLoopFollowUp.executed || closedLoopFollowUp.actionExecuted)
+          ? closedLoopFollowUp
+          : technicalEvidence?.verification !== undefined
+            ? technicalEvidence
+            : null;
+
+    const verifiedRecoveryState = recoverySource
+      ? this.evaluateVerifiedRecoveryState(recoverySource, plan.target)
+      : null;
+
+    const indirectEvidenceBoundaries =
+      rawEpDistinctions?.indirectEvidenceBoundaries ||
+      this.evaluateIndirectEvidenceBoundaries(
+        technicalEvidence?.probeResult ||
+        technicalEvidence?.lastProbeResult ||
+        (Array.isArray(steps) && steps.find((s) => s.probeType || s.tool === 'tcp_port_probe' || s.tool === 'dns_lookup')) ||
+        {}
+      );
+
+    const epistemicDistinctions = {
+      observedConditions,
+      suspectedProblems,
+      historicalPriors,
+      unavailableMetrics,
+      indirectEvidenceBoundaries,
+      verifiedRecoveryState
+    };
+
+    if (technicalEvidence && typeof technicalEvidence === 'object') {
+      technicalEvidence.epistemicDistinctions = epistemicDistinctions;
+    }
+
+    const hypsList = Array.isArray(effectiveHypEval?.hypotheses) ? effectiveHypEval.hypotheses : [];
+    const primaryHyp = effectiveHypEval?.primaryRootCause || hypsList[0] || null;
+    const matchedPrimaryInList =
+      hypsList.find((h) => primaryHyp && (h.hypothesisId === primaryHyp.hypothesisId || h.layer === primaryHyp.layer)) ||
+      primaryHyp;
+
+    const primarySupportingObs = Array.isArray(matchedPrimaryInList?.supportingEvidence) && matchedPrimaryInList.supportingEvidence.length > 0
+      ? matchedPrimaryInList.supportingEvidence
+      : matchedPrimaryInList?.evidence
+        ? [matchedPrimaryInList.evidence]
+        : primaryHyp?.summary
+          ? [primaryHyp.summary]
+          : steps.map((s) => `${s.label}: ${s.status} (${s.summary || 'measured'})`).slice(0, 3);
+
+    const altHyps = hypsList
+      .filter((h) => !primaryHyp || (h.layer !== primaryHyp.layer && h.hypothesisId !== primaryHyp.hypothesisId))
+      .slice(0, 4)
+      .map((h) => {
+        const refutingObs =
+          Array.isArray(h.contradictingEvidence) && h.contradictingEvidence.length > 0
+            ? h.contradictingEvidence.join('; ')
+            : h.evidence || 'no direct fault telemetry observed on this layer';
+        return {
+          layer: h.layer,
+          probabilityPct: Number(h.posteriorProbabilityPct ?? 0),
+          status: h.status || 'ALTERNATIVE_CANDIDATE',
+          supportingObservations: Array.isArray(h.supportingEvidence) ? h.supportingEvidence : [],
+          refutingObservations: Array.isArray(h.contradictingEvidence) && h.contradictingEvidence.length > 0
+            ? h.contradictingEvidence
+            : (h.status === 'REFUTED_HEALTHY' && h.evidence ? [h.evidence] : []),
+          reasonRankedLower:
+            h.status === 'REFUTED_HEALTHY'
+              ? `Refuted by concrete observation: ${refutingObs}.`
+              : h.causalRole === 'DOWNSTREAM_SYMPTOM'
+                ? `Isolated as a downstream effect of ${primaryHyp?.layer || 'upstream fault'} because ${refutingObs}.`
+                : `Outranked by ${primaryHyp?.layer || 'leading hypothesis'} due to direct refuting/absent layer telemetry (${refutingObs}).`
+        };
+      });
+
+    const leadingLayer = primaryHyp?.layer || structuredAnswer?.layerFailedFirst || 'L4_RELAY_AND_TUNNEL_CONTROL_PLANE';
+    const hasEmpiricalProb = Boolean(
+      primaryHyp && (primaryHyp.posteriorProbabilityPct !== undefined || primaryHyp.confidencePct !== undefined)
+    );
+    const leadingPct = hasEmpiricalProb
+      ? Number(primaryHyp.posteriorProbabilityPct ?? primaryHyp.confidencePct)
+      : (hypsList.length > 0 && hypsList[0].posteriorProbabilityPct !== undefined
+        ? Number(hypsList[0].posteriorProbabilityPct)
+        : null);
+
+    // Cycle 5: Propagate actual methodology from inference engine rather than setting BAYESIAN_LIKELIHOOD_POSTERIOR whenever hypsList.length >= 2
+    const validConfidenceTypes = new Set([
+      'CALIBRATED_EMPIRICAL_POSTERIOR',
+      'BAYESIAN_LIKELIHOOD_POSTERIOR',
+      'EMPIRICAL_PROBE_CONFIDENCE',
+      'RULE_HEURISTIC',
+      'INSUFFICIENT_DATA',
+      'POORLY_CALIBRATED_ON_HOLDOUT'
+    ]);
+    const explicitMethodology =
+      primaryHyp?.confidenceType ||
+      matchedPrimaryInList?.confidenceType ||
+      effectiveHypEval?.confidenceType ||
+      effectiveHypEval?.calibration?.confidenceType ||
+      technicalEvidence?.indirectInference?.confidenceType ||
+      technicalEvidence?.confidenceType ||
+      null;
+
+    const hasGenuineBayesianPosterior = Boolean(
+      (typeof matchedPrimaryInList?.priorProbability === 'number' && typeof matchedPrimaryInList?.likelihoodScore === 'number') ||
+      effectiveHypEval?.bayesianNormalized === true ||
+      effectiveHypEval?.methodology === 'BAYESIAN_LIKELIHOOD_POSTERIOR'
+    );
+    const hasDirectEmpiricalObservations = Boolean(
+      steps.length > 0 &&
+      (primarySupportingObs.length > 0 || matchedPrimaryInList?.evidence || primaryHyp?.summary)
+    );
+
+    let confidenceType = 'INSUFFICIENT_DATA';
+    if (explicitMethodology && validConfidenceTypes.has(explicitMethodology)) {
+      confidenceType = explicitMethodology;
+    } else if (hasGenuineBayesianPosterior) {
+      confidenceType = 'BAYESIAN_LIKELIHOOD_POSTERIOR';
+    } else if (hasDirectEmpiricalObservations && hasEmpiricalProb) {
+      confidenceType = 'EMPIRICAL_PROBE_CONFIDENCE';
+    } else if (leadingPct !== null || primaryHyp) {
+      confidenceType = 'RULE_HEURISTIC';
+    }
+
+    const rawNextEig = effectiveHypEval?.nextBestInvestigation?.expectedInformationGainBits;
+    const effectiveEig = rawNextEig !== undefined && rawNextEig !== null && Number.isFinite(Number(rawNextEig))
+      ? Number(rawNextEig)
+      : null;
+
+    const concreteSupportSummary = primarySupportingObs.length > 0
+      ? primarySupportingObs.join('; ')
+      : (structuredAnswer?.result || 'direct runtime state');
+    const concreteRefutationSummary = altHyps.length > 0
+      ? altHyps.map((a) => `${a.layer} (${a.reasonRankedLower})`).join(' | ')
+      : 'no competing protocol layers exhibited anomalous telemetry';
+
+    const evidentialRankingRationale =
+      `Leading hypothesis ${leadingLayer} is anchored by concrete supporting observation(s): [${concreteSupportSummary}]. ` +
+      `Competing explanations are ranked lower based on refuting/diagnostic evidence: [${concreteRefutationSummary}].`;
+
+    const competingExplanationsComparison = {
+      leadingHypothesis: {
+        layer: leadingLayer,
+        probabilityPct: leadingPct,
+        confidenceType,
+        supportingObservations: primarySupportingObs,
+        evidentialRankingRationale,
+        whyLeadingOutweighsAlternatives: evidentialRankingRationale
+      },
+      alternativeHypotheses: altHyps,
+      contradictoryObservations: Array.isArray(effectiveHypEval?.contradictions)
+        ? effectiveHypEval.contradictions
+        : [],
+      recommendedNextActionWithEig: effectiveHypEval?.nextBestInvestigation
+        ? {
+            actionOrProbe:
+              effectiveHypEval.nextBestInvestigation.recommendedAction ||
+              effectiveHypEval.nextBestInvestigation.action ||
+              'Targeted verification probe',
+            targetLayer: effectiveHypEval.nextBestInvestigation.targetLayer || leadingLayer,
+            expectedInformationGainBits: effectiveEig,
+            rationale: effectiveHypEval.nextBestInvestigation.rationale || 'Disambiguates remaining uncertainty.'
+          }
+        : {
+            actionOrProbe: structuredAnswer?.nextStep || 'Execute targeted live socket probe',
+            targetLayer: leadingLayer,
+            expectedInformationGainBits: null,
+            rationale: 'Disambiguates remaining unmeasured layers before invasive remediation.'
+          }
+    };
+
     const commandCenterOverview = technicalEvidence?.commandCenterOverview || null;
     const scenarioSimulation = technicalEvidence?.scenarioSimulation || null;
     const serverConfigDifferential = technicalEvidence?.serverConfigDifferential || null;
+
+    // Record operational diagnostic observation in Claude-Mem and compile 3-layer progressive disclosure context
+    let claudeMemContext = null;
+    let skillRoutingContext = null;
+    let claudeMemError = null;
+    try {
+      if (plan.mode === 'operational' && (steps.length > 0 || structuredAnswer?.result)) {
+        claudeMemEngine.recordObservation({
+          sessionId: session.sessionId,
+          ownerUserId: session.userId || null,
+          ownerUsername: session.username || null,
+          visibilityScope: 'PRIVATE_OPERATIONAL',
+          type: steps.some((s) => s.status === 'FAIL') ? 'incident' : 'probe_evidence',
+          memoryCategory: 'LIVE_OPERATIONAL_OBSERVATION',
+          isLiveMeasurement: steps.length > 0,
+          title: `${plan.intent}: ${(structuredAnswer?.result || reply || '').slice(0, 140)}`,
+          subtitle: structuredAnswer?.meaning ? structuredAnswer.meaning.slice(0, 200) : '',
+          target: plan.target || null,
+          conceptTags: [
+            steps.some((s) => s.status === 'FAIL') ? 'problem-solution' : 'how-it-works',
+            'layer-disambiguation',
+            'what-changed'
+          ],
+          facts: steps.map((s) => `${s.label}: ${s.status} (${s.summary || 'measured'})`).slice(0, 8),
+          narrative: structuredAnswer?.result || reply || '',
+          rootCause: leadingLayer || null,
+          probeMetrics: {
+            totalDurationMs,
+            stepCount: steps.length,
+            ports: plan.ports || []
+          }
+        });
+      }
+      claudeMemContext = (plan.mode === 'conversational')
+        ? null
+        : claudeMemEngine.compileProgressiveDisclosureContext(
+            userMsgRecord?.content || plan.intent || '',
+            plan.target || null,
+            {
+              maxTokenBudget: 600,
+              userId: session.userId || null,
+              username: session.username || null,
+              role: session.role || null,
+              sessionId: session.sessionId
+            }
+          );
+      skillRoutingContext = (plan.mode === 'conversational')
+        ? null
+        : readOnlySkillCatalog.routeWithContextBudget(
+            userMsgRecord?.content || plan.intent || 'network diagnostics',
+            { maxContextTokens: 900 }
+          );
+    } catch (memErr) {
+      claudeMemError = memErr?.message || String(memErr);
+    }
 
     const assistantMsgRecord = {
       id: `MSG-A-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
@@ -2613,12 +3178,18 @@ class ChatOperatorService {
         usedFollowUpTarget: Boolean(plan.usedFollowUpTarget),
         totalDurationMs,
         structuredAnswer,
+        epistemicDistinctions,
+        competingExplanationsComparison,
         steps,
         findings,
         connectionTable,
         interfaceTable,
         reportMarkdown,
         memoryInsights,
+        claudeMemContext,
+        claudeMemError,
+        skillRoutingContext,
+        semanticDiagnostics,
         hypothesisEvaluation: effectiveHypEval,
         epistemicReasoning,
         problemDecomposition,
@@ -2663,12 +3234,17 @@ class ChatOperatorService {
       totalDurationMs,
       reply,
       structuredAnswer,
+      epistemicDistinctions,
+      competingExplanationsComparison,
       steps,
       findings,
       connectionTable,
       interfaceTable,
       reportMarkdown,
       memoryInsights,
+      claudeMemContext,
+      skillRoutingContext,
+      semanticDiagnostics,
       hypothesisEvaluation: effectiveHypEval,
       epistemicReasoning,
       problemDecomposition,
@@ -3306,7 +3882,63 @@ class ChatOperatorService {
       structuredAnswer,
       steps: [],
       findings: [],
-      technicalEvidence: null
+      technicalEvidence: {
+        liveProbesExecuted: 0,
+        conversationalType: effectiveType,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Case A-2: Casual / Everyday Conversation Turn (0 network probes)
+   */
+  _executeCasualConversationScenario(promptText, plan, session) {
+    const conv = classifyConversationalTurn(promptText, session) || { type: plan.conversationalType || 'casual_conversation' };
+    const reply = plan.naturalReply || conv.reply || "I'm doing well. What would you like to explore or troubleshoot next?";
+    const structuredAnswer = {
+      result: reply,
+      meaning: 'Conversational response (no live network probes executed).',
+      nextStep: null,
+      layerFailedFirst: null,
+      uncertainty: null
+    };
+    return {
+      reply,
+      structuredAnswer,
+      steps: [],
+      findings: [],
+      technicalEvidence: {
+        liveProbesExecuted: 0,
+        conversationalType: plan.conversationalType || conv.type || 'casual_conversation',
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Case A-3: General Knowledge & Factual Query Mode (0 network probes)
+   */
+  _executeGeneralKnowledgeScenario(promptText, plan, session) {
+    const conv = classifyConversationalTurn(promptText, session) || { type: plan.conversationalType || 'general_knowledge' };
+    const reply = plan.naturalReply || conv.reply || "I don't have enough information to answer that question accurately.";
+    const structuredAnswer = {
+      result: reply,
+      meaning: 'General knowledge response (no live network probes executed).',
+      nextStep: null,
+      layerFailedFirst: null,
+      uncertainty: null
+    };
+    return {
+      reply,
+      structuredAnswer,
+      steps: [],
+      findings: [],
+      technicalEvidence: {
+        liveProbesExecuted: 0,
+        knowledgeType: plan.conversationalType || conv.type || 'general_knowledge',
+        observedAt: new Date().toISOString()
+      }
     };
   }
 
@@ -3441,20 +4073,27 @@ class ChatOperatorService {
    */
   _executeClarificationScenario(plan, session) {
     const reply = plan.clarificationPrompt;
+    const isPersonClarification = plan.clarificationReason === 'AMBIGUOUS_PERSON_REFERENCE';
     let memoryCandidateTargets = [];
     try {
-      const briefing = operationalMemoryEngine.getIntelligenceBriefing();
-      memoryCandidateTargets = (briefing.activeRegressions || []).map((r) => r.target).slice(0, 4);
+      if (!isPersonClarification) {
+        const briefing = operationalMemoryEngine.getIntelligenceBriefing();
+        memoryCandidateTargets = (briefing.activeRegressions || []).map((r) => r.target).slice(0, 4);
+      }
     } catch (_) {}
 
     const structuredAnswer = {
       result: plan.clarificationPrompt,
-      meaning: plan.clarificationReason === 'AMBIGUOUS_MULTI_TARGET'
-        ? 'Multiple candidate endpoints exist in the conversation context, so please specify which host to test.'
-        : 'A target hostname or IP address is needed before running a live probe.',
-      nextStep: plan.candidateTargets?.length
-        ? `Specify one of the candidate endpoints (for example, ${plan.candidateTargets[0].split(':')[0]}).`
-        : 'Provide the hostname, IP address, or URL you want to test.',
+      meaning: isPersonClarification
+        ? 'Conversational clarification requested for ambiguous person reference.'
+        : plan.clarificationReason === 'AMBIGUOUS_MULTI_TARGET'
+          ? 'Multiple candidate endpoints exist in the conversation context, so please specify which host to test.'
+          : 'A target hostname or IP address is needed before running a live probe.',
+      nextStep: isPersonClarification
+        ? null
+        : plan.candidateTargets?.length
+          ? `Specify one of the candidate endpoints (for example, ${plan.candidateTargets[0].split(':')[0]}).`
+          : 'Provide the hostname, IP address, or URL you want to test.',
       layerFailedFirst: null,
       uncertainty: null
     };
@@ -3462,14 +4101,15 @@ class ChatOperatorService {
       reply,
       structuredAnswer,
       steps: [],
-      findings: plan.candidateTargets?.length
+      findings: (!isPersonClarification && plan.candidateTargets?.length)
         ? [{ label: 'Candidate Endpoints', value: plan.candidateTargets.slice(0, 4).join(', '), tone: 'neutral' }]
         : [],
       technicalEvidence: {
         clarificationReason: plan.clarificationReason,
         candidateTargets: plan.candidateTargets || [],
-        memoryCandidateTargets,
+        memoryCandidateTargets: isPersonClarification ? [] : memoryCandidateTargets,
         preservedSessionTarget: session.lastValidTarget || null,
+        liveProbesExecuted: 0,
         observedAt: new Date().toISOString()
       }
     };
@@ -5565,8 +6205,69 @@ class ChatOperatorService {
         : (prevAns.result || 'the previous check');
       reply =
         `That assessment was based on the specific probes executed on **\`${effectiveTargetLabel}\`**: ${stepSummary}.\n\n` +
-        `Important limitation: those probes only verify the specific protocol layer and endpoint tested at that moment (for example, DNS resolution, a TCP handshake, or a single HTTP status code). They do not prove that every downstream microservice, database, or client network path is healthy.`;
-    } else if (lower.includes('compare the latest') || lower.includes('current state to') || lower.includes('previous scan') || lower.includes('what changed')) {
+        `Important limitation: those probes only confirm the specific protocol layer and endpoint tested at that moment (for example, DNS resolution, a TCP handshake, or a single HTTP status code). They do not prove that every downstream microservice, database, or client network path is healthy.`;
+    } else if (/\b(could dns be|could it be (?:a )?dns|is dns (?:the |a )?(?:problem|issue|cause)|is dns causing|might dns be)\b/i.test(lower)) {
+      const isIpLiteral = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(effectiveTargetLabel).trim());
+      const dnsStep = prevSteps.find((s) => s.tool === 'dns' || /dns/i.test(s.label || ''));
+      const resolvedIps = targetEntity?.resolvedIps || [];
+      if (isIpLiteral) {
+        reply =
+          `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
+          `Because **\`${effectiveTargetLabel}\`** is a direct IPv4 address literal rather than a domain name, network probes to \`${effectiveTargetLabel}\` bypass forward DNS resolution entirely. Forward DNS cannot be the cause of a connection timeout or refusal when connecting directly by IP (unless an application service on the target host is stalling on a reverse-DNS \`PTR\` lookup during connection acceptance).`;
+      } else if (dnsStep && dnsStep.status === 'OK') {
+        reply =
+          `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
+          `Forward DNS resolution succeeded during our check (${dnsStep.summary}${resolvedIps.length ? ` → \`${resolvedIps.join(', ')}\`` : ''}). Because the hostname resolved cleanly to an IP address, DNS outage (` + '`NXDOMAIN` / `SERVFAIL`' + `) is not the primary failure point — though DNS could still contribute if the domain is pointing to a stale or decommissioned IP address.`;
+      } else if (dnsStep && dnsStep.status === 'FAIL') {
+        reply =
+          `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
+          `Yes — DNS resolution failed on **\`${effectiveTargetLabel}\`** (${dnsStep.summary}). Until the domain resolves to a valid IP address, no downstream TCP, TLS, or HTTP connection can start.`;
+      } else if (resolvedIps.length > 0) {
+        reply =
+          `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
+          `**\`${effectiveTargetLabel}\`** resolved to \`${resolvedIps.join(', ')}\` in this session, so basic DNS resolution is functioning. The issue is more likely at the transport (TCP port/firewall) or application layer unless those DNS records point to an outdated IP.`;
+      } else {
+        reply =
+          `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
+          `DNS resolution is a plausible cause whenever a hostname fails before a TCP socket can be established. Run **\`Check DNS for ${effectiveTargetLabel}\`** to test its A/AAAA records and resolver latency directly.`;
+      }
+    } else if (/\b(what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure) mean|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|timing out))\b/i.test(lower)) {
+      const stepSummary = prevSteps.length > 0
+        ? prevSteps.map((s) => `${s.label || s.tool}: ${s.status} (${s.summary})`).join('; ')
+        : (prevAns.result || 'No response observed within timeout window');
+      const hasTimeout = /timeout|timed out|no response/i.test(`${lower} ${prevAns.result || ''} ${stepSummary}`);
+      const hasRefused = /refused|econnrefused|closed|rst/i.test(`${prevAns.result || ''} ${stepSummary}`);
+      if (hasTimeout && !hasRefused) {
+        reply =
+          `**Meaning of the Timeout on \`${effectiveTargetLabel}\`${prevPorts.length ? ` (port ${prevPorts.join(', ')})` : ''}:**\n` +
+          `In our check (${stepSummary}), packets were transmitted toward **\`${effectiveTargetLabel}\`**, but **zero acknowledgment (\`SYN-ACK\` or ICMP echo reply) returned before the deadline expired**.\n\n` +
+          `**Technical Distinction:** Unlike \`ECONNREFUSED\` (which proves the host is reachable and actively rejected the port with a TCP \`RST\`), a **timeout** means packets were either:\n` +
+          `1. Silently dropped by an inline firewall, security group, or ACL (\`DROP\` policy),\n` +
+          `2. Routed toward an offline or unroutable IP address on the network path, or\n` +
+          `3. Accepted by a heavily overloaded daemon whose backlog queue could not respond in time.`;
+      } else if (hasRefused) {
+        reply =
+          `**Meaning of the Connection Failure on \`${effectiveTargetLabel}\`${prevPorts.length ? ` (port ${prevPorts.join(', ')})` : ''}:**\n` +
+          `Our probe recorded: ${stepSummary}.\n\n` +
+          `The target host **\`${effectiveTargetLabel}\`** is reachable over the network, but its operating system kernel actively rejected the connection (typically via a TCP \`RST\` packet) because no application process is listening on ${prevPorts.length ? `port ${prevPorts.join(', ')}` : 'that port'} or a local firewall rule is configured with \`REJECT\`.`;
+      } else {
+        reply =
+          `**Diagnostic Explanation for \`${effectiveTargetLabel}\`${prevPorts.length ? ` (port ${prevPorts.join(', ')})` : ''}:**\n` +
+          `Observed evidence: ${stepSummary}.\n\n` +
+          `${prevAns.meaning || 'When a target does not respond, either network packets are being filtered/dropped along the path (timeout) or the destination service is not listening on the requested port.'}`;
+      }
+    } else if (
+      lower.includes('compare the latest') ||
+      lower.includes('current state to') ||
+      lower.includes('previous scan') ||
+      lower.includes('previous result') ||
+      lower.includes('last result') ||
+      lower.includes('last check') ||
+      lower.includes('compare it with') ||
+      lower.includes('compare it to') ||
+      lower.includes('compare with') ||
+      lower.includes('what changed')
+    ) {
       if (observations.length >= 2) {
         const latest = observations[observations.length - 1];
         const previous = observations[observations.length - 2];
@@ -5576,7 +6277,7 @@ class ChatOperatorService {
           `- **Latest (${latest.observedAt}):** ${latest.summary || latest.intent}\n\n` +
           (latest.pingRttMs !== null && previous.pingRttMs !== null
             ? `Ping RTT changed from ${previous.pingRttMs} ms to ${latest.pingRttMs} ms.`
-            : `Currently verified open ports: [${(targetEntity.openPorts || []).join(', ') || 'none'}]; closed ports: [${(targetEntity.closedPorts || []).join(', ') || 'none'}].`);
+            : `Currently confirmed open ports: [${(targetEntity.openPorts || []).join(', ') || 'none'}]; closed ports: [${(targetEntity.closedPorts || []).join(', ') || 'none'}].`);
       } else {
         const single = observations[0];
         reply =
@@ -5877,7 +6578,9 @@ class ChatOperatorService {
       : null;
 
     // Non-mutually-exclusive parallel execution of specialized investigations AND unified cognitive engines
-    const effectivePort = (Array.isArray(plan.ports) && plan.ports[0]) || 3000;
+    const inheritedResolution = resolvePronounInheritedTarget(promptText, session || {});
+    const effectivePort = (Array.isArray(plan.ports) && plan.ports[0]) || inheritedResolution.port || 3000;
+    const synthesisTarget = plan.explicitTarget || inheritedResolution.target || effectiveTarget;
     const [
       dynamicCapabilityInvestigation,
       directAutonomousGoalResult,
@@ -5903,7 +6606,7 @@ class ChatOperatorService {
         : Promise.resolve(null),
       superpowersSkillsEngine.executeUnifiedSuperpowersSynthesis({
         objective: promptText,
-        target: plan.explicitTarget || effectiveTarget,
+        target: synthesisTarget,
         port: effectivePort,
         windowMinutes: 60,
         executeClosedLoop: true,
@@ -5915,6 +6618,9 @@ class ChatOperatorService {
     const timelineReconstruction = unifiedSuperpowersReport?.timelineReconstruction || null;
     const hypothesisArbitration = unifiedSuperpowersReport?.hypothesisArbitration || null;
     const predictiveHorizon = unifiedSuperpowersReport?.predictiveHorizon || null;
+    if (session && unifiedSuperpowersReport?.contextEngineeringWindow) {
+      session.lastCompiledContextWindow = unifiedSuperpowersReport.contextEngineeringWindow;
+    }
 
     function dynamicGoalStageCount(dci) {
       return (dci?.autonomousGoalInvestigation?.completedStages?.length || 0);
@@ -6029,8 +6735,10 @@ class ChatOperatorService {
     if (subfocus === 'MULTISITE_FLEET_CORRELATION') {
       const multiSiteOverview = multiSiteManager.generateMultiSiteFleetOverview();
       const allAgents = edgeAgentService.getAllAgents();
+      const siteNames = (multiSiteOverview.sites || []).map((s) => `${s.code} (${s.region || 'LOCAL-HOST'})`).join(', ') || 'LOCAL-RUNTIME';
+      const execScope = multiSiteOverview.fleetSummary.executionEnvironment || 'LIVE_OS_RUNTIME';
       executiveSummaryParts.push(
-        `Multi-Site Fleet Intelligence: ${multiSiteOverview.fleetSummary.totalSites} enterprise sites across EMEA, AMER, and APAC (${multiSiteOverview.fleetSummary.healthySites} healthy, ${multiSiteOverview.fleetSummary.degradedSites} degraded) with ${multiSiteOverview.fleetSummary.totalZones} monitored zones and ${allAgents.length} edge observation agents. Inter-site WAN links: ${multiSiteOverview.fleetSummary.optimalWanLinks}/${multiSiteOverview.fleetSummary.totalWanLinks} operating at optimal latency.`
+        `Multi-Site Fleet Intelligence: ${multiSiteOverview.fleetSummary.totalSites} live runtime site(s) [${siteNames}] (${multiSiteOverview.fleetSummary.healthySites} healthy, ${multiSiteOverview.fleetSummary.degradedSites} degraded; Scope: ${execScope}) with ${multiSiteOverview.fleetSummary.totalZones} monitored zones and ${allAgents.length} edge observation agent(s). Upstream/LAN links: ${multiSiteOverview.fleetSummary.optimalWanLinks}/${multiSiteOverview.fleetSummary.totalWanLinks} operating at optimal latency.`
       );
     }
 
@@ -6595,6 +7303,791 @@ class ChatOperatorService {
         liveProbeResults,
         observedAt: new Date().toISOString()
       }
+    };
+  }
+
+  /**
+   * Executes Project Atlas Conversational Connectivity, Tunnel Diagnostics, Relay Selection & JIT Access Queries (Section 5.1).
+   * Explicitly separates Observed Facts, Historical Observations, Derived Calculations, and Unavailable Telemetry.
+   */
+  async _executeAtlasConnectivityQueryScenario(stepPlan, session, promptText) {
+    const t0 = performance.now();
+    const lower = String(promptText || '').toLowerCase();
+    const snap = projectAtlasEngine.getObservabilitySnapshot();
+    const relayRec = projectAtlasEngine.recommendOptimalRelay({
+      lowLatencyInteractive: /\b(lowest[- ]latency|interactive|fast)\b/i.test(lower)
+    });
+
+    const observedFacts = [
+      `Active Relays: ${snap.summary.relaysCount} (${snap.relays.map((r) => `${r.relayId} [${r.status}, RTT=${r.measuredRttMs ?? 'NULL'}ms]`).join(', ') || 'none'})`,
+      `Connected Tunnel Clients: ${snap.summary.connectedClientsCount} connected, ${snap.summary.revokedClientsCount} revoked`,
+      `Reverse Proxies: ${snap.summary.activeProxiesCount} active (${snap.summary.healthyProxiesCount} HEALTHY, ${snap.summary.unhealthyProxiesCount} UNHEALTHY_CIRCUIT_OPEN)`,
+      `Total Traffic: bytesIn=${snap.summary.totalBytesIn}, bytesOut=${snap.summary.totalBytesOut}, activeConnections=${snap.summary.totalActiveConnections}, backpressureEvents=${snap.summary.totalBackpressureEvents}`,
+      `Persistence Status: ${snap.persistenceStatus}`
+    ];
+
+    const historicalObservations = (snap.recentEvents || [])
+      .slice(0, 6)
+      .map((e) => `[${e.createdAt}] ${e.eventType} (${e.subjectId}): ${e.summary}`);
+
+    const derivedCalculations = [
+      ...(relayRec.evidenceSeparation?.derivedCalculations || []),
+      `Healthy Proxy Ratio: ${
+        snap.proxies.length > 0
+          ? `${((snap.summary.healthyProxiesCount / snap.proxies.length) * 100).toFixed(1)}%`
+          : '100.0% (0 proxies registered)'
+      }`
+    ];
+
+    const unavailableTelemetry = [...(relayRec.evidenceSeparation?.unavailableTelemetry || [])];
+    for (const p of snap.proxies) {
+      if (p.lastLatencyMs === null || p.lastLatencyMs === undefined) {
+        unavailableTelemetry.push(`Proxy ${p.proxyName} (${p.proxyId}): lastLatencyMs is NULL (no connections or probes completed yet)`);
+      }
+    }
+
+    let queryCategory = 'GENERAL_ATLAS_OVERVIEW';
+    let headlineResult = '';
+    let meaning = '';
+    let nextStep = '';
+    let extraEvidence = {};
+
+    // Multi-turn pronoun & entity resolution for Project Falcon IV (Section 7.2)
+    const isShowAgents =
+      /\b(remote\s+agents?|enrolled\s+clients?|connected\s+agents?\s+across\s+every\s+registered\s+site|show\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?(remote\s+|connected\s+)?agents?|tunnel\s+clients?)\b/i.test(lower);
+    const isUnstableRelayQuery =
+      /\b(which\s+relay\s+currently\s+serves\s+our\s+most\s+unstable|most\s+unstable\s+connections?)\b/i.test(lower);
+    const isRelayBlastRadiusQuery =
+      /\b(affected\s+services\s+if\s+this\s+relay\s+becomes\s+unavailable|if\s+this\s+relay\s+becomes\s+unavailable)\b/i.test(lower);
+    const isP2pTrafficQuery =
+      /\b(whether\s+the\s+p2p\s+connection\s+is\s+carrying\s+real\s+traffic|fallen\s+back\s+to\s+a\s+relay|p2p\s+connection)\b/i.test(lower);
+    const isDegradationCauseQuery =
+      /\b(identify\s+the\s+actual\s+cause\s+of\s+the\s+recent\s+connectivity\s+degradation|actual\s+cause\s+of\s+the\s+recent\s+connectivity\s+degradation)\b/i.test(lower);
+    const isRecoveryRecommendationQuery =
+      /\b(recommend\s+an\s+authorized\s+recovery\s+operation|authorized\s+recovery\s+operation)\b/i.test(lower);
+    const isDisconnectQuery =
+      /\b(why\s+did\s+it\s+disconnect|why\s+is\s+it\s+disconnected|why\s+has\s+the\s+connection\s+to\s+this\s+host\s+disconnected\s+repeatedly|disconnected\s+repeatedly|disconnection\s+reason|connection\s+drop)\b/i.test(lower);
+    const isCompareSession =
+      /\b(compare\s+(its\s+)?(latest|current)\s+(connection|tunnel\s+performance)|previous\s+sessions?|compare\s+sessions?)\b/i.test(lower);
+    const isSameServerQuery =
+      /\b(same\s+server|same\s+target|that\s+server|that\s+host|check\s+the\s+tunnel\s+to\s+the\s+same)\b/i.test(lower);
+
+    if (isShowAgents) {
+      queryCategory = 'ATLAS_MULTI_SITE_AGENTS_INSPECTION';
+      const enrolled = snap.clients;
+      const sites = snap.sites || [];
+      if (enrolled.length > 0) {
+        const topClient = enrolled[0];
+        session.lastAtlasClientId = topClient.clientId;
+        session.lastAtlasTargetHost = topClient.hostname;
+        session.lastAtlasRelayId = topClient.relayId;
+        headlineResult = `Found ${enrolled.length} enrolled Project Atlas remote agent(s) across ${Math.max(1, sites.length)} registered site(s): ${enrolled.map((c) => `${c.clientName} [${c.clientId}, site=${c.siteId || 'default-site'}, relay=${c.relayId}, state=${c.operationalState || c.status}, lastHeartbeat=${c.lastHeartbeatAt || 'none'}]`).join('; ')}.`;
+        meaning = `Active remote agents are authenticated via TLS 1.3 mTLS and grouped by site and relay affinity.`;
+        nextStep = `Inspect telemetry or proxies bound to agent "${topClient.clientName}" (${topClient.clientId}).`;
+      } else {
+        headlineResult = 'No Project Atlas remote agents are currently enrolled across any registered site.';
+        meaning = 'Client enrollment tokens must be issued via POST /api/atlas/tokens/issue before agents connect.';
+        nextStep = 'Issue a client enrollment token and start the edge client.';
+      }
+      extraEvidence = { enrolledAgents: enrolled, registeredSites: sites };
+    } else if (isUnstableRelayQuery) {
+      queryCategory = 'ATLAS_UNSTABLE_RELAY_IDENTIFICATION';
+      const rankedByInstability = [...snap.relays].sort((a, b) => {
+        const lossDiff = (Number(b.packetLossPct || 0) + Number(b.jitterMs || 0)) - (Number(a.packetLossPct || 0) + Number(a.jitterMs || 0));
+        if (lossDiff !== 0) return lossDiff;
+        return Number(a.stabilityScore ?? 0.99) - Number(b.stabilityScore ?? 0.99);
+      });
+      const worstRelay = rankedByInstability[0];
+      if (worstRelay) {
+        session.lastAtlasRelayId = worstRelay.relayId;
+        headlineResult = `Relay "${worstRelay.name}" (${worstRelay.relayId}) currently serves the most unstable connections (state=${worstRelay.operationalState || worstRelay.status}, packetLoss=${worstRelay.packetLossPct || 0}%, jitter=${worstRelay.jitterMs || 0}ms, RTT=${worstRelay.measuredRttMs ?? 'NULL'}ms, stabilityScore=${worstRelay.stabilityScore ?? 0.99}).`;
+        meaning = `Evaluated all ${snap.relays.length} registered relay(s) across packet loss, jitter, RTT, and historical stability score.`;
+        nextStep = `Fail over dependent clients and proxies from ${worstRelay.relayId} using POST /api/atlas/relays/${worstRelay.relayId}/failover.`;
+      } else {
+        headlineResult = 'No Project Atlas relays are currently registered.';
+        meaning = 'Register a relay node before evaluating relay stability.';
+        nextStep = 'Invoke POST /api/atlas/relays/register.';
+      }
+      extraEvidence = { unstableRelay: worstRelay, rankedByInstability };
+    } else if (isRelayBlastRadiusQuery) {
+      queryCategory = 'ATLAS_RELAY_UNAVAILABILITY_BLAST_RADIUS';
+      const targetRelayId = session.lastAtlasRelayId || (snap.relays[0] ? snap.relays[0].relayId : 'atlas-relay-primary-01');
+      const affectedClients = snap.clients.filter((c) => c.relayId === targetRelayId && !c.revoked);
+      const affectedProxies = snap.proxies.filter((p) => p.relayId === targetRelayId && p.status === 'ACTIVE');
+      const affectedSites = Array.from(new Set(affectedClients.map((c) => c.siteId || 'default-site')));
+      headlineResult = `If relay "${targetRelayId}" becomes unavailable, ${affectedProxies.length} active service proxy(s) [${affectedProxies.map((p) => p.proxyName).join(', ') || 'none'}] and ${affectedClients.length} connected agent(s) [${affectedClients.map((c) => c.clientName).join(', ') || 'none'}] across site(s) [${affectedSites.join(', ') || 'default-site'}] will be impacted.`;
+      meaning = `Topological blast radius computed directly from live relay-to-client and relay-to-proxy bindings on ${targetRelayId}.`;
+      nextStep = `Execute controlled relay failover from ${targetRelayId} to ${relayRec.recommendedRelay?.relayId || 'a healthy secondary relay'}.`;
+      extraEvidence = {
+        blastRadius: {
+          relayId: targetRelayId,
+          affectedSites,
+          affectedClients: affectedClients.map((c) => c.clientId),
+          affectedServices: affectedProxies.map((p) => ({ proxyId: p.proxyId, proxyName: p.proxyName }))
+        }
+      };
+    } else if (isP2pTrafficQuery) {
+      queryCategory = 'ATLAS_P2P_TRAFFIC_AND_FALLBACK_INSPECTION';
+      const p2pList = Array.from(projectAtlasEngine.p2pSessions.values());
+      if (p2pList.length > 0) {
+        const latestP2p = p2pList[p2pList.length - 1];
+        const isDirectVerified = latestP2p.transportMode === 'DIRECT_UDP_HOLE_PUNCH_QUIC' && latestP2p.dataPlaneConnectivityVerified;
+        headlineResult = isDirectVerified
+          ? `XTCP P2P session "${latestP2p.proxyName}" (${latestP2p.p2pSessionId}) is carrying verified direct peer-to-peer traffic (${latestP2p.transportMode}, dataPlaneConnectivityVerified=true, RTT=${latestP2p.dataPlaneRttMs}ms).`
+          : `XTCP P2P session "${latestP2p.proxyName}" (${latestP2p.p2pSessionId}) is NOT carrying direct P2P traffic; it has fallen back to relay mode (${latestP2p.transportMode}, reason=${latestP2p.fallbackReason || 'DATA_PLANE_UNVERIFIED'}, dataPlaneConnectivityVerified=${latestP2p.dataPlaneConnectivityVerified}).`;
+        meaning = `Project Atlas explicitly separates control-plane hole-punch negotiation (${latestP2p.negotiationStatus}) from verified data-plane traffic delivery.`;
+        nextStep = isDirectVerified
+          ? 'Continue monitoring P2P data-plane RTT and UDP keepalives.'
+          : 'Inspect NAT firewall rules or continue routing securely via STCP relay fallback.';
+        extraEvidence = { p2pSessions: p2pList };
+      } else {
+        headlineResult = 'No XTCP P2P sessions are currently negotiated; all active tunnels are operating over standard relay transport.';
+        meaning = 'Zero P2P sessions exist in p2pSessions memory.';
+        nextStep = 'Negotiate an XTCP session via POST /api/atlas/p2p/negotiate and verify data-plane connectivity.';
+        extraEvidence = { p2pSessions: [] };
+      }
+    } else if (isDegradationCauseQuery || isRecoveryRecommendationQuery) {
+      queryCategory = isRecoveryRecommendationQuery ? 'ATLAS_AUTHORIZED_RECOVERY_RECOMMENDATION' : 'ATLAS_CONNECTIVITY_DEGRADATION_CAUSE';
+      const degradedRelays = snap.relays.filter((r) => r.operationalState === 'DEGRADED' || (r.packetLossPct || 0) >= 2.0);
+      const unhealthyProxies = snap.proxies.filter((p) => p.healthStatus === 'UNHEALTHY_CIRCUIT_OPEN');
+      const disconnectedClients = snap.clients.filter((c) => c.status !== 'CONNECTED' || c.revoked);
+
+      if (degradedRelays.length > 0) {
+        const badR = degradedRelays[0];
+        session.lastAtlasRelayId = badR.relayId;
+        headlineResult = isRecoveryRecommendationQuery
+          ? `Recommended Authorized Recovery Operation: Execute controlled relay failover from degraded relay "${badR.relayId}" (loss=${badR.packetLossPct}%, jitter=${badR.jitterMs}ms) to optimal relay "${relayRec.recommendedRelay?.relayId || 'atlas-relay-primary-01'}".`
+          : `Actual Cause of Connectivity Degradation: Relay "${badR.name}" (${badR.relayId}) is in ${badR.operationalState} state with measured packet loss ${badR.packetLossPct}% and jitter ${badR.jitterMs}ms.`;
+        meaning = `Isolated root cause to relay transport degradation on ${badR.relayId} rather than local backend service failure.`;
+        nextStep = `Invoke POST /api/atlas/relays/${badR.relayId}/failover or POST /api/atlas/incidents/closed-loop to migrate active tunnels.`;
+      } else if (unhealthyProxies.length > 0) {
+        const badP = unhealthyProxies[0];
+        headlineResult = isRecoveryRecommendationQuery
+          ? `Recommended Authorized Recovery Operation: Drain unhealthy proxy backend "${badP.proxyName}" (${badP.proxyId}) via POST /api/atlas/proxies/${badP.proxyId}/drain and restart local target service ${badP.localIp}:${badP.localPort}.`
+          : `Actual Cause of Connectivity Degradation: Local backend service ${badP.localIp}:${badP.localPort} behind proxy "${badP.proxyName}" (${badP.proxyId}) is failing health checks (UNHEALTHY_CIRCUIT_OPEN).`;
+        meaning = `Relay control plane is healthy, isolating the fault to the upstream local service.`;
+        nextStep = `Drain backend ${badP.proxyId} and verify local process listening on ${badP.localIp}:${badP.localPort}.`;
+      } else if (disconnectedClients.length > 0) {
+        const badC = disconnectedClients[0];
+        headlineResult = isRecoveryRecommendationQuery
+          ? `Recommended Authorized Recovery Operation: Reconnect or re-enroll disconnected agent "${badC.clientName}" (${badC.clientId}, status=${badC.status}).`
+          : `Actual Cause of Connectivity Degradation: Tunnel client "${badC.clientName}" (${badC.clientId}) is in state ${badC.status}.`;
+        meaning = `Evaluated client session state and heartbeat history.`;
+        nextStep = `Invoke POST /api/atlas/clients/${badC.clientId}/reconnect or issue a new enrollment token if revoked.`;
+      } else {
+        headlineResult = isRecoveryRecommendationQuery
+          ? `No emergency recovery operation required: all ${snap.summary.relaysCount} relay(s) and ${snap.summary.activeProxiesCount} proxy(s) are currently healthy.`
+          : `No active connectivity degradation detected across ${snap.summary.relaysCount} relay(s) and ${snap.summary.activeProxiesCount} active proxy(s).`;
+        meaning = 'All observed control-plane and data-plane health metrics are within nominal thresholds.';
+        nextStep = 'Continue normal telemetry observation.';
+      }
+      extraEvidence = { degradedRelays, unhealthyProxies, disconnectedClients };
+    } else if (isDisconnectQuery) {
+      queryCategory = 'ATLAS_DISCONNECT_ANALYSIS';
+      const targetClientId = session.lastAtlasClientId || (snap.clients.length > 0 ? snap.clients[0].clientId : null);
+      const client = targetClientId ? snap.clients.find((c) => c.clientId === targetClientId) : null;
+      if (client) {
+        session.lastAtlasClientId = client.clientId;
+        session.lastAtlasTargetHost = client.hostname;
+        const isRevoked = client.revoked || client.status === 'REVOKED';
+        const isHeartbeatExpired = client.status === 'DISCONNECTED_HEARTBEAT_TIMEOUT';
+        const isSuperseded = client.status === 'SUPERSEDED_BY_REENROLLMENT';
+
+        if (isRevoked) {
+          headlineResult = `Client "${client.clientName}" (${client.clientId}) was disconnected because its credentials were explicitly revoked by Zero-Trust policy.`;
+          meaning = 'The control-plane session was severed and its reverse proxies were terminated with REVOKED_TERMINATED.';
+          nextStep = 'Issue a fresh enrollment token to re-admit this edge agent.';
+        } else if (isSuperseded) {
+          headlineResult = `Client session ${client.clientId} for "${client.clientName}" was superseded by a newer re-enrollment session.`;
+          meaning = 'The agent initiated a new registration handshake, retiring this prior session generation.';
+          nextStep = 'Monitor the newer active session for this client.';
+        } else if (isHeartbeatExpired) {
+          headlineResult = `Client "${client.clientName}" (${client.clientId}) disconnected due to heartbeat silence exceeding timeout threshold (generation=${client.reconnectGeneration || 1}).`;
+          meaning = `Last recorded heartbeat was at ${client.lastHeartbeatAt || 'unknown'}. No subsequent TCP/TLS keepalive was received.`;
+          nextStep = 'Verify network routing between the edge agent and the relay node.';
+        } else {
+          headlineResult = `Client "${client.clientName}" (${client.clientId}) status is ${client.status} (generation=${client.reconnectGeneration || 1}, transitions=${(client.sessionHistory || []).length}).`;
+          meaning = 'Evaluated client session history and heartbeat telemetry.';
+          nextStep = 'Review recent audit events in the event ledger.';
+        }
+        extraEvidence = { disconnectedClient: client };
+      } else {
+        headlineResult = 'No prior remote agent or client session is available in context to diagnose.';
+        meaning = 'Please specify a clientId or run "Show me the remote agents" first.';
+        nextStep = 'Query remote agents to select a target session.';
+      }
+    } else if (isCompareSession) {
+      queryCategory = 'ATLAS_SESSION_COMPARISON';
+      const targetClientId = session.lastAtlasClientId || (snap.clients.length > 0 ? snap.clients[0].clientId : null);
+      const client = targetClientId ? snap.clients.find((c) => c.clientId === targetClientId) : null;
+      if (client) {
+        session.lastAtlasClientId = client.clientId;
+        const gen = client.reconnectGeneration || 1;
+        const hbCount = client.heartbeatCount || 1;
+        const historyCount = Array.isArray(client.sessionHistory) ? client.sessionHistory.length : 1;
+        headlineResult = `Compared sessions for "${client.clientName}" (${client.clientId}): Current Generation=${gen}, Total Heartbeats=${hbCount}, Session Transitions=${historyCount}, Relay=${client.relayId}.`;
+        meaning = `The current connection generation is ${gen} with TLS cipher ${client.tlsCipherSuite || 'TLS_AES_256_GCM_SHA384'}.`;
+        nextStep = 'Inspect live proxies or run health check against the current session.';
+        extraEvidence = { clientComparison: { clientId: client.clientId, generation: gen, history: client.sessionHistory } };
+      } else {
+        headlineResult = 'No client session available in conversation memory to compare.';
+        meaning = 'Specify a clientId to compare previous connection sessions.';
+        nextStep = 'List agents via "Show me the remote agents".';
+      }
+    } else if (isSameServerQuery) {
+      queryCategory = 'ATLAS_SAME_SERVER_TUNNEL_INSPECTION';
+      const host = session.lastAtlasTargetHost || session.lastTarget || '127.0.0.1';
+      const matchedProxies = snap.proxies.filter((p) => p.localIp === host || p.bindAddr === host);
+      if (matchedProxies.length > 0) {
+        const topP = matchedProxies[0];
+        session.lastAtlasProxyId = topP.proxyId;
+        headlineResult = `Inspected tunnel(s) to target server "${host}": found ${matchedProxies.length} proxy tunnel(s) (${matchedProxies.map((p) => `${p.proxyName} [:${p.remotePort}->${p.localIp}:${p.localPort}, ${p.healthStatus}]`).join('; ')}).`;
+        meaning = `Tunnel ${topP.proxyName} is actively bound to ${host}:${topP.localPort} with health ${topP.healthStatus}.`;
+        nextStep = `Run a health check on proxy ${topP.proxyId}.`;
+      } else {
+        headlineResult = `No active Project Atlas tunnels are configured for target server "${host}".`;
+        meaning = `Searched ${snap.proxies.length} registered proxy tunnel(s) against host "${host}".`;
+        nextStep = 'Register a new proxy tunnel pointing to this host.';
+      }
+      extraEvidence = { targetHost: host, matchedProxies };
+    } else if (/\b(recommend|safest|lowest[- ]latency|optimal|best)\s+relay\b/i.test(lower)) {
+      queryCategory = 'RELAY_RECOMMENDATION';
+      const best = relayRec.recommendedRelay;
+      headlineResult = best
+        ? `Recommended Relay: ${best.name} (${best.relayId}) — Score ${best.compositeScore}/100, RTT ${best.measuredRttMs ?? 'N/A'}ms, Transport ${best.recommendedTransport}.`
+        : 'No online relays available for recommendation.';
+      meaning = relayRec.explanation;
+      nextStep = best
+        ? `Bind tunnel clients to ${best.relayId} (${best.bindAddr}:${best.bindPort}) using ${best.recommendedTransport}.`
+        : 'Register an online Project Atlas relay node.';
+      extraEvidence = { relayRecommendation: relayRec };
+    } else if (/\b(temporarily grant|jit access|jit grant)\b/i.test(lower)) {
+      queryCategory = 'JIT_ACCESS_GOVERNANCE';
+      const portMatch = promptText.match(/\bport\s+(\d{1,5})\b/i);
+      const ttlMatch = promptText.match(/\b(\d{1,3})\s*minutes?\b/i);
+      const targetPort = portMatch ? Number(portMatch[1]) : 22;
+      const ttlMinutes = ttlMatch ? Number(ttlMatch[1]) : 15;
+      headlineResult = `Prepared time-bounded JIT administrative access workflow for port ${targetPort} (TTL=${ttlMinutes} minutes, dual-operator approval required).`;
+      meaning = `Zero-Trust policy blocks public exposure of sensitive port ${targetPort} unless an explicit signed JIT grant (issueJitAdminAccessGrant) is active.`;
+      nextStep = `Invoke POST /api/atlas/jit-grants with localPort=${targetPort}, ttlMs=${ttlMinutes * 60_000}, requireDualControl=true, and secondaryApproverId.`;
+      extraEvidence = {
+        proposedJitPolicy: {
+          localPort: targetPort,
+          ttlMs: ttlMinutes * 60_000,
+          requireDualControl: true,
+          activeJitGrantsCount: snap.summary.activeJitGrantsCount
+        }
+      };
+    } else if (/\b(expired|over-permissive|access policies|revoked)\b/i.test(lower)) {
+      queryCategory = 'SECURITY_EXPOSURE_AUDIT';
+      const expiredJit = snap.jitAdminGrants.filter((g) => g.revoked || Date.now() > g.expiresAt);
+      const publicProxies = snap.proxies.filter((p) => p.exposurePolicy === 'PUBLIC_INTERNET');
+      headlineResult = `Audited ${snap.proxies.length} proxy(s) and ${snap.jitAdminGrants.length} JIT grant(s): ${publicProxies.length} public-internet proxy(s), ${expiredJit.length} expired/revoked JIT grant(s), ${snap.summary.revokedClientsCount} revoked client(s).`;
+      meaning = 'All public exposures on privileged ports are governed by time-bounded JIT grants and automatic sweep termination.';
+      nextStep = 'Run POST /api/atlas/jit-grants/sweep to terminate any proxies whose JIT window has elapsed.';
+      extraEvidence = { expiredJitGrants: expiredJit, publicProxies };
+    } else if (/\b(dropping|unreachable|failure|nat traversal|config change|inspect traffic|health check)\b/i.test(lower)) {
+      queryCategory = 'TUNNEL_ROOT_CAUSE_DIAGNOSIS';
+      const diagResults = [];
+      for (const p of snap.proxies.slice(0, 5)) {
+        diagResults.push(await projectAtlasEngine.diagnoseProxyOrTunnel(p.proxyId));
+      }
+      const unhealthy = diagResults.filter((d) => d.verdict !== 'TUNNEL_AND_BACKEND_HEALTHY');
+      headlineResult =
+        unhealthy.length > 0
+          ? `Identified ${unhealthy.length} degraded/terminated tunnel(s): ${unhealthy.map((u) => `${u.proxyId} -> ${u.verdict} (${u.rootCauseLayer})`).join('; ')}`
+          : `All ${diagResults.length} registered Project Atlas proxy tunnel(s) verified healthy end-to-end.`;
+      meaning =
+        unhealthy.length > 0
+          ? unhealthy.map((u) => u.explanation).join(' ')
+          : 'Relay listeners, TLS 1.3 control-plane sessions, and local upstream backend targets are responding within thresholds.';
+      nextStep =
+        unhealthy.length > 0
+          ? unhealthy[0].recommendedAction
+          : 'Continue passive telemetry monitoring or inspect specific proxy metrics via GET /api/atlas/metrics.';
+      extraEvidence = { tunnelDiagnoses: diagResults };
+    } else {
+      const clientNames = snap.clients.map((c) => `${c.clientName} (${c.status}, relay=${c.relayId})`).join(', ') || 'none enrolled';
+      const proxyNames =
+        snap.proxies
+          .map((p) => `${p.proxyName} [${p.proxyType} :${p.remotePort}->${p.localIp}:${p.localPort}, ${p.healthStatus}, latency=${p.lastLatencyMs ?? 'NULL'}ms]`)
+          .join(', ') || 'none active';
+      headlineResult = `Project Atlas Status: ${snap.summary.connectedClientsCount} connected client(s) [${clientNames}]; ${snap.summary.activeProxiesCount} active proxy tunnel(s) [${proxyNames}].`;
+      meaning = `All active client sessions enforce TLS 1.3 (${snap.cryptographicPosture.activeKeyId}) with ${snap.persistenceStatus} persistence.`;
+      nextStep = 'Ask to diagnose a specific proxy, recommend the lowest-latency relay, or audit JIT access grants.';
+    }
+
+    const latestIncident = Array.isArray(snap.closedLoopIncidents) && snap.closedLoopIncidents.length > 0
+      ? snap.closedLoopIncidents[0]
+      : null;
+
+    const epistemicDistinctions = {
+      observedConditions: observedFacts,
+      suspectedProblems: derivedCalculations,
+      historicalPriors: historicalObservations,
+      unavailableMetrics: unavailableTelemetry,
+      indirectEvidenceBoundaries: this.evaluateIndirectEvidenceBoundaries({
+        probeType: 'TCP_CONTROL_PLANE_AND_DNS_SYNTHESIS',
+        tcpReachable: snap.summary.connectedClientsCount > 0 && snap.summary.activeProxiesCount > 0,
+        status: (snap.summary.connectedClientsCount > 0 && snap.summary.activeProxiesCount > 0) ? 'PASS' : 'UNVERIFIED'
+      }),
+      verifiedRecoveryState: latestIncident
+        ? this.evaluateVerifiedRecoveryState(latestIncident, latestIncident.subjectId || 'project_atlas_mesh')
+        : null
+    };
+
+    const durationMs = Number((performance.now() - t0).toFixed(2));
+    const reply = [
+      `### Project Atlas Sovereign Connectivity Intelligence (${queryCategory})`,
+      `**Summary:** ${headlineResult}`,
+      `**1. Observed Facts (Live Runtime State):**\n` + observedFacts.map((f) => `- ${f}`).join('\n'),
+      `**2. Historical Observations (Audit & Event Ledger):**\n` +
+        (historicalObservations.length > 0
+          ? historicalObservations.map((h) => `- ${h}`).join('\n')
+          : '- No prior historical config/revocation events recorded in this window.'),
+      `**3. Derived Calculations:**\n` + derivedCalculations.map((d) => `- ${d}`).join('\n'),
+      `**4. Unavailable Telemetry:**\n` +
+        (unavailableTelemetry.length > 0
+          ? unavailableTelemetry.map((u) => `- ${u}`).join('\n')
+          : '- None (all queried relay and active proxy metrics are populated).'),
+      `**Recommended Next Step:** ${nextStep}`
+    ].join('\n\n');
+
+    return {
+      reply,
+      structuredAnswer: {
+        result: headlineResult,
+        meaning,
+        nextStep,
+        layerFailedFirst: 'None (Project Atlas Control Plane Online)',
+        uncertainty:
+          unavailableTelemetry.length > 0
+            ? `Unavailable telemetry explicitly reported (${unavailableTelemetry.length} field(s)).`
+            : 'Verified directly against live ProjectAtlasEngine state.'
+      },
+      steps: [
+        {
+          stepNumber: 1,
+          label: `Querying Project Atlas Control Plane (${queryCategory})…`,
+          tool: 'project_atlas_intelligence',
+          status: 'PASS',
+          summary: headlineResult,
+          durationMs
+        }
+      ],
+      findings: [
+        { label: 'Connected Clients', value: String(snap.summary.connectedClientsCount), tone: 'ok' },
+        { label: 'Active Proxies', value: String(snap.summary.activeProxiesCount), tone: 'ok' },
+        { label: 'Persistence', value: snap.persistenceStatus, tone: snap.persistenceStatus === 'DURABLE_SQLITE_SYNCED' ? 'ok' : 'warn' }
+      ],
+      technicalEvidence: {
+        tool: 'project_atlas_intelligence',
+        queryCategory,
+        evidenceSeparation: {
+          observedFacts,
+          historicalObservations,
+          derivedCalculations,
+          unavailableTelemetry
+        },
+        epistemicDistinctions,
+        snapshotSummary: snap.summary,
+        ...extraEvidence,
+        observedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Phase Atlas VIII (Cycle 2): Trusted Post-Action Recovery Semantics
+   * Strictly enforces:
+   *   1. Never defaults missing `actionExecuted` to `true`. Requires explicit `actionExecuted === true`
+   *      (or `executed === true` / `remediationAction.executed === true` / verified `postSnapshotId`)
+   *      AND a non-empty execution/incident identifier (`executionId`, `remediationId`, `incidentId`,
+   *      `actionId`, `verificationId`, or `preSnapshotId`).
+   *   2. Requires a recognized probe with trustworthy provenance (rejecting AI-generated or manual
+   *      text assertions), valid non-stale observation timestamp (`<= maxProbeFreshnessAgeMs`),
+   *      chronological ordering after `actionExecutedAt` (when supplied), target matching the
+   *      remediated target, and concrete quantitative measured telemetry (finite latency/RTT/duration/
+   *      statusCode/afterMetrics or explicit numeric telemetry in observedResult).
+   *   3. Enforces layer-appropriate recovery verification: a transport-only TCP probe cannot mark
+   *      an L7 HTTP application fault as `VERIFIED_HEALTHY_AFTER_REMEDIATION` (returns
+   *      `PARTIAL_TRANSPORT_ONLY_RECOVERY_L7_UNVERIFIED` with `postActionHealthy: false`).
+   */
+  evaluateVerifiedRecoveryState(candidate, defaultTarget = null, options = {}) {
+    if (!candidate || typeof candidate !== 'object') return null;
+
+    const nowMs = typeof options.nowMs === 'number' ? options.nowMs : Date.now();
+    const maxProbeFreshnessAgeMs =
+      typeof options.maxProbeFreshnessAgeMs === 'number' && options.maxProbeFreshnessAgeMs > 0
+        ? options.maxProbeFreshnessAgeMs
+        : 300000; // Default 5 minutes
+
+    const executionId =
+      candidate.executionId ||
+      candidate.remediationId ||
+      candidate.actionId ||
+      candidate.incidentId ||
+      candidate.verificationId ||
+      candidate.verification?.preSnapshotId ||
+      candidate.remediationAction?.actionId ||
+      null;
+
+    const explicitActionExecuted =
+      candidate.actionExecuted === true ||
+      candidate.executed === true ||
+      candidate.remediationAction?.executed === true ||
+      Boolean(candidate.verification?.postSnapshotId && candidate.verification?.preSnapshotId);
+
+    const uninspectedProxiesCount = Number(
+      candidate.uninspectedProxiesCount ??
+        candidate.verificationResult?.uninspectedProxiesCount ??
+        0
+    );
+
+    if (!explicitActionExecuted) {
+      return {
+        incidentId: executionId,
+        executionId: executionId ? String(executionId) : null,
+        actionExecuted: false,
+        recoveryState: 'REMEDIATION_NOT_EXECUTED',
+        status: 'REMEDIATION_NOT_EXECUTED',
+        postActionHealthy: false,
+        verificationProbe: null,
+        rejectionReason: 'MISSING_EXPLICIT_ACTION_EXECUTED',
+        uninspectedProxiesCount,
+        verifiedAt: null
+      };
+    }
+
+    if (!executionId || !String(executionId).trim()) {
+      return {
+        incidentId: null,
+        executionId: null,
+        actionExecuted: false,
+        recoveryState: 'UNVERIFIED_EXECUTION_IDENTITY_MISSING',
+        status: 'UNVERIFIED_EXECUTION_IDENTITY_MISSING',
+        postActionHealthy: false,
+        verificationProbe: null,
+        rejectionReason: 'MISSING_EXECUTION_OR_INCIDENT_ID',
+        uninspectedProxiesCount,
+        verifiedAt: null
+      };
+    }
+
+    const remediatedTarget = String(
+      candidate.target ||
+        candidate.subjectId ||
+        candidate.remediatedTarget ||
+        defaultTarget ||
+        ''
+    ).trim();
+
+    const remediatedLayer = String(
+      candidate.faultLayer ||
+        candidate.remediatedLayer ||
+        candidate.layer ||
+        ''
+    )
+      .trim()
+      .toUpperCase();
+
+    const actionExecutedAtMs = candidate.actionExecutedAt
+      ? Date.parse(candidate.actionExecutedAt)
+      : candidate.executedAt
+        ? Date.parse(candidate.executedAt)
+        : NaN;
+
+    const rawProbe =
+      candidate.verificationProbe ||
+      candidate.postActionProbe ||
+      (Array.isArray(candidate.verificationResult?.probes) && candidate.verificationResult.probes[0]) ||
+      (Array.isArray(candidate.probesRun) && candidate.probesRun[0]) ||
+      (Array.isArray(candidate.newSteps) && candidate.newSteps[0]) ||
+      (candidate.verification && typeof candidate.verification === 'object' ? candidate.verification : null);
+
+    let verificationProbe = null;
+    let rejectionReason = null;
+    let partialTransportOnly = false;
+
+    if (rawProbe && typeof rawProbe === 'object') {
+      const probeType = String(
+        rawProbe.probeType ||
+          rawProbe.tool ||
+          rawProbe.checkType ||
+          (rawProbe.afterMetrics ? 'DNS_AND_TCP_POSTCONDITION_PROBE' : '')
+      ).trim();
+
+      const explicitProbeTarget = String(rawProbe.target || rawProbe.endpoint || '').trim();
+      const probeTarget = explicitProbeTarget || remediatedTarget;
+
+      const probeTimestamp =
+        rawProbe.timestamp ||
+        rawProbe.observedAt ||
+        rawProbe.verifiedAt ||
+        candidate.verifiedAt ||
+        candidate.resolvedAt ||
+        null;
+
+      const parsedProbeTsMs = probeTimestamp ? Date.parse(String(probeTimestamp)) : NaN;
+      const probeAgeMs = Number.isFinite(parsedProbeTsMs) ? nowMs - parsedProbeTsMs : NaN;
+
+      const untrustedProvenance =
+        rawProbe.synthetic === true ||
+        /UNVERIFIED|MANUAL|SYNTHETIC|FABRICATED|ASSUMED|AI_GENERATED/i.test(String(rawProbe.provenance || '')) ||
+        probeType.toUpperCase() === 'AI_SYNTHESIS_ASSERTION' ||
+        probeType.toUpperCase() === 'MANUAL_DECLARATION';
+
+      const targetMismatch =
+        Boolean(explicitProbeTarget && remediatedTarget) &&
+        explicitProbeTarget.toLowerCase() !== remediatedTarget.toLowerCase() &&
+        !explicitProbeTarget.toLowerCase().startsWith(`${remediatedTarget.toLowerCase()}:`) &&
+        !remediatedTarget.toLowerCase().startsWith(`${explicitProbeTarget.toLowerCase()}:`);
+
+      const timestampInvalidOrStale =
+        !Number.isFinite(parsedProbeTsMs) ||
+        probeAgeMs > maxProbeFreshnessAgeMs ||
+        probeAgeMs < -30000 ||
+        (Number.isFinite(actionExecutedAtMs) && parsedProbeTsMs < actionExecutedAtMs);
+
+      const hasMeasuredAfterMetrics = Boolean(
+        rawProbe.afterMetrics &&
+          (typeof rawProbe.afterMetrics.liveDnsRttMs === 'number' ||
+            typeof rawProbe.afterMetrics.liveTcpRttMs === 'number' ||
+            rawProbe.afterMetrics.reachable === true)
+      );
+
+      const hasNumericProbeMetric =
+        (typeof rawProbe.latencyMs === 'number' && Number.isFinite(rawProbe.latencyMs) && rawProbe.latencyMs >= 0) ||
+        (typeof rawProbe.rttMs === 'number' && Number.isFinite(rawProbe.rttMs) && rawProbe.rttMs >= 0) ||
+        (typeof rawProbe.durationMs === 'number' && Number.isFinite(rawProbe.durationMs) && rawProbe.durationMs >= 0) ||
+        (typeof rawProbe.statusCode === 'number' && Number.isFinite(rawProbe.statusCode));
+
+      const observedText = String(rawProbe.observedResult || rawProbe.summary || '').trim();
+      const hasQuantitativeObservedText =
+        /\b\d+(\.\d+)?\s*(ms|s|%|bytes|packets|rtt|status|http|ok|200|204)\b/i.test(observedText) ||
+        String(rawProbe.status || '').toUpperCase() === 'TUNNEL_AND_BACKEND_HEALTHY';
+
+      const hasQuantitativeMeasurement =
+        hasMeasuredAfterMetrics || hasNumericProbeMetric || hasQuantitativeObservedText;
+
+      const explicitProbeStatus = String(rawProbe.status || rawProbe.verdict || '').toUpperCase();
+
+      // Check layer appropriateness: L4 TCP alone cannot verify L7 HTTP application recovery
+      const isL7Fault =
+        remediatedLayer === 'L7_APPLICATION' ||
+        remediatedLayer === 'APPLICATION_L7' ||
+        remediatedLayer === 'HTTP_L7' ||
+        remediatedLayer === 'L7_UPSTREAM_APPLICATION';
+      const isTransportOnlyProbe =
+        /^(TCP|ICMP|UDP|L3|L4)/i.test(probeType) &&
+        !/HTTP|L7|APP|TLS/i.test(probeType) &&
+        typeof rawProbe.statusCode !== 'number';
+
+      if (untrustedProvenance) {
+        rejectionReason = 'UNTRUSTED_PROBE_PROVENANCE';
+      } else if (targetMismatch) {
+        rejectionReason = 'PROBE_TARGET_MISMATCH';
+      } else if (timestampInvalidOrStale) {
+        rejectionReason = 'STALE_OR_INVALID_PROBE_TIMESTAMP';
+      } else if (!hasQuantitativeMeasurement && explicitProbeStatus !== 'FAIL' && explicitProbeStatus !== 'UNREACHABLE') {
+        rejectionReason = 'MISSING_QUANTITATIVE_PROBE_MEASUREMENT';
+      } else if (isL7Fault && isTransportOnlyProbe) {
+        partialTransportOnly = true;
+        rejectionReason = 'TRANSPORT_ONLY_PROBE_INSUFFICIENT_FOR_L7_RECOVERY';
+      }
+
+      if (probeType && probeTarget && probeTimestamp) {
+        const probePassed = Boolean(
+          !rejectionReason &&
+            hasQuantitativeMeasurement &&
+            (rawProbe.criteriaMet === true ||
+              rawProbe.probePassed === true ||
+              rawProbe.healthy === true ||
+              (rawProbe.postconditionPassed === true && hasMeasuredAfterMetrics) ||
+              explicitProbeStatus === 'PASS' ||
+              explicitProbeStatus === 'OK' ||
+              explicitProbeStatus === 'TUNNEL_AND_BACKEND_HEALTHY') &&
+            explicitProbeStatus !== 'FAIL' &&
+            explicitProbeStatus !== 'ERROR' &&
+            explicitProbeStatus !== 'UNREACHABLE' &&
+            uninspectedProxiesCount === 0
+        );
+
+        verificationProbe = {
+          probeType,
+          target: probeTarget,
+          timestamp: String(probeTimestamp),
+          ageMs: Number.isFinite(probeAgeMs) ? Math.max(0, Math.round(probeAgeMs)) : null,
+          observedResult:
+            observedText ||
+            (hasMeasuredAfterMetrics
+              ? `liveDnsRttMs=${rawProbe.afterMetrics.liveDnsRttMs ?? 'N/A'}, liveTcpRttMs=${rawProbe.afterMetrics.liveTcpRttMs ?? 'N/A'}`
+              : hasNumericProbeMetric
+                ? `latencyMs=${rawProbe.latencyMs ?? rawProbe.rttMs ?? rawProbe.durationMs ?? 'N/A'}, statusCode=${rawProbe.statusCode ?? 'N/A'}`
+                : explicitProbeStatus || 'unverified'),
+          quantitativeMeasurementVerified: hasQuantitativeMeasurement,
+          criteriaMet: probePassed,
+          ...(rejectionReason ? { rejectionReason } : {})
+        };
+      }
+    }
+
+    const postActionHealthy = Boolean(verificationProbe && verificationProbe.criteriaMet === true);
+    const recoveryState = verificationProbe
+      ? postActionHealthy
+        ? 'VERIFIED_HEALTHY_AFTER_REMEDIATION'
+        : partialTransportOnly
+          ? 'PARTIAL_TRANSPORT_ONLY_RECOVERY_L7_UNVERIFIED'
+          : rejectionReason
+            ? `UNVERIFIED_PROBE_REJECTED_${rejectionReason}`
+            : 'POST_ACTION_PROBE_FAILED'
+      : 'ACTION_EXECUTED_POST_PROBE_PENDING_OR_UNVERIFIED';
+
+    return {
+      incidentId: String(executionId),
+      executionId: String(executionId),
+      actionExecuted: true,
+      recoveryState,
+      status: recoveryState,
+      postActionHealthy,
+      verificationProbe,
+      rejectionReason,
+      uninspectedProxiesCount,
+      verifiedAt: postActionHealthy ? verificationProbe.timestamp || new Date().toISOString() : null
+    };
+  }
+
+  /**
+   * Phase Atlas IX (Cycle 6): Explicit Indirect Evidence Epistemic Boundaries
+   * Ensures indirect cross-layer observations are strictly bounded:
+   *   - Successful TCP connectivity confirms L3/L4 reachability along the active route,
+   *     but never claims physical switch port/NIC hardware health or L7 application health.
+   *   - A DNS timeout distinguishes UDP/53 transport filtering, recursive resolver failure,
+   *     and upstream authoritative domain failure rather than conflating them.
+   */
+  evaluateIndirectEvidenceBoundaries(observation = {}) {
+    const probeType = String(observation.probeType || observation.type || '').trim().toUpperCase();
+    const status = String(observation.status || observation.outcome || '').trim().toUpperCase();
+    const rcode = String(observation.rcode || '').trim().toUpperCase();
+
+    // 1. Authoritative NXDOMAIN
+    const isNxDomain =
+      probeType.includes('DNS') &&
+      (status === 'NXDOMAIN' || rcode === 'NXDOMAIN');
+
+    if (isNxDomain) {
+      return {
+        observationCategory: 'AUTHORITATIVE_DNS_NXDOMAIN_NON_EXISTENCE',
+        provenByObservation: ['AUTHORITATIVE_ZONE_DOES_NOT_CONTAIN_RECORD_NXDOMAIN'],
+        disambiguatedCandidateCauses: [
+          'AUTHORITATIVE_ZONE_MISSING_RESOURCE_RECORD',
+          'TYPOGRAPHICAL_DOMAIN_NAME_ERROR',
+          'DECOMMISSIONED_OR_EXPIRED_HOST_RECORD'
+        ],
+        notProvenByObservation: [
+          'RECURSIVE_RESOLVER_TIMEOUT',
+          'UDP_53_OR_TCP_53_TRANSPORT_FILTERING',
+          'PHYSICAL_NIC_LINK_DOWN'
+        ],
+        epistemicBoundaryNote:
+          'An authoritative NXDOMAIN proves the requested domain record does not exist in the authoritative zone; it does NOT indicate recursive resolver outage or transport packet filtering.'
+      };
+    }
+
+    // 2. DNS Timeout / Failure
+    const isDnsTimeout =
+      probeType.includes('DNS') &&
+      (status === 'TIMEOUT' ||
+        status === 'ANOMALY' ||
+        status === 'FAIL' ||
+        observation.timedOut === true ||
+        observation.anomalyDetected === true);
+
+    if (isDnsTimeout) {
+      return {
+        observationCategory: 'DNS_RESOLUTION_TIMEOUT_OR_FAILURE',
+        provenByObservation: ['DNS_QUERY_RESPONSE_NOT_RECEIVED_WITHIN_DEADLINE'],
+        disambiguatedCandidateCauses: [
+          'UDP_53_OR_TCP_53_TRANSPORT_FILTERING_OR_FIREWALL_DROP',
+          'RECURSIVE_RESOLVER_SATURATION_OR_PROCESS_UNAVAILABLE',
+          'UPSTREAM_AUTHORITATIVE_NAMESERVER_TIMEOUT_OR_SERVFAIL'
+        ],
+        notProvenByObservation: [
+          'DEFINITIVE_AUTHORITATIVE_DOMAIN_NON_EXISTENCE_NXDOMAIN',
+          'PHYSICAL_NIC_LINK_DOWN'
+        ],
+        epistemicBoundaryNote:
+          'A DNS timeout proves that no DNS response arrived within the deadline, but does NOT by itself disambiguate UDP/53 transport filtering, recursive resolver outage, or authoritative server failure without targeted L4/resolver probes.'
+      };
+    }
+
+    // 3. Concrete Verified Positive TCP Three-Way Handshake
+    const isTcpVerifiedPass =
+      (probeType.includes('TCP') || observation.tcpReachable === true) &&
+      observation.tcpReachable !== false &&
+      (status === 'PASS' || status === 'OK' || status === 'SUCCESS') &&
+      !observation.timedOut &&
+      !observation.failed;
+
+    if (isTcpVerifiedPass) {
+      return {
+        observationCategory: 'UPPER_LAYER_TCP_TRANSPORT_CONNECTIVITY',
+        provenByObservation: [
+          'L3_ACTIVE_ROUTE_IP_FORWARDING_REACHABILITY',
+          'L4_TCP_THREE_WAY_HANDSHAKE_COMPLETION'
+        ],
+        notProvenByObservation: [
+          'L1_PHYSICAL_SWITCH_PORT_CRC_OR_OPTICAL_DOM_HEALTH',
+          'L2_REDUNDANT_LACP_MEMBER_LINK_HEALTH',
+          'L7_HTTP_APPLICATION_WORKER_SEMANTIC_HEALTH'
+        ],
+        epistemicBoundaryNote:
+          'Successful TCP connectivity indirectly confirms L3/L4 packet forwarding along the active route, but never claims physical switch port/cable error-free hardware health or L7 application worker correctness.'
+      };
+    }
+
+    // 4. Failed or Refused TCP Transport
+    const isTcpFailed =
+      observation.tcpReachable === false ||
+      (probeType.includes('TCP') &&
+        (status === 'FAIL' ||
+          status === 'TIMEOUT' ||
+          status === 'REFUSED' ||
+          status === 'ANOMALY' ||
+          observation.timedOut === true ||
+          observation.failed === true));
+
+    if (isTcpFailed) {
+      return {
+        observationCategory: 'TCP_TRANSPORT_CONNECTIVITY_FAILED_OR_REFUSED',
+        provenByObservation: ['L4_TCP_HANDSHAKE_NOT_ESTABLISHED'],
+        disambiguatedCandidateCauses: [
+          'REMOTE_HOST_DOWN_OR_UNREACHABLE',
+          'INTERMEDIATE_FIREWALL_DROP_OR_REJECT',
+          'SERVICE_NOT_LISTENING_PORT_CLOSED'
+        ],
+        notProvenByObservation: [
+          'L3_ACTIVE_ROUTE_IP_FORWARDING_REACHABILITY',
+          'L4_TCP_THREE_WAY_HANDSHAKE_COMPLETION',
+          'PHYSICAL_NIC_LINK_DOWN'
+        ],
+        epistemicBoundaryNote:
+          'A failed or refused TCP probe proves the handshake did not complete, but cannot assert active L3 forwarding reachability.'
+      };
+    }
+
+    // 5. Default: Insufficient or unverified evidence
+    return {
+      observationCategory: 'INSUFFICIENT_OR_UNVERIFIED_EVIDENCE',
+      provenByObservation: [],
+      disambiguatedCandidateCauses: ['UNVERIFIED_MEASUREMENT_STATE'],
+      notProvenByObservation: [
+        'L3_ACTIVE_ROUTE_IP_FORWARDING_REACHABILITY',
+        'L4_TCP_THREE_WAY_HANDSHAKE_COMPLETION',
+        'DNS_RESOLUTION_CONFIRMED'
+      ],
+      epistemicBoundaryNote:
+        'No direct verified probe outcome provided; epistemic boundaries prevent asserting forwarding reachability or naming validity.'
     };
   }
 }

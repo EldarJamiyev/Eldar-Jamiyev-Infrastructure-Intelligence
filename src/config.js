@@ -28,7 +28,9 @@ try {
 // Known legacy/placeholder secrets that are strictly forbidden in production or non-local exposure
 const KNOWN_INSECURE_SECRETS = new Set([
   'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026',
+  'EJII-SRE-WAR-ROOM-SOVEREIGN-HMAC-KEY-2026',
   'EJII-ENTERPRISE-TOKEN-KEY-98471298471928471',
+  'ejii-atlas-sovereign-hmac-secret-key-2026',
   'ejii-super-secret-jwt-key-change-in-production',
   'changeme',
   'default',
@@ -104,6 +106,13 @@ function isTemplateEnvPlaceholder(sec) {
 function isPlaceholderSecret(sec) {
   if (!sec || typeof sec !== 'string') return true;
   const s = sec.trim();
+  return KNOWN_INSECURE_SECRETS.has(s) || isTemplateEnvPlaceholder(s);
+}
+
+function isInsecureOrWeakSecret(sec, minLen = 16) {
+  if (!sec || typeof sec !== 'string') return true;
+  const s = sec.trim();
+  if (s.length < minLen) return true;
   return KNOWN_INSECURE_SECRETS.has(s) || isTemplateEnvPlaceholder(s);
 }
 
@@ -196,6 +205,358 @@ const JWT_SECRET = (!isPlaceholderSecret(process.env.EJII_JWT_SECRET) && process
   ? process.env.EJII_JWT_SECRET
   : localSecrets.jwtSecret;
 
+/**
+ * Purpose-separated HKDF-SHA256 Key Derivation & Keyring Rotation Manager.
+ * Ensures that Atlas Control Plane, SRE War Room, DSRL Lyapunov Vault, and Flight Recorder
+ * use cryptographically isolated keys and can rotate keys independently with grace-period verification.
+ */
+const PURPOSE_ENV_MAP = Object.freeze({
+  'atlas-control-plane-v1': 'EJII_ATLAS_HMAC_SECRET',
+  'sre-war-room-v1': 'EJII_WAR_ROOM_HMAC_SECRET',
+  'dsrl-lyapunov-vault-v1': 'EJII_VAULT_HMAC_SECRET',
+  'incident-flight-recorder-v1': 'EJII_FLIGHT_RECORDER_HMAC_SECRET',
+  'telemetry-provenance-v1': 'EJII_TELEMETRY_HMAC_SECRET'
+});
+
+const purposeKeyRings = new Map();
+const revokedPurposeKeyIds = new Map(); // purpose -> Set<keyId>
+
+function getSqliteDbSafe() {
+  try {
+    return require('./db/database').db || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function computeSecretFingerprint(secret) {
+  return crypto.createHash('sha256').update(`ejii-key-fp-v1:${String(secret || '')}`).digest('hex');
+}
+
+function persistKeyVersionState(purpose, keyId, secret, status, meta = {}) {
+  const db = meta.db || getSqliteDbSafe();
+  if (!db || typeof db.prepare !== 'function') return false;
+  try {
+    const now = Date.now();
+    const fp = computeSecretFingerprint(secret);
+    db.prepare(`
+      INSERT INTO crypto_key_versions (
+        purpose, key_id, secret_fingerprint_sha256, status,
+        created_at_ms, rotated_at_ms, expires_at_ms, revoked_at_ms, revocation_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(purpose, key_id) DO UPDATE SET
+        status = excluded.status,
+        rotated_at_ms = COALESCE(excluded.rotated_at_ms, crypto_key_versions.rotated_at_ms),
+        expires_at_ms = COALESCE(excluded.expires_at_ms, crypto_key_versions.expires_at_ms),
+        revoked_at_ms = COALESCE(excluded.revoked_at_ms, crypto_key_versions.revoked_at_ms),
+        revocation_reason = COALESCE(excluded.revocation_reason, crypto_key_versions.revocation_reason)
+    `).run(
+      purpose,
+      keyId,
+      fp,
+      status,
+      meta.createdAtMs || now,
+      meta.rotatedAtMs || null,
+      meta.expiresAtMs || null,
+      meta.revokedAtMs || null,
+      meta.revocationReason || null
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isPurposeKeyRevokedOrExpiredInDb(purpose, keyId, customDb = null, options = {}) {
+  const cleanPurpose = String(purpose || 'default-purpose-v1').trim();
+  const cleanKeyId = String(keyId || '').trim();
+  if (!cleanKeyId) return false;
+
+  const db = customDb || getSqliteDbSafe();
+  if (db && typeof db.prepare !== 'function') {
+    const memSet = revokedPurposeKeyIds.get(cleanPurpose);
+    return Boolean(memSet && memSet.has(cleanKeyId));
+  }
+
+  try {
+    const row = db
+      .prepare('SELECT status, expires_at_ms, revoked_at_ms FROM crypto_key_versions WHERE purpose = ? AND key_id = ?')
+      .get(cleanPurpose, cleanKeyId);
+    if (row) {
+      if (row.status === 'REVOKED' || row.revoked_at_ms) {
+        if (!customDb) {
+          if (!revokedPurposeKeyIds.has(cleanPurpose)) revokedPurposeKeyIds.set(cleanPurpose, new Set());
+          revokedPurposeKeyIds.get(cleanPurpose).add(cleanKeyId);
+        }
+        return true;
+      }
+      if (!options.onlyExplicitRevocation && (row.status === 'EXPIRED' || (row.expires_at_ms && Date.now() > Number(row.expires_at_ms)))) {
+        return true;
+      }
+      return false;
+    }
+  } catch (_) {}
+
+  if (customDb) {
+    return false;
+  }
+
+  const memSet = revokedPurposeKeyIds.get(cleanPurpose);
+  if (memSet && memSet.has(cleanKeyId)) return true;
+  return false;
+}
+
+function _resetCryptoStateForTests() {
+  purposeKeyRings.clear();
+  revokedPurposeKeyIds.clear();
+  try {
+    const db = getSqliteDbSafe();
+    if (db && typeof db.prepare === 'function') {
+      db.prepare('DELETE FROM crypto_key_versions').run();
+    }
+  } catch (_) {}
+}
+
+function derivePurposeKeyMaterial(baseSecret, purposeContext) {
+  const cleanPurpose = String(purposeContext || 'default-purpose-v1').trim();
+  if (typeof crypto.hkdfSync === 'function') {
+    const derived = crypto.hkdfSync(
+      'sha256',
+      Buffer.from(String(baseSecret), 'utf8'),
+      Buffer.from('ejii-sovereign-hkdf-salt-v1', 'utf8'),
+      Buffer.from(`ejii-purpose:${cleanPurpose}`, 'utf8'),
+      32
+    );
+    return Buffer.from(derived).toString('hex');
+  }
+  return crypto
+    .createHmac('sha256', `ejii-hkdf-fallback:${cleanPurpose}`)
+    .update(String(baseSecret))
+    .digest('hex');
+}
+
+function getPurposeKeyRing(purposeContext = 'default-purpose-v1', options = {}) {
+  const cleanPurpose = String(purposeContext || 'default-purpose-v1').trim();
+  const envKeyName = PURPOSE_ENV_MAP[cleanPurpose];
+  const envOverride = envKeyName ? process.env[envKeyName] : null;
+  const now = Date.now();
+
+  if (envOverride && !isInsecureOrWeakSecret(envOverride, 16)) {
+    const keyId = `kid-${cleanPurpose}-${crypto.createHash('sha256').update(envOverride).digest('hex').slice(0, 8)}`;
+    const isRevoked = isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, keyId, options.db);
+    return {
+      purpose: cleanPurpose,
+      activeKeyId: isRevoked ? null : keyId,
+      activeSecret: isRevoked ? null : envOverride.trim(),
+      configured: !isRevoked,
+      reason: isRevoked ? 'KEY_REVOKED_OR_EXPIRED' : 'ENV_OVERRIDE_ACTIVE',
+      previousKeys: (purposeKeyRings.get(cleanPurpose)?.previousKeys || []).filter(
+        (k) => k.expiresAtMs > now && !isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, k.keyId, options.db)
+      )
+    };
+  }
+
+  // If global EJII_HMAC_SECRET was explicitly overridden in process.env (e.g. in tests), respect it if valid
+  const rawGlobalEnv = process.env.EJII_HMAC_SECRET;
+  if (rawGlobalEnv && isInsecureOrWeakSecret(rawGlobalEnv, 16) && !isTemplateEnvPlaceholder(rawGlobalEnv)) {
+    return {
+      purpose: cleanPurpose,
+      activeKeyId: null,
+      activeSecret: null,
+      configured: false,
+      reason: 'REJECTED_INSECURE_OR_WEAK_SECRET',
+      previousKeys: []
+    };
+  }
+
+  const existingRing = purposeKeyRings.get(cleanPurpose);
+  if (existingRing && existingRing.activeSecret && !existingRing.derivedFromEnv) {
+    existingRing.previousKeys = existingRing.previousKeys.filter(
+      (k) => k.expiresAtMs > now && !isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, k.keyId, options.db)
+    );
+    if (isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, existingRing.activeKeyId, options.db)) {
+      return {
+        purpose: cleanPurpose,
+        activeKeyId: null,
+        activeSecret: null,
+        configured: false,
+        reason: 'ACTIVE_KEY_REVOKED',
+        previousKeys: existingRing.previousKeys
+      };
+    }
+    return existingRing;
+  }
+
+  const baseMaterial = (!isInsecureOrWeakSecret(rawGlobalEnv, 16)) ? rawGlobalEnv.trim() : HMAC_SECRET;
+  const derivedSecret = derivePurposeKeyMaterial(baseMaterial, cleanPurpose);
+  const keyId = `kid-${cleanPurpose}-${derivedSecret.slice(0, 8)}`;
+  if (isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, keyId, options.db)) {
+    return {
+      purpose: cleanPurpose,
+      activeKeyId: null,
+      activeSecret: null,
+      configured: false,
+      reason: 'DERIVED_KEY_REVOKED_OR_EXPIRED',
+      previousKeys: existingRing
+        ? existingRing.previousKeys.filter(
+            (k) => k.expiresAtMs > now && !isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, k.keyId, options.db)
+          )
+        : []
+    };
+  }
+  const ring = {
+    purpose: cleanPurpose,
+    activeKeyId: keyId,
+    activeSecret: derivedSecret,
+    configured: true,
+    derivedFromEnv: true,
+    previousKeys: existingRing
+      ? existingRing.previousKeys.filter(
+          (k) => k.expiresAtMs > now && !isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, k.keyId, options.db)
+        )
+      : []
+  };
+  purposeKeyRings.set(cleanPurpose, ring);
+  return ring;
+}
+
+function getPurposeSeparatedSecret(purposeContext = 'default-purpose-v1') {
+  const ring = getPurposeKeyRing(purposeContext);
+  return ring.activeSecret;
+}
+
+function rotatePurposeKey(purposeContext, newSecretMaterial, options = {}) {
+  const cleanPurpose = String(purposeContext || 'default-purpose-v1').trim();
+  if (isInsecureOrWeakSecret(newSecretMaterial, 16)) {
+    const err = new Error(`Refusing to rotate key for purpose "${cleanPurpose}": secret is weak (<16 chars) or on the known-insecure blocklist.`);
+    err.code = 'WEAK_OR_INSECURE_SECRET_REJECTED';
+    throw err;
+  }
+  const now = Date.now();
+  const gracePeriodMs = Math.max(50, Number(options.gracePeriodMs) || 3600_000);
+  const currentRing = getPurposeKeyRing(cleanPurpose, { db: options.db });
+  const previousKeys = [...(currentRing.previousKeys || [])].filter(
+    (k) => k.expiresAtMs > now && !isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, k.keyId, options.db)
+  );
+  if (currentRing.activeSecret && currentRing.activeKeyId) {
+    const expiresAtMs = now + gracePeriodMs;
+    previousKeys.unshift({
+      keyId: currentRing.activeKeyId,
+      secret: currentRing.activeSecret,
+      rotatedAtMs: now,
+      expiresAtMs
+    });
+    persistKeyVersionState(cleanPurpose, currentRing.activeKeyId, currentRing.activeSecret, 'RETIRING_GRACE', {
+      db: options.db,
+      rotatedAtMs: now,
+      expiresAtMs
+    });
+  }
+  const derivedOrDirect = options.deriveWithHkdf === true
+    ? derivePurposeKeyMaterial(newSecretMaterial.trim(), cleanPurpose)
+    : newSecretMaterial.trim();
+  const newKeyId = options.keyId || `kid-${cleanPurpose}-${crypto.createHash('sha256').update(derivedOrDirect).digest('hex').slice(0, 8)}`;
+
+  if (isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, newKeyId, options.db)) {
+    const err = new Error(`Refusing to rotate key for purpose "${cleanPurpose}": keyId "${newKeyId}" was previously revoked or retired.`);
+    err.code = 'REVOKED_KEY_REUSE_BLOCKED';
+    throw err;
+  }
+
+  const updatedRing = {
+    purpose: cleanPurpose,
+    activeKeyId: newKeyId,
+    activeSecret: derivedOrDirect,
+    configured: true,
+    derivedFromEnv: false,
+    rotatedAt: new Date(now).toISOString(),
+    previousKeys: previousKeys.slice(0, 5)
+  };
+  purposeKeyRings.set(cleanPurpose, updatedRing);
+  persistKeyVersionState(cleanPurpose, newKeyId, derivedOrDirect, 'ACTIVE', {
+    db: options.db,
+    createdAtMs: now
+  });
+
+  return {
+    purpose: cleanPurpose,
+    activeKeyId: updatedRing.activeKeyId,
+    previousKeysRetainedCount: updatedRing.previousKeys.length,
+    gracePeriodMs,
+    rotatedAt: updatedRing.rotatedAt
+  };
+}
+
+function revokePurposeKey(purposeContext, keyIdToRevoke, reason = 'Operator key revocation', options = {}) {
+  const cleanPurpose = String(purposeContext || 'default-purpose-v1').trim();
+  const cleanKeyId = String(keyIdToRevoke || '').trim();
+  if (!cleanKeyId) {
+    throw new Error('keyIdToRevoke is required.');
+  }
+  if (!options.db) {
+    if (!revokedPurposeKeyIds.has(cleanPurpose)) {
+      revokedPurposeKeyIds.set(cleanPurpose, new Set());
+    }
+    revokedPurposeKeyIds.get(cleanPurpose).add(cleanKeyId);
+
+    const ring = purposeKeyRings.get(cleanPurpose);
+    if (ring) {
+      ring.previousKeys = (ring.previousKeys || []).filter((k) => k.keyId !== cleanKeyId);
+      if (ring.activeKeyId === cleanKeyId) {
+        ring.activeSecret = null;
+        ring.activeKeyId = null;
+        ring.configured = false;
+      }
+    }
+  }
+
+  persistKeyVersionState(cleanPurpose, cleanKeyId, cleanKeyId, 'REVOKED', {
+    db: options.db,
+    revokedAtMs: Date.now(),
+    revocationReason: reason
+  });
+
+  return {
+    revoked: true,
+    purpose: cleanPurpose,
+    keyId: cleanKeyId,
+    reason,
+    revokedAt: new Date().toISOString()
+  };
+}
+
+function verifyPurposeHmac(purposeContext, canonicalPayload, signatureHex, options = {}) {
+  if (!signatureHex || typeof signatureHex !== 'string') {
+    return { valid: false, matchedKeyId: null, reason: 'MISSING_SIGNATURE' };
+  }
+  const cleanPurpose = String(purposeContext || 'default-purpose-v1').trim();
+  if (options.requiredKeyId && isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, options.requiredKeyId, options.db)) {
+    return { valid: false, matchedKeyId: null, reason: 'KEY_ID_REVOKED_OR_EXPIRED' };
+  }
+
+  const ring = getPurposeKeyRing(cleanPurpose, { db: options.db });
+  const candidates = [];
+  if (ring.activeSecret && ring.activeKeyId) {
+    candidates.push({ keyId: ring.activeKeyId, secret: ring.activeSecret });
+  }
+  for (const prev of ring.previousKeys || []) {
+    if (prev && prev.secret && prev.expiresAtMs > Date.now()) {
+      candidates.push({ keyId: prev.keyId, secret: prev.secret });
+    }
+  }
+
+  const sigBuf = Buffer.from(signatureHex, 'utf8');
+  for (const c of candidates) {
+    if (isPurposeKeyRevokedOrExpiredInDb(cleanPurpose, c.keyId, options.db)) continue;
+    const expected = crypto.createHmac('sha256', c.secret).update(String(canonicalPayload)).digest('hex');
+    const expBuf = Buffer.from(expected, 'utf8');
+    if (sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return { valid: true, matchedKeyId: c.keyId, reason: 'VERIFIED' };
+    }
+  }
+  return { valid: false, matchedKeyId: null, reason: 'SIGNATURE_MISMATCH_OR_EXPIRED' };
+}
+
 // Protected system processes that can NEVER be terminated by automation
 const PROTECTED_SYSTEM_PROCESSES = [
   'system',
@@ -251,7 +612,16 @@ module.exports = {
   KNOWN_DEFAULT_PASSWORDS,
   isLocalLoopbackHost,
   isWildcardBindingHost,
+  isInsecureOrWeakSecret,
   validateSecurityConfiguration,
+  derivePurposeKeyMaterial,
+  getPurposeKeyRing,
+  getPurposeSeparatedSecret,
+  rotatePurposeKey,
+  revokePurposeKey,
+  isPurposeKeyRevokedOrExpiredInDb,
+  _resetCryptoStateForTests,
+  verifyPurposeHmac,
   PROTECTED_SYSTEM_PROCESSES,
   AUTOMATION_TIERS,
   IS_EVALUATION_MODE,
@@ -259,3 +629,4 @@ module.exports = {
   IS_LINUX: os.platform() === 'linux',
   PLATFORM: os.platform()
 };
+
