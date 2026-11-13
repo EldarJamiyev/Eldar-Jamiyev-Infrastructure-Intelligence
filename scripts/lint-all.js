@@ -36,9 +36,13 @@ console.log(`[EJII Linter] 1. Auditing AST syntax across ${jsFiles.length} JavaS
 let jsFailures = 0;
 for (const file of jsFiles) {
   try {
-    const code = fs.readFileSync(file, 'utf8');
-    // In-process AST compilation via Node.js V8 engine
-    new vm.Script(code, { filename: file });
+    if (file.endsWith('.mjs')) {
+      execSync(`node --check "${file}"`, { stdio: 'pipe' });
+    } else {
+      const code = fs.readFileSync(file, 'utf8');
+      // In-process AST compilation via Node.js V8 engine
+      new vm.Script(code, { filename: file });
+    }
   } catch (err) {
     console.error(`  [SYNTAX ERROR] ${file}: ${err.message}`);
     jsFailures++;

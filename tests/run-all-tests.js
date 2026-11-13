@@ -143,7 +143,9 @@ const COMPANION_TEST_MODULES = [
   './ceo-directive-intelligence-leap.test',
   './enterprise-infrastructure-evolution.test',
   './upstream-downstream-specialist-consensus.test',
-  './autonomous-cognitive-core-evolution.test'
+  './autonomous-cognitive-core-evolution.test',
+  './sovereign-fabric-v6-reality.test',
+  './skills-ecosystem-migration.test'
 ];
 
 async function runAllTests() {
