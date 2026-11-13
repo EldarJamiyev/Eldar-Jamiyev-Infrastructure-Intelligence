@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: frontend-design
+# Source Hash : 7927d4843339da94c169aa04346d817ff4ee392034aa4469a2ffb788d45f2afe
+# Target Hash : d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3
+# Analyzed At : 2026-11-13T11:27:44.903Z
+--- Target: .agents/skills/frontend-design/SKILL.md
++++ Source: upstream/skills/frontend-design/SKILL.md
+===================================================================
+Target Description: Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.
+Source Description: |
+Target File Count  : 2
+Source File Count  : 2

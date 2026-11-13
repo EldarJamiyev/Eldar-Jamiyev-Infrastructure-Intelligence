@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: improve-codebase-architecture
+# Source Hash : ab526ca26246137fe96048b072d93aeff45f763da5e6c0eca5e51012dfd34433
+# Target Hash : 35b03a3db61e0f5aa333ea59b54963e45a3d2ace6649b2ef4f9576603e2582a6
+# Analyzed At : 2026-11-13T11:27:48.462Z
+--- Target: .agents/skills/improve-codebase-architecture/SKILL.md
++++ Source: upstream/skills/improve-codebase-architecture/SKILL.md
+===================================================================
+Target Description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
+Source Description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
+Target File Count  : 3
+Source File Count  : 3

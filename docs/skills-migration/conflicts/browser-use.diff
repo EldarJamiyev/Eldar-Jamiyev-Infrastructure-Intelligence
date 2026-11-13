@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: browser-use
+# Source Hash : 0d70f7b6da919ba622b4fcac375eb34d45f676a2476d1530d46e180f78127261
+# Target Hash : 1e7bcd65a58ab8bd15788ae19d1b8ccec27d7feff87ca9a866c2340324a2477e
+# Analyzed At : 2026-11-13T11:27:38.925Z
+--- Target: .agents/skills/browser-use/SKILL.md
++++ Source: upstream/skills/browser-use/SKILL.md
+===================================================================
+Target Description: AI browser automation and stealth DOM interaction. Drives headless and headed browser workflows, interactive verification suites, and accessibility-tree parsing across web applications and operational dashboards.
+Source Description: Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser()), Playwright, Puppeteer or any CDP client.
+Target File Count  : 1
+Source File Count  : 1

@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: writing-skills
+# Source Hash : b72a652b95cd1df010a6986439a4b802318cd60be607c320c9033010c4d6391b
+# Target Hash : 8cb3ac68c6d8c4bb46886b998b09af7989643cab8bd0e46ee86dd62e64546bbe
+# Analyzed At : 2026-11-13T11:27:58.641Z
+--- Target: .agents/skills/writing-skills/SKILL.md
++++ Source: upstream/skills/writing-skills/SKILL.md
+===================================================================
+Target Description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+Source Description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+Target File Count  : 10
+Source File Count  : 10

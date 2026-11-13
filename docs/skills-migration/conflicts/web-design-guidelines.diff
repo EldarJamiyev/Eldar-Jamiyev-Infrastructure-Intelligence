@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: web-design-guidelines
+# Source Hash : 17e48da905f83a19c174079b50760a98c069527ba50079239b3c187236627c29
+# Target Hash : f4647ca866a3accf763777f83e7682954f0187cd6bea7eea0399796652414e8f
+# Analyzed At : 2026-11-13T11:27:58.500Z
+--- Target: .agents/skills/web-design-guidelines/SKILL.md
++++ Source: upstream/skills/web-design-guidelines/SKILL.md
+===================================================================
+Target Description: Review UI code for Web Interface Guidelines compliance. Use when asked to "review my UI", "check accessibility", "audit design", "review UX", or "check my site against best practices".
+Source Description: Review UI code for Web Interface Guidelines compliance. Use when asked to "review my UI", "check accessibility", "audit design", "review UX", or "check my site against best practices".
+Target File Count  : 1
+Source File Count  : 1

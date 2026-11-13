@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: subagent-driven-development
+# Source Hash : 994df914ba7d5d5d271330f167d6a4f67d436674f506734292acd0d9c8f4afcb
+# Target Hash : 1baf70e307bde682c462513c86116333f1f066168c6710f45145bf5f0b00828d
+# Analyzed At : 2026-11-13T11:27:55.100Z
+--- Target: .agents/skills/subagent-driven-development/SKILL.md
++++ Source: upstream/skills/subagent-driven-development/SKILL.md
+===================================================================
+Target Description: Use when executing implementation plans with independent tasks in the current session
+Source Description: Use when executing implementation plans with independent tasks in the current session
+Target File Count  : 15
+Source File Count  : 15

@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: performance-optimization
+# Source Hash : 9c68d80b13943b246b0e1b8c35747ab4de700d3deb1ce2a0d3f65eba1b8da731
+# Target Hash : 82af71540457cf853893685211f64509cd1e781c0de09d0186f16960f2d6eeba
+# Analyzed At : 2026-11-13T11:27:50.830Z
+--- Target: .agents/skills/performance-optimization/SKILL.md
++++ Source: upstream/skills/performance-optimization/SKILL.md
+===================================================================
+Target Description: Optimizes application performance across frontend, backend, queries, and databases. Use when performance requirements exist, when you suspect performance regressions, when Core Web Vitals or load times need improvement, when N+1 query patterns need fixing, or when profiling reveals bottlenecks.
+Source Description: >
+Target File Count  : 2
+Source File Count  : 2

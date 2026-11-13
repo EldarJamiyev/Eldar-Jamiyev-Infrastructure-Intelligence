@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: diagram-design
+# Source Hash : d40d2c1a0a73f197ebedb18d0ec1349bdbc169f717bd975535e73ce3abb61b5d
+# Target Hash : 7e29aaff980cabd87c0e88fd80061274ddd89795aeaf13b14e30b3c2ee687160
+# Analyzed At : 2026-11-13T11:27:41.415Z
+--- Target: .agents/skills/diagram-design/SKILL.md
++++ Source: upstream/skills/diagram-design/SKILL.md
+===================================================================
+Target Description: Slop-free technical diagramming and layout engineering using native HTML, CSS, and clean SVG vectors without bulky dependencies or unstyled Markdown blobs. Controls rendering performance parameters for EJII's interactive L1–L6 Topological Dependency Graph.
+Source Description: Create branded architecture, architecture delta, IT current-state, flowchart, sequence, state machine, ER/data model, steps, timeline, swimlane, quadrant, radar/spider, polar chart (polar/radial lollipop), loop/flywheel, nested, tree, org chart, layer stack, exploded axonometric, axonometric plan, Venn, pyramid/funnel, treemap and marimekko, unit grid, heatmap, bar and dumbbell, waterfall, line (slopegraph, ridgeline, streamgraph, bump), Gantt and scatter charts (bubble, beeswarm, box plot), high-level, process, medallion, data flow, DP integration, DP security matrix, Sankey, fishbone, Wardley map, kanban, user journey, service blueprint, deployment, dependency graph (arc diagram), UML class, story map, database schema, SBGN, requirement traceability, or event modeling diagrams as HTML/SVG/PNG, with .drawio, Mermaid, .excalidraw, and PlantUML import, plus lifecycle phase maps, block decomposition trees, and onboarding guidance.
+Target File Count  : 1
+Source File Count  : 317

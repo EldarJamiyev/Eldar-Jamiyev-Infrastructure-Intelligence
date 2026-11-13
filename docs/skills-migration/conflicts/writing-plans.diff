@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: writing-plans
+# Source Hash : 0fdb0f2af96e7d8e879bbffc65413983915411c63daf85e0757034e38630445d
+# Target Hash : a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a
+# Analyzed At : 2026-11-13T11:27:58.625Z
+--- Target: .agents/skills/writing-plans/SKILL.md
++++ Source: upstream/skills/writing-plans/SKILL.md
+===================================================================
+Target Description: Use when you have a spec or requirements for a multi-step task, before touching code
+Source Description: Use when you have a spec or requirements for a multi-step task, before touching code
+Target File Count  : 1
+Source File Count  : 1

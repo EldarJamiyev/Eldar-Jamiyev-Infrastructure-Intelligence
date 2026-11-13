@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: taste-skill
+# Source Hash : fcf8ac6e5a55f3cc067e16e3d651670d59c4ab0980743051c3438f54141a031e
+# Target Hash : 283fc324b4acb7ca3031784431dd90ad57f72349c957fdb690d7bfc3f22ed7ac
+# Analyzed At : 2026-11-13T11:27:55.189Z
+--- Target: .agents/skills/taste-skill/SKILL.md
++++ Source: upstream/skills/taste-skill/SKILL.md
+===================================================================
+Target Description: Visual aesthetics, typography, and art direction enforcement for agentic UI design. Enforces quiet luxury design principles, eliminates visual clutter, and validates chart scaling inside data-dense cockpits.
+Source Description: tasteskill v2, the anti-slop frontend skill. Art direction for websites, distilled from a study of 247 curated gallery sites (One Page Love, Awwwards Sites of the Day). Deals researched directions (idea, composition, type, palette, photographs, section blueprints) from a library, enforces a strict no-slop house style with a real-browser inspector, and runs a look-and-fix loop on screenshots. Use this whenever you build, design, redesign, restyle, polish or review a landing page, marketing site, portfolio, product page, one-pager, hero or any public-facing web page, in any stack (HTML/CSS, React, Next.js, Vue, Svelte, Astro, Tailwind) — also when the user says a page looks generic, templated, "AI-made", sloppy, or asks to make it look designed, premium, award-level or less like every other site. Not for dashboards or app screens.
+Target File Count  : 1
+Source File Count  : 29

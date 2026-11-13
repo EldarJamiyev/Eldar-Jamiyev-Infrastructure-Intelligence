@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: diagnosing-superpowers
+# Source Hash : aaa37dceb1527ace06ec291895edf3a49a63b58fc65a839b1d8f3248f01317a4
+# Target Hash : 3143de8695c5a2d63e8b1675f33837578076f464deb127c2ebdd0b46fceef886
+# Analyzed At : 2026-11-13T11:27:41.306Z
+--- Target: .agents/skills/diagnosing-superpowers/SKILL.md
++++ Source: upstream/skills/diagnosing-superpowers/SKILL.md
+===================================================================
+Target Description: Use when a superpowers session went wrong and your human partner wants to know why — repeated work, ignored plans, stumbles, poor results, a skill that didn't fire, "it took too long", "why is it so expensive", "what is it doing" — or wants to build a bug report for the superpowers maintainers, for the current session or a past one identified by id or path, on any harness.
+Source Description: Use when a superpowers session went wrong and your human partner wants to know why — repeated work, ignored plans, stumbles, poor results, a skill that didn't fire, "it took too long", "why is it so expensive", "what is it doing" — or wants to build a bug report for the superpowers maintainers, for the current session or a past one identified by id or path, on any harness.
+Target File Count  : 20
+Source File Count  : 20

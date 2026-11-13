@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: caveman
+# Source Hash : 0eb27adf47ac50726ccf51444f2bc061084ab528bef3a9154be41ec55c0cd813
+# Target Hash : 9f7d29b690096a410360f4d7cba05a0a1d5ba0140c9d8a649bd29b72a813c15e
+# Analyzed At : 2026-11-13T11:27:39.270Z
+--- Target: .agents/skills/caveman/SKILL.md
++++ Source: upstream/skills/caveman/SKILL.md
+===================================================================
+Target Description: Token reduction proxy and linguistic root compression. Use when compressing massive raw multi-engine wire traces, PCAP streams, and telemetry logs into high-density causal primitives to cut LLM token overhead by 60-65% without loss of diagnostic fidelity.
+Source Description: >
+Target File Count  : 1
+Source File Count  : 2

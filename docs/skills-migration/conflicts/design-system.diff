@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: design-system
+# Source Hash : a63be91e83d1653f67c8e019bab838cc422efd756f1c43186a1eec2c37a7c7f4
+# Target Hash : 1969e4cb6cd13cdafff5f84353047d6e55cebc24e1a595ec48e6e2c666f3d8b1
+# Analyzed At : 2026-11-13T11:27:41.174Z
+--- Target: .agents/skills/design-system/SKILL.md
++++ Source: upstream/skills/design-system/SKILL.md
+===================================================================
+Target Description: Generate a design system from an existing codebase or audit one for visual consistency: extract tokens (colors, typography, spacing, shadows) into design-tokens.json and CSS custom properties with DESIGN.md rationale and an interactive HTML preview, score the UI across 10 dimensions, and flag AI-slop patterns. Use when starting a design system, auditing visual consistency before a redesign, or reviewing a PR that touches styling.
+Source Description: Section-by-section GDD authoring for one system — walks through each required section, cross-references dependencies.
+Target File Count  : 1
+Source File Count  : 6

@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: strategic-compact
+# Source Hash : 84e67bf2a5ac74d2212121ba1a022d56d3a46c48363bdc6916e778a9eeacdc91
+# Target Hash : 1c3be090bffc100e31d185196cff0eb7075a877523cf41c19d781baca65b219f
+# Analyzed At : 2026-11-13T11:27:55.054Z
+--- Target: .agents/skills/strategic-compact/SKILL.md
++++ Source: upstream/skills/strategic-compact/SKILL.md
+===================================================================
+Target Description: Suggests manual context compaction at logical intervals to preserve context through task phases rather than arbitrary auto-compaction. Use when a session is approaching a context limit and a task phase is a natural place to compact.
+Source Description: Decide when to run /compact: at phase boundaries, never mid-implementation, plan written to a file first. Use when a long session nears its context limit or the user asks about context hygiene.
+Target File Count  : 1
+Source File Count  : 2

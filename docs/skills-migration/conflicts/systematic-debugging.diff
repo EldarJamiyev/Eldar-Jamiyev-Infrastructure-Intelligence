@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: systematic-debugging
+# Source Hash : e54f92fb4fa7b19a9ae79dbbb25e2d153c98c08ed1e516e365160a620625f50f
+# Target Hash : 51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202
+# Analyzed At : 2026-11-13T11:27:55.154Z
+--- Target: .agents/skills/systematic-debugging/SKILL.md
++++ Source: upstream/skills/systematic-debugging/SKILL.md
+===================================================================
+Target Description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+Source Description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+Target File Count  : 6
+Source File Count  : 6

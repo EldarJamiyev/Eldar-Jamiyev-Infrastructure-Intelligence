@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: grill-me
+# Source Hash : 19e660207b447acf6ee0d600471c02e549c7aca8fb3ab38fdc2c7056aa442fc8
+# Target Hash : caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637
+# Analyzed At : 2026-11-13T11:27:47.009Z
+--- Target: .agents/skills/grill-me/SKILL.md
++++ Source: upstream/skills/grill-me/SKILL.md
+===================================================================
+Target Description: A relentless interview to sharpen a plan or design.
+Source Description: A relentless interview to sharpen a plan or design.
+Target File Count  : 2
+Source File Count  : 2

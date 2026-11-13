@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: prototype
+# Source Hash : f74ae01f4fc454d3a4ef21271920f1706e626271e715dda0559e489f45c792c3
+# Target Hash : 714de632d116bb73f65cdb5a882db15b9369a6713b9a47c0fad827848f0bfbe3
+# Analyzed At : 2026-11-13T11:27:51.165Z
+--- Target: .agents/skills/prototype/SKILL.md
++++ Source: upstream/skills/prototype/SKILL.md
+===================================================================
+Target Description: Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+Source Description: Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+Target File Count  : 4
+Source File Count  : 5

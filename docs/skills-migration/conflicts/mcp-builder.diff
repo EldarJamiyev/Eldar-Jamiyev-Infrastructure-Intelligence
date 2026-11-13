@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: mcp-builder
+# Source Hash : 1f8930d994bd2b0c7eba53b6fd67c0e0a238afa3173b7788e81e257ae3598cf0
+# Target Hash : b483b56d6673134497e45489c317f26ae0f1429c194db0297e43073e17e6748c
+# Analyzed At : 2026-11-13T11:27:49.645Z
+--- Target: .agents/skills/mcp-builder/SKILL.md
++++ Source: upstream/skills/mcp-builder/SKILL.md
+===================================================================
+Target Description: Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services, whether in Python (FastMCP) or Node/TypeScript (MCP SDK).
+Source Description: Build custom MCP servers — tool definitions, resource exposure, TypeScript SDK, testing
+Target File Count  : 11
+Source File Count  : 1

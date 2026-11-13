@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: finishing-a-development-branch
+# Source Hash : 2b8cb8f9cabb1951be2ebb1d72da90d3313f7e3705fd25f5b8f2d0432e139bae
+# Target Hash : 8db5a922b242dd4e1bf824cb91c13b3e8d8e8a86d6ceaf7f0774eb9cce909d65
+# Analyzed At : 2026-11-13T11:27:44.285Z
+--- Target: .agents/skills/finishing-a-development-branch/SKILL.md
++++ Source: upstream/skills/finishing-a-development-branch/SKILL.md
+===================================================================
+Target Description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work
+Source Description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work
+Target File Count  : 1
+Source File Count  : 1

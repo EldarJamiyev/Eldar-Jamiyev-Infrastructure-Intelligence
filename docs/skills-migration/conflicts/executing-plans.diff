@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: executing-plans
+# Source Hash : 152effcb24ad55c23b2e1ced270bdd9260741d5444409e392b7be6d031d0f1cb
+# Target Hash : deaf176fa179827e80f2ea3101db3ea90fdf562ebef340eba761e4687940f5f5
+# Analyzed At : 2026-11-13T11:27:43.722Z
+--- Target: .agents/skills/executing-plans/SKILL.md
++++ Source: upstream/skills/executing-plans/SKILL.md
+===================================================================
+Target Description: Use when executing an implementation plan in the current session as the implementer yourself — your human partner chose inline execution, or no subagent tool is available
+Source Description: Use when executing an implementation plan in the current session as the implementer yourself — your human partner chose inline execution, or no subagent tool is available
+Target File Count  : 3
+Source File Count  : 3

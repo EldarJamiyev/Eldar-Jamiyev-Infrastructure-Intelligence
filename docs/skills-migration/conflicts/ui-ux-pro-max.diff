@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: ui-ux-pro-max
+# Source Hash : e42fa4942e31bba80e76aab82a30bf3284ddefb1c63012f2f77df019b5b1fa83
+# Target Hash : aaa68f90e83c500410c93f4316e86580154c448853742bff4d6bbb0480c5c59b
+# Analyzed At : 2026-11-13T11:27:55.958Z
+--- Target: .agents/skills/ui-ux-pro-max/SKILL.md
++++ Source: upstream/skills/ui-ux-pro-max/SKILL.md
+===================================================================
+Target Description: Comprehensive design guide for web and mobile applications. Use when designing new UI components or pages, choosing color palettes and typography, or reviewing code for UX issues.
+Source Description: UI/UX design intelligence. 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stacks (React, Next.js, Vue, Svelte, SwiftUI, React Native, Flutter, Tailwind, shadcn/ui). Actions: plan, build, create, design, implement, review, fix, improve, optimize, enhance, refactor, check UI/UX code. Projects: website, landing page, dashboard, admin panel, e-commerce, SaaS, portfolio, blog, mobile app, .html, .tsx, .vue, .svelte. Elements: button, modal, navbar, sidebar, card, table, form, chart. Styles: glassmorphism, claymorphism, minimalism, brutalism, neumorphism, bento grid, dark mode, responsive, skeuomorphism, flat design. Topics: color palette, accessibility, animation, layout, typography, font pairing, spacing, hover, shadow, gradient. Integrations: shadcn/ui MCP for component search and examples.
+Target File Count  : 27
+Source File Count  : 33

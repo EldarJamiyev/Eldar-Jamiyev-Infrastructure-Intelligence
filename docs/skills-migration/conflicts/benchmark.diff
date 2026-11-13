@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: benchmark
+# Source Hash : eba402f7ba2aa3ce78a813e7e3e9fbdcf8cbdb8a3cc87253605e88a5d06bdb39
+# Target Hash : 58e34c3ccf60ee5155e3db74357b73770015a7aad3594649b6758ba8375ab6ff
+# Analyzed At : 2026-11-13T11:27:37.978Z
+--- Target: .agents/skills/benchmark/SKILL.md
++++ Source: upstream/skills/benchmark/SKILL.md
+===================================================================
+Target Description: Measure performance baselines and detect regressions across browser Core Web Vitals (LCP, INP, CLS, page weight), API endpoint latency percentiles, and build/test feedback times, with before/after comparison stored in git-tracked .ecc/benchmarks JSON. Use when checking page speed, responding to 'it feels slow' reports, verifying launch performance targets, or comparing stack alternatives.
+Source Description: Performance regression detection using the browse daemon. (gstack)
+Target File Count  : 1
+Source File Count  : 1

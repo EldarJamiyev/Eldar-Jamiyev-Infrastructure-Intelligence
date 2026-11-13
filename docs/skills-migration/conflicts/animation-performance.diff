@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: animation-performance
+# Source Hash : 071c9d9473870315b6fc3c0a9c769cb63979b62fd6e67bb8f7a2111b3385ce5c
+# Target Hash : c3c2ac554e95f2e5ac1531b941ed8c5b560a9e57b0f8910a6e6b572e9955f5e5
+# Analyzed At : 2026-11-13T11:27:37.227Z
+--- Target: .agents/skills/animation-performance/SKILL.md
++++ Source: upstream/skills/animation-performance/SKILL.md
+===================================================================
+Target Description: Diagnose dropped animation frames and choose properties, rendering paths, and profiling checks for smooth web motion.
+Source Description: Keep web animations inside the frame budget — animate composite-only properties, keep motion off the main thread when the page is busy, and find the cause when an animation drops frames. Covers the layout/paint/composite pipeline, cheaper property swaps, CSS vs WAAPI vs requestAnimationFrame, Motion's hardware-accelerated path, React re-rendering per frame, inherited CSS variable recalculation, blur cost, and when `will-change` actually helps. Use when an animation is janky, choppy, stutters, or drops frames; when choosing which property to animate; when deciding between CSS and JS animation on performance grounds; or when reaching for `will-change` or GPU layers. For choosing easing, duration, or whether to animate at all use animate; for reviewing motion as a whole use review-animations.
+Target File Count  : 2
+Source File Count  : 1

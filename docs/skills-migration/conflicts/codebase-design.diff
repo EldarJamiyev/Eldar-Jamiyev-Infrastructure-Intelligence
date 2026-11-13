@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: codebase-design
+# Source Hash : 362b0bec828219d9f4b08ca7c466164e67253bdd817359258e60d2e9c5692a8f
+# Target Hash : 2c20617f87ec8af6a434859f381b2f061a69b530444e74eb39e78bb016a6d1e2
+# Analyzed At : 2026-11-13T11:27:40.283Z
+--- Target: .agents/skills/codebase-design/SKILL.md
++++ Source: upstream/skills/codebase-design/SKILL.md
+===================================================================
+Target Description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.
+Source Description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.
+Target File Count  : 4
+Source File Count  : 4

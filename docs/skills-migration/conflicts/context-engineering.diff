@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: context-engineering
+# Source Hash : c6bebf6a0411ec6c6dbd5246ba64922f3bdd740d32edf88fbe45905a75fc4e72
+# Target Hash : 5ee2929d3aded01587aa24fc9907693c8820f87f807ea0c52a263af718b62d0b
+# Analyzed At : 2026-11-13T11:27:40.364Z
+--- Target: .agents/skills/context-engineering/SKILL.md
++++ Source: upstream/skills/context-engineering/SKILL.md
+===================================================================
+Target Description: Optimizes agent context setup. Use when starting a new session, when agent output quality degrades, when switching between tasks, or when you need to configure rules files and context for a project.
+Source Description: Reference for agent context design: degradation, compression, budgeting, file-based context, memory architectures, tool design, harnesses, multi-agent isolation. Use when designing agents or cutting token use (e.g. agentos).
+Target File Count  : 1
+Source File Count  : 22

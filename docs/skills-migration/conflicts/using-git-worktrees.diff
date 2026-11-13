@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: using-git-worktrees
+# Source Hash : 49ac647dd5a65e0e79f87d346005dde8ce27c6886bccf966164917ee8bb4df80
+# Target Hash : 8cfb86f121269e8f7f12361e6795c4f6738828340e28964c9229d365666c9edd
+# Analyzed At : 2026-11-13T11:27:56.154Z
+--- Target: .agents/skills/using-git-worktrees/SKILL.md
++++ Source: upstream/skills/using-git-worktrees/SKILL.md
+===================================================================
+Target Description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+Source Description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+Target File Count  : 1
+Source File Count  : 1

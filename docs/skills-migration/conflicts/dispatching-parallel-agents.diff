@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: dispatching-parallel-agents
+# Source Hash : fc9875393a1dcd6b649bf22d9ff62f3a02080c0ce365932451bc73e63d87ddab
+# Target Hash : 1968923066f3b707eb01d1992cdf4c42284c3855f70253b9cd5000ff45fca13c
+# Analyzed At : 2026-11-13T11:27:43.010Z
+--- Target: .agents/skills/dispatching-parallel-agents/SKILL.md
++++ Source: upstream/skills/dispatching-parallel-agents/SKILL.md
+===================================================================
+Target Description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+Source Description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+Target File Count  : 1
+Source File Count  : 1

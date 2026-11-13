@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: animate
+# Source Hash : 350e0f0d0f8b0d62b78959909d1d8d4ac8a0d69e5d9617fc24c54956cb0f6f2d
+# Target Hash : c37597b3319ce07f2018f0cc4236df029ab683a07b6e22088b51040b87fdbe39
+# Analyzed At : 2026-11-13T11:27:36.785Z
+--- Target: .agents/skills/animate/SKILL.md
++++ Source: upstream/skills/animate/SKILL.md
+===================================================================
+Target Description: Build purposeful web animations with appropriate tools, easing, duration, interruption, exits, and reduced-motion support.
+Source Description: Build an animation from scratch, making the decisions in the order that determines whether it feels right — should it animate at all, what purpose, which tool, which properties, which curve and duration, how it interrupts, how it exits. Writes the implementation. Use when asked to animate something, add motion, make a component feel alive, or build a transition. For critiquing existing motion use review-animations; for auditing a whole codebase use improve-animations.
+Target File Count  : 3
+Source File Count  : 2

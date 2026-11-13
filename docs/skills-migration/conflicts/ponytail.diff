@@ -1,0 +1,11 @@
+# EJII Skill Divergence Diff: ponytail
+# Source Hash : f18008471528f0adde90a560d053f85935eed5cee26c447b7177ad24472bcf32
+# Target Hash : c255acee83f4b3963d04089c51ac2b49eb5390a46dce451d4eb4bc8312c93da0
+# Analyzed At : 2026-11-13T11:27:50.968Z
+--- Target: .agents/skills/ponytail/SKILL.md
++++ Source: upstream/skills/ponytail/SKILL.md
+===================================================================
+Target Description: YAGNI-driven behavioral discipline enforcing lean code changes and lazy engineering logic. Restricts changes to the absolute minimum necessary, prevents premature abstraction, and blocks speculative code.
+Source Description: >
+Target File Count  : 1
+Source File Count  : 1
