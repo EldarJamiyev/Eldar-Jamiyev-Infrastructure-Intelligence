@@ -145,7 +145,8 @@ const COMPANION_TEST_MODULES = [
   './upstream-downstream-specialist-consensus.test',
   './autonomous-cognitive-core-evolution.test',
   './sovereign-fabric-v6-reality.test',
-  './skills-ecosystem-migration.test'
+  './skills-ecosystem-migration.test',
+  './sovereign-intelligence-leap.test'
 ];
 
 async function runAllTests() {

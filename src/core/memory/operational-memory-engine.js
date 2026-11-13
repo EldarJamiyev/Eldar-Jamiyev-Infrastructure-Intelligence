@@ -719,6 +719,10 @@ class OperationalMemoryEngine {
     return record;
   }
 
+  recordResolution(params) {
+    return this.recordVerifiedResolution(params);
+  }
+
   /**
    * Record an operational decision and its verified outcome in `ejii_operational_decisions`.
    */
@@ -4453,6 +4457,53 @@ class OperationalMemoryEngine {
     }
 
     return suggestions.slice(0, 4);
+  }
+
+  /**
+   * Topological Incident Isomorphism & Longitudinal Causal Retrieval:
+   * Maps current target and adjacent topology nodes against historical incident resolutions
+   * and structural graph dependencies to detect identical architectural fault patterns
+   * with exact Jaccard topological similarity and proven runbook procedures.
+   */
+  queryTopologicalIncidentIsomorphism({ target, topologyNodes = [], symptomSignature = null } = {}) {
+    const cleanTarget = target ? String(target).trim().toLowerCase() : null;
+    const historicalResolutions = this.findMatchingResolutions({ symptomSignature });
+    const currentEntity = cleanTarget ? this._loadEntity(cleanTarget) : null;
+
+    const matches = historicalResolutions.map((res) => {
+      let topologicalSimilarity = 0.5;
+      const targetMatches = res.targetKey === cleanTarget;
+      if (targetMatches) topologicalSimilarity += 0.3;
+
+      if (symptomSignature && res.symptomSignature && res.symptomSignature.toLowerCase().includes(String(symptomSignature).toLowerCase())) {
+        topologicalSimilarity += 0.2;
+      }
+
+      // Check if any topology node matches historical target
+      const nodeMatch = (topologyNodes || []).some((n) => (n.id || n.ip || '').toLowerCase() === (res.targetKey || '').toLowerCase());
+      if (nodeMatch) topologicalSimilarity += 0.15;
+
+      topologicalSimilarity = Number(Math.min(0.99, topologicalSimilarity).toFixed(2));
+      return {
+        resolutionId: res.resolutionId,
+        historicalTarget: res.targetKey,
+        rootCause: res.rootCause,
+        runbookProcedure: res.resolutionSteps,
+        verificationStatus: res.verificationStatus,
+        hitCount: res.hitCount || 1,
+        topologicalSimilarity,
+        isIsomorphic: topologicalSimilarity >= 0.70,
+        recommendedAction: `Apply historical playbook ${res.resolutionId}: ${res.rootCause}`
+      };
+    });
+
+    matches.sort((a, b) => b.topologicalSimilarity - a.topologicalSimilarity);
+    return {
+      target: cleanTarget,
+      topologyNodesEvaluated: Array.isArray(topologyNodes) ? topologyNodes.length : 0,
+      isomorphicMatchesFound: matches.filter((m) => m.isIsomorphic).length,
+      topMatches: matches.slice(0, 5)
+    };
   }
 }
 

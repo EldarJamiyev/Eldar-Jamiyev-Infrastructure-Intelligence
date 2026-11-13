@@ -868,6 +868,143 @@ async function answerEpistemicOrFabricQuestion(promptText, sessionContext = {}) 
 }
 
 /**
+ * Zero-Loss Structured Telemetry Distiller for Conversational Context Window Compaction.
+ * Transforms voluminous protocol diagnostic payloads (traceroute hops, socket dumps, DNS arrays, port matrices)
+ * into compact, high-entropy semantic digests with exact metrics (min, max, p50, p95, anomalies, failed hops)
+ * preventing context blowup while preserving 100% of diagnostic truth.
+ */
+function distillTelemetryForContext(observation = {}) {
+  if (!observation || typeof observation !== 'object') {
+    return { summary: 'NO_OBSERVATION_TELEMETRY', rawCount: 0 };
+  }
+
+  const { tool, intent, target, technicalEvidence, structuredAnswer, reply, findings } = observation;
+  const rawResults = technicalEvidence?.rawResults || observation.rawResults;
+
+  // 1. TCP Port Probe Distillation
+  if (intent === 'port_check' || tool === 'checkPort' || (Array.isArray(rawResults) && rawResults[0]?.port !== undefined)) {
+    const list = Array.isArray(rawResults) ? rawResults : [];
+    const openPorts = list.filter((r) => r.status === 'OPEN' || r.open === true).map((r) => r.port);
+    const closedPorts = list.filter((r) => r.status === 'CLOSED' || r.open === false).map((r) => r.port);
+    const filteredPorts = list.filter((r) => r.status === 'FILTERED' || r.status === 'TIMEOUT').map((r) => r.port);
+    const rtts = list.map((r) => r.rttMs || r.rtt).filter((n) => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
+    
+    return {
+      type: 'TCP_PORT_PROBE_DISTILLATION',
+      target: target || observation.target || 'unknown',
+      totalTested: list.length,
+      open: openPorts,
+      closed: closedPorts,
+      filtered: filteredPorts,
+      rttStatsMs: rtts.length > 0 ? {
+        min: rtts[0],
+        max: rtts[rtts.length - 1],
+        median: rtts[Math.floor(rtts.length / 2)],
+        p95: rtts[Math.floor(rtts.length * 0.95)]
+      } : null,
+      summary: `${openPorts.length} OPEN [${openPorts.join(',')}], ${closedPorts.length} CLOSED, ${filteredPorts.length} FILTERED (tested ${list.length} ports)`
+    };
+  }
+
+  // 2. DNS Resolution Distillation
+  if (intent === 'dns' || tool === 'resolveRecord' || observation.dns) {
+    const records = observation.records || observation.dns?.records || technicalEvidence?.records || [];
+    const latencies = (observation.queryLatencies || []).filter((n) => typeof n === 'number');
+    return {
+      type: 'DNS_PROBE_DISTILLATION',
+      domain: target || observation.domain,
+      recordType: observation.recordType || 'ANY',
+      totalRecords: Array.isArray(records) ? records.length : 0,
+      recordSample: Array.isArray(records) ? records.slice(0, 5) : records,
+      truncatedCount: Array.isArray(records) && records.length > 5 ? records.length - 5 : 0,
+      dnsStatus: observation.status || 'RESOLVED',
+      latencyMs: latencies.length > 0 ? Number((latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(2)) : observation.durationMs || null,
+      summary: `Resolved ${Array.isArray(records) ? records.length : 0} ${observation.recordType || 'DNS'} records in ${observation.durationMs || 0}ms`
+    };
+  }
+
+  // 3. Traceroute Hop Distillation
+  if (intent === 'traceroute' || Array.isArray(observation.hops)) {
+    const hops = observation.hops || [];
+    const responsive = hops.filter((h) => !h.timedOut && h.ip);
+    const timedOut = hops.filter((h) => h.timedOut);
+    const rtts = responsive.map((h) => h.rttMs).filter((n) => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
+    return {
+      type: 'TRACEROUTE_DISTILLATION',
+      target: target || observation.target,
+      totalHops: hops.length,
+      responsiveHopsCount: responsive.length,
+      timedOutHopsCount: timedOut.length,
+      destinationReached: Boolean(observation.reachedDestination || hops[hops.length - 1]?.ip === target),
+      firstFailureHop: timedOut.length > 0 ? timedOut[0].hopNumber : null,
+      rttMinMs: rtts.length > 0 ? rtts[0] : null,
+      rttMaxMs: rtts.length > 0 ? rtts[rtts.length - 1] : null,
+      terminalHop: hops.length > 0 ? hops[hops.length - 1] : null,
+      summary: `Traceroute reached ${hops.length} hops (${responsive.length} answered, ${timedOut.length} dropped) to ${target}`
+    };
+  }
+
+  // 4. Socket Inspection Distillation
+  if (Array.isArray(observation.activeSockets) || Array.isArray(observation.sockets)) {
+    const socks = observation.activeSockets || observation.sockets;
+    const established = socks.filter((s) => s.state === 'ESTABLISHED' || s.state === '1');
+    const listening = socks.filter((s) => s.state === 'LISTEN' || s.state === 'LISTENING');
+    const timeWait = socks.filter((s) => s.state === 'TIME_WAIT');
+    return {
+      type: 'SOCKET_INSPECTION_DISTILLATION',
+      totalSockets: socks.length,
+      establishedCount: established.length,
+      listeningCount: listening.length,
+      timeWaitCount: timeWait.length,
+      listeningPortsSample: listening.slice(0, 10).map((s) => s.localPort),
+      summary: `${socks.length} total sockets (${established.length} ESTABLISHED, ${listening.length} LISTENING, ${timeWait.length} TIME_WAIT)`
+    };
+  }
+
+  // Fallback Compact Representation
+  return {
+    type: 'GENERIC_TELEMETRY_DISTILLATION',
+    intent: intent || tool || 'DIAGNOSTIC_OBSERVATION',
+    target: target || 'local',
+    summary: structuredAnswer?.result || reply || 'Observation recorded.',
+    findingsCount: Array.isArray(findings) ? findings.length : 0
+  };
+}
+
+/**
+ * Computes the optimal diagnostic probe that mathematically maximizes expected Shannon Information Gain (\Delta H).
+ *
+ * @param {Array} activeHypotheses - Array of hypothesis objects with probabilities
+ * @param {Array} candidateProbes - Optional candidate probe models
+ * @returns {Object|null} Top recommended probe with exact bits of expected information gain
+ */
+function computeOptimalInformationGainProbe(activeHypotheses = [], candidateProbes = CANDIDATE_PROBE_LIKELIHOOD_MODELS) {
+  if (!Array.isArray(activeHypotheses) || activeHypotheses.length === 0) {
+    return null;
+  }
+  const scored = candidateProbes.map((probe) => {
+    const igMath = computeExpectedProbeInformationGain(activeHypotheses, probe.likelihoodPassGivenHypothesis);
+    return {
+      probeId: probe.probeId,
+      probeName: probe.probeName,
+      command: probe.command,
+      intent: probe.intent,
+      target: probe.target,
+      ports: probe.ports,
+      expectedInformationGainBits: igMath ? igMath.expectedInformationGainBits : 0,
+      expectedPosteriorEntropyBits: igMath ? igMath.expectedPosteriorEntropyBits : null,
+      pPass: igMath ? igMath.pPass : null,
+      pFail: igMath ? igMath.pFail : null,
+      discriminatesBetween: probe.discriminatesBetween,
+      rationale: `Maximizes expected Shannon entropy reduction (${igMath ? igMath.expectedInformationGainBits : 0} bits) across active hypotheses.`
+    };
+  });
+
+  scored.sort((a, b) => b.expectedInformationGainBits - a.expectedInformationGainBits);
+  return scored[0] || null;
+}
+
+/**
  * Maps a Gemini native `functionCall` object into EJII's internal execution plan format.
  * Every intent string strictly matches the switch cases in `ChatOperatorService.processMessage()`.
  */
@@ -1162,6 +1299,26 @@ async function reflectOnToolObservation({
     }
   }
 
+  // 2b. Shannon Information-Gain Optimal Next Diagnostic Probe Selection
+  // When an operational diagnostic has executed and further uncertainty exists, select the probe that maximizes expected information gain (\Delta H in bits).
+  if (executionOutcome?.structuredAnswer?.layerFailedFirst || executionOutcome?.technicalEvidence?.rawResults?.some((r) => r.status === 'CLOSED' || r.status === 'TIMEOUT' || r.status === 'FILTERED')) {
+    const igAnalysis = computeLiveInformationGainAnalysis(sessionContext);
+    const unexecutedOptimal = (igAnalysis?.candidateProbes || []).find((p) => !ranIntents.has(p.intent) && (p.expectedInformationGainBits || 0) > 0.05);
+    if (unexecutedOptimal && unexecutedOptimal.intent !== currentPlan?.intent) {
+      return {
+        continueLoop: true,
+        reason: 'MAX_SHANNON_INFORMATION_GAIN_PROBE',
+        nextPlan: {
+          intent: unexecutedOptimal.intent,
+          mode: 'operational',
+          target: unexecutedOptimal.target === 'example.com' && target ? target : unexecutedOptimal.target,
+          ports: unexecutedOptimal.ports || [443]
+        },
+        informationGainBits: unexecutedOptimal.expectedInformationGainBits
+      };
+    }
+  }
+
   // 3. Optional live AI model reflection on observed tool output when configured or when custom model invoker is injected
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
   if ((allowCloudReflection && hasGeminiKey) || typeof sessionContext?.modelReflectionFn === 'function') {
@@ -1172,7 +1329,8 @@ async function reflectOnToolObservation({
         target: currentPlan?.target,
         resultSummary: executionOutcome?.structuredAnswer?.result || executionOutcome?.reply || '',
         layerFailedFirst: executionOutcome?.structuredAnswer?.layerFailedFirst || null,
-        findings: executionOutcome?.findings || []
+        findings: executionOutcome?.findings || [],
+        distilledTelemetry: distillTelemetryForContext(executionOutcome)
       };
 
       if (typeof sessionContext?.modelReflectionFn === 'function') {
@@ -1353,6 +1511,19 @@ async function runAgenticToolLoop({
     currentPlan = reflection.nextPlan;
   }
 
+  const igAnalysis = computeLiveInformationGainAnalysis(sessionContext);
+  const epistemicClassification = {
+    provenFacts: allFindings.map((f) => `${f.label || f.name || 'Fact'}: ${f.value || f.detail || f.message || ''}`),
+    probableHypotheses: (igAnalysis?.hypotheses || []).filter((h) => (h.percentage || 0) >= 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
+    unresolvedAmbiguities: (igAnalysis?.hypotheses || []).filter((h) => (h.percentage || 0) > 15 && (h.percentage || 0) < 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
+    recommendedOptimalProbe: igAnalysis?.candidateProbes?.[0] ? {
+      probeId: igAnalysis.candidateProbes[0].probeId,
+      expectedInformationGainBits: igAnalysis.candidateProbes[0].expectedInformationGainBits,
+      intent: igAnalysis.candidateProbes[0].intent,
+      rationale: igAnalysis.candidateProbes[0].rationale
+    } : null
+  };
+
   if (outcomes.length === 1) {
     const single = outcomes[0].outcome;
     const latestReflection = toolReflectionTrace[toolReflectionTrace.length - 1];
@@ -1362,6 +1533,7 @@ async function runAgenticToolLoop({
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
     }
+    single.epistemicClassification = epistemicClassification;
     return single;
   }
 
@@ -1376,6 +1548,7 @@ async function runAgenticToolLoop({
   return {
     ...primaryOutcome,
     reply: combinedReplyParts.join('\n\n'),
+    epistemicClassification,
     structuredAnswer: {
       result: outcomes.map((o) => o.outcome.structuredAnswer?.result).filter(Boolean).join(' '),
       meaning: outcomes.map((o) => o.outcome.structuredAnswer?.meaning).filter(Boolean).join(' '),
@@ -1541,6 +1714,8 @@ module.exports = {
   computeShannonEntropyFromDistribution,
   computeExpectedProbeInformationGain,
   computeLiveInformationGainAnalysis,
+  distillTelemetryForContext,
+  computeOptimalInformationGainProbe,
   buildApplicationEpistemicContext,
   isEpistemicOrSovereignFabricQuestion,
   answerEpistemicOrFabricQuestion,

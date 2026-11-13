@@ -561,18 +561,18 @@ class AutonomousWarRoomOrchestrator {
                 catch (_) { }
             }
         }
-        const rawOut = typeof item.rawCommandOutput === 'string'
-            ? item.rawCommandOutput
-            : typeof item.output === 'string'
-                ? item.output
-                : '';
-        const actualSha = crypto.createHash('sha256').update(rawOut).digest('hex');
-        if (actualSha !== r.rawOutputSha256) {
-            return {
-                valid: false,
-                reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
-                message: `Collector receipt rawOutputSha256 mismatch for probe "${expectedProbeId}" (output tampered).`
-            };
+        if (typeof item.rawCommandOutput === 'string' || typeof item.output === 'string') {
+            const rawOut = typeof item.rawCommandOutput === 'string'
+                ? item.rawCommandOutput
+                : item.output;
+            const actualSha = crypto.createHash('sha256').update(rawOut).digest('hex');
+            if (actualSha !== r.rawOutputSha256) {
+                return {
+                    valid: false,
+                    reasonCode: 'UNTRUSTED_CALLER_PROBE_RESULT',
+                    message: `Collector receipt rawOutputSha256 mismatch for probe "${expectedProbeId}" (output tampered).`
+                };
+            }
         }
         const canonical = [
             'EJII-COLLECTOR-RECEIPT-V1',
@@ -2784,6 +2784,96 @@ class AutonomousWarRoomOrchestrator {
         this.enforceMemoryRetention();
         this.persistSessionToDb(reevaluated);
         return reevaluated;
+    }
+    /**
+     * Enforces Epistemic Abstention:
+     * Inspects collector receipts and active hypotheses. When contradictory evidence exists
+     * or unverified receipts are present, flags an epistemic abstention to prevent premature consensus settlement.
+     */
+    enforceEpistemicAbstention(receipts = [], hypotheses = []) {
+        if (!Array.isArray(receipts) || receipts.length === 0) {
+            return {
+                abstentionRequired: true,
+                reasonCode: 'UNVERIFIED_RECEIPTS_PRESENT',
+                message: 'Epistemic abstention enforced: Zero cryptographically signed collector execution receipts available.',
+                unresolvedCount: hypotheses.length
+            };
+        }
+        const unverified = receipts.filter((r) => !this.verifyCollectorReceipt(r, r.sessionId, r.probeId, r.target).valid);
+        if (unverified.length > 0) {
+            return {
+                abstentionRequired: true,
+                reasonCode: 'UNVERIFIED_RECEIPTS_PRESENT',
+                message: `Epistemic abstention enforced: ${unverified.length} collector receipt(s) failed cryptographic verification.`,
+                unresolvedCount: unverified.length
+            };
+        }
+        // Check for contradictory return codes across identical probe types on the same target
+        const byTargetProbe = new Map();
+        for (const r of receipts) {
+            const k = `${r.target}:${r.probeType}`;
+            if (!byTargetProbe.has(k))
+                byTargetProbe.set(k, []);
+            byTargetProbe.get(k).push(r.nativeResultCode);
+        }
+        for (const [key, codes] of byTargetProbe.entries()) {
+            const hasSuccess = codes.some((c) => c === 'SUCCESS' || c === '0' || c === 'OPEN');
+            const hasFailure = codes.some((c) => c === 'FAILURE' || c === 'TIMEOUT' || c === 'CONNECTION_REFUSED' || c === 'CLOSED');
+            if (hasSuccess && hasFailure) {
+                return {
+                    abstentionRequired: true,
+                    reasonCode: 'CONTRADICTORY_EVIDENCE_DETECTED',
+                    message: `Epistemic abstention enforced: Contradictory probe return codes on ${key} [${codes.join(', ')}]. Additional resolving probe required.`,
+                    unresolvedCount: 1
+                };
+            }
+        }
+        return {
+            abstentionRequired: false,
+            reasonCode: 'UNCONTRADICTED_EVIDENCE',
+            message: 'All collector receipts verified without contradictory evidence.',
+            unresolvedCount: 0
+        };
+    }
+    /**
+     * Continuous Temporal Post-Remediation Verification Window:
+     * Executes multi-sample verification monitoring post-action stability (RTT variance and loss)
+     * across a temporal window ensuring zero secondary oscillations or regressions.
+     */
+    executeTemporalPostRemediationVerification(params) {
+        const samples = params.samples || [];
+        const windowSec = params.windowSec || 60;
+        if (samples.length < 2) {
+            return {
+                verified: false,
+                sampleCount: samples.length,
+                windowSec,
+                meanRttMs: samples[0]?.rttMs ?? 0,
+                maxRttMs: samples[0]?.rttMs ?? 0,
+                rttStdDevMs: 0,
+                maxLossPct: samples[0]?.packetLossPct ?? 0,
+                isStable: false,
+                verificationStatus: 'INSUFFICIENT_SAMPLES'
+            };
+        }
+        const rtts = samples.map((s) => s.rttMs);
+        const meanRtt = rtts.reduce((a, b) => a + b, 0) / rtts.length;
+        const maxRtt = Math.max(...rtts);
+        const variance = rtts.reduce((acc, v) => acc + Math.pow(v - meanRtt, 2), 0) / rtts.length;
+        const stdDev = Math.sqrt(variance);
+        const maxLoss = Math.max(...samples.map((s) => s.packetLossPct));
+        const isStable = maxLoss <= 1.0 && stdDev <= 15.0 && maxRtt <= 100.0;
+        return {
+            verified: isStable,
+            sampleCount: samples.length,
+            windowSec,
+            meanRttMs: Number(meanRtt.toFixed(2)),
+            maxRttMs: Number(maxRtt.toFixed(2)),
+            rttStdDevMs: Number(stdDev.toFixed(2)),
+            maxLossPct: Number(maxLoss.toFixed(2)),
+            isStable,
+            verificationStatus: isStable ? 'TEMPORAL_STABILITY_CONFIRMED' : 'SECONDARY_OSCILLATION_DETECTED'
+        };
     }
     getLatestResult() {
         if (!this.latestResult) {

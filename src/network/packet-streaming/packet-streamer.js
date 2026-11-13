@@ -2450,6 +2450,27 @@ class PacketStreamer {
       totalBuffered: this.frameRingBuffer.length
     };
   }
+
+  /**
+   * Backpressure & High-Throughput Delivery Metrics:
+   * Returns line-rate ring buffer metrics, dropped overrun counts,
+   * delivery efficiency, and active WebSocket queue statistics.
+   */
+  getBackpressureMetrics() {
+    const ringStats = this.highSpeedRingBuffer.getStats();
+    return {
+      totalReceived: this.counters.received,
+      totalAccepted: this.counters.accepted,
+      totalDropped: this.counters.dropped,
+      totalDecoded: this.counters.decoded,
+      totalDelivered: this.counters.delivered,
+      ringBufferStats: ringStats,
+      flowTableCount: this.flowTable.size,
+      activeTcpStreamsCount: this.tcpStreams.size,
+      isStreaming: this.isStreaming,
+      backpressureHealthy: ringStats.ringBufferOverruns === 0 && ringStats.ringBufferUtilizationPct < 85
+    };
+  }
 }
 
 const defaultStreamer = new PacketStreamer();
