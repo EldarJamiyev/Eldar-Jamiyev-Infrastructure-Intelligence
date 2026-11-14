@@ -66,6 +66,17 @@ try {
   tsPassed = false;
 }
 
+// 2b. TypeScript / JavaScript Dual-Maintenance Parity Check
+console.log('[EJII Linter] 2b. Checking TS/JS dual-maintenance module parity...');
+let parityPassed = true;
+try {
+  execSync('node scripts/verify-ts-js-parity.js', { stdio: 'pipe' });
+  console.log('  ✓ All TypeScript flagship modules match JavaScript counterparts with 100% parity.');
+} catch (err) {
+  console.error('  ✗ TS/JS parity check failed:', err.stderr ? err.stderr.toString() : err.message);
+  parityPassed = false;
+}
+
 // 3. HTML Document Integrity Check
 console.log('[EJII Linter] 3. Auditing HTML document shells...');
 const htmlFiles = ['public/index.html', 'mobile/index.html'];
@@ -108,7 +119,7 @@ for (const cf of cssFiles) {
 }
 
 console.log('========================================================================');
-const totalErrors = jsFailures + (tsPassed ? 0 : 1) + htmlFailures + cssFailures;
+const totalErrors = jsFailures + (tsPassed ? 0 : 1) + (parityPassed ? 0 : 1) + htmlFailures + cssFailures;
 if (totalErrors === 0) {
   console.log(`[EJII Linter] PASS: All first-party code (${jsFiles.length} JS, TS, HTML, CSS) passed verification.`);
   process.exit(0);
