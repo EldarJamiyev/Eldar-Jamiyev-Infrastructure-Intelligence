@@ -9,13 +9,21 @@
  */
 
 import * as crypto from 'node:crypto';
-import { db } from '../../db/database';
 import {
   TelemetryStateVector,
   MicroRemediationAction,
   CompensatingInverseAction,
   ExpectedImpact
 } from './generative-remediation-synthesizer';
+
+function getDb(): any {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../../db/database').db;
+  } catch (_) {
+    return null;
+  }
+}
 
 export type SagaPhase =
   | 'INITIATED'
@@ -130,6 +138,8 @@ export class DistributedSagaOrchestrator {
   private ensureSqliteTable(): void {
     if (this.sqliteInitialized) return;
     try {
+      const db = getDb();
+      if (!db) return;
       db.exec(`
         CREATE TABLE IF NOT EXISTS ejii_remediation_sagas (
           saga_id TEXT PRIMARY KEY,
@@ -447,6 +457,8 @@ export class DistributedSagaOrchestrator {
     if (!this.sqliteInitialized) return null;
 
     try {
+      const db = getDb();
+      if (!db) return null;
       const row = db.prepare('SELECT * FROM ejii_remediation_sagas WHERE saga_id = ?').get(sagaId) as any;
       if (!row) return null;
 
@@ -474,6 +486,8 @@ export class DistributedSagaOrchestrator {
   private persistSaga(record: DistributedSagaRecord): void {
     if (!this.sqliteInitialized) return;
     try {
+      const db = getDb();
+      if (!db) return;
       db.prepare(`
         INSERT INTO ejii_remediation_sagas (
           saga_id, hypothesis_id, phase, initiator,

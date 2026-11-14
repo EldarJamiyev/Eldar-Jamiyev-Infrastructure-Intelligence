@@ -3195,6 +3195,8 @@ async function formulateRemediationGate(hypothesisId, targetHost = '127.0.0.1', 
         const gwState = { rttMs: 15.0, lossPct: 0.5, queueDepthPackets: 10 };
         const gwCandidate = generativeRemediationSynthesizer.synthesizeRemediationCandidate(hypothesisId, gwState, '10.0.0.1');
 
+        const gwPlan = generativeRemediationSynthesizer.issueCryptographicActionPlan(gwCandidate, gwState);
+
         const saga = distributedSagaOrchestrator.initiateSaga(
           hypothesisId,
           userContext?.username || 'operator',
@@ -3211,8 +3213,8 @@ async function formulateRemediationGate(hypothesisId, targetHost = '127.0.0.1', 
               nodeId: 'node_gw_core',
               role: 'CORE_GATEWAY',
               targetEndpoint: '10.0.0.1',
-              candidateAction: gwCandidate.action,
-              candidateInverse: gwCandidate.inverseAction,
+              candidateAction: gwPlan.action,
+              candidateInverse: gwPlan.inverseAction,
               currentState: gwState
             }
           ]
