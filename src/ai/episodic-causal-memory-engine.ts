@@ -2036,6 +2036,16 @@ export class EpisodicCausalMemoryEngine {
     return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
   }
 
+  public static projectToDenseEmbedding(metrics: Record<string, number>): Float32Array {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DimensionExpandedEmbeddingEngine } = require('./dimension-expanded-embedding-engine');
+    return DimensionExpandedEmbeddingEngine.projectTelemetryToDenseEmbedding(metrics);
+  }
+
+  public projectToDenseEmbedding(metrics: Record<string, number>): Float32Array {
+    return EpisodicCausalMemoryEngine.projectToDenseEmbedding(metrics);
+  }
+
   public getPersistenceHealth() {
     return EpisodicCausalMemoryEngine.getPersistenceHealth();
   }

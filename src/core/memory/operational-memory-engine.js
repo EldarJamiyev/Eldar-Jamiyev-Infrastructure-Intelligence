@@ -1033,6 +1033,21 @@ class OperationalMemoryEngine extends EventEmitter {
   }
 
   /**
+   * Track 2 (Phase 4.0): Projects heterogeneous telemetry dictionary into 64D dense metric space.
+   *
+   * @param {Object} metrics
+   * @returns {Float32Array} 64-element embedding
+   */
+  projectTelemetryEmbedding(metrics = {}) {
+    try {
+      const { DimensionExpandedEmbeddingEngine } = require('../../ai/dimension-expanded-embedding-engine');
+      return DimensionExpandedEmbeddingEngine.projectTelemetryToDenseEmbedding(metrics);
+    } catch (_) {
+      return new Float32Array(64);
+    }
+  }
+
+  /**
    * Track 5: Episodic Playbook Lifecycle Governance & Degradation Quarantine
    * Retrieves or initializes the lifecycle record for a given playbook ID.
    *

@@ -1541,6 +1541,13 @@ class EpisodicCausalMemoryEngine {
     validatePlaybookLifecycleTransition(fromState, toState) {
         return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
     }
+    static projectToDenseEmbedding(metrics) {
+        const { DimensionExpandedEmbeddingEngine } = require('./dimension-expanded-embedding-engine');
+        return DimensionExpandedEmbeddingEngine.projectTelemetryToDenseEmbedding(metrics);
+    }
+    projectToDenseEmbedding(metrics) {
+        return EpisodicCausalMemoryEngine.projectToDenseEmbedding(metrics);
+    }
     getPersistenceHealth() {
         return EpisodicCausalMemoryEngine.getPersistenceHealth();
     }
