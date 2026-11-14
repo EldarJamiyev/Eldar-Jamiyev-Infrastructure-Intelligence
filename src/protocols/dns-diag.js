@@ -30,8 +30,8 @@ function discoverSystemDnsConfiguration(options = {}) {
   const customGetServers = typeof options.getServersFn === 'function'
     ? options.getServersFn
     : (Array.isArray(options.nodeServers) ? () => options.nodeServers : () => dns.getServers());
-  const customPlatform = options.platform || process.platform;
   const hasExplicitResolvConfContent = typeof options.resolvConfContent === 'string';
+  const customPlatform = options.platform || (hasExplicitResolvConfContent ? 'linux' : process.platform);
   const customResolvConfPath = options.resolvConfPath !== undefined
     ? options.resolvConfPath
     : (hasExplicitResolvConfContent ? null : '/etc/resolv.conf');

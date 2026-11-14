@@ -317,9 +317,18 @@ describe('EJII Conversational Intelligence & Technical Quality Evaluation Suite'
     );
 
     const metrics = await hostMetrics.getHostMetrics(true);
-    assert.equal(metrics.cpu.measurementMethod, 'posix_cpu_tick_delta', 'POSIX CPU usage must use tick delta measurement, not loadavg');
-    assert.equal(typeof metrics.cpu.usagePercentage, 'number');
-    assert.equal(typeof metrics.cpu.loadAverage1m, 'number', '1m load average must be exposed separately from CPU tick usage');
+    if (process.platform === 'win32') {
+      assert.ok(
+        metrics.cpu.measurementMethod === 'windows_cim_processor' || metrics.cpu.measurementMethod === 'windows_cim_pending',
+        'Windows CPU usage must use CIM processor measurement'
+      );
+      assert.equal(typeof metrics.cpu.usagePercentage, 'number');
+      assert.ok(metrics.cpu.loadAverage1m === null || typeof metrics.cpu.loadAverage1m === 'number');
+    } else {
+      assert.equal(metrics.cpu.measurementMethod, 'posix_cpu_tick_delta', 'POSIX CPU usage must use tick delta measurement, not loadavg');
+      assert.equal(typeof metrics.cpu.usagePercentage, 'number');
+      assert.equal(typeof metrics.cpu.loadAverage1m, 'number', '1m load average must be exposed separately from CPU tick usage');
+    }
     assert.ok(metrics.diskCollectionStatus, 'Must include explicit diskCollectionStatus object');
     for (const d of metrics.disks) {
       assert.notEqual(d.volumeName, 'System Primary', 'Must never contain fabricated 512GB Windows fallback disk');
