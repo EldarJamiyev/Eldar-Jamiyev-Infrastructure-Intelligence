@@ -74,8 +74,8 @@ class OperationalMemoryEngine extends EventEmitter {
     this.commanderProbeLedger = [];
     this.avoidedDuplicateProbesCount = 0;
     try {
-      const { hnswEpisodicIndex } = require('./hnsw-episodic-index');
-      this.hnswIndex = hnswEpisodicIndex;
+      const { HnswEpisodicIndex, hnswEpisodicIndex } = require('./hnsw-episodic-index');
+      this.hnswIndex = options.hnswIndex || (options.useSharedHnsw ? hnswEpisodicIndex : new HnswEpisodicIndex());
     } catch (_) {
       this.hnswIndex = null;
     }
@@ -976,8 +976,11 @@ class OperationalMemoryEngine extends EventEmitter {
         ep.rootCauseDomain.toUpperCase().startsWith(queryDomain)
       ) ? 1.0 : 0.4;
 
-      // Composite score: 45% vector, 35% topology, 20% domain
-      let compositeScore = Number((0.45 * cosSim + 0.35 * topoSim + 0.20 * domainMatch).toFixed(4));
+      // Target match factor
+      const targetMatch = ep.target === cleanTarget ? 1.0 : (cleanTarget === 'localhost' ? 0.8 : 0.5);
+
+      // Composite score: 40% vector, 30% target match, 15% topology, 15% domain
+      let compositeScore = Number((0.40 * cosSim + 0.30 * targetMatch + 0.15 * topoSim + 0.15 * domainMatch).toFixed(4));
 
       // Track 5: Evaluate Playbook Lifecycle Health & Degradation Quarantine
       const playbookId = match.recommendedRunbookId || ep.executedRunbookId;
@@ -1007,21 +1010,29 @@ class OperationalMemoryEngine extends EventEmitter {
       });
     }
 
-    // 2. Process SQL resolutions if not already present
+    // 2. Process SQL resolutions
     for (const res of sqlResolutions) {
-      const alreadyIn = compositeRanked.some(c => c.episodeId === `EPISODE-${res.resolutionId}` || (c.target === res.targetKey && c.provenRemediationRunbook === res.resolutionSteps));
-      if (!alreadyIn) {
-        const domain = this._inferRootCauseDomain(res.rootCause, res.symptomSignature);
-        const domainSim = domain === queryDomain ? 1.0 : 0.4;
-        const targetSim = res.targetKey === cleanTarget ? 0.95 : 0.5;
-        let comp = Number((0.5 * targetSim + 0.5 * domainSim).toFixed(4));
+      const domain = this._inferRootCauseDomain(res.rootCause, res.symptomSignature);
+      const domainSim = domain === queryDomain ? 1.0 : 0.4;
+      const targetSim = res.targetKey === cleanTarget ? 1.0 : (cleanTarget === 'localhost' ? 0.8 : 0.1);
+      let comp = Number((0.5 * targetSim + 0.5 * domainSim).toFixed(4));
 
-        const playbookId = res.resolutionSteps;
-        const playbookHealth = this.evaluatePlaybookHealth(playbookId);
-        if (playbookHealth.isDegraded) {
-          comp = Number((comp * 0.70).toFixed(4));
+      const playbookId = res.resolutionSteps;
+      const playbookHealth = this.evaluatePlaybookHealth(playbookId);
+      if (playbookHealth.isDegraded) {
+        comp = Number((comp * 0.70).toFixed(4));
+      }
+
+      const existing = compositeRanked.find(c =>
+        c.episodeId === `EPISODE-${res.resolutionId}` ||
+        (c.target === res.targetKey && c.provenRemediationRunbook === res.resolutionSteps)
+      );
+
+      if (existing) {
+        if (comp > existing.compositeSimilarity) {
+          existing.compositeSimilarity = comp;
         }
-
+      } else {
         compositeRanked.push({
           episodeId: `EPISODE-${res.resolutionId}`,
           target: res.targetKey || cleanTarget,
