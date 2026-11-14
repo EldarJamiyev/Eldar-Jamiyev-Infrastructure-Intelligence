@@ -383,8 +383,248 @@ const CANDIDATE_PROBE_LIKELIHOOD_MODELS = [
       LOCAL_STACK_CONGESTION: 0.30,
       ICMP_FILTERED_ALIVE: 0.91
     }
+  },
+  {
+    probeId: 'ARP_NEIGHBOR_PROBE',
+    probeName: 'Layer 2 ARP / NDP Kernel Neighbor Resolution Probe',
+    command: 'Inspect local ARP/neighbor table',
+    intent: 'local_ip_config',
+    target: 'local_host_interfaces',
+    ports: [],
+    targetLayers: ['Layer 2 (Data Link / ARP)'],
+    discriminatesBetween: ['ARP_L2_ISOLATION', 'UPSTREAM_WAN_BLACKHOLE', 'LOCAL_STACK_CONGESTION'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.92,
+      SERVICE_DAEMON_CRASH: 0.95,
+      DNS_NXDOMAIN_POISON: 0.95,
+      UPSTREAM_WAN_BLACKHOLE: 0.95,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.95,
+      ARP_L2_ISOLATION: 0.05,
+      LOCAL_STACK_CONGESTION: 0.40,
+      ICMP_FILTERED_ALIVE: 0.95
+    }
+  },
+  {
+    probeId: 'ICMP_GATEWAY_PING',
+    probeName: 'Layer 3 Default Gateway Echo Reachability Probe',
+    command: 'Ping default gateway',
+    intent: 'gateway_check',
+    target: 'default_gateway',
+    ports: [],
+    targetLayers: ['Layer 3 (Default Gateway)'],
+    discriminatesBetween: ['ARP_L2_ISOLATION', 'UPSTREAM_WAN_BLACKHOLE', 'ICMP_FILTERED_ALIVE'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.85,
+      SERVICE_DAEMON_CRASH: 0.95,
+      DNS_NXDOMAIN_POISON: 0.95,
+      UPSTREAM_WAN_BLACKHOLE: 0.88,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.90,
+      ARP_L2_ISOLATION: 0.02,
+      LOCAL_STACK_CONGESTION: 0.50,
+      ICMP_FILTERED_ALIVE: 0.15
+    }
+  },
+  {
+    probeId: 'TRACEROUTE_WAN_PROBE',
+    probeName: 'Layer 3 Path MTU & Multi-Hop Traceroute Divergence Probe',
+    command: 'Run traceroute to external target',
+    intent: 'traceroute',
+    target: '1.1.1.1',
+    ports: [],
+    targetLayers: ['Layer 3 (Path MTU & WAN Hops)'],
+    discriminatesBetween: ['MTU_BLACKHOLE_FRAGMENT', 'UPSTREAM_WAN_BLACKHOLE', 'FIREWALL_ACL_DROP'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.30,
+      SERVICE_DAEMON_CRASH: 0.95,
+      DNS_NXDOMAIN_POISON: 0.95,
+      UPSTREAM_WAN_BLACKHOLE: 0.05,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.20,
+      ARP_L2_ISOLATION: 0.01,
+      LOCAL_STACK_CONGESTION: 0.45,
+      ICMP_FILTERED_ALIVE: 0.40
+    }
+  },
+  {
+    probeId: 'TLS_POSTURE_AUDIT_PROBE',
+    probeName: 'Layer 6 TLS 1.3 / X.509 Certificate Expiry & SNI Audit',
+    command: 'Audit TLS posture on target',
+    intent: 'tls_posture_audit',
+    target: 'target',
+    ports: [443],
+    targetLayers: ['Layer 6 (TLS Presentation)'],
+    discriminatesBetween: ['TLS_CERT_EXPIRY', 'FIREWALL_ACL_DROP', 'SERVICE_DAEMON_CRASH'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.05,
+      SERVICE_DAEMON_CRASH: 0.10,
+      DNS_NXDOMAIN_POISON: 0.10,
+      UPSTREAM_WAN_BLACKHOLE: 0.02,
+      TLS_CERT_EXPIRY: 0.02,
+      MTU_BLACKHOLE_FRAGMENT: 0.20,
+      ARP_L2_ISOLATION: 0.01,
+      LOCAL_STACK_CONGESTION: 0.40,
+      ICMP_FILTERED_ALIVE: 0.90
+    }
+  },
+  {
+    probeId: 'DNS_MX_RECORD_PROBE',
+    probeName: 'RFC 1035 DNS Mail Exchange (MX) & Mail Flow Routing Probe',
+    command: 'Query DNS MX records for target',
+    intent: 'dns',
+    target: 'target',
+    ports: [],
+    recordType: 'MX',
+    targetLayers: ['Layer 7 (DNS Mail Routing)'],
+    discriminatesBetween: ['DNS_NXDOMAIN_POISON', 'SERVICE_DAEMON_CRASH', 'FIREWALL_ACL_DROP'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.40,
+      SERVICE_DAEMON_CRASH: 0.92,
+      DNS_NXDOMAIN_POISON: 0.03,
+      UPSTREAM_WAN_BLACKHOLE: 0.04,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.75,
+      ARP_L2_ISOLATION: 0.02,
+      LOCAL_STACK_CONGESTION: 0.40,
+      ICMP_FILTERED_ALIVE: 0.92
+    }
+  },
+  {
+    probeId: 'TCP_SSH_PROBE_22',
+    probeName: 'Layer 4 SSH Remote Administration Transport Probe (`:22`)',
+    command: 'Check TCP port 22 on target',
+    intent: 'port_check',
+    target: 'target',
+    ports: [22],
+    targetLayers: ['Layer 4 (Transport / Admin SSH)'],
+    discriminatesBetween: ['FIREWALL_ACL_DROP', 'SERVICE_DAEMON_CRASH', 'UPSTREAM_WAN_BLACKHOLE'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.12,
+      SERVICE_DAEMON_CRASH: 0.80,
+      DNS_NXDOMAIN_POISON: 0.85,
+      UPSTREAM_WAN_BLACKHOLE: 0.03,
+      TLS_CERT_EXPIRY: 0.90,
+      MTU_BLACKHOLE_FRAGMENT: 0.60,
+      ARP_L2_ISOLATION: 0.02,
+      LOCAL_STACK_CONGESTION: 0.35,
+      ICMP_FILTERED_ALIVE: 0.95
+    }
+  },
+  {
+    probeId: 'TCP_DATABASE_PROBE_3306_5432',
+    probeName: 'Layer 4 Backend Persistence Transport Probe (`:3306` / `:5432`)',
+    command: 'Check TCP database ports on target',
+    intent: 'port_check',
+    target: 'target',
+    ports: [3306, 5432],
+    targetLayers: ['Layer 4 (Transport / Database)'],
+    discriminatesBetween: ['SERVICE_DAEMON_CRASH', 'FIREWALL_ACL_DROP', 'LOCAL_STACK_CONGESTION'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.10,
+      SERVICE_DAEMON_CRASH: 0.15,
+      DNS_NXDOMAIN_POISON: 0.85,
+      UPSTREAM_WAN_BLACKHOLE: 0.03,
+      TLS_CERT_EXPIRY: 0.90,
+      MTU_BLACKHOLE_FRAGMENT: 0.55,
+      ARP_L2_ISOLATION: 0.02,
+      LOCAL_STACK_CONGESTION: 0.25,
+      ICMP_FILTERED_ALIVE: 0.95
+    }
+  },
+  {
+    probeId: 'KERNEL_SOCKET_EXHAUSTION_PROBE',
+    probeName: 'Host OS Active Kernel Sockets & Ephemeral Port Exhaustion Probe',
+    command: 'Inspect active kernel sockets and connection counts',
+    intent: 'active_connections',
+    target: 'local_host',
+    ports: [],
+    targetLayers: ['Host Kernel (Socket Allocation)'],
+    discriminatesBetween: ['LOCAL_STACK_CONGESTION', 'SERVICE_DAEMON_CRASH', 'FIREWALL_ACL_DROP'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.90,
+      SERVICE_DAEMON_CRASH: 0.85,
+      DNS_NXDOMAIN_POISON: 0.95,
+      UPSTREAM_WAN_BLACKHOLE: 0.95,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.90,
+      ARP_L2_ISOLATION: 0.95,
+      LOCAL_STACK_CONGESTION: 0.08,
+      ICMP_FILTERED_ALIVE: 0.95
+    }
+  },
+  {
+    probeId: 'HOST_RESOURCE_HEALTH_PROBE',
+    probeName: 'Host OS CPU Tick Delta, Load Average & Memory Exhaustion Probe',
+    command: 'Inspect host CPU, memory, and load average',
+    intent: 'host_health',
+    target: 'local_host',
+    ports: [],
+    targetLayers: ['Host OS (CPU & Memory Saturation)'],
+    discriminatesBetween: ['LOCAL_STACK_CONGESTION', 'SERVICE_DAEMON_CRASH'],
+    likelihoodPassGivenHypothesis: {
+      FIREWALL_ACL_DROP: 0.95,
+      SERVICE_DAEMON_CRASH: 0.65,
+      DNS_NXDOMAIN_POISON: 0.95,
+      UPSTREAM_WAN_BLACKHOLE: 0.95,
+      TLS_CERT_EXPIRY: 0.95,
+      MTU_BLACKHOLE_FRAGMENT: 0.95,
+      ARP_L2_ISOLATION: 0.95,
+      LOCAL_STACK_CONGESTION: 0.12,
+      ICMP_FILTERED_ALIVE: 0.95
+    }
   }
 ];
+
+/**
+ * Exact Bayesian Posterior Distribution Update:
+ * Given prior probabilities P(X=x_i) and a binary probe outcome Y in {pass, fail},
+ * computes the normalized posterior distribution:
+ *   P(X=x_i | Y=y) = [ P(Y=y | X=x_i) * P(X=x_i) ] / P(Y=y)
+ *
+ * @param {Array} priorDistribution - Array of { id, name, probability, percentage }
+ * @param {string} probeId - ID of candidate probe model
+ * @param {boolean} outcomePassed - Whether probe succeeded (pass) or failed (fail)
+ * @returns {Array} Updated normalized posterior distribution
+ */
+function updateBayesianDistributionFromProbeOutcome(priorDistribution = [], probeId, outcomePassed = true) {
+  if (!Array.isArray(priorDistribution) || priorDistribution.length === 0) {
+    return priorDistribution;
+  }
+  const probeModel = CANDIDATE_PROBE_LIKELIHOOD_MODELS.find((p) => p.probeId === probeId);
+  const likelihoods = probeModel?.likelihoodPassGivenHypothesis || {};
+
+  let totalJoint = 0;
+  const jointProbs = priorDistribution.map((h) => {
+    const priorP = typeof h.probability === 'number'
+      ? h.probability
+      : (typeof h.rawProbability === 'number'
+          ? h.rawProbability
+          : (typeof h.percentage === 'number' ? h.percentage / 100 : 1 / priorDistribution.length));
+    const passLikelihood = typeof likelihoods[h.id] === 'number' ? likelihoods[h.id] : 0.5;
+    const l = outcomePassed ? passLikelihood : (1 - passLikelihood);
+    const joint = Math.max(1e-9, priorP * l);
+    totalJoint += joint;
+    return {
+      id: h.id,
+      name: h.name,
+      joint
+    };
+  });
+
+  if (totalJoint <= 0) return priorDistribution;
+
+  return jointProbs.map((h) => {
+    const updatedP = h.joint / totalJoint;
+    return {
+      id: h.id,
+      name: h.name,
+      probability: Number(updatedP.toFixed(4)),
+      percentage: Number((updatedP * 100).toFixed(1)),
+      status: updatedP >= 0.6 ? 'PROBABLE' : (updatedP <= 0.05 ? 'RULED_OUT' : 'AMBIGUOUS')
+    };
+  });
+}
 
 /**
  * Pure mathematical calculation of Shannon Entropy H(X) in bits:
@@ -553,8 +793,28 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
         : `Directly verifies Layer 4 TCP transport across default gateway ${gatewayInfo.gatewayIp} to an external anycast endpoint.`;
     } else if (model.probeId === 'DNS_WIRE_LOOKUP_GOOGLE') {
       rationale = `Tests whether the configured OS DNS resolver (${(dnsConfig.observedServers || []).join(', ') || dnsConfig.status}) can recursively resolve external records, isolating DNS failures from L3/L4 routing drops.`;
-    } else {
+    } else if (model.probeId === 'HTTPS_L7_PROBE_EXAMPLE') {
       rationale = `Verifies TLS 1.3 certificate validity and Layer 7 HTTP application responsiveness once L4 TCP reachability is known.`;
+    } else if (model.probeId === 'ARP_NEIGHBOR_PROBE') {
+      rationale = `Inspects kernel L2 neighbor cache to confirm local link MAC resolution and isolate physical interface link drops from gateway failures.`;
+    } else if (model.probeId === 'ICMP_GATEWAY_PING') {
+      rationale = `Probes first-hop default gateway latency to isolate local LAN issues from external ISP/WAN outages.`;
+    } else if (model.probeId === 'TRACEROUTE_WAN_PROBE') {
+      rationale = `Performs hop-by-hop path tracing to detect Path MTU discovery blackholes and middlebox drop points.`;
+    } else if (model.probeId === 'TLS_POSTURE_AUDIT_PROBE') {
+      rationale = `Inspects X.509 certificate expiry, cipher suite negotiation, and SNI parameters to discriminate protocol/policy rejections.`;
+    } else if (model.probeId === 'DNS_MX_RECORD_PROBE') {
+      rationale = `Validates DNS mail exchanger (MX) records and authoritative name resolution to distinguish mail flow disruption from transport blocks.`;
+    } else if (model.probeId === 'TCP_SSH_PROBE_22') {
+      rationale = `Tests out-of-band administrative access on port 22 to separate application-level crashes from host operating system unreachability.`;
+    } else if (model.probeId === 'TCP_DATABASE_PROBE_3306_5432') {
+      rationale = `Verifies database listener reachability on standard persistence ports (3306/5432) to isolate backend connection timeouts.`;
+    } else if (model.probeId === 'KERNEL_SOCKET_EXHAUSTION_PROBE') {
+      rationale = `Enumerates active OS socket descriptors to identify ephemeral port exhaustion and TCP TIME_WAIT socket backlog saturation.`;
+    } else if (model.probeId === 'HOST_RESOURCE_HEALTH_PROBE') {
+      rationale = `Samples kernel CPU ticks and memory saturation to confirm whether high response latency is caused by local resource starvation.`;
+    } else {
+      rationale = `Calculates empirical Shannon information gain across active hypotheses to isolate root failure domain.`;
     }
 
     return {
@@ -958,6 +1218,79 @@ function distillTelemetryForContext(observation = {}) {
       timeWaitCount: timeWait.length,
       listeningPortsSample: listening.slice(0, 10).map((s) => s.localPort),
       summary: `${socks.length} total sockets (${established.length} ESTABLISHED, ${listening.length} LISTENING, ${timeWait.length} TIME_WAIT)`
+    };
+  }
+
+  // 5. TLS Posture Audit Distillation
+  if (intent === 'tls_posture_audit' || tool === 'auditTls' || observation.certificate || technicalEvidence?.certificate) {
+    const cert = observation.certificate || technicalEvidence?.certificate || {};
+    const valid = Boolean(observation.valid ?? (cert.daysRemaining !== undefined ? cert.daysRemaining > 0 : true));
+    return {
+      type: 'TLS_POSTURE_DISTILLATION',
+      target: target || observation.target || 'target',
+      valid,
+      subject: cert.subject || cert.commonName || observation.subject || 'unknown',
+      daysRemaining: cert.daysRemaining ?? observation.daysRemaining ?? null,
+      cipher: observation.cipher || cert.cipher || 'unknown',
+      tlsProtocol: observation.protocol || cert.protocol || 'TLS 1.3',
+      alpn: observation.alpn || cert.alpn || null,
+      summary: `TLS certificate for ${cert.subject || target || 'target'} is ${valid ? 'VALID' : 'EXPIRED'} (${cert.daysRemaining ?? 0}d left, ${observation.cipher || 'negotiated'})`
+    };
+  }
+
+  // 6. ICMP Ping Distillation
+  if (intent === 'ping' || tool === 'realPing' || observation.lossPercentage !== undefined || observation.packetLossPct !== undefined) {
+    const loss = observation.lossPercentage ?? observation.packetLossPct ?? 0;
+    const rtt = observation.avgLatencyMs ?? observation.avgRttMs ?? observation.rttMs ?? null;
+    return {
+      type: 'ICMP_PING_DISTILLATION',
+      target: target || observation.target || 'target',
+      packetLossPct: loss,
+      rttMs: rtt,
+      transmitted: observation.transmitted ?? observation.packetsSent ?? null,
+      received: observation.received ?? observation.packetsReceived ?? null,
+      summary: `ICMP Echo to ${target || 'target'}: ${loss}% loss, avg RTT ${rtt !== null ? rtt + 'ms' : 'N/A'}`
+    };
+  }
+
+  // 7. HTTP / TLS Application Probe Distillation
+  if (intent === 'website_check' || tool === 'probeHttp' || observation.httpStatus !== undefined || observation.statusCode !== undefined) {
+    const status = observation.httpStatus ?? observation.statusCode ?? null;
+    const ttfb = observation.ttfbMs ?? observation.latencyMs ?? null;
+    const healthy = Boolean(status && status >= 200 && status < 400);
+    return {
+      type: 'HTTP_APPLICATION_DISTILLATION',
+      target: target || observation.target || observation.url || 'target',
+      statusCode: status,
+      ttfbMs: ttfb,
+      healthy,
+      summary: `HTTP/TLS response for ${target || 'target'}: status ${status || 'ERR'}, TTFB ${ttfb !== null ? ttfb + 'ms' : 'N/A'}`
+    };
+  }
+
+  // 8. Host Resource Health Distillation
+  if (intent === 'host_health' || tool === 'getHostMetrics' || observation.cpu || observation.memory) {
+    const cpuPct = observation.cpu?.usagePercentage ?? observation.cpuUsagePct ?? null;
+    const memPct = observation.memory?.usedPercent ?? observation.memUsedPct ?? null;
+    return {
+      type: 'HOST_RESOURCE_DISTILLATION',
+      target: 'local_host',
+      cpuUsagePct: cpuPct,
+      memUsagePct: memPct,
+      load1m: observation.cpu?.loadAverage1m ?? null,
+      summary: `Host resources: CPU ${cpuPct !== null ? cpuPct + '%' : 'N/A'}, RAM ${memPct !== null ? memPct + '%' : 'N/A'}, Load(1m) ${observation.cpu?.loadAverage1m ?? 'N/A'}`
+    };
+  }
+
+  // 9. SNMP Probe / Subtree Walk Distillation
+  if (intent === 'snmp_probe' || intent === 'snmp_walk' || tool === 'snmpProbe' || observation.oids || observation.variables) {
+    const count = Array.isArray(observation.oids) ? observation.oids.length : (Array.isArray(observation.variables) ? observation.variables.length : 0);
+    return {
+      type: 'SNMP_PROBE_DISTILLATION',
+      target: target || observation.target || 'target',
+      totalOids: count,
+      sysDescr: observation.sysDescr || observation.systemDescription || null,
+      summary: `SNMP query on ${target || 'target'}: retrieved ${count} OID records, sysDescr "${observation.sysDescr || 'N/A'}"`
     };
   }
 
@@ -1399,7 +1732,7 @@ async function reflectOnToolObservation({
 }
 
 /**
- * Executes the bounded Plan -> Execute -> Observe -> Reflect agentic tool loop (max 3 iterations).
+ * Executes the bounded Plan -> Execute -> Observe -> Reflect agentic tool loop (max 5 iterations with budget awareness).
  */
 async function runAgenticToolLoop({
   promptText,
@@ -1408,15 +1741,26 @@ async function runAgenticToolLoop({
   executeSinglePlan,
   onProgress = null,
   signal = null,
-  maxSteps = 3,
+  maxSteps = 5,
   allowCloudReflection = false
 }) {
-  const boundedMax = Math.min(3, Math.max(1, Number(maxSteps) || 3));
+  const boundedMax = Math.min(5, Math.max(1, Number(maxSteps) || 5));
   const executedPlans = [];
   const outcomes = [];
   const allSteps = [];
   const allFindings = [];
   const toolReflectionTrace = [];
+  const PROBE_BUDGET_MS = 14000;
+  let totalElapsedMs = 0;
+  let loopTerminationReason = 'OBSERVATION_SUFFICIENT';
+
+  const initialAnalysis = computeLiveInformationGainAnalysis(sessionContext);
+  let activeHypotheses = (initialAnalysis?.hypotheses || []).map((h) => ({
+    id: h.id,
+    name: h.name,
+    probability: typeof h.rawProbability === 'number' ? h.rawProbability : (Number(h.percentage) || 0) / 100,
+    percentage: h.percentage
+  }));
 
   let currentPlan = initialPlan;
   let stepIndex = 0;
@@ -1426,6 +1770,11 @@ async function runAgenticToolLoop({
       const err = new Error('Diagnostic execution cancelled by user.');
       err.code = 'REQUEST_CANCELLED';
       throw err;
+    }
+
+    if (totalElapsedMs >= PROBE_BUDGET_MS) {
+      loopTerminationReason = 'PROBE_BUDGET_EXHAUSTED';
+      break;
     }
 
     stepIndex += 1;
@@ -1445,6 +1794,9 @@ async function runAgenticToolLoop({
 
     const outcome = await executeSinglePlan(currentPlan, stepIndex);
     outcomes.push({ plan: currentPlan, outcome });
+
+    const dur = outcome?.durationMs || outcome?.technicalEvidence?.durationMs || (Array.isArray(outcome?.steps) && outcome.steps.reduce((a, s) => a + (s.durationMs || 0), 0)) || 100;
+    totalElapsedMs += dur;
 
     if (Array.isArray(outcome?.steps)) {
       for (const s of outcome.steps) {
@@ -1469,8 +1821,33 @@ async function runAgenticToolLoop({
       }
     }
 
+    // Dynamic Bayesian Posterior Update: Condition on probe pass/fail outcome
+    const probePassed = Boolean(
+      outcome?.success !== false &&
+      !outcome?.error &&
+      !outcome?.failed &&
+      (outcome?.technicalEvidence?.success !== false) &&
+      (outcome?.data?.success !== false)
+    );
+    const matchedCandidate = CANDIDATE_PROBE_LIKELIHOOD_MODELS.find(
+      (c) => c.intent === currentPlan.intent || c.probeId.toLowerCase().includes(String(currentPlan.intent).toLowerCase())
+    );
+    if (matchedCandidate && activeHypotheses.length > 0) {
+      activeHypotheses = updateBayesianDistributionFromProbeOutcome(
+        activeHypotheses,
+        matchedCandidate.probeId,
+        probePassed
+      );
+    }
+
     // Non-operational turns (greetings, clarifications, pure conceptual answers) do not loop
     if (currentPlan.mode === 'conversational' || currentPlan.mode === 'informational') {
+      loopTerminationReason = 'NON_OPERATIONAL_TURN';
+      break;
+    }
+
+    if (stepIndex >= boundedMax) {
+      loopTerminationReason = 'STEP_LIMIT_REACHED';
       break;
     }
 
@@ -1505,23 +1882,31 @@ async function runAgenticToolLoop({
     });
 
     if (!reflection.continueLoop || !reflection.nextPlan) {
+      loopTerminationReason = reflection.reason || 'OBSERVATION_SUFFICIENT';
       break;
     }
 
     currentPlan = reflection.nextPlan;
   }
 
-  const igAnalysis = computeLiveInformationGainAnalysis(sessionContext);
+  const optimalNextProbe = computeOptimalInformationGainProbe(activeHypotheses);
   const epistemicClassification = {
     provenFacts: allFindings.map((f) => `${f.label || f.name || 'Fact'}: ${f.value || f.detail || f.message || ''}`),
-    probableHypotheses: (igAnalysis?.hypotheses || []).filter((h) => (h.percentage || 0) >= 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
-    unresolvedAmbiguities: (igAnalysis?.hypotheses || []).filter((h) => (h.percentage || 0) > 15 && (h.percentage || 0) < 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
-    recommendedOptimalProbe: igAnalysis?.candidateProbes?.[0] ? {
-      probeId: igAnalysis.candidateProbes[0].probeId,
-      expectedInformationGainBits: igAnalysis.candidateProbes[0].expectedInformationGainBits,
-      intent: igAnalysis.candidateProbes[0].intent,
-      rationale: igAnalysis.candidateProbes[0].rationale
-    } : null
+    probableHypotheses: activeHypotheses.filter((h) => (h.percentage || 0) >= 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
+    unresolvedAmbiguities: activeHypotheses.filter((h) => (h.percentage || 0) > 15 && (h.percentage || 0) < 60).map((h) => ({ id: h.id, name: h.name, percentage: h.percentage })),
+    recommendedOptimalProbe: optimalNextProbe ? {
+      probeId: optimalNextProbe.probeId,
+      expectedInformationGainBits: optimalNextProbe.expectedInformationGainBits,
+      intent: optimalNextProbe.intent,
+      rationale: optimalNextProbe.rationale
+    } : (initialAnalysis?.candidateProbes?.[0] ? {
+      probeId: initialAnalysis.candidateProbes[0].probeId,
+      expectedInformationGainBits: initialAnalysis.candidateProbes[0].expectedInformationGainBits,
+      intent: initialAnalysis.candidateProbes[0].intent,
+      rationale: initialAnalysis.candidateProbes[0].rationale
+    } : null),
+    totalElapsedMs,
+    terminationReason: loopTerminationReason
   };
 
   if (outcomes.length === 1) {
@@ -1562,7 +1947,9 @@ async function runAgenticToolLoop({
       mode: 'agentic_multi_step_loop',
       iterationsExecuted: outcomes.length,
       agenticReflectionTrace: toolReflectionTrace,
-      stepEvidences: outcomes.map((o) => o.outcome.technicalEvidence)
+      stepEvidences: outcomes.map((o) => o.outcome.technicalEvidence),
+      totalElapsedMs,
+      terminationReason: loopTerminationReason
     }
   };
 }
@@ -1713,6 +2100,7 @@ module.exports = {
   CANDIDATE_PROBE_LIKELIHOOD_MODELS,
   computeShannonEntropyFromDistribution,
   computeExpectedProbeInformationGain,
+  updateBayesianDistributionFromProbeOutcome,
   computeLiveInformationGainAnalysis,
   distillTelemetryForContext,
   computeOptimalInformationGainProbe,

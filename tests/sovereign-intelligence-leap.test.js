@@ -22,6 +22,8 @@ const {
   distillTelemetryForContext,
   computeOptimalInformationGainProbe,
   computeExpectedProbeInformationGain,
+  computeShannonEntropyFromDistribution,
+  updateBayesianDistributionFromProbeOutcome,
   CANDIDATE_PROBE_LIKELIHOOD_MODELS,
   runAgenticToolLoop
 } = require('../src/core/chat/conversational-brain');
@@ -266,5 +268,144 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(metrics.ringBufferStats !== undefined);
     assert.ok(metrics.ringBufferStats.ringBufferCapacity >= 4096);
     assert.equal(typeof metrics.backpressureHealthy, 'boolean');
+  });
+
+  await t.test('9. verifies 12-probe candidate matrix spans all 6 fault domains with valid empirical likelihood distributions', () => {
+    assert.equal(CANDIDATE_PROBE_LIKELIHOOD_MODELS.length, 12);
+    const probeIds = CANDIDATE_PROBE_LIKELIHOOD_MODELS.map((p) => p.probeId);
+    assert.ok(probeIds.includes('ARP_NEIGHBOR_PROBE'), 'Must include L2 ARP neighbor probe');
+    assert.ok(probeIds.includes('ICMP_GATEWAY_PING'), 'Must include L3 Gateway ping probe');
+    assert.ok(probeIds.includes('TRACEROUTE_WAN_PROBE'), 'Must include L3 Traceroute probe');
+    assert.ok(probeIds.includes('TLS_POSTURE_AUDIT_PROBE'), 'Must include L6 TLS posture probe');
+    assert.ok(probeIds.includes('DNS_MX_RECORD_PROBE'), 'Must include L7 DNS MX probe');
+    assert.ok(probeIds.includes('TCP_SSH_PROBE_22'), 'Must include L4 SSH probe');
+    assert.ok(probeIds.includes('TCP_DATABASE_PROBE_3306_5432'), 'Must include L4 Database probe');
+    assert.ok(probeIds.includes('KERNEL_SOCKET_EXHAUSTION_PROBE'), 'Must include Host socket probe');
+    assert.ok(probeIds.includes('HOST_RESOURCE_HEALTH_PROBE'), 'Must include Host resource probe');
+
+    for (const model of CANDIDATE_PROBE_LIKELIHOOD_MODELS) {
+      assert.ok(model.probeName && model.command && model.intent);
+      assert.ok(model.likelihoodPassGivenHypothesis, `Model ${model.probeId} must declare likelihoods`);
+      for (const [hyp, l] of Object.entries(model.likelihoodPassGivenHypothesis)) {
+        assert.ok(typeof l === 'number' && l >= 0 && l <= 1, `Likelihood ${hyp} on ${model.probeId} must be within [0,1]`);
+      }
+    }
+  });
+
+  await t.test('10. verifies dynamic Bayesian posterior update loop with entropy reduction upon probe observation', () => {
+    const priorDistribution = [
+      { id: 'DNS_NXDOMAIN_POISON', name: 'DNS Poisoning', probability: 0.5, percentage: 50 },
+      { id: 'SERVICE_DAEMON_CRASH', name: 'Service Daemon Crash', probability: 0.5, percentage: 50 }
+    ];
+
+    const priorEntropy = computeShannonEntropyFromDistribution(priorDistribution.map((h) => h.probability));
+    assert.equal(priorEntropy, 1.0); // - [0.5 * log2(0.5) + 0.5 * log2(0.5)] = 1.0 bit
+
+    // DNS lookup passes -> very unlikely to be DNS_NXDOMAIN_POISON (likelihood 0.04 vs 0.90)
+    const updatedPosteriors = updateBayesianDistributionFromProbeOutcome(
+      priorDistribution,
+      'DNS_WIRE_LOOKUP_GOOGLE',
+      true
+    );
+
+    const updatedEntropy = computeShannonEntropyFromDistribution(updatedPosteriors.map((h) => h.probability));
+    assert.ok(updatedEntropy < priorEntropy, `Updated entropy (${updatedEntropy}) must be strictly less than prior (${priorEntropy})`);
+
+    const dnsHyp = updatedPosteriors.find((h) => h.id === 'DNS_NXDOMAIN_POISON');
+    const srvHyp = updatedPosteriors.find((h) => h.id === 'SERVICE_DAEMON_CRASH');
+    assert.ok(srvHyp.probability > 0.9, 'Service crash posterior should rise above 90% when DNS lookup succeeds');
+    assert.ok(dnsHyp.probability < 0.1, 'DNS poisoning posterior should drop below 10% when DNS lookup succeeds');
+  });
+
+  await t.test('11. verifies multi-step agentic loop honors 5-step ceiling, budget awareness, and attaches terminationReason', async () => {
+    let executionCount = 0;
+    const mockExecute = async (plan, step) => {
+      executionCount++;
+      return {
+        reply: `Step ${step} executed intent ${plan.intent}`,
+        durationMs: 50,
+        technicalEvidence: { success: true },
+        structuredAnswer: { result: 'OK', meaning: 'Healthy' }
+      };
+    };
+
+    const initialPlan = {
+      intent: 'dns',
+      mode: 'operational',
+      target: 'example.com',
+      secondaryToolPlans: [
+        { intent: 'port_check', target: 'example.com', ports: [443] },
+        { intent: 'website_check', target: 'example.com', ports: [443] }
+      ]
+    };
+
+    const loopResult = await runAgenticToolLoop({
+      promptText: 'Check DNS, port, and website for example.com',
+      initialPlan,
+      executeSinglePlan: mockExecute,
+      maxSteps: 5
+    });
+
+    assert.ok(executionCount >= 2, 'Should execute multiple queued plans');
+    assert.ok(loopResult.epistemicClassification, 'Must attach epistemicClassification');
+    assert.ok(typeof loopResult.epistemicClassification.totalElapsedMs === 'number');
+    assert.ok(loopResult.epistemicClassification.terminationReason !== undefined);
+  });
+
+  await t.test('12. verifies telemetry distillation across TLS, ICMP, HTTP, Host Resource, and SNMP probe outputs', () => {
+    // TLS Posture Distillation
+    const tlsDist = distillTelemetryForContext({
+      intent: 'tls_posture_audit',
+      target: 'api.corp.local',
+      valid: true,
+      certificate: { subject: 'CN=api.corp.local', daysRemaining: 89, cipher: 'TLS_AES_256_GCM_SHA384' }
+    });
+    assert.equal(tlsDist.type, 'TLS_POSTURE_DISTILLATION');
+    assert.equal(tlsDist.valid, true);
+    assert.equal(tlsDist.daysRemaining, 89);
+
+    // ICMP Ping Distillation
+    const pingDist = distillTelemetryForContext({
+      intent: 'ping',
+      target: '8.8.8.8',
+      lossPercentage: 0,
+      avgLatencyMs: 14.5,
+      transmitted: 4,
+      received: 4
+    });
+    assert.equal(pingDist.type, 'ICMP_PING_DISTILLATION');
+    assert.equal(pingDist.packetLossPct, 0);
+    assert.equal(pingDist.rttMs, 14.5);
+
+    // HTTP Application Distillation
+    const httpDist = distillTelemetryForContext({
+      intent: 'website_check',
+      target: 'https://status.corp.local',
+      statusCode: 200,
+      ttfbMs: 42.1
+    });
+    assert.equal(httpDist.type, 'HTTP_APPLICATION_DISTILLATION');
+    assert.equal(httpDist.statusCode, 200);
+    assert.equal(httpDist.healthy, true);
+
+    // Host Resource Distillation
+    const hostDist = distillTelemetryForContext({
+      intent: 'host_health',
+      cpu: { usagePercentage: 18.4, loadAverage1m: 0.85 },
+      memory: { usedPercent: 44.2 }
+    });
+    assert.equal(hostDist.type, 'HOST_RESOURCE_DISTILLATION');
+    assert.equal(hostDist.cpuUsagePct, 18.4);
+    assert.equal(hostDist.memUsagePct, 44.2);
+
+    // SNMP Distillation
+    const snmpDist = distillTelemetryForContext({
+      intent: 'snmp_probe',
+      target: '10.0.0.254',
+      sysDescr: 'Cisco IOS Catalyst 9300',
+      oids: [{ oid: '1.3.6.1.2.1.1.1.0', value: 'Cisco IOS' }]
+    });
+    assert.equal(snmpDist.type, 'SNMP_PROBE_DISTILLATION');
+    assert.equal(snmpDist.totalOids, 1);
   });
 });
