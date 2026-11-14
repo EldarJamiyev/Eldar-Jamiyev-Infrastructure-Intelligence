@@ -25,11 +25,12 @@ const { URL } = require('url');
  */
 function isPrivateIp(ip) {
   if (!ip || typeof ip !== 'string') return false;
-  const clean = ip.trim();
+  const clean = ip.trim().replace(/^\[|\]$/g, '').toLowerCase();
   if (clean === '127.0.0.1' || clean === '::1' || clean.startsWith('127.')) return true;
   if (clean.startsWith('10.')) return true;
   if (clean.startsWith('192.168.')) return true;
   if (clean.startsWith('169.254.')) return true;
+  if (clean.startsWith('fc') || clean.startsWith('fd') || clean.startsWith('fe80:')) return true;
   if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(clean)) return true;
   if (/^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./.test(clean)) return true; // CGNAT RFC 6598
   return false;
@@ -128,24 +129,37 @@ async function verifyWebEndpoint(targetUrl, options = {}) {
     report.dns.ipv6 = aaaaRecords;
     report.dns.success = (aRecords.length > 0 || aaaaRecords.length > 0);
 
+    const rawHost = hostname.replace(/^\[|\]$/g, '');
+    const directIpVer = net.isIP(rawHost);
+
     if (report.dns.success) {
-      report.dns.isPrivate = aRecords.some(ip => isPrivateIp(ip));
+      report.dns.isPrivate = [...aRecords, ...aaaaRecords].some((ip) => isPrivateIp(ip));
     } else {
-      // If hostname is already an IP address
-      if (net.isIP(hostname)) {
+      // If hostname is already an IP literal
+      if (directIpVer !== 0) {
         report.dns.success = true;
-        report.dns.ipv4 = [hostname];
-        report.dns.isPrivate = isPrivateIp(hostname);
+        if (directIpVer === 6) {
+          report.dns.ipv6 = [rawHost];
+        } else {
+          report.dns.ipv4 = [rawHost];
+        }
+        report.dns.isPrivate = isPrivateIp(rawHost);
       } else {
         report.dns.error = 'DNS lookup returned no A or AAAA records (NXDOMAIN or unresolvable).';
       }
     }
   } catch (err) {
     report.dns.resolutionDurationMs = parseFloat((performance.now() - dnsStart).toFixed(2));
-    if (net.isIP(hostname)) {
+    const rawHost = hostname.replace(/^\[|\]$/g, '');
+    const directIpVer = net.isIP(rawHost);
+    if (directIpVer !== 0) {
       report.dns.success = true;
-      report.dns.ipv4 = [hostname];
-      report.dns.isPrivate = isPrivateIp(hostname);
+      if (directIpVer === 6) {
+        report.dns.ipv6 = [rawHost];
+      } else {
+        report.dns.ipv4 = [rawHost];
+      }
+      report.dns.isPrivate = isPrivateIp(rawHost);
     } else {
       report.dns.error = err.code || err.message;
     }

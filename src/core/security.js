@@ -573,7 +573,26 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
   }
 
   const clean = rawTarget.trim().replace(/^https?:\/\//i, '').split('/')[0];
-  const unbracketed = clean.replace(/^\[|\]$/g, '');
+
+  let hostPart = clean;
+  let explicitPort = null;
+
+  // Bracketed IPv6 literal: [::1] or [::1]:443 or [2001:db8::1]:8080
+  const bracketedMatch = clean.match(/^\[([0-9a-fA-F:]+)\](?::(\d+))?$/);
+  if (bracketedMatch) {
+    hostPart = bracketedMatch[1];
+    explicitPort = bracketedMatch[2] ? parseInt(bracketedMatch[2], 10) : null;
+  } else if (!net.isIPv6(clean) && clean.includes(':')) {
+    // IPv4 with port or hostname with port (e.g. 127.0.0.1:8080 or example.com:443)
+    const lastColon = clean.lastIndexOf(':');
+    const possiblePort = clean.slice(lastColon + 1);
+    if (/^\d+$/.test(possiblePort)) {
+      hostPart = clean.slice(0, lastColon);
+      explicitPort = parseInt(possiblePort, 10);
+    }
+  }
+
+  const unbracketed = hostPart.replace(/^\[|\]$/g, '');
 
   if (!isSafeNetworkTarget(unbracketed, policy)) {
     return {
@@ -581,6 +600,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       hostname: clean,
       safeTarget: clean,
       pinnedIp: null,
+      port: explicitPort,
       addressFamily: null,
       resolvedIps: [],
       isIpLiteral: false,
@@ -598,6 +618,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       hostname: unbracketed,
       safeTarget: canonical,
       pinnedIp: canonical,
+      port: explicitPort,
       addressFamily: 4,
       resolvedIps: [canonical],
       isIpLiteral: true,
@@ -615,6 +636,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
       hostname: unbracketed,
       safeTarget: unbracketed,
       pinnedIp: unbracketed,
+      port: explicitPort,
       addressFamily: ipVersion,
       resolvedIps: [unbracketed],
       isIpLiteral: true,
@@ -719,6 +741,7 @@ async function resolveAndValidateTarget(rawTarget, policy = {}) {
     hostname: unbracketed,
     safeTarget: unbracketed,
     pinnedIp: preferredIp,
+    port: explicitPort,
     addressFamily: family,
     resolvedIps,
     isIpLiteral: false,

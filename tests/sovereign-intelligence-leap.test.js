@@ -722,4 +722,66 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(episodicAnalysis.currentEntropyBits > 0);
     assert.equal(episodicAnalysis.candidateProbes[0].calculationMethod, 'SHANNON_EPISODIC_EMPIRICAL_EXACT');
   });
+
+  await t.test('19. verifies protocol modernization: IPv6 bracketed literals, QUIC HTTP/3 detection, and SNMPv3 USM profiles', async () => {
+    const { resolveAndValidateTarget } = require('../src/core/security');
+    const { checkPort } = require('../src/protocols/tcp-port');
+    const { verifyWebEndpoint, isPrivateIp } = require('../src/protocols/service-verifier');
+    const { probeQuicHttp3, detectHttp3AltSvc } = require('../src/protocols/http-probe');
+    const { createSnmpV3Profile } = require('../src/protocols/snmp-engine');
+
+    // 1. Bracketed IPv6 literal resolution with port extraction
+    const ipv6Resolved = await resolveAndValidateTarget('[::1]:443');
+    assert.equal(ipv6Resolved.valid, true);
+    assert.equal(ipv6Resolved.hostname, '::1');
+    assert.equal(ipv6Resolved.pinnedIp, '::1');
+    assert.equal(ipv6Resolved.port, 443);
+    assert.equal(ipv6Resolved.addressFamily, 6);
+    assert.equal(ipv6Resolved.isIpLiteral, true);
+
+    // 2. Real TCP probe against bracketed loopback IPv6
+    const tcpRes = await checkPort('[::1]:443', null, 500);
+    assert.equal(tcpRes.host, '::1');
+    assert.equal(tcpRes.port, 443);
+    assert.ok(tcpRes.status === 'CLOSED' || tcpRes.status === 'OPEN');
+    assert.ok(typeof tcpRes.connectLatencyMs === 'number');
+
+    // 3. Web endpoint verifier handles IPv6 URL and sets dns.ipv6
+    const webRes = await verifyWebEndpoint('https://[::1]:8443', { timeoutMs: 500 });
+    assert.equal(webRes.dns.success, true);
+    assert.deepEqual(webRes.dns.ipv6, ['::1']);
+    assert.equal(webRes.dns.isPrivate, true);
+    assert.equal(webRes.port, 8443);
+    assert.ok(isPrivateIp('::1'));
+    assert.ok(isPrivateIp('[::1]'));
+
+    // 4. HTTP/3 Alt-Svc detection
+    const altSvcHeaders = { 'alt-svc': 'h3=":443"; ma=86400, h3-29=":443"' };
+    const h3Info = detectHttp3AltSvc(altSvcHeaders);
+    assert.equal(h3Info.http3Advertised, true);
+    assert.ok(h3Info.h3Versions.includes('h3'));
+
+    // 5. Active QUIC UDP 443 probe
+    const quicRes = await probeQuicHttp3('127.0.0.1', 443, 200);
+    assert.ok(quicRes);
+    assert.equal(quicRes.host, '127.0.0.1');
+    assert.equal(quicRes.port, 443);
+    assert.ok(typeof quicRes.latencyMs === 'number');
+
+    // 6. SNMPv3 USM profile configuration with authPriv
+    const snmpV3 = createSnmpV3Profile({
+      username: 'net-admin',
+      level: 'authPriv',
+      authProtocol: 'sha256',
+      privProtocol: 'aes',
+      authKey: 'SuperAuthKey123',
+      privKey: 'SuperPrivKey456'
+    });
+    assert.equal(snmpV3.name, 'net-admin');
+    assert.equal(snmpV3.level, 3); // snmp.SecurityLevel.authPriv
+    assert.equal(snmpV3.authProtocol, 5); // snmp.AuthProtocols.sha256
+    assert.equal(snmpV3.privProtocol, 4); // snmp.PrivProtocols.aes
+    assert.equal(snmpV3.authKey, 'SuperAuthKey123');
+    assert.equal(snmpV3.privKey, 'SuperPrivKey456');
+  });
 });

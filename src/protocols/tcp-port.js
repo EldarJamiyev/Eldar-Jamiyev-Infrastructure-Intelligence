@@ -44,13 +44,15 @@ const COMMON_PORTS = [
 const { resolveAndValidateTarget } = require('../core/security');
 
 async function checkPort(host, port, timeoutMs = 2500) {
+  let targetHost = host;
+  let targetPort = port;
   let pinnedIp = host;
   try {
     const val = await resolveAndValidateTarget(host);
     if (!val.valid) {
       return {
         host,
-        port,
+        port: targetPort || val.port || null,
         status: 'SECURITY_BLOCKED',
         open: false,
         connectLatencyMs: 0,
@@ -59,10 +61,14 @@ async function checkPort(host, port, timeoutMs = 2500) {
       };
     }
     pinnedIp = val.pinnedIp;
+    targetHost = val.hostname || host;
+    if (val.port && (!targetPort || targetPort === 0)) {
+      targetPort = val.port;
+    }
   } catch (err) {
     return {
       host,
-      port,
+      port: targetPort || null,
       status: 'SECURITY_BLOCKED',
       open: false,
       connectLatencyMs: 0,
@@ -70,6 +76,8 @@ async function checkPort(host, port, timeoutMs = 2500) {
       error: err.message
     };
   }
+
+  const effectivePort = Number(targetPort) || 80;
 
   return new Promise((resolve) => {
     const startTime = performance.now();
@@ -92,10 +100,10 @@ async function checkPort(host, port, timeoutMs = 2500) {
     socket.on('connect', () => {
       const connectLatencyMs = parseFloat((performance.now() - startTime).toFixed(2));
 
-      if (!SERVER_GREETING_PORTS.has(Number(port))) {
+      if (!SERVER_GREETING_PORTS.has(Number(effectivePort))) {
         return finish({
-          host,
-          port,
+          host: targetHost,
+          port: effectivePort,
           status: 'OPEN',
           open: true,
           connectLatencyMs,
@@ -109,8 +117,8 @@ async function checkPort(host, port, timeoutMs = 2500) {
       // Attempt brief banner read (wait up to 45ms for server-first greeting protocols like SSH/SMTP/FTP)
       const bannerTimer = setTimeout(() => {
         finish({
-          host,
-          port,
+          host: targetHost,
+          port: effectivePort,
           status: 'OPEN',
           open: true,
           connectLatencyMs,
@@ -125,8 +133,8 @@ async function checkPort(host, port, timeoutMs = 2500) {
         banner += data.toString('utf8', 0, 256);
         clearTimeout(bannerTimer);
         finish({
-          host,
-          port,
+          host: targetHost,
+          port: effectivePort,
           status: 'OPEN',
           open: true,
           connectLatencyMs,
@@ -141,8 +149,8 @@ async function checkPort(host, port, timeoutMs = 2500) {
     socket.on('timeout', () => {
       const latencyMs = parseFloat((performance.now() - startTime).toFixed(2));
       finish({
-        host,
-        port,
+        host: targetHost,
+        port: effectivePort,
         status: 'FILTERED',
         open: false,
         connectLatencyMs: latencyMs,
@@ -170,8 +178,8 @@ async function checkPort(host, port, timeoutMs = 2500) {
       }
 
       finish({
-        host,
-        port,
+        host: targetHost,
+        port: effectivePort,
         status,
         open: false,
         connectLatencyMs: latencyMs,
@@ -183,11 +191,11 @@ async function checkPort(host, port, timeoutMs = 2500) {
     });
 
     try {
-      socket.connect(port, pinnedIp);
+      socket.connect(effectivePort, pinnedIp);
     } catch (err) {
       finish({
-        host,
-        port,
+        host: targetHost,
+        port: effectivePort,
         status: 'ERROR',
         open: false,
         connectLatencyMs: 0,
