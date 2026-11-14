@@ -345,10 +345,14 @@ async function runLiveProductionSmoke() {
 }
 
 if (require.main === module) {
-  runLiveProductionSmoke().catch((err) => {
-    console.error('\n❌ Smoke Test Failed:', err);
-    process.exit(1);
-  });
+  runLiveProductionSmoke()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('\n❌ Smoke Test Failed:', err);
+      process.exit(1);
+    });
 }
 
 module.exports = { runLiveProductionSmoke };
