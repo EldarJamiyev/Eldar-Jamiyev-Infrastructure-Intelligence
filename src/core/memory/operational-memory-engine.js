@@ -73,6 +73,12 @@ class OperationalMemoryEngine extends EventEmitter {
     this.commanderInvestigations = new Map();
     this.commanderProbeLedger = [];
     this.avoidedDuplicateProbesCount = 0;
+    try {
+      const { hnswEpisodicIndex } = require('./hnsw-episodic-index');
+      this.hnswIndex = hnswEpisodicIndex;
+    } catch (_) {
+      this.hnswIndex = null;
+    }
     this._ensureSchema();
     this._seedDefaultOrganizationalKnowledge();
 
@@ -847,6 +853,18 @@ class OperationalMemoryEngine extends EventEmitter {
       };
 
       EpisodicCausalMemoryEngine.recordLiveSynthesisEpisode(episode);
+
+      // Phase 5.0 HNSW Vector Indexing
+      if (this.hnswIndex) {
+        const vec64 = this.hnswIndex.projectTelemetryTo64D({
+          target,
+          rttMs: baseline.avgRttMs || 15.0,
+          dnsLatencyMs: domain === 'DNS' ? 150.0 : 12.0,
+          packetLossPct: 0.0,
+          domain
+        });
+        this.hnswIndex.insert(record.resolutionId || `res_${Date.now()}`, vec64, episode);
+      }
     } catch (_) {}
   }
 
@@ -900,9 +918,26 @@ class OperationalMemoryEngine extends EventEmitter {
 
     let vectorMatches = [];
     try {
-      const { EpisodicCausalMemoryEngine } = require('../../ai/episodic-causal-memory-engine');
-      vectorMatches = EpisodicCausalMemoryEngine.findSimilarEpisodes(queryVector, Math.max(topK * 2, 6), { includeSimulated: true }) || [];
-    } catch (_) {}
+      if (this.hnswIndex && this.hnswIndex.size() > 0) {
+        const query64D = this.hnswIndex.projectTelemetryTo64D(queryVector);
+        const hnswResults = this.hnswIndex.searchKNN(query64D, Math.max(topK * 2, 6));
+        vectorMatches = hnswResults.map(r => ({
+          episode: r.payload,
+          cosineSimilarity: r.similarity,
+          similarity: r.similarity,
+          distance: r.distance,
+          hnswAccelerated: true
+        }));
+      } else {
+        const { EpisodicCausalMemoryEngine } = require('../../ai/episodic-causal-memory-engine');
+        vectorMatches = EpisodicCausalMemoryEngine.findSimilarEpisodes(queryVector, Math.max(topK * 2, 6), { includeSimulated: true }) || [];
+      }
+    } catch (_) {
+      try {
+        const { EpisodicCausalMemoryEngine } = require('../../ai/episodic-causal-memory-engine');
+        vectorMatches = EpisodicCausalMemoryEngine.findSimilarEpisodes(queryVector, Math.max(topK * 2, 6), { includeSimulated: true }) || [];
+      } catch (_) {}
+    }
 
     // Also fetch historical verified resolutions from SQLite / in-memory cache
     const sqlResolutions = this.findMatchingResolutions({
@@ -1045,6 +1080,39 @@ class OperationalMemoryEngine extends EventEmitter {
     } catch (_) {
       return new Float32Array(64);
     }
+  }
+
+  /**
+   * Phase 5.0 Track 3: Louvain Modularity Community Detection on Historical Incident Cascades
+   * Partitions the incident co-occurrence graph into cohesive failure cascade communities.
+   *
+   * @param {Array<{ source: string, target: string, weight: number }>} [providedEdges]
+   * @returns {Object} { communities, modularityQ, nodesCount, edgesCount }
+   */
+  clusterHistoricalCascades(providedEdges = null) {
+    let edges = providedEdges;
+    if (!edges || edges.length === 0) {
+      edges = [];
+      const resolutions = this.resolutionsCache || [];
+      for (let i = 0; i < resolutions.length; i++) {
+        for (let j = i + 1; j < resolutions.length; j++) {
+          const r1 = resolutions[i];
+          const r2 = resolutions[j];
+          if (r1.targetKey === r2.targetKey || Math.abs(new Date(r1.createdAt).getTime() - new Date(r2.createdAt).getTime()) < 3600000) {
+            edges.push({
+              source: r1.resolutionId || `res_${i}`,
+              target: r2.resolutionId || `res_${j}`,
+              weight: 1.0
+            });
+          }
+        }
+      }
+    }
+
+    if (this.hnswIndex) {
+      return this.hnswIndex.clusterIncidentCascades(edges);
+    }
+    return { communities: [], modularityQ: 0, nodesCount: 0, edgesCount: 0 };
   }
 
   /**
