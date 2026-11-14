@@ -667,9 +667,210 @@ class TemporalInfrastructureGraph {
   }
 
   /**
-   * Query 5: Multi-hop Topological Blast-Radius & M/M/1 Queueing Delay Propagation
+   * Continuous Laplacian Heat Diffusion Engine
+   * Solves p_t = exp(-t * L) * v_0, where L = I - D^(-1/2) * A * D^(-1/2)
+   * via truncated Taylor series / Chebyshev polynomial expansion (k = 6 terms).
+   *
+   * @param {string} sourceNodeId
+   * @param {number} [t=1.0] - Continuous diffusion time parameter
+   * @param {Object} [options={}] - Options including persistToEvidenceDag
+   * @returns {Object} Diffusion contours and degradation probabilities across topology
    */
-  computeBlastRadius(sourceNodeId, injectedLatencyMs = 100) {
+  computeLaplacianHeatDiffusion(sourceNodeId, t = 1.0, options = {}) {
+    if (this.nodes.size === 0) {
+      this.syncFromLiveInfrastructure('initial_load');
+    }
+    const startNode = this.nodes.get(sourceNodeId);
+    if (!startNode) {
+      return {
+        sourceNodeId,
+        sourceLabel: null,
+        diffusionTimeT: t,
+        expansionTerms: 6,
+        nodeCount: 0,
+        diffusionContours: []
+      };
+    }
+
+    const nodeList = Array.from(this.nodes.values());
+    const N = nodeList.length;
+    if (N === 0) {
+      return {
+        sourceNodeId,
+        sourceLabel: startNode.label,
+        diffusionTimeT: t,
+        expansionTerms: 6,
+        nodeCount: 0,
+        diffusionContours: []
+      };
+    }
+
+    const nodeIndexMap = new Map();
+    nodeList.forEach((n, idx) => nodeIndexMap.set(n.nodeId, idx));
+    const sourceIdx = nodeIndexMap.get(sourceNodeId);
+    if (sourceIdx === undefined) {
+      return {
+        sourceNodeId,
+        sourceLabel: startNode.label,
+        diffusionTimeT: t,
+        expansionTerms: 6,
+        nodeCount: N,
+        diffusionContours: []
+      };
+    }
+
+    // Build symmetric adjacency list with edge confidence weights
+    const adjacency = Array.from({ length: N }, () => []);
+    const degrees = new Float64Array(N);
+
+    for (const edge of this.edges.values()) {
+      const u = nodeIndexMap.get(edge.sourceId);
+      const v = nodeIndexMap.get(edge.targetId);
+      if (u !== undefined && v !== undefined && u !== v) {
+        const weight = typeof edge.confidence === 'number' && edge.confidence > 0 ? edge.confidence : 1.0;
+        adjacency[u].push({ neighbor: v, weight });
+        adjacency[v].push({ neighbor: u, weight });
+        degrees[u] += weight;
+        degrees[v] += weight;
+      }
+    }
+
+    // Handle isolated nodes: minimum degree 1.0 to prevent division by zero
+    for (let i = 0; i < N; i++) {
+      if (degrees[i] <= 0) degrees[i] = 1.0;
+    }
+
+    // Normalized Laplacian operator: (L * x)_i = x_i - \sum_{j \in N(i)} (A_{i,j} / \sqrt{d_i * d_j}) * x_j
+    const applyLaplacian = (xVec) => {
+      const out = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        let sumNeighbors = 0;
+        const sqrtDi = Math.sqrt(degrees[i]);
+        for (const { neighbor: j, weight } of adjacency[i]) {
+          const sqrtDj = Math.sqrt(degrees[j]);
+          sumNeighbors += (weight / (sqrtDi * sqrtDj)) * xVec[j];
+        }
+        out[i] = xVec[i] - sumNeighbors;
+      }
+      return out;
+    };
+
+    // Initial impulse vector v_0: 1.0 at sourceNode, 0.0 elsewhere
+    const v0 = new Float64Array(N);
+    v0[sourceIdx] = 1.0;
+
+    // Truncated Taylor series expansion of exp(-t * L) * v_0 for k = 0..6:
+    // p_t = \sum_{k=0}^{6} ((-t)^k / k!) * (L^k * v_0)
+    const pt = new Float64Array(N);
+    for (let i = 0; i < N; i++) pt[i] = v0[i]; // k = 0 term: 1.0 * v_0
+
+    let currentLPower = v0;
+    let factorial = 1;
+    let tPower = 1;
+
+    for (let k = 1; k <= 6; k++) {
+      currentLPower = applyLaplacian(currentLPower);
+      factorial *= k;
+      tPower *= t;
+      const coeff = (Math.pow(-1, k) * tPower) / factorial;
+      for (let i = 0; i < N; i++) {
+        pt[i] += coeff * currentLPower[i];
+      }
+    }
+
+    // Format diffusion contours with clamped degradation probabilities
+    const diffusionContours = [];
+    for (let i = 0; i < N; i++) {
+      const node = nodeList[i];
+      const rawProb = pt[i];
+      const prob = Number(Math.max(0.0, Math.min(1.0, rawProb)).toFixed(4));
+      const contourLevel = prob >= 0.60
+        ? 'HIGH_DEGRADATION'
+        : (prob >= 0.30
+            ? 'MODERATE_DEGRADATION'
+            : (prob >= 0.05 ? 'MARGINAL_EXPOSURE' : 'MINIMAL_EXPOSURE'));
+
+      diffusionContours.push({
+        nodeId: node.nodeId,
+        label: node.label || node.hostname || node.nodeId,
+        resourceType: node.resourceType || 'host',
+        degradationProbability: prob,
+        contourLevel,
+        isSource: i === sourceIdx
+      });
+    }
+
+    // Sort descending by degradation probability
+    diffusionContours.sort((a, b) => b.degradationProbability - a.degradationProbability);
+
+    // Causal DAG Integration: persist diffusion blast-radius profiles into evidenceFabric DAG edges
+    if (options.persistToEvidenceDag !== false && evidenceFabric) {
+      try {
+        const nowIso = new Date().toISOString();
+        if (typeof evidenceFabric._persistDagNode === 'function') {
+          if (!evidenceFabric.dagNodes.has(sourceNodeId)) {
+            evidenceFabric._persistDagNode({
+              nodeId: sourceNodeId,
+              nodeType: 'topology_node',
+              subject: sourceNodeId,
+              label: startNode.label || sourceNodeId,
+              payload: { resourceType: startNode.resourceType },
+              qualityScore: 1.0,
+              freshnessState: 'live',
+              createdAt: nowIso,
+              updatedAt: nowIso
+            });
+          }
+        }
+
+        for (const c of diffusionContours) {
+          if (c.nodeId === sourceNodeId || c.degradationProbability < 0.05) continue;
+          if (typeof evidenceFabric._persistDagNode === 'function' && !evidenceFabric.dagNodes.has(c.nodeId)) {
+            evidenceFabric._persistDagNode({
+              nodeId: c.nodeId,
+              nodeType: 'topology_node',
+              subject: c.nodeId,
+              label: c.label || c.nodeId,
+              payload: { resourceType: c.resourceType },
+              qualityScore: 1.0,
+              freshnessState: 'live',
+              createdAt: nowIso,
+              updatedAt: nowIso
+            });
+          }
+          if (typeof evidenceFabric._persistDagEdge === 'function') {
+            evidenceFabric._persistDagEdge({
+              edgeId: `EDG-DIFFUSION-${sourceNodeId}-${c.nodeId}`,
+              sourceNodeId,
+              targetNodeId: c.nodeId,
+              relationType: 'DIFFUSION_BLAST_RADIUS',
+              weight: c.degradationProbability,
+              metadata: {
+                diffusionTimeT: t,
+                contourLevel: c.contourLevel,
+                degradationProbability: c.degradationProbability
+              },
+              createdAt: nowIso
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      sourceNodeId,
+      sourceLabel: startNode.label,
+      diffusionTimeT: t,
+      expansionTerms: 6,
+      nodeCount: N,
+      diffusionContours
+    };
+  }
+
+  /**
+   * Query 5: Multi-hop Topological Blast-Radius, Continuous Laplacian Diffusion & M/M/1 Queueing Delay
+   */
+  computeBlastRadius(sourceNodeId, injectedLatencyMs = 100, options = {}) {
     if (this.nodes.size === 0) {
       this.syncFromLiveInfrastructure('initial_load');
     }
@@ -683,6 +884,14 @@ class TemporalInfrastructureGraph {
       };
     }
 
+    // 1. Continuous Laplacian Heat Diffusion
+    const laplacianDiffusion = this.computeLaplacianHeatDiffusion(sourceNodeId, options.diffusionTimeT ?? 1.0, options);
+    const contourMap = new Map();
+    for (const c of (laplacianDiffusion.diffusionContours || [])) {
+      contourMap.set(c.nodeId, c);
+    }
+
+    // 2. Multi-hop traversal and M/M/1 queuing propagation
     const visited = new Set([sourceNodeId]);
     const queue = [{ nodeId: sourceNodeId, hopDistance: 0 }];
     const impactedNodes = [];
@@ -721,6 +930,10 @@ class TemporalInfrastructureGraph {
             const congestionRegime = rho >= 0.8 ? 'critical_saturation' : (rho >= 0.55 ? 'elevated_queueing' : 'nominal');
             if (rho >= 0.8) cascadingCongestionNodes++;
 
+            const contourInfo = contourMap.get(nodeObj.nodeId);
+            const degradationProbability = contourInfo ? contourInfo.degradationProbability : propagationRisk;
+            const contourLevel = contourInfo ? contourInfo.contourLevel : 'MODERATE_DEGRADATION';
+
             impactedNodes.push({
               nodeId: nodeObj.nodeId,
               label: nodeObj.label || nodeObj.hostname || nodeObj.nodeId,
@@ -729,6 +942,8 @@ class TemporalInfrastructureGraph {
               hopDistance: nextHop,
               relationshipType: edge.relationshipType,
               propagationRisk,
+              degradationProbability,
+              contourLevel,
               estimatedQueueDelayMs,
               congestionRegime
             });
@@ -744,6 +959,7 @@ class TemporalInfrastructureGraph {
       injectedLatencyMs,
       impactedCount: impactedNodes.length,
       impactedNodes,
+      laplacianDiffusion,
       queuingPropagation: {
         cascadingCongestionNodes,
         maxDownstreamQueueDelayMs

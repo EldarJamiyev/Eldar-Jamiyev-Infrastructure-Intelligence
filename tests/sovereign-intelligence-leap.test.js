@@ -35,6 +35,7 @@ const { evidenceFabric } = require('../src/core/evidence/evidence-fabric');
 const { NeuroSymbolicApexEngine } = require('../src/ai/neuro-symbolic-apex');
 const { autonomousWarRoomOrchestrator, AutonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
 const { packetStreamer } = require('../src/network/packet-streaming/packet-streamer');
+const { temporalInfrastructureGraph } = require('../src/core/topology/temporal-graph-engine');
 
 test('EJII Sovereign Intelligence Leap Suite', async (t) => {
   await t.test('1. verifies zero-loss telemetry distillation across diverse probe outputs', () => {
@@ -998,5 +999,92 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
       'Agentic loop must terminate early when Shannon entropy drops or root cause confidence reaches threshold'
     );
     assert.ok(stepCount < 4, `Loop should have stopped early, executed ${stepCount} steps`);
+  });
+
+  await t.test('23. verifies continuous Laplacian heat diffusion, degradation contours, and causal DAG persistence', () => {
+    // 1. Seed topology nodes and typed edges
+    const srcNode = 'host:core-switch-leaf-01';
+    const peerNode1 = 'host:app-server-east-01';
+    const peerNode2 = 'host:app-server-east-02';
+    const dbNode = 'host:db-leader-east-01';
+
+    temporalInfrastructureGraph.nodes.set(srcNode, {
+      nodeId: srcNode,
+      resourceType: 'switch',
+      label: 'Core Switch Leaf 01',
+      status: 'healthy'
+    });
+    temporalInfrastructureGraph.nodes.set(peerNode1, {
+      nodeId: peerNode1,
+      resourceType: 'host',
+      label: 'App Server East 01',
+      status: 'healthy'
+    });
+    temporalInfrastructureGraph.nodes.set(peerNode2, {
+      nodeId: peerNode2,
+      resourceType: 'host',
+      label: 'App Server East 02',
+      status: 'healthy'
+    });
+    temporalInfrastructureGraph.nodes.set(dbNode, {
+      nodeId: dbNode,
+      resourceType: 'host',
+      label: 'Database Leader East 01',
+      status: 'healthy'
+    });
+
+    temporalInfrastructureGraph.edges.set(`EDGE-${srcNode}-${peerNode1}`, {
+      edgeId: `EDGE-${srcNode}-${peerNode1}`,
+      sourceId: srcNode,
+      targetId: peerNode1,
+      relationshipType: 'connected_to',
+      confidence: 0.95
+    });
+    temporalInfrastructureGraph.edges.set(`EDGE-${srcNode}-${peerNode2}`, {
+      edgeId: `EDGE-${srcNode}-${peerNode2}`,
+      sourceId: srcNode,
+      targetId: peerNode2,
+      relationshipType: 'connected_to',
+      confidence: 0.95
+    });
+    temporalInfrastructureGraph.edges.set(`EDGE-${peerNode1}-${dbNode}`, {
+      edgeId: `EDGE-${peerNode1}-${dbNode}`,
+      sourceId: peerNode1,
+      targetId: dbNode,
+      relationshipType: 'depends_on',
+      confidence: 0.90
+    });
+
+    // 2. Compute continuous Laplacian heat diffusion
+    const diff = temporalInfrastructureGraph.computeLaplacianHeatDiffusion(srcNode, 1.0, { persistToEvidenceDag: true });
+    assert.equal(diff.sourceNodeId, srcNode);
+    assert.equal(diff.diffusionTimeT, 1.0);
+    assert.equal(diff.expansionTerms, 6);
+    assert.ok(diff.diffusionContours.length >= 4);
+
+    const srcContour = diff.diffusionContours.find((c) => c.nodeId === srcNode);
+    assert.ok(srcContour);
+    assert.equal(srcContour.isSource, true);
+    assert.ok(srcContour.degradationProbability > 0.30);
+
+    const peerContour = diff.diffusionContours.find((c) => c.nodeId === peerNode1);
+    assert.ok(peerContour);
+    assert.ok(peerContour.degradationProbability > 0.05, `Direct peer degradation should be > 0.05, got ${peerContour.degradationProbability}`);
+
+    // 3. Compute blast radius and verify continuous probability contours on impacted nodes
+    const blast = temporalInfrastructureGraph.computeBlastRadius(srcNode, 150);
+    assert.equal(blast.sourceNodeId, srcNode);
+    assert.ok(blast.laplacianDiffusion);
+    assert.ok(blast.impactedNodes.length >= 2);
+    for (const impacted of blast.impactedNodes) {
+      assert.ok(typeof impacted.degradationProbability === 'number');
+      assert.ok(impacted.contourLevel !== undefined);
+    }
+
+    // 4. Verify Causal DAG edge persistence
+    const diffEdges = evidenceFabric.dagEdges.filter((e) => e.relationType === 'DIFFUSION_BLAST_RADIUS' && e.sourceNodeId === srcNode);
+    assert.ok(diffEdges.length >= 1, 'Must persist DIFFUSION_BLAST_RADIUS edges to evidenceFabric DAG');
+    assert.ok(diffEdges[0].weight > 0);
+    assert.ok(diffEdges[0].metadata.diffusionTimeT === 1.0);
   });
 });
