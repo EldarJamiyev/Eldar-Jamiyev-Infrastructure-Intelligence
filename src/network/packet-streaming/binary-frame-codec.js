@@ -237,6 +237,8 @@ function encodeBinaryPacketFrame(frame, maxPayloadSlice = 128) {
     sliceBuf = Buffer.from(cleanHex, 'hex');
   } else if (frame.payload && Buffer.isBuffer(frame.payload)) {
     sliceBuf = frame.payload.subarray(0, maxPayloadSlice);
+  } else if (frame.payloadSlice && Buffer.isBuffer(frame.payloadSlice)) {
+    sliceBuf = frame.payloadSlice.subarray(0, maxPayloadSlice);
   }
 
   const wireLength = Number(frame.wireLength || frame.length || frame.capturedLength || sliceBuf.length) & 0xffff;
@@ -428,6 +430,11 @@ function decodeBinaryPacketFrame(input) {
   };
 }
 
+function createSharedRingPipeline(capacity, slotByteSize) {
+  const { SharedRingPipeline } = require('./shared-ring-pipeline');
+  return new SharedRingPipeline(capacity, slotByteSize);
+}
+
 module.exports = {
   MAGIC_BYTES,
   MAGIC_UINT32,
@@ -440,5 +447,6 @@ module.exports = {
   ipv6ToBuffer,
   bufferToIpv6,
   encodeBinaryPacketFrame,
-  decodeBinaryPacketFrame
+  decodeBinaryPacketFrame,
+  createSharedRingPipeline
 };
