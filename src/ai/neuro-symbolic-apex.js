@@ -346,6 +346,64 @@ class NeuroSymbolicApexEngine {
             }
         };
     }
+    static smoothMin(values, beta = 10.0) {
+        const n = values.length;
+        if (n === 0) return 0;
+        if (n === 1) return values[0];
+        const b = Math.max(1e-6, beta);
+        let maxShift = Number.NEGATIVE_INFINITY;
+        for (let i = 0; i < n; i++) {
+            const s = -b * values[i];
+            if (s > maxShift) maxShift = s;
+        }
+        let lseSum = 0.0;
+        for (let i = 0; i < n; i++) {
+            lseSum += Math.exp(-b * values[i] - maxShift);
+        }
+        return Number((-(maxShift + Math.log(lseSum)) / b).toFixed(4));
+    }
+    static smoothMax(values, beta = 10.0) {
+        const n = values.length;
+        if (n === 0) return 0;
+        if (n === 1) return values[0];
+        const b = Math.max(1e-6, beta);
+        let maxShift = Number.NEGATIVE_INFINITY;
+        for (let i = 0; i < n; i++) {
+            const s = b * values[i];
+            if (s > maxShift) maxShift = s;
+        }
+        let lseSum = 0.0;
+        for (let i = 0; i < n; i++) {
+            lseSum += Math.exp(b * values[i] - maxShift);
+        }
+        return Number(((maxShift + Math.log(lseSum)) / b).toFixed(4));
+    }
+    static computeAnalyticalSensitivityGradients(values, beta = 10.0) {
+        const n = values.length;
+        if (n === 0) return new Float64Array(0);
+        const b = Math.max(1e-6, beta);
+        const grads = new Float64Array(n);
+        let maxShift = Number.NEGATIVE_INFINITY;
+        for (let i = 0; i < n; i++) {
+            const s = -b * values[i];
+            if (s > maxShift) maxShift = s;
+        }
+        let denom = 0.0;
+        for (let i = 0; i < n; i++) {
+            denom += Math.exp(-b * values[i] - maxShift);
+        }
+        for (let i = 0; i < n; i++) {
+            grads[i] = Number((Math.exp(-b * values[i] - maxShift) / denom).toFixed(4));
+        }
+        return grads;
+    }
+    static forecastTimeToViolationHorizon(currentRobustness, velocityPerSec) {
+        if (currentRobustness <= 0) return 0;
+        if (velocityPerSec < -1e-6) {
+            return Number((-currentRobustness / velocityPerSec).toFixed(2));
+        }
+        return null;
+    }
 }
 exports.NeuroSymbolicApexEngine = NeuroSymbolicApexEngine;
 //# sourceMappingURL=neuro-symbolic-apex.js.map

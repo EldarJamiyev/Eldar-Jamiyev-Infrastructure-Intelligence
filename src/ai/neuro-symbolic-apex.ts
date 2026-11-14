@@ -405,4 +405,91 @@ export class NeuroSymbolicApexEngine {
       }
     };
   }
+
+  /**
+   * Continuous differentiable smooth min (conjunction) approximation via Log-Sum-Exp:
+   *   smoothMin(x_1, ..., x_n) = - (1 / beta) * ln( \sum_i exp(-beta * x_i) )
+   * Clamped with max-shift for numerical stability against IEEE 754 overflow.
+   */
+  public static smoothMin(values: readonly number[] | Float64Array, beta = 10.0): number {
+    const n = values.length;
+    if (n === 0) return 0;
+    if (n === 1) return values[0];
+    const b = Math.max(1e-6, beta);
+
+    let maxShift = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < n; i++) {
+      const s = -b * values[i];
+      if (s > maxShift) maxShift = s;
+    }
+
+    let lseSum = 0.0;
+    for (let i = 0; i < n; i++) {
+      lseSum += Math.exp(-b * values[i] - maxShift);
+    }
+    return Number((-(maxShift + Math.log(lseSum)) / b).toFixed(4));
+  }
+
+  /**
+   * Continuous differentiable smooth max (disjunction) approximation via Log-Sum-Exp:
+   *   smoothMax(x_1, ..., x_n) = (1 / beta) * ln( \sum_i exp(beta * x_i) )
+   * Clamped with max-shift for numerical stability against IEEE 754 overflow.
+   */
+  public static smoothMax(values: readonly number[] | Float64Array, beta = 10.0): number {
+    const n = values.length;
+    if (n === 0) return 0;
+    if (n === 1) return values[0];
+    const b = Math.max(1e-6, beta);
+
+    let maxShift = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < n; i++) {
+      const s = b * values[i];
+      if (s > maxShift) maxShift = s;
+    }
+
+    let lseSum = 0.0;
+    for (let i = 0; i < n; i++) {
+      lseSum += Math.exp(b * values[i] - maxShift);
+    }
+    return Number(((maxShift + Math.log(lseSum)) / b).toFixed(4));
+  }
+
+  /**
+   * Analytical sensitivity gradients of Smooth-STL robustness:
+   *   grad_i = d(smoothMin)/dx_i = exp(-beta * x_i) / \sum_j exp(-beta * x_j)
+   */
+  public static computeAnalyticalSensitivityGradients(values: readonly number[] | Float64Array, beta = 10.0): Float64Array {
+    const n = values.length;
+    if (n === 0) return new Float64Array(0);
+    const b = Math.max(1e-6, beta);
+    const grads = new Float64Array(n);
+
+    let maxShift = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < n; i++) {
+      const s = -b * values[i];
+      if (s > maxShift) maxShift = s;
+    }
+
+    let denom = 0.0;
+    for (let i = 0; i < n; i++) {
+      denom += Math.exp(-b * values[i] - maxShift);
+    }
+
+    for (let i = 0; i < n; i++) {
+      grads[i] = Number((Math.exp(-b * values[i] - maxShift) / denom).toFixed(4));
+    }
+    return grads;
+  }
+
+  /**
+   * Forecasts Time-To-Violation (TTV) horizon along linear velocity gradient via Taylor extrapolation:
+   *   T_violation = - currentRobustness / velocityPerSec (if velocity < 0 and robustness > 0)
+   */
+  public static forecastTimeToViolationHorizon(currentRobustness: number, velocityPerSec: number): number | null {
+    if (currentRobustness <= 0) return 0;
+    if (velocityPerSec < -1e-6) {
+      return Number((-currentRobustness / velocityPerSec).toFixed(2));
+    }
+    return null;
+  }
 }

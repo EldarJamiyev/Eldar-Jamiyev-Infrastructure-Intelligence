@@ -1193,4 +1193,42 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     };
     assert.equal(evaluateFilter(precExpr, frameD), true);
   });
+
+  await t.test('25. verifies Smooth Signal Temporal Logic (S-STL) continuous approximations, analytical sensitivity gradients, and TTV horizon forecasting', () => {
+    // 1. Continuous smooth min (conjunction) and smooth max (disjunction) approximations via Log-Sum-Exp
+    const margins = [10.0, 25.0, 40.0];
+    const sMin = NeuroSymbolicApexEngine.smoothMin(margins, 10.0);
+    const sMax = NeuroSymbolicApexEngine.smoothMax(margins, 10.0);
+
+    // Smooth min is a smooth lower bound: smoothMin <= min(margins)
+    assert.ok(sMin <= 10.0, `Smooth min should be <= 10.0, got ${sMin}`);
+    assert.ok(sMin >= 9.80, `Smooth min with beta=10 should closely approximate 10.0, got ${sMin}`);
+
+    // Smooth max is a smooth upper bound: smoothMax >= max(margins)
+    assert.ok(sMax >= 40.0, `Smooth max should be >= 40.0, got ${sMax}`);
+    assert.ok(sMax <= 40.20, `Smooth max with beta=10 should closely approximate 40.0, got ${sMax}`);
+
+    // 2. Analytical Sensitivity Gradients
+    const values = [5.0, 15.0, 25.0];
+    const grads = NeuroSymbolicApexEngine.computeAnalyticalSensitivityGradients(values, 1.0);
+    assert.equal(grads.length, 3);
+
+    // Sum of sensitivity gradients must sum to 1.0
+    const gradSum = grads.reduce((acc, g) => acc + g, 0);
+    assert.ok(Math.abs(gradSum - 1.0) < 0.005, `Analytical sensitivity gradients must sum to 1.0, got ${gradSum}`);
+
+    // Lowest value must have highest sensitivity gradient (steepest bottleneck direction)
+    assert.ok(grads[0] > grads[1], `Critical predicate grad[0] (${grads[0]}) must exceed grad[1] (${grads[1]})`);
+    assert.ok(grads[1] > grads[2], `Intermediate predicate grad[1] (${grads[1]}) must exceed grad[2] (${grads[2]})`);
+
+    // 3. Time-To-Violation (TTV) horizon forecasting along velocity gradient
+    const ttvDeteriorating = NeuroSymbolicApexEngine.forecastTimeToViolationHorizon(12.0, -3.0);
+    assert.equal(ttvDeteriorating, 4.0, 'TTV should be 12.0 / 3.0 = 4.0 seconds');
+
+    const ttvViolated = NeuroSymbolicApexEngine.forecastTimeToViolationHorizon(-1.5, -2.0);
+    assert.equal(ttvViolated, 0, 'Already violated condition should return TTV = 0');
+
+    const ttvImproving = NeuroSymbolicApexEngine.forecastTimeToViolationHorizon(15.0, 2.5);
+    assert.equal(ttvImproving, null, 'Improving metric should have null TTV');
+  });
 });
