@@ -94,11 +94,324 @@ function ensureTemporalGraphTables() {
         reconciliation_json TEXT NOT NULL DEFAULT '[]'
       );
       CREATE INDEX IF NOT EXISTS idx_tg_history_time ON temporal_graph_history(captured_at_ms);
+
+      CREATE TABLE IF NOT EXISTS temporal_causal_edges (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        f_statistic REAL NOT NULL,
+        f_critical REAL NOT NULL,
+        effect_size REAL NOT NULL,
+        lag_order INTEGER NOT NULL,
+        sample_size INTEGER NOT NULL,
+        p_value REAL NOT NULL,
+        is_causal INTEGER NOT NULL,
+        discovered_at TEXT NOT NULL,
+        attributes_json TEXT NOT NULL DEFAULT '{}'
+      );
+      CREATE INDEX IF NOT EXISTS idx_tce_src_tgt ON temporal_causal_edges(source_id, target_id);
     `);
   } catch (_) {}
 }
 
 ensureTemporalGraphTables();
+
+// ============================================================================
+// Dynamic Granger Causal Discovery Mathematical Engine (Track 2)
+// ============================================================================
+
+/**
+ * Log-gamma function via Lanczos approximation (g=7, n=9)
+ */
+function lgamma(z) {
+  const p = [
+    0.99999999999980993,
+    676.5203681218851,
+    -1259.1392167224028,
+    771.32342877765313,
+    -176.61502916214059,
+    12.507343278686905,
+    -0.138571095856205,
+    9.9843695780195716e-6,
+    1.5056327351493116e-7
+  ];
+  if (z < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+  }
+  z -= 1;
+  let x = p[0];
+  for (let i = 1; i < p.length; i++) {
+    x += p[i] / (z + i);
+  }
+  const t = z + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+/**
+ * Regularized incomplete beta function I_x(a, b) via Lentz continued fractions
+ */
+function regularizedIncompleteBeta(x, a, b) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  if (x > (a + 1) / (a + b + 2)) {
+    return 1 - regularizedIncompleteBeta(1 - x, b, a);
+  }
+  const TINY = 1e-30;
+  const STOP = 1e-10;
+  const lbeta = lgamma(a) + lgamma(b) - lgamma(a + b);
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lbeta) / a;
+  let f = 1.0, c = 1.0, d = 0.0;
+  for (let m = 1; m <= 100; m++) {
+    let numerator;
+    if (m % 2 === 0) {
+      const k = m / 2;
+      numerator = (k * (b - k) * x) / ((a + 2 * k - 1) * (a + 2 * k));
+    } else {
+      const k = (m - 1) / 2;
+      numerator = -((a + k) * (a + b + k) * x) / ((a + 2 * k) * (a + 2 * k + 1));
+    }
+    d = 1.0 + numerator * d;
+    if (Math.abs(d) < TINY) d = TINY;
+    d = 1.0 / d;
+    c = 1.0 + numerator / c;
+    if (Math.abs(c) < TINY) c = TINY;
+    const delta = c * d;
+    f *= delta;
+    if (Math.abs(delta - 1.0) < STOP) break;
+  }
+  return front * (f - 1.0);
+}
+
+/**
+ * F-distribution critical value F_crit(df1, df2, alpha)
+ */
+function computeFCritical(df1, df2, alpha = 0.05) {
+  if (df2 <= 0) return Infinity;
+  if (df1 === 2) {
+    // Exact closed-form solution for df1 = 2
+    return (df2 / 2) * (Math.pow(alpha, -2 / df2) - 1);
+  }
+  // Robust numerical bisection on incomplete beta CDF
+  let low = 0.001, high = 100.0;
+  for (let iter = 0; iter < 40; iter++) {
+    const mid = (low + high) / 2;
+    const x = (df1 * mid) / (df1 * mid + df2);
+    const pVal = 1 - regularizedIncompleteBeta(x, df1 / 2, df2 / 2);
+    if (pVal > alpha) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return (low + high) / 2;
+}
+
+/**
+ * Gaussian elimination with partial pivoting and ridge stabilization
+ */
+function solveLinearSystem(A, b) {
+  const n = b.length;
+  const M = A.map((row) => [...row]);
+  const x = [...b];
+
+  for (let i = 0; i < n; i++) {
+    let maxRow = i;
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) {
+        maxRow = k;
+      }
+    }
+    const tempRow = M[i];
+    M[i] = M[maxRow];
+    M[maxRow] = tempRow;
+    const tempB = x[i];
+    x[i] = x[maxRow];
+    x[maxRow] = tempB;
+
+    if (Math.abs(M[i][i]) < 1e-12) {
+      M[i][i] += 1e-6;
+    }
+
+    for (let k = i + 1; k < n; k++) {
+      const c = M[k][i] / M[i][i];
+      for (let j = i; j < n; j++) {
+        M[k][j] -= c * M[i][j];
+      }
+      x[k] -= c * x[i];
+    }
+  }
+
+  const result = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    let sum = x[i];
+    for (let j = i + 1; j < n; j++) {
+      sum -= M[i][j] * result[j];
+    }
+    result[i] = sum / (Math.abs(M[i][i]) < 1e-12 ? 1e-6 : M[i][i]);
+  }
+  return result;
+}
+
+/**
+ * Ordinary Least Squares (OLS) Regression
+ */
+function fitOLS(Z, y) {
+  const M = Z.length;
+  const K = Z[0].length;
+  const A = Array.from({ length: K }, () => new Array(K).fill(0));
+  const b = new Array(K).fill(0);
+
+  for (let i = 0; i < M; i++) {
+    const zi = Z[i];
+    const yi = y[i];
+    for (let r = 0; r < K; r++) {
+      b[r] += zi[r] * yi;
+      for (let c = r; c < K; c++) {
+        const prod = zi[r] * zi[c];
+        A[r][c] += prod;
+        if (r !== c) A[c][r] += prod;
+      }
+    }
+  }
+
+  const theta = solveLinearSystem(A, b);
+
+  let rss = 0;
+  const residuals = new Array(M);
+  for (let i = 0; i < M; i++) {
+    let yHat = 0;
+    for (let j = 0; j < K; j++) {
+      yHat += Z[i][j] * theta[j];
+    }
+    const res = y[i] - yHat;
+    residuals[i] = res;
+    rss += res * res;
+  }
+
+  return { theta, residuals, rss };
+}
+
+/**
+ * Dynamic Temporal Granger Causal Discovery
+ * Evaluates whether telemetry stream X Granger-causes stream Y.
+ *
+ * Restricted Model:   Y_t = c_1 + sum_{i=1}^p alpha_i Y_{t-i} + eps_{1,t}
+ * Unrestricted Model: Y_t = c_2 + sum_{i=1}^p alpha_i Y_{t-i} + sum_{j=1}^q beta_j X_{t-j} + eps_{2,t}
+ * F-statistic:        F = ((RSS_R - RSS_U) / q) / (RSS_U / (N - (p + q + 1)))
+ * Dynamic Effect Size: Delta sigma = 1 - (RSS_U / RSS_R)
+ */
+function computeGrangerCausality(streamX, streamY, lagOrder = 2, options = {}) {
+  const p = Math.max(1, parseInt(lagOrder, 10) || 2);
+  const q = p;
+
+  const getVal = (item) => {
+    if (typeof item === 'number') return item;
+    if (item && typeof item.value === 'number') return item.value;
+    if (item && typeof item.rttMs === 'number') return item.rttMs;
+    if (item && typeof item.packetLossPct === 'number') return item.packetLossPct;
+    return Number(item) || 0;
+  };
+
+  const xVals = Array.isArray(streamX) ? streamX.map(getVal) : [];
+  const yVals = Array.isArray(streamY) ? streamY.map(getVal) : [];
+  const N = Math.min(xVals.length, yVals.length);
+
+  const minRequiredSamples = 2 * Math.max(p, q) + 3;
+  if (N < minRequiredSamples) {
+    return {
+      fStatistic: 0,
+      fCritical: 0,
+      pValue: 1.0,
+      isCausal: false,
+      effectSize: 0,
+      lagOrder: p,
+      sampleSize: N,
+      reason: 'INSUFFICIENT_SAMPLES',
+      restrictedRss: 0,
+      unrestrictedRss: 0
+    };
+  }
+
+  const M = N - Math.max(p, q);
+  const df1 = q;
+  const df2 = M - (p + q + 1);
+
+  if (df2 <= 0) {
+    return {
+      fStatistic: 0,
+      fCritical: 0,
+      pValue: 1.0,
+      isCausal: false,
+      effectSize: 0,
+      lagOrder: p,
+      sampleSize: N,
+      reason: 'DEGREES_OF_FREEDOM_EXHAUSTED',
+      restrictedRss: 0,
+      unrestrictedRss: 0
+    };
+  }
+
+  const yReg = new Array(M);
+  const Z_R = Array.from({ length: M }, () => new Array(p + 1));
+  const Z_U = Array.from({ length: M }, () => new Array(p + q + 1));
+
+  const offset = Math.max(p, q);
+  for (let i = 0; i < M; i++) {
+    const t = offset + i;
+    yReg[i] = yVals[t];
+
+    Z_R[i][0] = 1.0;
+    for (let lag = 1; lag <= p; lag++) {
+      Z_R[i][lag] = yVals[t - lag];
+    }
+
+    Z_U[i][0] = 1.0;
+    for (let lag = 1; lag <= p; lag++) {
+      Z_U[i][lag] = yVals[t - lag];
+    }
+    for (let lag = 1; lag <= q; lag++) {
+      Z_U[i][p + lag] = xVals[t - lag];
+    }
+  }
+
+  const fitR = fitOLS(Z_R, yReg);
+  const fitU = fitOLS(Z_U, yReg);
+
+  const rssR = fitR.rss;
+  const rssU = Math.min(rssR, fitU.rss);
+
+  const num = Math.max(0, rssR - rssU) / df1;
+  const den = Math.max(1e-12, rssU) / df2;
+  const fStatistic = num / den;
+
+  const alpha = options.alpha || 0.05;
+  const fCritical = computeFCritical(df1, df2, alpha);
+
+  let pValue;
+  if (df1 === 2) {
+    // Exact analytical closed-form solution for df1 = 2
+    pValue = Math.pow(1 + (2 / df2) * fStatistic, -df2 / 2);
+  } else {
+    const xBeta = (df1 * fStatistic) / (df1 * fStatistic + df2);
+    pValue = Math.max(0, Math.min(1.0, 1 - regularizedIncompleteBeta(xBeta, df1 / 2, df2 / 2)));
+  }
+
+  const effectSize = rssR > 1e-12 ? Math.max(0, Math.min(1.0, 1 - (rssU / rssR))) : 0;
+  const isCausal = fStatistic > fCritical && pValue < alpha && effectSize > 0.02;
+
+  return {
+    fStatistic: Number(fStatistic.toFixed(4)),
+    fCritical: Number(fCritical.toFixed(4)),
+    pValue: Number(pValue.toFixed(6)),
+    isCausal,
+    effectSize: Number(effectSize.toFixed(4)),
+    lagOrder: p,
+    sampleSize: N,
+    degreesOfFreedom: { df1, df2 },
+    restrictedRss: Number(rssR.toFixed(6)),
+    unrestrictedRss: Number(rssU.toFixed(6))
+  };
+}
 
 class TemporalInfrastructureGraph {
   constructor() {
@@ -1007,6 +1320,214 @@ class TemporalInfrastructureGraph {
     });
   }
 
+  /**
+   * Compute Granger causality between two telemetry streams
+   */
+  computeGrangerCausality(streamX, streamY, lagOrder = 2, options = {}) {
+    return computeGrangerCausality(streamX, streamY, lagOrder, options);
+  }
+
+  /**
+   * Discover dynamic Granger causality between streamX and streamY.
+   * If statistically significant (F > F_crit, p < 0.05, effectSize > 0.02),
+   * dynamically upserts a directed causal edge in memory and persists to SQLite.
+   */
+  discoverAndUpsertCausalEdge({
+    sourceId,
+    targetId,
+    streamX,
+    streamY,
+    lagOrder = 2,
+    sourceLabel = null,
+    targetLabel = null,
+    options = {}
+  }) {
+    if (!sourceId || !targetId) {
+      throw new Error('sourceId and targetId are required for causal edge discovery');
+    }
+
+    const granger = computeGrangerCausality(streamX, streamY, lagOrder, options);
+    const edgeId = `CAUSAL_${sourceId}_${targetId}`;
+
+    if (granger.isCausal) {
+      // 1. Ensure source and target nodes exist in graph
+      if (!this.nodes.has(sourceId)) {
+        this.upsertNode({
+          nodeId: sourceId,
+          resourceType: 'service_endpoint',
+          label: sourceLabel || sourceId,
+          layer: 'ENTERPRISE_TIER',
+          status: 'healthy'
+        });
+      }
+      if (!this.nodes.has(targetId)) {
+        this.upsertNode({
+          nodeId: targetId,
+          resourceType: 'service_endpoint',
+          label: targetLabel || targetId,
+          layer: 'ENTERPRISE_TIER',
+          status: 'healthy'
+        });
+      }
+
+      // 2. Upsert causal edge into temporal graph
+      this.upsertEdge({
+        edgeId,
+        sourceId,
+        targetId,
+        relationshipType: 'depends_on',
+        status: 'causal_active',
+        confidence: Number(Math.min(0.99, Math.max(0.70, granger.effectSize)).toFixed(4)),
+        attributes: {
+          causalGranger: true,
+          fStatistic: granger.fStatistic,
+          fCritical: granger.fCritical,
+          pValue: granger.pValue,
+          effectSize: granger.effectSize,
+          lagOrder: granger.lagOrder,
+          sampleSize: granger.sampleSize,
+          sourceLabel: sourceLabel || sourceId,
+          targetLabel: targetLabel || targetId
+        }
+      });
+
+      // 3. Persist to SQLite temporal_causal_edges with WAL durability
+      try {
+        db.prepare(`
+          INSERT INTO temporal_causal_edges (
+            id, source_id, target_id, f_statistic, f_critical, effect_size,
+            lag_order, sample_size, p_value, is_causal, discovered_at, attributes_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            f_statistic = excluded.f_statistic,
+            f_critical = excluded.f_critical,
+            effect_size = excluded.effect_size,
+            lag_order = excluded.lag_order,
+            sample_size = excluded.sample_size,
+            p_value = excluded.p_value,
+            is_causal = excluded.is_causal,
+            discovered_at = excluded.discovered_at,
+            attributes_json = excluded.attributes_json
+        `).run(
+          edgeId,
+          sourceId,
+          targetId,
+          granger.fStatistic,
+          granger.fCritical,
+          granger.effectSize,
+          granger.lagOrder,
+          granger.sampleSize,
+          granger.pValue,
+          1,
+          new Date().toISOString(),
+          JSON.stringify({
+            sourceLabel: sourceLabel || sourceId,
+            targetLabel: targetLabel || targetId,
+            degreesOfFreedom: granger.degreesOfFreedom,
+            restrictedRss: granger.restrictedRss,
+            unrestrictedRss: granger.unrestrictedRss
+          })
+        );
+      } catch (err) {
+        console.error('Failed to persist temporal_causal_edges row:', err.message);
+      }
+    }
+
+    return {
+      edgeId,
+      sourceId,
+      targetId,
+      ...granger
+    };
+  }
+
+  /**
+   * Retrieve causal ancestors for a given target entity.
+   */
+  getCausalAncestors(targetId) {
+    if (!targetId) return [];
+    try {
+      const rows = db.prepare(`
+        SELECT * FROM temporal_causal_edges
+        WHERE target_id = ? AND is_causal = 1
+        ORDER BY effect_size DESC, f_statistic DESC
+      `).all(targetId);
+      if (rows && rows.length > 0) {
+        return rows.map((r) => ({
+          edgeId: r.id,
+          sourceId: r.source_id,
+          targetId: r.target_id,
+          fStatistic: r.f_statistic,
+          fCritical: r.f_critical,
+          effectSize: r.effect_size,
+          lagOrder: r.lag_order,
+          sampleSize: r.sample_size,
+          pValue: r.p_value,
+          discoveredAt: r.discovered_at,
+          attributes: JSON.parse(r.attributes_json || '{}')
+        }));
+      }
+    } catch (_) {}
+
+    // In-memory fallback
+    return Array.from(this.edges.values())
+      .filter((e) => e.targetId === targetId && e.attributes?.causalGranger)
+      .map((e) => ({
+        edgeId: e.edgeId,
+        sourceId: e.sourceId,
+        targetId: e.targetId,
+        fStatistic: e.attributes.fStatistic,
+        fCritical: e.attributes.fCritical,
+        effectSize: e.attributes.effectSize,
+        lagOrder: e.attributes.lagOrder,
+        sampleSize: e.attributes.sampleSize,
+        pValue: e.attributes.pValue,
+        discoveredAt: e.attributes.discoveredAt || null,
+        attributes: e.attributes
+      }));
+  }
+
+  /**
+   * Return all discovered causal edges across the infrastructure
+   */
+  getCausalGraph() {
+    try {
+      const rows = db.prepare(`
+        SELECT * FROM temporal_causal_edges
+        WHERE is_causal = 1
+        ORDER BY effect_size DESC
+      `).all();
+      return rows.map((r) => ({
+        edgeId: r.id,
+        sourceId: r.source_id,
+        targetId: r.target_id,
+        fStatistic: r.f_statistic,
+        fCritical: r.f_critical,
+        effectSize: r.effect_size,
+        lagOrder: r.lag_order,
+        pValue: r.p_value,
+        discoveredAt: r.discovered_at,
+        attributes: JSON.parse(r.attributes_json || '{}')
+      }));
+    } catch (_) {
+      return Array.from(this.edges.values())
+        .filter((e) => e.attributes?.causalGranger)
+        .map((e) => ({
+          edgeId: e.edgeId,
+          sourceId: e.sourceId,
+          targetId: e.targetId,
+          fStatistic: e.attributes.fStatistic,
+          fCritical: e.attributes.fCritical,
+          effectSize: e.attributes.effectSize,
+          lagOrder: e.attributes.lagOrder,
+          pValue: e.attributes.pValue,
+          discoveredAt: e.attributes.discoveredAt || null,
+          attributes: e.attributes
+        }));
+    }
+  }
+
   getGraphState() {
     if (this.nodes.size === 0) {
       this.syncFromLiveInfrastructure('initial_load');
@@ -1029,5 +1550,6 @@ module.exports = {
   CANONICAL_RESOURCE_TYPES,
   TYPED_RELATIONSHIPS,
   TemporalInfrastructureGraph,
-  temporalInfrastructureGraph
+  temporalInfrastructureGraph,
+  computeGrangerCausality
 };

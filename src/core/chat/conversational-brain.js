@@ -820,7 +820,16 @@ function updateBayesianDistributionFromCompoundOutcomes(priorDistribution = [], 
  * Computes live Shannon entropy and expected information gain (\Delta H in bits)
  * for candidate diagnostic probes against the current Sovereign Fabric v6 Truth Matrix.
  */
-function computeLiveInformationGainAnalysis(sessionContext = {}) {
+function computeLiveInformationGainAnalysis(arg1 = {}, arg2 = null) {
+  let sessionContext = {};
+  let customHypotheses = null;
+  if (Array.isArray(arg1)) {
+    customHypotheses = arg1;
+    sessionContext = (arg2 && typeof arg2 === 'object') ? arg2 : {};
+  } else if (arg1 && typeof arg1 === 'object') {
+    sessionContext = arg1;
+  }
+
   const gatewayInfo = hostMetrics.getVerifiedDefaultGateway();
   const dnsConfig = dnsDiag.discoverSystemDnsConfiguration();
   const dhcpInfo = hostMetrics.discoverLocalDhcpServer();
@@ -841,7 +850,9 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
       })
     : null;
 
-  const hypotheses = Array.isArray(bayesianState?.hypotheses) ? bayesianState.hypotheses : [];
+  const hypotheses = (customHypotheses && customHypotheses.length > 0)
+    ? customHypotheses
+    : (Array.isArray(bayesianState?.hypotheses) ? bayesianState.hypotheses : []);
   const hasValidPosteriors = hypotheses.length > 0;
 
   // Baseline prior from canonical fault hypotheses
@@ -892,6 +903,64 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
     });
   } else {
     priorDistribution = basePrior;
+  }
+
+  // Dynamic Temporal Granger Causal Ancestry Integration (Track 2)
+  const causalTarget = targetHost || sessionContext?.target || sessionContext?.targetHost || sessionContext?.activeTarget;
+  let causalAncestors = [];
+  let causalPriorApplied = false;
+  if (causalTarget) {
+    try {
+      const { temporalInfrastructureGraph } = require('../topology/temporal-graph-engine');
+      if (temporalInfrastructureGraph && typeof temporalInfrastructureGraph.getCausalAncestors === 'function') {
+        causalAncestors = temporalInfrastructureGraph.getCausalAncestors(causalTarget);
+      }
+    } catch (_) {}
+  }
+
+  if (causalAncestors.length > 0) {
+    const maxEffect = Math.max(...causalAncestors.map((c) => c.effectSize || 0));
+    if (maxEffect > 0.05) {
+      causalPriorApplied = true;
+      let totalCausalWeight = 0;
+      const causalBlended = priorDistribution.map((h) => {
+        let affinityWeight = 1.0;
+        for (const ancestor of causalAncestors) {
+          const srcId = String(ancestor.sourceId || '').toLowerCase();
+          const effect = ancestor.effectSize || 0.1;
+          if (srcId.includes('gate') || srcId.includes('wan') || srcId.includes('gw') || srcId.includes('router')) {
+            if (h.id === 'UPSTREAM_WAN_BLACKHOLE' || h.id === 'LOCAL_STACK_CONGESTION' || h.id === 'MTU_BLACKHOLE_FRAGMENT') {
+              affinityWeight += effect * 1.5;
+            }
+          } else if (srcId.includes('dns') || srcId.includes('resolver')) {
+            if (h.id === 'DNS_NXDOMAIN_POISON') {
+              affinityWeight += effect * 1.5;
+            }
+          } else {
+            affinityWeight += effect * 0.5;
+          }
+        }
+        const causalP = h.probability * affinityWeight;
+        totalCausalWeight += causalP;
+        return {
+          id: h.id,
+          name: h.name,
+          probability: causalP,
+          contradicted: h.contradicted
+        };
+      });
+
+      priorDistribution = causalBlended.map((h) => {
+        const normP = totalCausalWeight > 0 ? h.probability / totalCausalWeight : 1 / causalBlended.length;
+        return {
+          id: h.id,
+          name: h.name,
+          probability: Number(normP.toFixed(4)),
+          percentage: Number((normP * 100).toFixed(1)),
+          contradicted: h.contradicted
+        };
+      });
+    }
   }
 
   // Distinguish directly observed probes in the current session
@@ -1117,6 +1186,11 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
         qualityScore: r.qualityScore,
         derivedFrom: r.derivedFrom
       }))
+    },
+    causalAncestry: {
+      applied: causalPriorApplied,
+      ancestorCount: causalAncestors.length,
+      ancestors: causalAncestors
     },
     gatewayInfo,
     dnsConfig,
@@ -2720,6 +2794,7 @@ module.exports = {
   updateBayesianDistributionFromProbeOutcome,
   updateBayesianDistributionFromCompoundOutcomes,
   computeLiveInformationGainAnalysis,
+  computeProbeInformationGainRanking: computeLiveInformationGainAnalysis,
   distillTelemetryForContext,
   computeOptimalInformationGainProbe,
   computeOptimalConcurrentProbes,
