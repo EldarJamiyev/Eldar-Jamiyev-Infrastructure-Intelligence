@@ -728,6 +728,79 @@ function computeExpectedProbeInformationGain(priorDistribution = [], likelihoodP
 }
 
 /**
+ * Selects up to `maxConcurrent` non-conflicting diagnostic probes from candidate models
+ * based on maximal Shannon Information Gain across orthogonal network/fault domains.
+ *
+ * @param {Array} activeHypotheses - Current normalized hypothesis probability distribution
+ * @param {Object} options - { maxConcurrent: 2, excludedIntents: Set, target: string }
+ * @returns {Array} List of independent, non-conflicting probe descriptors
+ */
+function computeOptimalConcurrentProbes(activeHypotheses = [], options = {}) {
+  const maxConcurrent = Math.min(3, Math.max(1, Number(options.maxConcurrent) || 2));
+  const excludedIntents = options.excludedIntents || new Set();
+  const target = options.target || '1.1.1.1';
+
+  if (!Array.isArray(activeHypotheses) || activeHypotheses.length === 0) {
+    return [];
+  }
+
+  // Calculate IG for all candidate probes
+  const evaluated = [];
+  for (const model of CANDIDATE_PROBE_LIKELIHOOD_MODELS) {
+    if (excludedIntents.has(model.intent)) continue;
+    const igResult = computeExpectedProbeInformationGain(activeHypotheses, model.likelihoodPassGivenHypothesis);
+    if (!igResult) continue;
+    evaluated.push({
+      probeId: model.probeId,
+      probeName: model.probeName,
+      command: model.command,
+      intent: model.intent,
+      target: (model.target === '1.1.1.1' && target && target !== 'local_host') ? target : model.target,
+      ports: model.ports,
+      targetLayers: model.targetLayers || [],
+      expectedInformationGainBits: igResult.expectedInformationGainBits,
+      entropyGivenPassBits: igResult.entropyGivenPassBits,
+      entropyGivenFailBits: igResult.entropyGivenFailBits
+    });
+  }
+
+  // Sort by expected Information Gain descending
+  evaluated.sort((a, b) => b.expectedInformationGainBits - a.expectedInformationGainBits);
+
+  const selected = [];
+  const occupiedLayers = new Set();
+  const occupiedIntents = new Set();
+
+  for (const probe of evaluated) {
+    if (selected.length >= maxConcurrent) break;
+    if (occupiedIntents.has(probe.intent)) continue;
+
+    // Check if probe operates on orthogonal layers (e.g. DNS vs Port vs Ping)
+    const primaryLayer = probe.targetLayers[0] || probe.intent;
+    if (occupiedLayers.has(primaryLayer)) continue;
+
+    selected.push(probe);
+    occupiedLayers.add(primaryLayer);
+    occupiedIntents.add(probe.intent);
+  }
+
+  return selected;
+}
+
+/**
+ * Compound Bayesian posterior update: takes an array of probe outcomes and applies
+ * sequential Bayesian updates to the prior distribution, returning the final posterior.
+ */
+function updateBayesianDistributionFromCompoundOutcomes(priorDistribution = [], outcomes = []) {
+  let current = priorDistribution;
+  for (const item of outcomes) {
+    if (!item || !item.probeId) continue;
+    current = updateBayesianDistributionFromProbeOutcome(current, item.probeId, Boolean(item.passed));
+  }
+  return current;
+}
+
+/**
  * Computes live Shannon entropy and expected information gain (\Delta H in bits)
  * for candidate diagnostic probes against the current Sovereign Fabric v6 Truth Matrix.
  */
@@ -1777,66 +1850,96 @@ async function runAgenticToolLoop({
       break;
     }
 
+    // Determine plans for this iteration: supports explicit or automatic non-conflicting concurrent probes
+    const plansForIteration = [currentPlan];
+    if (Array.isArray(currentPlan.concurrentPlans) && currentPlan.concurrentPlans.length > 0) {
+      for (const cp of currentPlan.concurrentPlans) {
+        if (!plansForIteration.some((p) => p.intent === cp.intent)) {
+          plansForIteration.push(cp);
+        }
+      }
+    }
+
     stepIndex += 1;
-    executedPlans.push(currentPlan);
+    for (const p of plansForIteration) {
+      executedPlans.push(p);
+    }
 
     if (typeof onProgress === 'function') {
+      const label = plansForIteration.length > 1
+        ? `Step ${stepIndex}: Executing ${plansForIteration.length} concurrent non-interfering probes (${plansForIteration.map((p) => p.intent).join(', ')})…`
+        : `Step ${stepIndex}: Executing ${currentPlan.intent} on ${currentPlan.target || 'local host'}…`;
       onProgress({
         stage: 'PROBE_EXECUTING',
         stepIndex,
         intent: currentPlan.intent,
+        concurrentIntents: plansForIteration.map((p) => p.intent),
         target: currentPlan.target || null,
         ports: currentPlan.ports || [],
-        label: `Step ${stepIndex}: Executing ${currentPlan.intent} on ${currentPlan.target || 'local host'}…`,
+        label,
         timestamp: new Date().toISOString()
       });
     }
 
-    const outcome = await executeSinglePlan(currentPlan, stepIndex);
-    outcomes.push({ plan: currentPlan, outcome });
+    // Concurrent execution across all plans in this iteration via Promise.allSettled
+    const startStepNs = process.hrtime.bigint();
+    const settlementResults = await Promise.allSettled(
+      plansForIteration.map((p, idx) => executeSinglePlan(p, stepIndex + idx))
+    );
+    const wallClockDurationMs = Number((Number(process.hrtime.bigint() - startStepNs) / 1e6).toFixed(2));
+    totalElapsedMs += wallClockDurationMs;
 
-    const dur = outcome?.durationMs || outcome?.technicalEvidence?.durationMs || (Array.isArray(outcome?.steps) && outcome.steps.reduce((a, s) => a + (s.durationMs || 0), 0)) || 100;
-    totalElapsedMs += dur;
+    const probeObservations = [];
+    for (let idx = 0; idx < settlementResults.length; idx++) {
+      const res = settlementResults[idx];
+      const plan = plansForIteration[idx];
+      const outcome = res.status === 'fulfilled' ? res.value : { success: false, error: res.reason?.message };
+      outcomes.push({ plan, outcome });
 
-    if (Array.isArray(outcome?.steps)) {
-      for (const s of outcome.steps) {
-        const adjustedStep = { ...s, stepNumber: allSteps.length + 1 };
-        allSteps.push(adjustedStep);
-        if (typeof onProgress === 'function') {
-          onProgress({
-            stage: 'PROBE_COMPLETED',
-            stepIndex,
-            step: adjustedStep,
-            timestamp: new Date().toISOString()
-          });
+      if (Array.isArray(outcome?.steps)) {
+        for (const s of outcome.steps) {
+          const adjustedStep = { ...s, stepNumber: allSteps.length + 1 };
+          allSteps.push(adjustedStep);
+          if (typeof onProgress === 'function') {
+            onProgress({
+              stage: 'PROBE_COMPLETED',
+              stepIndex,
+              step: adjustedStep,
+              timestamp: new Date().toISOString()
+            });
+          }
         }
+      }
+
+      if (Array.isArray(outcome?.findings)) {
+        for (const f of outcome.findings) {
+          if (!allFindings.some((existing) => existing.label === f.label && existing.value === f.value)) {
+            allFindings.push(f);
+          }
+        }
+      }
+
+      // Dynamic Bayesian Posterior Update: Condition on probe pass/fail outcome
+      const probePassed = Boolean(
+        outcome?.success !== false &&
+        !outcome?.error &&
+        !outcome?.failed &&
+        (outcome?.technicalEvidence?.success !== false) &&
+        (outcome?.data?.success !== false)
+      );
+      const matchedCandidate = CANDIDATE_PROBE_LIKELIHOOD_MODELS.find(
+        (c) => c.intent === plan.intent || c.probeId.toLowerCase().includes(String(plan.intent).toLowerCase())
+      );
+      if (matchedCandidate) {
+        probeObservations.push({ probeId: matchedCandidate.probeId, passed: probePassed });
       }
     }
 
-    if (Array.isArray(outcome?.findings)) {
-      for (const f of outcome.findings) {
-        if (!allFindings.some((existing) => existing.label === f.label && existing.value === f.value)) {
-          allFindings.push(f);
-        }
-      }
-    }
-
-    // Dynamic Bayesian Posterior Update: Condition on probe pass/fail outcome
-    const probePassed = Boolean(
-      outcome?.success !== false &&
-      !outcome?.error &&
-      !outcome?.failed &&
-      (outcome?.technicalEvidence?.success !== false) &&
-      (outcome?.data?.success !== false)
-    );
-    const matchedCandidate = CANDIDATE_PROBE_LIKELIHOOD_MODELS.find(
-      (c) => c.intent === currentPlan.intent || c.probeId.toLowerCase().includes(String(currentPlan.intent).toLowerCase())
-    );
-    if (matchedCandidate && activeHypotheses.length > 0) {
-      activeHypotheses = updateBayesianDistributionFromProbeOutcome(
+    // Dynamic Bayesian Posterior Update: Condition on all probe outcomes in this iteration
+    if (probeObservations.length > 0 && activeHypotheses.length > 0) {
+      activeHypotheses = updateBayesianDistributionFromCompoundOutcomes(
         activeHypotheses,
-        matchedCandidate.probeId,
-        probePassed
+        probeObservations
       );
     }
 
@@ -1860,10 +1963,11 @@ async function runAgenticToolLoop({
       });
     }
 
+    const latestOutcome = outcomes[outcomes.length - 1]?.outcome;
     const reflection = await reflectOnToolObservation({
       promptText,
       currentPlan,
-      executionOutcome: outcome,
+      executionOutcome: latestOutcome,
       executedPlans,
       stepIndex,
       maxSteps: boundedMax,
@@ -1905,6 +2009,7 @@ async function runAgenticToolLoop({
       intent: initialAnalysis.candidateProbes[0].intent,
       rationale: initialAnalysis.candidateProbes[0].rationale
     } : null),
+    recommendedConcurrentProbes: computeOptimalConcurrentProbes(activeHypotheses, { maxConcurrent: 2 }),
     totalElapsedMs,
     terminationReason: loopTerminationReason
   };
@@ -2101,9 +2206,11 @@ module.exports = {
   computeShannonEntropyFromDistribution,
   computeExpectedProbeInformationGain,
   updateBayesianDistributionFromProbeOutcome,
+  updateBayesianDistributionFromCompoundOutcomes,
   computeLiveInformationGainAnalysis,
   distillTelemetryForContext,
   computeOptimalInformationGainProbe,
+  computeOptimalConcurrentProbes,
   buildApplicationEpistemicContext,
   isEpistemicOrSovereignFabricQuestion,
   answerEpistemicOrFabricQuestion,

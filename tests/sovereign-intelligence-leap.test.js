@@ -24,6 +24,8 @@ const {
   computeExpectedProbeInformationGain,
   computeShannonEntropyFromDistribution,
   updateBayesianDistributionFromProbeOutcome,
+  updateBayesianDistributionFromCompoundOutcomes,
+  computeOptimalConcurrentProbes,
   CANDIDATE_PROBE_LIKELIHOOD_MODELS,
   runAgenticToolLoop
 } = require('../src/core/chat/conversational-brain');
@@ -591,5 +593,85 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.equal(wrappedPing.status, 'ok');
     assert.equal(wrappedPing.error, undefined);
     assert.equal(validateEjiiResult(wrappedPing).valid, true);
+  });
+
+  await t.test('16. verifies computeOptimalConcurrentProbes selects orthogonal non-conflicting layer probes with maximum information gain', () => {
+    const priorDistribution = [
+      { id: 'DNS_NXDOMAIN_POISON', name: 'DNS Poisoning', probability: 0.35, percentage: 35 },
+      { id: 'UPSTREAM_WAN_BLACKHOLE', name: 'WAN Blackhole', probability: 0.35, percentage: 35 },
+      { id: 'FIREWALL_ACL_DROP', name: 'Firewall Drop', probability: 0.30, percentage: 30 }
+    ];
+
+    const concurrentProbes = computeOptimalConcurrentProbes(priorDistribution, { maxConcurrent: 2 });
+    assert.ok(Array.isArray(concurrentProbes));
+    assert.ok(concurrentProbes.length >= 2, 'Must return at least 2 non-conflicting candidate probes');
+
+    // Verify probes operate on orthogonal layers/domains (no duplicated intents or primary layers)
+    const intents = concurrentProbes.map((p) => p.intent);
+    const uniqueIntents = new Set(intents);
+    assert.equal(intents.length, uniqueIntents.size, 'Concurrent probes must have distinct intents');
+
+    const primaryLayers = concurrentProbes.map((p) => (p.targetLayers && p.targetLayers[0]) || p.intent);
+    const uniqueLayers = new Set(primaryLayers);
+    assert.equal(primaryLayers.length, uniqueLayers.size, 'Concurrent probes must operate across distinct target layers');
+
+    for (const p of concurrentProbes) {
+      assert.ok(typeof p.expectedInformationGainBits === 'number');
+      assert.ok(p.expectedInformationGainBits >= 0);
+    }
+  });
+
+  await t.test('17. verifies runAgenticToolLoop executes concurrent non-interfering probes and applies compound Bayesian updates with entropy reduction', async () => {
+    const priorDistribution = [
+      { id: 'DNS_NXDOMAIN_POISON', name: 'DNS Poisoning', probability: 0.5, percentage: 50 },
+      { id: 'UPSTREAM_WAN_BLACKHOLE', name: 'WAN Blackhole', probability: 0.5, percentage: 50 }
+    ];
+    const initialEntropy = computeShannonEntropyFromDistribution(priorDistribution.map((h) => h.probability));
+
+    const compoundUpdated = updateBayesianDistributionFromCompoundOutcomes(priorDistribution, [
+      { probeId: 'DNS_WIRE_LOOKUP_GOOGLE', passed: true },
+      { probeId: 'ICMP_GATEWAY_PING', passed: true }
+    ]);
+
+    const updatedEntropy = computeShannonEntropyFromDistribution(compoundUpdated.map((h) => h.probability));
+    assert.ok(updatedEntropy < initialEntropy, 'Compound updates must strictly reduce entropy');
+
+    const executedPlans = [];
+    const mockExecute = async (plan, step) => {
+      executedPlans.push({ plan, step });
+      return {
+        reply: `Executed ${plan.intent} on ${plan.target}`,
+        durationMs: 40,
+        technicalEvidence: { success: true, tool: plan.intent },
+        structuredAnswer: { result: 'OK', meaning: 'Healthy' }
+      };
+    };
+
+    const initialCompoundPlan = {
+      intent: 'dns',
+      mode: 'operational',
+      target: 'example.com',
+      ports: [],
+      concurrentPlans: [
+        {
+          intent: 'gateway_check',
+          mode: 'operational',
+          target: 'default_gateway',
+          ports: []
+        }
+      ]
+    };
+
+    const result = await runAgenticToolLoop({
+      promptText: 'Check DNS for example.com and ping gateway',
+      initialPlan: initialCompoundPlan,
+      executeSinglePlan: mockExecute,
+      maxSteps: 3
+    });
+
+    assert.ok(result);
+    assert.equal(executedPlans.length, 2, 'Must execute both initial and concurrent probe plans');
+    assert.ok(result.epistemicClassification);
+    assert.ok(Array.isArray(result.epistemicClassification.recommendedConcurrentProbes));
   });
 });
