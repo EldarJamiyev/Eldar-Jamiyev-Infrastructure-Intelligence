@@ -919,4 +919,84 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     // 4. Verify gracefulShutdown export
     assert.equal(typeof gracefulShutdown, 'function');
   });
+
+  await t.test('22. verifies dynamic Bayesian prior auto-calibration with exponential decay and adaptive Shannon entropy stopping', async () => {
+    // 1. Verify exponential time-decay weighting (tau = 7 days) in calculateTargetEmpiricalPrior
+    const testHostDecay = 'temporal-decay-target.corp.internal';
+    const now = Date.now();
+    const FOURTEEN_DAYS_AGO = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Record an incident with updatedAt 14 days ago
+    operationalMemoryEngine.recordResolution({
+      target: testHostDecay,
+      symptomSignature: 'DNS_NXDOMAIN_EXCEPTION',
+      rootCause: 'DNS authoritative server zone timeout',
+      resolutionSteps: 'Flushed zone cache',
+      port: 53,
+      verifiedBy: 'SRE_OPS',
+      updatedAt: FOURTEEN_DAYS_AGO,
+      createdAt: FOURTEEN_DAYS_AGO
+    });
+
+    const empiricalDecayed = operationalMemoryEngine.calculateTargetEmpiricalPrior(testHostDecay);
+    assert.equal(empiricalDecayed.hasHistory, true);
+    assert.equal(empiricalDecayed.decayTauMs, 7 * 24 * 60 * 60 * 1000);
+    // At t = 14 days and tau = 7 days, exp(-14/7) = exp(-2) ~= 0.1353
+    assert.ok(empiricalDecayed.sampleCount < 0.25, `Expected decayed sampleCount around 0.135, got ${empiricalDecayed.sampleCount}`);
+
+    // Record a fresh incident right now (weight ~= 1.0)
+    operationalMemoryEngine.recordResolution({
+      target: testHostDecay,
+      symptomSignature: 'DNS_NXDOMAIN_EXCEPTION',
+      rootCause: 'DNS authoritative server zone timeout',
+      resolutionSteps: 'Flushed zone cache',
+      port: 53,
+      verifiedBy: 'SRE_OPS'
+    });
+    const empiricalFresh = operationalMemoryEngine.calculateTargetEmpiricalPrior(testHostDecay);
+    assert.ok(empiricalFresh.sampleCount > empiricalDecayed.sampleCount, 'Fresh resolution must have higher weight than decayed one');
+
+    // 2. Verify adaptive Shannon entropy early stopping in runAgenticToolLoop
+    let stepCount = 0;
+    const mockExecute = async (plan) => {
+      stepCount++;
+      return {
+        reply: `Execution outcome for ${plan.intent}`,
+        steps: [{ name: plan.intent, status: 'FAILED' }],
+        findings: [{ label: 'DNS Failure', value: 'NXDOMAIN resolution poison' }],
+        technicalEvidence: {
+          success: false,
+          failed: true,
+          error: 'NXDOMAIN lookup failed'
+        },
+        structuredAnswer: { result: 'ERROR', meaning: 'DNS lookup poisoned' }
+      };
+    };
+
+    const initialPlan = {
+      intent: 'dns',
+      mode: 'operational',
+      target: 'poisoned-dns.corp.test',
+      secondaryToolPlans: [
+        { intent: 'port_check', target: 'poisoned-dns.corp.test', ports: [80] },
+        { intent: 'port_check', target: 'poisoned-dns.corp.test', ports: [443] },
+        { intent: 'traceroute', target: 'poisoned-dns.corp.test' }
+      ]
+    };
+
+    const loopResult = await runAgenticToolLoop({
+      promptText: 'Investigate DNS poisoned host',
+      initialPlan,
+      executeSinglePlan: mockExecute,
+      maxSteps: 5
+    });
+
+    assert.ok(loopResult.epistemicClassification, 'Must return epistemicClassification');
+    assert.equal(
+      loopResult.epistemicClassification.terminationReason,
+      'ENTROPY_CONFIDENCE_THRESHOLD_REACHED',
+      'Agentic loop must terminate early when Shannon entropy drops or root cause confidence reaches threshold'
+    );
+    assert.ok(stepCount < 4, `Loop should have stopped early, executed ${stepCount} steps`);
+  });
 });

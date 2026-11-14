@@ -4647,7 +4647,7 @@ class OperationalMemoryEngine {
     if (this.useSqlite && db) {
       try {
         resolutions = db.prepare(
-          'SELECT root_cause, symptom_signature, hit_count FROM ejii_incident_resolutions WHERE target_key = ?'
+          'SELECT root_cause, symptom_signature, hit_count, updated_at, created_at FROM ejii_incident_resolutions WHERE target_key = ?'
         ).all(cleanTarget);
       } catch (_) {
         resolutions = [];
@@ -4659,6 +4659,16 @@ class OperationalMemoryEngine {
         resolutions.push(r);
       }
     }
+
+    const now = Date.now();
+    const TAU_MS = 7 * 24 * 60 * 60 * 1000; // 7-day exponential decay half-life
+    const computeTemporalDecay = (timestampStr) => {
+      if (!timestampStr) return 1.0;
+      const ts = new Date(timestampStr).getTime();
+      if (!Number.isFinite(ts) || ts <= 0) return 1.0;
+      const deltaMs = Math.max(0, now - ts);
+      return Math.exp(-deltaMs / TAU_MS);
+    };
 
     const classifyFaultText = (text) => {
       const lower = String(text || '').toLowerCase();
@@ -4676,7 +4686,9 @@ class OperationalMemoryEngine {
 
     for (const res of resolutions) {
       const hyp = classifyFaultText(res.root_cause || res.rootCause) || classifyFaultText(res.symptom_signature || res.symptomSignature);
-      const weight = Math.max(1, Number(res.hit_count || res.hitCount) || 1);
+      const baseWeight = Math.max(1, Number(res.hit_count || res.hitCount) || 1);
+      const decay = computeTemporalDecay(res.updated_at || res.updatedAt || res.created_at || res.createdAt);
+      const weight = Number((baseWeight * decay).toFixed(4));
       if (hyp && counts[hyp] !== undefined) {
         counts[hyp] += weight;
         matchCount += weight;
@@ -4686,20 +4698,24 @@ class OperationalMemoryEngine {
     // 2. Scan entity operational memory for failure layers and transitions
     const entity = this._loadEntity(cleanTarget);
     if (entity) {
+      const entityDecay = computeTemporalDecay(entity.lastSeenAt || entity.last_seen_at);
       if (entity.lastFailureLayer) {
         const hyp = classifyFaultText(entity.lastFailureLayer) || classifyFaultText(entity.lastSummary);
         if (hyp && counts[hyp] !== undefined) {
-          counts[hyp] += 1;
-          matchCount += 1;
+          const w = Number((1 * entityDecay).toFixed(4));
+          counts[hyp] += w;
+          matchCount += w;
         }
       }
       if (Array.isArray(entity.transitions)) {
         for (const t of entity.transitions) {
           if (String(t.type || '').includes('REGRESSION') || String(t.type || '').includes('FAILED')) {
             const hyp = classifyFaultText(t.detail || t.type);
+            const tDecay = computeTemporalDecay(t.observedAt || t.observed_at || entity.lastSeenAt);
             if (hyp && counts[hyp] !== undefined) {
-              counts[hyp] += 1;
-              matchCount += 1;
+              const w = Number((1 * tDecay).toFixed(4));
+              counts[hyp] += w;
+              matchCount += w;
             }
           }
         }
@@ -4736,8 +4752,9 @@ class OperationalMemoryEngine {
 
     return {
       hasHistory: true,
-      sampleCount: matchCount,
+      sampleCount: Number(matchCount.toFixed(3)),
       target: cleanTarget,
+      decayTauMs: TAU_MS,
       dominantHypothesis: empiricalPriors[0]?.id || null,
       empiricalPriors
     };

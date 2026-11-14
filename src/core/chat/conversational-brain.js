@@ -2004,6 +2004,27 @@ async function runAgenticToolLoop({
         activeHypotheses,
         probeObservations
       );
+
+      // Adaptive Shannon Entropy Stopping: evaluate residual uncertainty and dominant hypothesis
+      const probs = activeHypotheses.map((h) => (typeof h.probability === 'number' ? h.probability : (h.percentage || 0) / 100));
+      const currentEntropyBits = computeShannonEntropyFromDistribution(probs);
+      const sortedByConf = activeHypotheses.slice().sort((a, b) => (b.probability || 0) - (a.probability || 0));
+      const topHypothesis = sortedByConf[0];
+      const topConfidence = topHypothesis ? (topHypothesis.probability || (topHypothesis.percentage || 0) / 100) : 0;
+
+      if (currentEntropyBits < 0.35 || topConfidence >= 0.88) {
+        loopTerminationReason = 'ENTROPY_CONFIDENCE_THRESHOLD_REACHED';
+        toolReflectionTrace.push({
+          iteration: stepIndex,
+          executedIntent: currentPlan.intent,
+          target: currentPlan.target || null,
+          decision: 'COMPLETE_SYNTHESIS',
+          reason: `Entropy threshold achieved (H(X)=${currentEntropyBits.toFixed(3)} bits < 0.35b or topConfidence=${(topConfidence * 100).toFixed(1)}% >= 88.0%). Dominant hypothesis: ${topHypothesis?.name || topHypothesis?.id}.`,
+          nextIntent: null,
+          reflectionSynthesis: `Diagnostic certainty achieved with high confidence (${(topConfidence * 100).toFixed(1)}%) identifying ${topHypothesis?.name || topHypothesis?.id} as the primary root cause (residual entropy ${currentEntropyBits.toFixed(3)} bits).`
+        });
+        break;
+      }
     }
 
     // Non-operational turns (greetings, clarifications, pure conceptual answers) do not loop
@@ -2085,6 +2106,7 @@ async function runAgenticToolLoop({
     }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
+      single.technicalEvidence.terminationReason = loopTerminationReason;
     }
     single.epistemicClassification = epistemicClassification;
     return single;
