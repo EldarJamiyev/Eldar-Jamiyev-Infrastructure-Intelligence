@@ -2183,6 +2183,17 @@ async function runAgenticToolLoop({
     }
   } catch (_) {}
 
+  if (outcomes.length === 0) {
+    return {
+      reply: 'No diagnostic tool observations were recorded for this session.',
+      technicalEvidence: {
+        agenticReflectionTrace: toolReflectionTrace,
+        terminationReason: loopTerminationReason
+      },
+      epistemicClassification
+    };
+  }
+
   if (outcomes.length === 1) {
     const single = outcomes[0].outcome;
     const latestReflection = toolReflectionTrace[toolReflectionTrace.length - 1];
