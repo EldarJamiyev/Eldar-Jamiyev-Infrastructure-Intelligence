@@ -2498,6 +2498,16 @@ async function runAgenticToolLoop({
     if (counterfactualAnalysis) {
       epistemicClassification.counterfactualAnalysis = counterfactualAnalysis;
     }
+
+    const isDiagnosticOrCausal = /\b(why|cause|root cause|diagnos|reason for|what caused)\b/i.test(promptText) || Boolean(sessionContext?.diagnosedRootCause);
+    if (isDiagnosticOrCausal) {
+      const diagnosedCause = sessionContext?.diagnosedRootCause || (factualState.queueDepthPackets > 30 ? 'bufferbloat' : 'link_congestion');
+      const symptom = sessionContext?.symptom || (factualState.rttMs > 30 ? 'latency_spike' : 'packet_loss');
+      const causalEvidenceTrace = structuralCausalEngine.traceCausalEvidencePath(symptom, diagnosedCause, factualState);
+      if (causalEvidenceTrace) {
+        epistemicClassification.causalEvidenceTrace = causalEvidenceTrace;
+      }
+    }
   } catch (_) {}
 
   if (outcomes.length === 0) {
@@ -2533,6 +2543,10 @@ async function runAgenticToolLoop({
       const cf = epistemicClassification.counterfactualAnalysis;
       single.reply = `${single.reply}\n\n### 🔮 Pearlian Counterfactual "What-If" Projection\n${cf.synthesis}`;
     }
+    if (epistemicClassification.causalEvidenceTrace) {
+      const trace = epistemicClassification.causalEvidenceTrace;
+      single.reply = `${single.reply}\n\n### 🧬 Pearlian Causal Evidence Trace\n* **Proof Verdict**: \`${trace.proofVerdict}\`\n* **Causal Path**: ${trace.causalPath.join(' ➔ ')}\n* **Probability of Necessity (PN)**: ${(trace.probabilityOfNecessity * 100).toFixed(1)}% | **Sufficiency (PS)**: ${(trace.probabilityOfSufficiency * 100).toFixed(1)}% | **PNS**: ${(trace.probabilityOfNecessityAndSufficiency * 100).toFixed(1)}%\n* **Empirical Likelihood Ratio (Λ)**: ${trace.empiricalLikelihoodRatio.toFixed(2)}x\n* **Proof**: ${trace.rationale}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2563,6 +2577,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.counterfactualAnalysis) {
     const cf = epistemicClassification.counterfactualAnalysis;
     combinedReplyParts.push(`### 🔮 Pearlian Counterfactual "What-If" Projection\n${cf.synthesis}`);
+  }
+  if (epistemicClassification.causalEvidenceTrace) {
+    const trace = epistemicClassification.causalEvidenceTrace;
+    combinedReplyParts.push(`### 🧬 Pearlian Causal Evidence Trace\n* **Proof Verdict**: \`${trace.proofVerdict}\`\n* **Causal Path**: ${trace.causalPath.join(' ➔ ')}\n* **Probability of Necessity (PN)**: ${(trace.probabilityOfNecessity * 100).toFixed(1)}% | **Sufficiency (PS)**: ${(trace.probabilityOfSufficiency * 100).toFixed(1)}% | **PNS**: ${(trace.probabilityOfNecessityAndSufficiency * 100).toFixed(1)}%\n* **Empirical Likelihood Ratio (Λ)**: ${trace.empiricalLikelihoodRatio.toFixed(2)}x\n* **Proof**: ${trace.rationale}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped

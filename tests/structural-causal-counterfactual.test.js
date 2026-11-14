@@ -122,4 +122,48 @@ test('Phase 5.0 Track 1: Structural Causal Models & Pearlian do-Calculus Counter
     assert.ok(outcome.epistemicClassification.counterfactualAnalysis.deltas);
     assert.match(outcome.reply, /Pearlian Counterfactual/);
   });
+
+  await t.test('6. Computes bidirectional Pearlian causal evidence trace (PN, PS, PNS, Likelihood Ratio)', () => {
+    const engine = new StructuralCausalEngine();
+    const trace = engine.traceCausalEvidencePath('latency_spike', 'bufferbloat', {
+      queueDepthPackets: 55.0,
+      rttMs: 50.0,
+      packetLossPct: 3.2
+    });
+
+    assert.ok(trace.probabilityOfNecessity >= 0.70, `Expected PN >= 0.70, got ${trace.probabilityOfNecessity}`);
+    assert.ok(trace.probabilityOfSufficiency >= 0.70, `Expected PS >= 0.70, got ${trace.probabilityOfSufficiency}`);
+    assert.ok(trace.probabilityOfNecessityAndSufficiency >= 0.65, `Expected PNS >= 0.65, got ${trace.probabilityOfNecessityAndSufficiency}`);
+    assert.ok(trace.empiricalLikelihoodRatio >= 3.0, `Expected Lambda >= 3.0, got ${trace.empiricalLikelihoodRatio}`);
+    assert.strictEqual(trace.proofVerdict, 'NECESSARY_AND_SUFFICIENT_PROVEN');
+    assert.ok(Array.isArray(trace.causalPath) && trace.causalPath.length >= 4);
+    assert.ok(trace.rationale.includes('Pearlian causal validation'));
+  });
+
+  await t.test('7. Integrates causal evidence trace into runAgenticToolLoop for diagnostic queries', async () => {
+    const mockPlan = { intent: 'host_metrics', target: '10.0.0.1', mode: 'operational' };
+
+    const outcome = await runAgenticToolLoop({
+      promptText: 'why did latency spike on the database gateway?',
+      initialPlan: mockPlan,
+      executeSinglePlan: async (plan) => ({
+        reply: 'Gateway metrics retrieved.',
+        technicalEvidence: { rttMs: 52.0 },
+        structuredAnswer: { result: 'OK', meaning: 'High queue depth detected' }
+      }),
+      sessionContext: {
+        diagnosedRootCause: 'bufferbloat',
+        symptom: 'latency_spike',
+        queueDepthPackets: 60.0,
+        rttMs: 52.0
+      },
+      maxSteps: 1
+    });
+
+    assert.ok(outcome.epistemicClassification.causalEvidenceTrace, 'causalEvidenceTrace must be populated');
+    const trace = outcome.epistemicClassification.causalEvidenceTrace;
+    assert.strictEqual(trace.proofVerdict, 'NECESSARY_AND_SUFFICIENT_PROVEN');
+    assert.match(outcome.reply, /Pearlian Causal Evidence Trace/);
+    assert.match(outcome.reply, /NECESSARY_AND_SUFFICIENT_PROVEN/);
+  });
 });
