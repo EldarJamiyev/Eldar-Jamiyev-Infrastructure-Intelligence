@@ -915,24 +915,38 @@ router.post('/chat/message', authenticate, async (req, res) => {
     }));
   }
 
-  const body = req.body || {};
-  const outcome = await chatOperatorService.processMessage({
-    sessionId: body.sessionId,
-    message: body.message || body.prompt,
-    user: authCheck.user,
-    requestId: body.requestId || req.requestId,
-    simulateTimeout: Boolean(body.simulateTimeout)
-  });
+  try {
+    const body = req.body || {};
+    const outcome = await chatOperatorService.processMessage({
+      sessionId: body.sessionId,
+      message: body.message || body.prompt,
+      user: authCheck.user,
+      requestId: body.requestId || req.requestId,
+      simulateTimeout: Boolean(body.simulateTimeout)
+    });
 
-  return res.status(outcome.statusCode || (outcome.success ? 200 : 400)).json(createEjiiResult({
-    success: outcome.success,
-    capabilityId: 'ejii.chat.message',
-    requestId: req.requestId,
-    correlationId: req.correlationId,
-    status: outcome.status || (outcome.success ? 'ok' : 'failed'),
-    data: outcome.data || null,
-    ...(outcome.error ? { error: outcome.error } : {})
-  }));
+    return res.status(outcome.statusCode || (outcome.success ? 200 : 400)).json(createEjiiResult({
+      success: outcome.success,
+      capabilityId: 'ejii.chat.message',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      status: outcome.status || (outcome.success ? 'ok' : 'failed'),
+      data: outcome.data || null,
+      ...(outcome.error ? { error: outcome.error } : {})
+    }));
+  } catch (err) {
+    return res.status(err.statusCode || 500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.chat.message',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      status: 'failed',
+      error: {
+        code: err.code || 'CHAT_EXECUTION_UNEXPECTED_ERROR',
+        message: err.message || 'An unexpected error occurred during chat message processing.'
+      }
+    }));
+  }
 });
 
 router.post('/chat/stream', authenticate, async (req, res) => {

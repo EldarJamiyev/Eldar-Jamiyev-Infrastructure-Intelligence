@@ -32,6 +32,8 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
 
     await new Promise((resolve) => {
       server = http.createServer(app);
+      server.keepAliveTimeout = 65000;
+      server.headersTimeout = 66000;
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
         testTargetPort = addr.port;
@@ -415,7 +417,8 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${viewerToken}`
+        Authorization: `Bearer ${viewerToken}`,
+        Connection: 'close'
       },
       body: JSON.stringify({
         sessionId: 'TEST-RBAC-VIEWER',
@@ -428,7 +431,8 @@ describe('EJII Chat-First Conversational Diagnostic Engine & Super Master Direct
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`
+        Authorization: `Bearer ${adminToken}`,
+        Connection: 'close'
       },
       body: JSON.stringify({
         sessionId: 'TEST-SSRF-GUARD',

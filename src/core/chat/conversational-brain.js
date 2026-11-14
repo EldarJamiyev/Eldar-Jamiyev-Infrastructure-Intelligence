@@ -2098,6 +2098,14 @@ async function runAgenticToolLoop({
     combinedReplyParts.push(`### Multi-Step Synthesis\n${lastReflection.reflectionSynthesis}`);
   }
 
+  // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped
+  const mergedStepEvidence = {};
+  for (const o of outcomes) {
+    if (o.outcome?.technicalEvidence && typeof o.outcome.technicalEvidence === 'object') {
+      Object.assign(mergedStepEvidence, o.outcome.technicalEvidence);
+    }
+  }
+
   return {
     ...primaryOutcome,
     reply: combinedReplyParts.join('\n\n'),
@@ -2112,6 +2120,7 @@ async function runAgenticToolLoop({
     steps: allSteps,
     findings: allFindings,
     technicalEvidence: {
+      ...mergedStepEvidence,
       mode: 'agentic_multi_step_loop',
       iterationsExecuted: outcomes.length,
       agenticReflectionTrace: toolReflectionTrace,
