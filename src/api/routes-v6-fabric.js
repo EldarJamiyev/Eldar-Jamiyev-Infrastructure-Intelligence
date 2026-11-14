@@ -317,6 +317,22 @@ router.get('/temporal-graph/diff', (req, res) => {
   }));
 });
 
+// Part V.b: Continuous Laplacian Heat Diffusion Contours (Track 2)
+router.get(['/temporal-graph/diffusion-contours/:sourceNodeId', '/topology/diffusion-contours/:sourceNodeId'], (req, res) => {
+  const sourceNodeId = req.params.sourceNodeId;
+  const t = Number(req.query.t) || 1.0;
+  const persist = req.query.persist === 'true';
+  const result = temporalInfrastructureGraph.computeLaplacianHeatDiffusion(sourceNodeId, t, {
+    persistToEvidenceDag: persist
+  });
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.temporal_graph.diffusion_contours',
+    status: 'ok',
+    data: result
+  }));
+});
+
 // Part VI & VII: Cross-Layer Incident Correlation & Explainable Causal Investigation
 router.post('/correlate', authenticate, (req, res) => {
   const authCheck = resolveVerifiedUser(req, 'ANALYST');

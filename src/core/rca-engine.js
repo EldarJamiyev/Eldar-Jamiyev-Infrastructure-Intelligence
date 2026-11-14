@@ -1637,12 +1637,73 @@ ${distinguishingTests.map((t, idx) => `[Probe ${idx + 1}] ${t.name} -> Target: $
         }
       }
 
+      // Compute continuous Laplacian heat diffusion contours across the dependency manifold
+      let diffusionContours = [];
+      if (rootCauseAncestors.length > 0) {
+        try {
+          const { temporalInfrastructureGraph } = require('./topology/temporal-graph-engine');
+          for (const [nId, nData] of nodeMap.entries()) {
+            if (!temporalInfrastructureGraph.nodes.has(nId)) {
+              temporalInfrastructureGraph.nodes.set(nId, {
+                nodeId: nId,
+                resourceType: nData.role || 'host',
+                label: nData.label || nId,
+                status: nData.status || 'healthy'
+              });
+            }
+          }
+          for (const e of graphEdges) {
+            const s = e.source || e.from || e.sourceNodeId;
+            const t = e.target || e.to || e.targetNodeId;
+            if (s && t) {
+              temporalInfrastructureGraph.upsertEdge({
+                sourceId: s,
+                targetId: t,
+                confidence: Number(e.weight) || 0.9,
+                relationshipType: 'connected_to'
+              });
+            }
+          }
+          const primaryRootId = rootCauseAncestors[0].nodeId;
+          const diffResult = temporalInfrastructureGraph.computeLaplacianHeatDiffusion(primaryRootId, 0.5, { persistToEvidenceDag: true });
+          diffusionContours = diffResult.diffusionContours || [];
+        } catch (_) {}
+      }
+
+      const diffusionMap = new Map();
+      for (const dc of diffusionContours) {
+        diffusionMap.set(dc.nodeId, dc);
+      }
+
+      for (const item of propagationChain) {
+        const diffInfo = diffusionMap.get(item.nodeId);
+        const degradationProb = diffInfo
+          ? diffInfo.degradationProbability
+          : (item.hopDistanceFromRoot === 0 ? 1.0 : Number(Math.max(0.01, Math.exp(-item.hopDistanceFromRoot * 0.8)).toFixed(4)));
+
+        item.continuousDegradationProbability = degradationProb;
+        item.contourLevel = diffInfo ? diffInfo.contourLevel : (degradationProb >= 0.70 ? 'CRITICAL' : (degradationProb >= 0.35 ? 'HIGH' : (degradationProb >= 0.10 ? 'MODERATE' : 'LOW')));
+
+        if (item.hopDistanceFromRoot > 0) {
+          if (degradationProb >= 0.70) {
+            item.causalCertaintyLevel = 'CONFIRMED_ROOT_CAUSE';
+          } else if (degradationProb >= 0.35) {
+            item.causalCertaintyLevel = 'PROBABLE_CAUSE';
+          } else if (degradationProb >= 0.10) {
+            item.causalCertaintyLevel = 'CONTRIBUTING_FACTOR';
+          } else {
+            item.causalCertaintyLevel = 'CONSEQUENTIAL_SYMPTOM';
+          }
+        }
+      }
+
       multiHopTraversal = {
         totalGraphNodes: nodeMap.size,
         totalGraphEdges: graphEdges.length,
         maxPropagationDepthHops: propagationChain.reduce((max, item) => Math.max(max, item.hopDistanceFromRoot), 0),
         rootCauseAncestors: rootCauseAncestors.map((r) => r.nodeId),
         propagationChain,
+        laplacianDiffusionContours: diffusionContours,
         circularDependencies,
         degradedRedundancyGroups,
         telemetryVisibilityGaps,
