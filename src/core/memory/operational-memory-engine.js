@@ -666,7 +666,9 @@ class OperationalMemoryEngine {
     rootCause,
     resolutionSteps,
     port = null,
-    verifiedBy = 'operator'
+    verifiedBy = 'operator',
+    createdAt = null,
+    updatedAt = null
   } = {}) {
     if (!symptomSignature || !rootCause || !resolutionSteps) return null;
     const nowIso = new Date().toISOString();
@@ -683,8 +685,8 @@ class OperationalMemoryEngine {
       verifiedBy: String(verifiedBy || 'operator'),
       verificationStatus: 'VERIFIED',
       hitCount: 1,
-      createdAt: nowIso,
-      updatedAt: nowIso
+      createdAt: createdAt || nowIso,
+      updatedAt: updatedAt || createdAt || nowIso
     };
 
     this.resolutionsCache.unshift(record);
@@ -4647,7 +4649,7 @@ class OperationalMemoryEngine {
     if (this.useSqlite && db) {
       try {
         resolutions = db.prepare(
-          'SELECT root_cause, symptom_signature, hit_count, updated_at, created_at FROM ejii_incident_resolutions WHERE target_key = ?'
+          'SELECT resolution_id AS resolutionId, root_cause, symptom_signature, hit_count, updated_at, created_at FROM ejii_incident_resolutions WHERE target_key = ?'
         ).all(cleanTarget);
       } catch (_) {
         resolutions = [];

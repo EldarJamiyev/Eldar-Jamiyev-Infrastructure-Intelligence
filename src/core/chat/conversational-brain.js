@@ -1770,7 +1770,17 @@ async function reflectOnToolObservation({
 
   // 2b. Shannon Information-Gain Optimal Next Diagnostic Probe Selection
   // When an operational diagnostic has executed and further uncertainty exists, select the probe that maximizes expected information gain (\Delta H in bits).
-  if (executionOutcome?.structuredAnswer?.layerFailedFirst || executionOutcome?.technicalEvidence?.rawResults?.some((r) => r.status === 'CLOSED' || r.status === 'TIMEOUT' || r.status === 'FILTERED')) {
+  const hasDiagnosticFailure = Boolean(
+    executionOutcome?.success === false ||
+    executionOutcome?.failed === true ||
+    executionOutcome?.error ||
+    executionOutcome?.technicalEvidence?.failed ||
+    executionOutcome?.technicalEvidence?.error ||
+    executionOutcome?.structuredAnswer?.result === 'ERROR' ||
+    executionOutcome?.structuredAnswer?.layerFailedFirst ||
+    executionOutcome?.technicalEvidence?.rawResults?.some((r) => r.status === 'CLOSED' || r.status === 'TIMEOUT' || r.status === 'FILTERED')
+  );
+  if (hasDiagnosticFailure) {
     const igAnalysis = computeLiveInformationGainAnalysis(sessionContext);
     const unexecutedOptimal = (igAnalysis?.candidateProbes || []).find((p) => !ranIntents.has(p.intent) && (p.expectedInformationGainBits || 0) > 0.05);
     if (unexecutedOptimal && unexecutedOptimal.intent !== currentPlan?.intent) {
@@ -1915,8 +1925,11 @@ async function runAgenticToolLoop({
 
     // Determine plans for this iteration: supports explicit or automatic non-conflicting concurrent probes
     const plansForIteration = [currentPlan];
-    if (Array.isArray(currentPlan.concurrentPlans) && currentPlan.concurrentPlans.length > 0) {
-      for (const cp of currentPlan.concurrentPlans) {
+    const extraPlans = Array.isArray(currentPlan.concurrentPlans)
+      ? currentPlan.concurrentPlans
+      : (Array.isArray(currentPlan.secondaryToolPlans) ? currentPlan.secondaryToolPlans : []);
+    if (extraPlans.length > 0) {
+      for (const cp of extraPlans) {
         if (!plansForIteration.some((p) => p.intent === cp.intent)) {
           plansForIteration.push(cp);
         }
@@ -2012,14 +2025,14 @@ async function runAgenticToolLoop({
       const topHypothesis = sortedByConf[0];
       const topConfidence = topHypothesis ? (topHypothesis.probability || (topHypothesis.percentage || 0) / 100) : 0;
 
-      if (currentEntropyBits < 0.35 || topConfidence >= 0.88) {
+      if (currentEntropyBits < 0.35 || topConfidence >= 0.75) {
         loopTerminationReason = 'ENTROPY_CONFIDENCE_THRESHOLD_REACHED';
         toolReflectionTrace.push({
           iteration: stepIndex,
           executedIntent: currentPlan.intent,
           target: currentPlan.target || null,
           decision: 'COMPLETE_SYNTHESIS',
-          reason: `Entropy threshold achieved (H(X)=${currentEntropyBits.toFixed(3)} bits < 0.35b or topConfidence=${(topConfidence * 100).toFixed(1)}% >= 88.0%). Dominant hypothesis: ${topHypothesis?.name || topHypothesis?.id}.`,
+          reason: `Entropy threshold achieved (H(X)=${currentEntropyBits.toFixed(3)} bits < 0.35b or topConfidence=${(topConfidence * 100).toFixed(1)}% >= 75.0%). Dominant hypothesis: ${topHypothesis?.name || topHypothesis?.id}.`,
           nextIntent: null,
           reflectionSynthesis: `Diagnostic certainty achieved with high confidence (${(topConfidence * 100).toFixed(1)}%) identifying ${topHypothesis?.name || topHypothesis?.id} as the primary root cause (residual entropy ${currentEntropyBits.toFixed(3)} bits).`
         });

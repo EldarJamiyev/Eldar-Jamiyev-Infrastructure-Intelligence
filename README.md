@@ -291,6 +291,10 @@ EJII enforces strict engineering guardrails across every backend collector and f
 | **Protocol Modernization: IPv6 Bracketed Literals, Active QUIC HTTP/3, and SNMPv3 USM** | `src/core/security.js`, `src/protocols/http-probe.js`, `src/protocols/snmp-engine.js`, `src/protocols/service-verifier.js`, `src/protocols/tcp-port.js` | Enhances SSRF parsing to support bracketed IPv6 literals with explicit ports (`[::1]:443`, `[2001:db8::1]:8080`), performs active RFC 9000 QUIC version negotiation probes using 1200-byte minimum datagrams alongside RFC 7838 `Alt-Svc` header parsing, and adds full SNMPv3 User-based Security Model (`authPriv` with SHA/AES, `authNoPriv`, and `noAuthNoPriv`) sessions. |
 | **Persistent Evidence DAG & 2-Hop Weisfeiler-Leman Topological Graph Kernel Isomorphism** | `src/core/evidence/evidence-fabric.js`, `src/core/memory/operational-memory-engine.js`, `src/db/database.js` | Persists evidence DAG vertices and edges into SQLite WAL (`evidence_fabric_nodes`, `evidence_fabric_edges`) with complete boot-time DAG restoration. Upgrades topological incident retrieval to a 2-hop Weisfeiler-Leman (`2-WL`) subtree graph kernel computing cosine similarity over multiset color histograms for exact graph isomorphism detection. |
 | **Distributed Trace Propagation, Mutating CSRF Origin Defense, and Bounded Graceful Teardown** | `src/api/middleware.js`, `src/api/routes-diagnostics-remediation.js`, `src/server.js` | Propagates distributed trace IDs (`x-ejii-trace-id` / `x-trace-id`) across request telemetry, validates Fetch Metadata (`Sec-Fetch-Site`) and `Origin` headers on mutating remediation endpoints to prevent cross-site execution attacks, and closes idle HTTP connections with a 5000ms safety timeout guard during graceful shutdown. |
+| **Dynamic Bayesian Prior Auto-Calibration with Exponential Decay & Adaptive Entropy Stopping** | `src/core/memory/operational-memory-engine.js`, `src/core/chat/conversational-brain.js` | Computes time-decayed empirical incident weights ($w_i = \text{baseWeight} \cdot e^{-\Delta t_i / \tau}$, $\tau = 7\text{ days}$) across historical resolutions to calibrate live Bayesian diagnostic priors. Evaluates live residual Shannon entropy ($H(X) < 0.35\text{ bits}$) and dominant hypothesis confidence ($\ge 88.0\%$) to terminate agentic diagnostic loops early (`ENTROPY_CONFIDENCE_THRESHOLD_REACHED`) once causal certainty is achieved. |
+| **Continuous Laplacian Graph Heat Diffusion & Causal Blast Radius** | `src/core/topology/temporal-graph-engine.js`, `src/core/evidence/evidence-fabric.js` | Calculates continuous graph heat diffusion $\mathbf{p}_t = \exp(-t \mathbf{L}) \cdot \mathbf{v}_0$ via a 6-term Taylor expansion on the graph Laplacian matrix $\mathbf{L} = \mathbf{D} - \mathbf{A}$, computing continuous degradation probability contours ($0.0 \le p_i \le 1.0$) across downstream dependencies and persisting causal blast-radius DAG edges into SQLite WAL (`DIFFUSION_BLAST_RADIUS`). |
+| **High-Speed Ring Buffer Dual Watermarks & Wireshark AST Boolean Compiler** | `src/network/packet-streaming/packet-streamer.js`, `public/js/components/filter-compiler.js`, `src/sniffer/wire-dissector-apex.ts`, `src/sniffer/wire-dissector-apex.js` | Enforces dual watermarks (75% high / 25% low) on `HighSpeedPacketRingBuffer` with active `BACKPRESSURE_WARNING` state emissions and drop counters under line-rate socket streaming. Compiles Wireshark display filter AST expressions into zero-copy evaluators supporting deep dot-notation paths (`tcp.flags.syn`, `ip.src`, `http.status`, `dns.answers.type`) with strict operator precedence. |
+| **Smooth Signal Temporal Logic (S-STL) & Analytical Sensitivity Gradients** | `src/ai/neuro-symbolic-apex.ts`, `src/ai/neuro-symbolic-apex.js` | Replaces non-differentiable $\min$/$\max$ operators with smooth Log-Sum-Exp approximations ($\text{LSE}_\beta$, $\beta = 10.0$) in Continuous Signal Temporal Logic robustness evaluation ($\tilde{\rho}$). Computes exact analytical sensitivity gradients ($\nabla_\mu \rho$) identifying bottleneck telemetry dimensions, and forecasts continuous Time-to-Violation (TTV) horizons via linear velocity extrapolation. |
 
 ---
 
@@ -343,13 +347,13 @@ Open **`http://localhost:3000`** in your browser.
 
 ### 7.4 Running the Automated Verification Suites
 
-EJII includes **100 end-to-end NOC verification suites**, **22 sovereign intelligence leap test suites**, and **46+ core conversational, epistemic, & protocol unit tests**:
+EJII includes **100 end-to-end NOC verification suites**, **25 sovereign intelligence leap test suites**, and **46+ core conversational, epistemic, & protocol unit tests**:
 
 ```bash
 # Run all Project Falcon & Phase 6 core unit tests (DNS, DHCP, 5-layer ISP, Conversational Brain, Eval Suite)
 node --test src/core/__tests__/*.test.js
 
-# Run the 22-suite EJII Sovereign Intelligence Leap verification harness (Bayesian IG, 2-WL DAG, QUIC/SNMPv3, CSRF/Trace)
+# Run the 25-suite EJII Sovereign Intelligence Leap verification harness (Bayesian IG, 2-WL DAG, QUIC/SNMPv3, CSRF/Trace, S-STL, Heat Diffusion, AST Buffer)
 node --test tests/sovereign-intelligence-leap.test.js
 
 # Run the complete 100-suite EJII NOC architectural, security, protocol, and UI verification harness

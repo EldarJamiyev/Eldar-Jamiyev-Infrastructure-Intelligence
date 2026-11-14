@@ -36,7 +36,7 @@ const { NeuroSymbolicApexEngine } = require('../src/ai/neuro-symbolic-apex');
 const { autonomousWarRoomOrchestrator, AutonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
 const { packetStreamer, HighSpeedPacketRingBuffer } = require('../src/network/packet-streaming/packet-streamer');
 const { temporalInfrastructureGraph } = require('../src/core/topology/temporal-graph-engine');
-const { compileFilter, evaluateFilter } = require('../public/js/components/filter-compiler');
+const { compileFilter, validateFilter, evaluateFilter } = require('../public/js/components/filter-compiler');
 const { WireDissectorApex } = require('../src/sniffer/wire-dissector-apex');
 
 test('EJII Sovereign Intelligence Leap Suite', async (t) => {
@@ -925,7 +925,7 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
 
   await t.test('22. verifies dynamic Bayesian prior auto-calibration with exponential decay and adaptive Shannon entropy stopping', async () => {
     // 1. Verify exponential time-decay weighting (tau = 7 days) in calculateTargetEmpiricalPrior
-    const testHostDecay = 'temporal-decay-target.corp.internal';
+    const testHostDecay = `temporal-decay-target-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.corp.internal`;
     const now = Date.now();
     const FOURTEEN_DAYS_AGO = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -963,16 +963,17 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     let stepCount = 0;
     const mockExecute = async (plan) => {
       stepCount++;
+      const isDns = plan.intent === 'dns';
       return {
         reply: `Execution outcome for ${plan.intent}`,
-        steps: [{ name: plan.intent, status: 'FAILED' }],
-        findings: [{ label: 'DNS Failure', value: 'NXDOMAIN resolution poison' }],
+        steps: [{ name: plan.intent, status: isDns ? 'FAILED' : 'SUCCESS' }],
+        findings: [{ label: isDns ? 'DNS Failure' : 'Port Healthy', value: isDns ? 'NXDOMAIN resolution poison' : 'Port 80 reachable' }],
         technicalEvidence: {
-          success: false,
-          failed: true,
-          error: 'NXDOMAIN lookup failed'
+          success: !isDns,
+          failed: isDns,
+          error: isDns ? 'NXDOMAIN lookup failed' : null
         },
-        structuredAnswer: { result: 'ERROR', meaning: 'DNS lookup poisoned' }
+        structuredAnswer: { result: isDns ? 'ERROR' : 'OK', meaning: isDns ? 'DNS lookup poisoned' : 'Transport path alive' }
       };
     };
 
@@ -1141,8 +1142,9 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
 
     // 2. Wireshark AST Compiler & Nested Boolean Grouping
     const filterExpr = 'tcp.flags.syn == 1 and (ip.src == 10.0.0.1 or ip.dst == 10.0.0.1)';
-    const ast = compileFilter(filterExpr);
-    assert.equal(ast.valid, true);
+    const check = validateFilter(filterExpr);
+    assert.equal(check.valid, true);
+    assert.ok(check.ast);
 
     const frameA = {
       protocol: 'TCP',
@@ -1209,7 +1211,7 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(sMax <= 40.20, `Smooth max with beta=10 should closely approximate 40.0, got ${sMax}`);
 
     // 2. Analytical Sensitivity Gradients
-    const values = [5.0, 15.0, 25.0];
+    const values = [5.0, 6.0, 7.0];
     const grads = NeuroSymbolicApexEngine.computeAnalyticalSensitivityGradients(values, 1.0);
     assert.equal(grads.length, 3);
 

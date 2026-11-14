@@ -393,7 +393,7 @@ class NeuroSymbolicApexEngine {
             denom += Math.exp(-b * values[i] - maxShift);
         }
         for (let i = 0; i < n; i++) {
-            grads[i] = Number((Math.exp(-b * values[i] - maxShift) / denom).toFixed(4));
+            grads[i] = Math.exp(-b * values[i] - maxShift) / denom;
         }
         return grads;
     }
