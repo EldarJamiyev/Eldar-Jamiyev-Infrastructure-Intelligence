@@ -221,6 +221,9 @@
               </div>
 
               <div id="nocTopologyCanvasWrap" class="topology-light-canvas" style="background: var(--bg-canvas, #F8F9FA); border-radius: 8px; border: 1px solid var(--border-default, #E5E7EB); position: relative; flex: 1; display: flex; flex-direction: column; overflow: hidden; user-select: none;">
+                <!-- Continuous Equipotential Laplacian Diffusion Overlay Shader (Track 4) -->
+                <canvas id="laplacianDiffusionCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2;"></canvas>
+
                 <!-- Floating Semi-Transparent Telemetry Legend & Controls Guide -->
                 <div class="topology-floating-legend" style="position: absolute; bottom: 12px; left: 14px; z-index: 10; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(8px); border: 1px solid var(--border-default, #E5E7EB); border-radius: 6px; padding: 5px 12px; font-size: 10.5px; font-family: var(--font-mono); color: var(--text-secondary); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
                   <div>
@@ -410,6 +413,27 @@
   };
 
   window.renderTopologyStandaloneView = renderTopologyStandaloneView;
+
+  window.renderLaplacianEquipotentialOverlay = function(nodes = [], options = {}) {
+    const canvas = document.getElementById('laplacianDiffusionCanvas');
+    if (!canvas) return null;
+    const shader = window.EquipotentialContourShader || (typeof require !== 'undefined' ? require('../equipotential-contour-shader') : null);
+    if (!shader || typeof shader.renderEquipotentialCanvas !== 'function') return null;
+
+    if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+      canvas.width = canvas.clientWidth || 800;
+      canvas.height = canvas.clientHeight || 600;
+    }
+
+    const sources = (nodes || []).map((n) => ({
+      x: n.x || (n.col ? n.col * 150 : 100),
+      y: n.y || (n.row ? n.row * 120 : 100),
+      potential: n.potential ?? (String(n.status || '').toLowerCase() === 'down' ? 1.0 : (Number(n.rttMs) > 50 ? 0.7 : 0.15)),
+      sigma: options.sigma || 80
+    }));
+
+    return shader.renderEquipotentialCanvas(canvas, sources, options);
+  };
 
   window.openRoutingRadixModal = async function() {
     let modal = document.getElementById('routingRadixModal');

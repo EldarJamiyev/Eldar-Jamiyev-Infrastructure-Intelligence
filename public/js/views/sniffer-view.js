@@ -307,6 +307,8 @@ window.escapeAttr = escapeAttr;
 
             <!-- View 1: Live Frame Summary Table -->
             <div id="livePacketTableView" style="display: flex; flex: 1; overflow: hidden; flex-direction: column;">
+              <!-- High-Density Line-Rate Packet Waterfall Canvas (Track 4) -->
+              <canvas id="packetWaterfallCanvas" width="900" height="36" style="width: 100%; height: 36px; background: #0F172A; border-bottom: 1px solid var(--border-default); display: block; flex-shrink: 0;" title="Sub-millisecond Line-Rate Packet Waterfall &amp; Microsecond Protocol Timeline"></canvas>
               <div id="livePacketTableContainer" class="table-container" style="flex: 1; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable;" onmouseenter="window.onPacketTableMouseEnter()" onmouseleave="window.onPacketTableMouseLeave()">
                 <table class="data-table" style="font-family: var(--font-mono); font-size: 11px; width: 100%;">
                   <thead>
@@ -536,6 +538,11 @@ window.escapeAttr = escapeAttr;
           hexPaneEl: document.getElementById('hexDumpPane'),
           statusBadgeEl: document.getElementById('freezeStreamBtn')
         });
+      }
+
+      // Connect Offscreen Binary Packet Decoder Worker & Line-Rate Waterfall (Track 4)
+      if (typeof window.initPacketBinaryDecoderWorker === 'function') {
+        window.initPacketBinaryDecoderWorker();
       }
 
       if (typeof window.startPacketBatchFlusher === 'function') {
@@ -1655,6 +1662,73 @@ window.escapeAttr = escapeAttr;
       `).join('');
     } catch (err) {
       tbody.innerHTML = `<tr><td colspan="13" style="color:var(--danger);padding:16px;">NetworkTrafficView error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  };
+
+  /**
+   * Track 4: Line-Rate Offscreen Binary Packet Decoder Worker Connection
+   */
+  window.initPacketBinaryDecoderWorker = function() {
+    if (window.packetDecoderWorker) return window.packetDecoderWorker;
+
+    if (typeof Worker !== 'undefined') {
+      try {
+        const worker = new Worker('/js/workers/packet-binary-decoder-worker.js');
+        worker.onmessage = function (event) {
+          const msg = event.data;
+          if (msg && msg.type === 'PACKET_BATCH' && Array.isArray(msg.frames)) {
+            if (window.snifferVirtualCockpit && typeof window.snifferVirtualCockpit.ingestWireBatch === 'function') {
+              window.snifferVirtualCockpit.ingestWireBatch(msg.frames);
+            }
+            const canvas = document.getElementById('packetWaterfallCanvas');
+            if (canvas && typeof window.renderPacketWaterfallCanvas === 'function') {
+              window.renderPacketWaterfallCanvas(canvas, msg.frames);
+            }
+          }
+        };
+        window.packetDecoderWorker = worker;
+      } catch (_) {}
+    }
+    return window.packetDecoderWorker;
+  };
+
+  /**
+   * High-Density Packet Waterfall Canvas Renderer
+   */
+  window.renderPacketWaterfallCanvas = function(canvas, frames = [], options = {}) {
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const shift = Math.min(w, frames.length * 3);
+    if (shift > 0 && shift < w) {
+      ctx.drawImage(canvas, shift, 0, w - shift, h, 0, 0, w - shift, h);
+      ctx.fillStyle = '#0F172A';
+      ctx.fillRect(w - shift, 0, shift, h);
+    }
+
+    const PROTO_COLORS = {
+      'TCP': '#38BDF8',
+      'TLS': '#06B6D4',
+      'HTTP': '#22D3EE',
+      'UDP': '#A855F7',
+      'DNS': '#C084FC',
+      'ICMP': '#F59E0B',
+      'ARP': '#FB923C'
+    };
+
+    let curX = Math.max(0, w - shift);
+    for (const f of frames) {
+      const color = PROTO_COLORS[f.protocol] || '#94A3B8';
+      const wireLen = Math.min(1514, f.wireLength || f.length || 64);
+      const barHeight = Math.max(4, Math.round((wireLen / 1514) * (h - 6)));
+
+      ctx.fillStyle = color;
+      ctx.fillRect(curX, h - barHeight - 2, 2, barHeight);
+      curX += 3;
+      if (curX >= w) break;
     }
   };
 
