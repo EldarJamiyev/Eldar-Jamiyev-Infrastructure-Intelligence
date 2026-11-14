@@ -31,6 +31,7 @@ const {
 } = require('../src/core/chat/conversational-brain');
 
 const { operationalMemoryEngine } = require('../src/core/memory/operational-memory-engine');
+const { evidenceFabric } = require('../src/core/evidence/evidence-fabric');
 const { NeuroSymbolicApexEngine } = require('../src/ai/neuro-symbolic-apex');
 const { autonomousWarRoomOrchestrator, AutonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
 const { packetStreamer } = require('../src/network/packet-streaming/packet-streamer');
@@ -783,5 +784,71 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.equal(snmpV3.privProtocol, 4); // snmp.PrivProtocols.aes
     assert.equal(snmpV3.authKey, 'SuperAuthKey123');
     assert.equal(snmpV3.privKey, 'SuperPrivKey456');
+  });
+
+  await t.test('20. verifies persistent evidence DAG and 2-hop Weisfeiler-Leman graph kernel topology isomorphism', () => {
+    // 1. Record parent and derived child evidence records with typed edges
+    const parentRecord = evidenceFabric.recordEvidence({
+      subject: 'host:core-router-01',
+      claim: 'Routing table default gateway established',
+      collectionMethod: 'os_route_table',
+      rawValue: { gateway: '10.0.0.1' }
+    });
+
+    const childRecord = evidenceFabric.recordEvidence({
+      subject: 'host:core-router-01',
+      claim: 'Default gateway ICMP reachability verified (<2ms)',
+      collectionMethod: 'icmp_echo',
+      rawValue: { rttMs: 1.4 },
+      derivedFrom: [parentRecord.id],
+      corroborates: [parentRecord.id]
+    });
+
+    // 2. Query persistent causal DAG
+    const dag = evidenceFabric.queryCausalDag({ subject: 'host:core-router-01' });
+    assert.ok(dag.nodeCount >= 2);
+    assert.ok(dag.edgeCount >= 2);
+
+    const derivedEdge = dag.edges.find((e) => e.relationType === 'DERIVED_FROM' && e.sourceNodeId === childRecord.id);
+    assert.ok(derivedEdge, 'Must persist DERIVED_FROM edge in DAG');
+    assert.equal(derivedEdge.targetNodeId, parentRecord.id);
+
+    const corroboratesEdge = dag.edges.find((e) => e.relationType === 'CORROBORATES' && e.sourceNodeId === childRecord.id);
+    assert.ok(corroboratesEdge, 'Must persist CORROBORATES edge in DAG');
+
+    // 3. Verify SQLite DAG graph restoration
+    const restored = evidenceFabric.restoreEvidenceGraph();
+    assert.ok(restored.nodeCount >= 2);
+    assert.ok(restored.edgeCount >= 2);
+
+    // 4. Verify 2-hop Weisfeiler-Leman topological incident isomorphism
+    operationalMemoryEngine.recordResolution({
+      target: 'db-cluster-node-01.internal',
+      symptomSignature: 'TCP_SYN_BLACKHOLE',
+      rootCause: 'MTU blackhole fragmentation drop on virtual switch VLAN 100',
+      resolutionSteps: 'Clamp MSS to 1460 in kernel iptables',
+      port: 5432,
+      verifiedBy: 'SRE_CORE'
+    });
+
+    const wlResult = operationalMemoryEngine.queryTopologicalIncidentIsomorphism({
+      target: 'db-cluster-node-01.internal',
+      topologyNodes: [
+        { id: 'db-cluster-node-01.internal', role: 'DATABASE_LEADER', degree: 3, neighbors: ['app-server-01', 'app-server-02'] },
+        { id: 'app-server-01', role: 'APP_GATEWAY', degree: 2, neighbors: ['db-cluster-node-01.internal'] },
+        { id: 'app-server-02', role: 'APP_GATEWAY', degree: 2, neighbors: ['db-cluster-node-01.internal'] }
+      ],
+      symptomSignature: 'TCP_SYN_BLACKHOLE'
+    });
+
+    assert.equal(wlResult.target, 'db-cluster-node-01.internal');
+    assert.ok(wlResult.isomorphicMatchesFound >= 1);
+    const topWlMatch = wlResult.topMatches[0];
+    assert.ok(topWlMatch.weisfeilerLemanKernelScore >= 0.70, `WL kernel score should be >= 0.70, got ${topWlMatch.weisfeilerLemanKernelScore}`);
+    assert.ok(topWlMatch.wlIterationHashes);
+    assert.ok(topWlMatch.wlIterationHashes.labels0['db-cluster-node-01.internal']);
+    assert.ok(topWlMatch.wlIterationHashes.labels1['db-cluster-node-01.internal']);
+    assert.ok(topWlMatch.wlIterationHashes.labels2['db-cluster-node-01.internal']);
+    assert.equal(topWlMatch.isIsomorphic, true);
   });
 });

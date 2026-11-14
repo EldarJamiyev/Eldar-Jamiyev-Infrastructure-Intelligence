@@ -98,6 +98,32 @@ function ensureEvidenceTables() {
         integrity_hash TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_evidence_findings_subject ON evidence_findings(subject);
+
+      CREATE TABLE IF NOT EXISTS evidence_fabric_nodes (
+        node_id TEXT PRIMARY KEY,
+        node_type TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        label TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        quality_score REAL NOT NULL DEFAULT 1.0,
+        freshness_state TEXT NOT NULL DEFAULT 'live',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_evidence_nodes_subject ON evidence_fabric_nodes(subject);
+      CREATE INDEX IF NOT EXISTS idx_evidence_nodes_type ON evidence_fabric_nodes(node_type);
+
+      CREATE TABLE IF NOT EXISTS evidence_fabric_edges (
+        edge_id TEXT PRIMARY KEY,
+        source_node_id TEXT NOT NULL,
+        target_node_id TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 1.0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_evidence_edges_source ON evidence_fabric_edges(source_node_id);
+      CREATE INDEX IF NOT EXISTS idx_evidence_edges_target ON evidence_fabric_edges(target_node_id);
     `);
   } catch (_) {}
 }
@@ -180,6 +206,8 @@ class EvidenceFabric {
     this.dbHandle = options.dbHandle !== undefined ? options.dbHandle : db;
     this.memoryRecords = new Map();
     this.memoryFindings = new Map();
+    this.dagNodes = new Map();
+    this.dagEdges = [];
     this.lastChainHash = 'GENESIS_EVIDENCE_CHAIN_V6_0000000000000000';
     this.storageDiagnostics = {
       writeSuccessCount: 0,
@@ -188,6 +216,7 @@ class EvidenceFabric {
     };
     ensureEvidenceTables();
     this._hydrateChainTail();
+    this.restoreEvidenceGraph();
   }
 
   getStorageDiagnostics() {
@@ -195,7 +224,223 @@ class EvidenceFabric {
       ...this.storageDiagnostics,
       lastChainHash: this.lastChainHash,
       inMemoryRecordCount: this.memoryRecords.size,
-      inMemoryFindingCount: this.memoryFindings.size
+      inMemoryFindingCount: this.memoryFindings.size,
+      dagNodeCount: this.dagNodes.size,
+      dagEdgeCount: this.dagEdges.length
+    };
+  }
+
+  restoreEvidenceGraph() {
+    ensureEvidenceTables();
+    let nodeCount = 0;
+    let edgeCount = 0;
+    try {
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        const nodeRows = this.dbHandle.prepare('SELECT * FROM evidence_fabric_nodes').all();
+        for (const row of nodeRows) {
+          let payload = {};
+          try { payload = row.payload_json ? JSON.parse(row.payload_json) : {}; } catch (_) {}
+          this.dagNodes.set(row.node_id, {
+            nodeId: row.node_id,
+            nodeType: row.node_type,
+            subject: row.subject,
+            label: row.label,
+            payload,
+            qualityScore: Number(row.quality_score),
+            freshnessState: row.freshness_state,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          });
+          nodeCount++;
+        }
+
+        const edgeRows = this.dbHandle.prepare('SELECT * FROM evidence_fabric_edges').all();
+        this.dagEdges = edgeRows.map((r) => {
+          let meta = {};
+          try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch (_) {}
+          return {
+            edgeId: r.edge_id,
+            sourceNodeId: r.source_node_id,
+            targetNodeId: r.target_node_id,
+            relationType: r.relation_type,
+            weight: Number(r.weight),
+            metadata: meta,
+            createdAt: r.created_at
+          };
+        });
+        edgeCount = this.dagEdges.length;
+      }
+    } catch (_) {}
+
+    return {
+      nodeCount,
+      edgeCount,
+      restoredAt: new Date().toISOString()
+    };
+  }
+
+  _persistDagNode(node) {
+    this.dagNodes.set(node.nodeId, node);
+    try {
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        this.dbHandle.prepare(`
+          INSERT INTO evidence_fabric_nodes (
+            node_id, node_type, subject, label, payload_json, quality_score, freshness_state, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(node_id) DO UPDATE SET
+            label = excluded.label,
+            payload_json = excluded.payload_json,
+            quality_score = excluded.quality_score,
+            freshness_state = excluded.freshness_state,
+            updated_at = excluded.updated_at
+        `).run(
+          node.nodeId,
+          node.nodeType,
+          node.subject,
+          node.label,
+          JSON.stringify(node.payload || {}),
+          node.qualityScore,
+          node.freshnessState,
+          node.createdAt,
+          node.updatedAt
+        );
+      }
+    } catch (_) {}
+  }
+
+  _persistDagEdge(edge) {
+    if (!this.dagEdges.some((e) => e.edgeId === edge.edgeId)) {
+      this.dagEdges.push(edge);
+    }
+    try {
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        this.dbHandle.prepare(`
+          INSERT OR REPLACE INTO evidence_fabric_edges (
+            edge_id, source_node_id, target_node_id, relation_type, weight, metadata_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          edge.edgeId,
+          edge.sourceNodeId,
+          edge.targetNodeId,
+          edge.relationType,
+          edge.weight,
+          JSON.stringify(edge.metadata || {}),
+          edge.createdAt
+        );
+      }
+    } catch (_) {}
+  }
+
+  _syncEvidenceToDag(record) {
+    const nowIso = new Date().toISOString();
+    this._persistDagNode({
+      nodeId: record.id,
+      nodeType: record.type,
+      subject: record.subject,
+      label: record.claim,
+      payload: { value: record.normalizedValue, unit: record.unit, collectionMethod: record.collectionMethod, sourceCapabilityId: record.sourceCapabilityId },
+      qualityScore: record.qualityScore,
+      freshnessState: record.freshnessState,
+      createdAt: record.observedAt,
+      updatedAt: record.ingestedAt
+    });
+
+    for (const parentId of (record.derivedFrom || [])) {
+      this._persistDagEdge({
+        edgeId: `EDG-${record.id}-DERIVED-${parentId}`,
+        sourceNodeId: record.id,
+        targetNodeId: parentId,
+        relationType: 'DERIVED_FROM',
+        weight: 1.0,
+        metadata: { sourceCapabilityId: record.sourceCapabilityId },
+        createdAt: nowIso
+      });
+    }
+
+    for (const corId of (record.corroborates || [])) {
+      this._persistDagEdge({
+        edgeId: `EDG-${record.id}-CORROBORATES-${corId}`,
+        sourceNodeId: record.id,
+        targetNodeId: corId,
+        relationType: 'CORROBORATES',
+        weight: 0.8,
+        metadata: {},
+        createdAt: nowIso
+      });
+    }
+
+    for (const conId of (record.contradicts || [])) {
+      this._persistDagEdge({
+        edgeId: `EDG-${record.id}-CONTRADICTS-${conId}`,
+        sourceNodeId: record.id,
+        targetNodeId: conId,
+        relationType: 'CONTRADICTS',
+        weight: 1.0,
+        metadata: {},
+        createdAt: nowIso
+      });
+    }
+  }
+
+  _syncFindingToDag(finding) {
+    const nowIso = new Date().toISOString();
+    this._persistDagNode({
+      nodeId: finding.findingId,
+      nodeType: 'finding',
+      subject: finding.subject,
+      label: finding.title,
+      payload: { ruleId: finding.ruleId, inferenceStep: finding.inferenceStep, status: finding.status, confidence: finding.confidence },
+      qualityScore: finding.confidence,
+      freshnessState: 'live',
+      createdAt: finding.createdAt,
+      updatedAt: finding.updatedAt
+    });
+
+    for (const sId of (finding.supportingEvidenceIds || [])) {
+      this._persistDagEdge({
+        edgeId: `EDG-${finding.findingId}-SUPPORTS-${sId}`,
+        sourceNodeId: finding.findingId,
+        targetNodeId: sId,
+        relationType: 'SUPPORTS_FINDING',
+        weight: 1.0,
+        metadata: { ruleId: finding.ruleId },
+        createdAt: nowIso
+      });
+    }
+
+    for (const cId of (finding.counterEvidenceIds || [])) {
+      this._persistDagEdge({
+        edgeId: `EDG-${finding.findingId}-COUNTER-${cId}`,
+        sourceNodeId: finding.findingId,
+        targetNodeId: cId,
+        relationType: 'CONTRADICTS_FINDING',
+        weight: 1.0,
+        metadata: { ruleId: finding.ruleId },
+        createdAt: nowIso
+      });
+    }
+  }
+
+  queryCausalDag(filter = {}) {
+    ensureEvidenceTables();
+    let nodes = Array.from(this.dagNodes.values());
+    let edges = [...this.dagEdges];
+
+    if (filter.subject) {
+      const matchSubject = String(filter.subject).toLowerCase();
+      nodes = nodes.filter((n) => String(n.subject || '').toLowerCase() === matchSubject);
+      const nodeIds = new Set(nodes.map((n) => n.nodeId));
+      edges = edges.filter((e) => nodeIds.has(e.sourceNodeId) || nodeIds.has(e.targetNodeId));
+    }
+    if (filter.nodeType) {
+      nodes = nodes.filter((n) => n.nodeType === filter.nodeType);
+    }
+
+    return {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      nodes,
+      edges
     };
   }
 
@@ -359,6 +604,7 @@ class EvidenceFabric {
     };
 
     this.memoryRecords.set(id, record);
+    this._syncEvidenceToDag(record);
 
     return record;
   }
@@ -561,6 +807,7 @@ class EvidenceFabric {
     };
 
     this.memoryFindings.set(findingId, finding);
+    this._syncFindingToDag(finding);
 
     return finding;
   }

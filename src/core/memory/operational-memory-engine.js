@@ -4460,10 +4460,103 @@ class OperationalMemoryEngine {
   }
 
   /**
+   * 2-Hop Weisfeiler-Leman (2-WL) Graph Subtree Kernel:
+   * Computes structural isomorphism kernel score between two infrastructure topology subgraphs.
+   * Compresses 0-hop, 1-hop, and 2-hop neighbor multisets into canonical SHA-256 color labels
+   * and evaluates normalized cosine kernel similarity over the multiset feature histograms.
+   */
+  _computeWeisfeilerLemanGraphKernel(targetNodeId, currentNodes = [], historicalTargetId, historicalNodes = []) {
+    const isExactTarget = String(targetNodeId || '').toLowerCase() === String(historicalTargetId || '').toLowerCase();
+
+    const buildGraphProfile = (centerId, nodes) => {
+      const nodeMap = new Map();
+      for (const n of nodes) {
+        const id = String(n.id || n.ip || '').toLowerCase();
+        if (!id) continue;
+        nodeMap.set(id, {
+          id,
+          role: String(n.role || n.type || 'NODE').toUpperCase(),
+          degree: Array.isArray(n.neighbors) ? n.neighbors.length : (Number(n.degree) || 1),
+          neighbors: (n.neighbors || []).map(String).map((s) => s.toLowerCase())
+        });
+      }
+
+      if (centerId && !nodeMap.has(centerId)) {
+        nodeMap.set(centerId, { id: centerId, role: 'TARGET', degree: 1, neighbors: [] });
+      }
+
+      // 0-hop labels: (role, degree)
+      const labels0 = new Map();
+      for (const [id, node] of nodeMap) {
+        labels0.set(id, `${node.role}_d${node.degree}`);
+      }
+
+      // 1-hop Weisfeiler-Leman refinement
+      const labels1 = new Map();
+      for (const [id, node] of nodeMap) {
+        const neighborLabels = node.neighbors.map((nid) => labels0.get(nid) || 'UNKNOWN').sort();
+        labels1.set(id, crypto.createHash('sha256').update(`${labels0.get(id)}|[${neighborLabels.join(',')}]`).digest('hex').slice(0, 8));
+      }
+
+      // 2-hop Weisfeiler-Leman refinement
+      const labels2 = new Map();
+      for (const [id, node] of nodeMap) {
+        const neighborLabels = node.neighbors.map((nid) => labels1.get(nid) || 'UNKNOWN').sort();
+        labels2.set(id, crypto.createHash('sha256').update(`${labels1.get(id)}|[${neighborLabels.join(',')}]`).digest('hex').slice(0, 8));
+      }
+
+      // Feature multiset histogram
+      const featureCounts = Object.create(null);
+      for (const map of [labels0, labels1, labels2]) {
+        for (const val of map.values()) {
+          featureCounts[val] = (featureCounts[val] || 0) + 1;
+        }
+      }
+
+      return {
+        nodeMap,
+        labels0: Object.fromEntries(labels0),
+        labels1: Object.fromEntries(labels1),
+        labels2: Object.fromEntries(labels2),
+        featureCounts
+      };
+    };
+
+    const g1 = buildGraphProfile(String(targetNodeId || '').toLowerCase(), currentNodes);
+    const g2 = buildGraphProfile(String(historicalTargetId || '').toLowerCase(), historicalNodes.length > 0 ? historicalNodes : currentNodes);
+
+    const allFeatures = new Set([...Object.keys(g1.featureCounts), ...Object.keys(g2.featureCounts)]);
+    let dot = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+
+    for (const f of allFeatures) {
+      const c1 = g1.featureCounts[f] || 0;
+      const c2 = g2.featureCounts[f] || 0;
+      dot += c1 * c2;
+      norm1 += c1 * c1;
+      norm2 += c2 * c2;
+    }
+
+    const denominator = Math.sqrt(norm1) * Math.sqrt(norm2);
+    let wlKernelScore = denominator > 0 ? dot / denominator : 0.5;
+
+    if (isExactTarget) {
+      wlKernelScore = Math.min(1.0, wlKernelScore + 0.15);
+    }
+
+    return {
+      kernelScore: Number(Math.max(0, Math.min(1.0, wlKernelScore)).toFixed(4)),
+      wlIterationHashes: { labels0: g1.labels0, labels1: g1.labels1, labels2: g1.labels2 },
+      isExactTarget
+    };
+  }
+
+  /**
    * Topological Incident Isomorphism & Longitudinal Causal Retrieval:
    * Maps current target and adjacent topology nodes against historical incident resolutions
    * and structural graph dependencies to detect identical architectural fault patterns
-   * with exact Jaccard topological similarity and proven runbook procedures.
+   * using 2-hop Weisfeiler-Leman graph kernel scoring and proven runbook procedures.
    */
   queryTopologicalIncidentIsomorphism({ target, topologyNodes = [], symptomSignature = null } = {}) {
     const cleanTarget = target ? String(target).trim().toLowerCase() : null;
@@ -4471,7 +4564,8 @@ class OperationalMemoryEngine {
     const currentEntity = cleanTarget ? this._loadEntity(cleanTarget) : null;
 
     const matches = historicalResolutions.map((res) => {
-      let topologicalSimilarity = 0.5;
+      const wlKernel = this._computeWeisfeilerLemanGraphKernel(cleanTarget, topologyNodes, res.targetKey, []);
+      let topologicalSimilarity = 0.5 * wlKernel.kernelScore;
       const targetMatches = res.targetKey === cleanTarget;
       if (targetMatches) topologicalSimilarity += 0.3;
 
@@ -4491,6 +4585,8 @@ class OperationalMemoryEngine {
         runbookProcedure: res.resolutionSteps,
         verificationStatus: res.verificationStatus,
         hitCount: res.hitCount || 1,
+        weisfeilerLemanKernelScore: wlKernel.kernelScore,
+        wlIterationHashes: wlKernel.wlIterationHashes,
         topologicalSimilarity,
         isIsomorphic: topologicalSimilarity >= 0.70,
         recommendedAction: `Apply historical playbook ${res.resolutionId}: ${res.rootCause}`

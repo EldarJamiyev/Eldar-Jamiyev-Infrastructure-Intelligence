@@ -364,6 +364,32 @@ function initSchema(targetDb = db) {
     );
     CREATE INDEX IF NOT EXISTS idx_incidents_node ON incidents(primary_node_id);
     CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+
+    CREATE TABLE IF NOT EXISTS evidence_fabric_nodes (
+      node_id TEXT PRIMARY KEY,
+      node_type TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      label TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      quality_score REAL NOT NULL DEFAULT 1.0,
+      freshness_state TEXT NOT NULL DEFAULT 'live',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_evidence_nodes_subject ON evidence_fabric_nodes(subject);
+    CREATE INDEX IF NOT EXISTS idx_evidence_nodes_type ON evidence_fabric_nodes(node_type);
+
+    CREATE TABLE IF NOT EXISTS evidence_fabric_edges (
+      edge_id TEXT PRIMARY KEY,
+      source_node_id TEXT NOT NULL,
+      target_node_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_evidence_edges_source ON evidence_fabric_edges(source_node_id);
+    CREATE INDEX IF NOT EXISTS idx_evidence_edges_target ON evidence_fabric_edges(target_node_id);
   `);
 
   try {
