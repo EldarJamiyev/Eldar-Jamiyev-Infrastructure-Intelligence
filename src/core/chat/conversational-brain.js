@@ -2479,6 +2479,12 @@ async function runAgenticToolLoop({
     }
   } catch (_) {}
 
+  // Phase 4.0 Track 3: Multi-Tier Topological Target & Temporal Scope Disambiguation
+  const topologicalDisambiguation = disambiguateTopologicalTarget(promptText, { sessionContext });
+  const temporalScope = resolveTemporalScope(promptText, { sessionContext });
+  epistemicClassification.topologicalDisambiguation = topologicalDisambiguation;
+  epistemicClassification.temporalScope = temporalScope;
+
   if (outcomes.length === 0) {
     return {
       reply: 'No diagnostic tool observations were recorded for this session.',
@@ -2504,6 +2510,10 @@ async function runAgenticToolLoop({
       const soc = epistemicClassification.socraticClarification;
       single.reply = `${single.reply}\n\n### ❓ Active Socratic Disambiguation Required\n${soc.socraticQuestion}`;
     }
+    if (epistemicClassification.topologicalDisambiguation && epistemicClassification.topologicalDisambiguation.ambiguous) {
+      const topo = epistemicClassification.topologicalDisambiguation;
+      single.reply = `${single.reply}\n\n### 🌐 Topological Target Ambiguity Detected\n${topo.disambiguationQuestion}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2526,6 +2536,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.socraticClarification && epistemicClassification.socraticClarification.required) {
     const soc = epistemicClassification.socraticClarification;
     combinedReplyParts.push(`### ❓ Active Socratic Disambiguation Required\n${soc.socraticQuestion}`);
+  }
+  if (epistemicClassification.topologicalDisambiguation && epistemicClassification.topologicalDisambiguation.ambiguous) {
+    const topo = epistemicClassification.topologicalDisambiguation;
+    combinedReplyParts.push(`### 🌐 Topological Target Ambiguity Detected\n${topo.disambiguationQuestion}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped
@@ -2654,6 +2668,359 @@ function resolvePronounInheritedTarget(promptText = '', sessionContext = {}) {
           ? 'Your previous session target expired (>30m ago). Which target hostname or IP address would you like me to investigate now?'
           : 'Which target hostname or IP address would you like me to investigate? (No active target was found in your prompt or current session context.)')
       : null
+  };
+}
+
+/**
+ * Disambiguates candidate topological nodes from user input against the Temporal Infrastructure Graph.
+ * Computes multi-token matching, resource-type heuristic weighting, and degradation bias (+0.20 for FAIL/DEGRADED/CRITICAL).
+ * If the delta between the top two scoring candidates is < thresholdDelta (default 0.25), flags ambiguity and generates
+ * an active clarification inquiry.
+ */
+function disambiguateTopologicalTarget(userInput = '', options = {}) {
+  const text = String(userInput || '').trim().toLowerCase();
+  if (!text) {
+    return {
+      ambiguous: false,
+      matchedTarget: null,
+      confidence: 0,
+      candidates: [],
+      disambiguationQuestion: null
+    };
+  }
+
+  let graph = options.temporalGraph;
+  if (!graph) {
+    try {
+      const { temporalInfrastructureGraph } = require('../topology/temporal-graph-engine');
+      graph = temporalInfrastructureGraph;
+    } catch (_) {
+      graph = null;
+    }
+  }
+
+  const nodes = [];
+  if (graph && graph.nodes) {
+    if (graph.nodes instanceof Map) {
+      for (const node of graph.nodes.values()) {
+        nodes.push(node);
+      }
+    } else if (typeof graph.nodes === 'object') {
+      for (const node of Object.values(graph.nodes)) {
+        nodes.push(node);
+      }
+    }
+  }
+
+  if (nodes.length === 0) {
+    return {
+      ambiguous: false,
+      matchedTarget: null,
+      confidence: 0,
+      candidates: [],
+      disambiguationQuestion: null
+    };
+  }
+
+  const thresholdDelta = typeof options.thresholdDelta === 'number' ? options.thresholdDelta : 0.25;
+  const scoredCandidates = [];
+
+  for (const node of nodes) {
+    const nodeId = String(node.nodeId || node.id || '').toLowerCase();
+    const label = String(node.label || '').toLowerCase();
+    const ip = String(node.ipAddress || node.ip || '').toLowerCase();
+    const hostname = String(node.hostname || '').toLowerCase();
+    const resourceType = String(node.resourceType || '').toLowerCase();
+    const status = String(node.status || 'healthy').toLowerCase();
+
+    let score = 0.0;
+
+    // 1. Direct exact or boundary matches
+    if (nodeId && text.includes(nodeId)) {
+      score += 0.70;
+    }
+    if (ip && text.includes(ip)) {
+      score += 0.85;
+    }
+    if (hostname && text.includes(hostname)) {
+      score += 0.75;
+    }
+    if (label && text.includes(label)) {
+      score += 0.60;
+    }
+
+    // 2. Keyword matching across common infrastructure components
+    const keywords = [
+      { terms: ['db', 'database', 'postgres', 'postgresql', 'sql', 'mysql', 'redis'], matchTypes: ['service_endpoint', 'database', 'db'] },
+      { terms: ['gateway', 'gw', 'default gateway', 'router', 'upstream'], matchTypes: ['gateway', 'router'] },
+      { terms: ['switch', 'sw', 'l2', 'tor'], matchTypes: ['switch'] },
+      { terms: ['api', 'rest', 'service', 'backend'], matchTypes: ['service_endpoint', 'host'] },
+      { terms: ['dns', 'nameserver', 'resolver'], matchTypes: ['dns_resolver'] },
+      { terms: ['proxy', 'nginx', 'envoy', 'traefik'], matchTypes: ['proxy', 'service_endpoint'] }
+    ];
+
+    for (const kw of keywords) {
+      const promptHasKw = kw.terms.some((term) => {
+        const regex = new RegExp(`\\b${term}\\b`, 'i');
+        return regex.test(text);
+      });
+      if (promptHasKw) {
+        const typeMatch = kw.matchTypes.includes(resourceType);
+        const nameMatch = kw.terms.some((term) => nodeId.includes(term) || label.includes(term));
+        if (typeMatch || nameMatch) {
+          score += 0.30;
+        }
+      }
+    }
+
+    // 3. Health degradation bias (+0.20 for degraded/failing nodes)
+    const isDegraded = /degraded|fail|down|critical|unhealthy|error/i.test(status);
+    if (isDegraded && score > 0) {
+      score += 0.20;
+    }
+
+    // 4. Token overlap
+    const tokens = text.split(/[\s,./_-]+/).filter((t) => t.length > 2);
+    for (const t of tokens) {
+      if (nodeId.includes(t)) {
+        score += 0.15;
+      }
+      if (label.includes(t)) {
+        score += 0.15;
+      }
+    }
+
+    score = Math.min(1.0, Math.max(0.0, score));
+
+    if (score >= 0.25) {
+      scoredCandidates.push({
+        nodeId: node.nodeId || node.id,
+        label: node.label || node.nodeId || node.id,
+        resourceType: node.resourceType || 'unknown',
+        ipAddress: node.ipAddress || node.ip || null,
+        status: node.status || 'healthy',
+        score: Math.round(score * 1000) / 1000,
+        isDegraded
+      });
+    }
+  }
+
+  scoredCandidates.sort((a, b) => b.score - a.score);
+
+  if (scoredCandidates.length === 0) {
+    return {
+      ambiguous: false,
+      matchedTarget: null,
+      confidence: 0,
+      candidates: [],
+      disambiguationQuestion: null
+    };
+  }
+
+  if (scoredCandidates.length === 1) {
+    return {
+      ambiguous: false,
+      matchedTarget: scoredCandidates[0].nodeId,
+      confidence: scoredCandidates[0].score,
+      candidates: scoredCandidates,
+      disambiguationQuestion: null
+    };
+  }
+
+  const top1 = scoredCandidates[0];
+  const top2 = scoredCandidates[1];
+  const delta = top1.score - top2.score;
+
+  if (delta < thresholdDelta) {
+    const question = `Multiple topological candidates matched your inquiry with similar confidence: "${top1.label}" (${top1.nodeId}, status: ${top1.status}) and "${top2.label}" (${top2.nodeId}, status: ${top2.status}). Which specific node should be targeted?`;
+    return {
+      ambiguous: true,
+      matchedTarget: top1.nodeId,
+      confidence: top1.score,
+      delta: Math.round(delta * 1000) / 1000,
+      candidates: scoredCandidates.slice(0, 5),
+      disambiguationQuestion: question
+    };
+  }
+
+  return {
+    ambiguous: false,
+    matchedTarget: top1.nodeId,
+    confidence: top1.score,
+    delta: Math.round(delta * 1000) / 1000,
+    candidates: scoredCandidates.slice(0, 5),
+    disambiguationQuestion: null
+  };
+}
+
+/**
+ * Resolves temporal scope expressions in user input into exact ISO timestamp ranges and duration bounds.
+ * Supports relative time windows ('past 15m', 'last 2 hours', 'today', 'recently') and operational anchors
+ * ('after reboot', 'since restart') correlated against operationalMemoryEngine decisions.
+ */
+function resolveTemporalScope(userInput = '', options = {}) {
+  const text = String(userInput || '').trim().toLowerCase();
+  const nowMs = typeof options.nowMs === 'number' ? options.nowMs : Date.now();
+
+  if (!text) {
+    return {
+      resolved: false,
+      expression: null,
+      durationSeconds: null,
+      startTimeIso: null,
+      endTimeIso: null,
+      anchor: null
+    };
+  }
+
+  // 1. Post-reboot / restart / recovery operational anchor
+  const rebootMatch = text.match(/\b(?:after|since|post)[\s-]+(?:the\s+)?(reboot|restart|crash|recovery|failover|maintenance)\b/i);
+  if (rebootMatch) {
+    let memoryEngine = options.operationalMemoryEngine;
+    if (!memoryEngine) {
+      try {
+        const { operationalMemoryEngine } = require('../memory/operational-memory-engine');
+        memoryEngine = operationalMemoryEngine;
+      } catch (_) {
+        memoryEngine = null;
+      }
+    }
+
+    let rebootTimeMs = null;
+    let anchorActionId = null;
+
+    if (memoryEngine && typeof memoryEngine.listOperationalDecisions === 'function') {
+      const recentDecisions = memoryEngine.listOperationalDecisions(20) || [];
+      const match = recentDecisions.find((d) => {
+        const desc = `${d.actionId || ''} ${d.rationale || ''} ${d.decisionType || ''}`.toLowerCase();
+        return /reboot|restart|recycle|recovery|failover|reset/.test(desc);
+      });
+      if (match && match.createdAt) {
+        const parsedMs = new Date(match.createdAt).getTime();
+        if (!isNaN(parsedMs) && parsedMs <= nowMs) {
+          rebootTimeMs = parsedMs;
+          anchorActionId = match.actionId;
+        }
+      }
+    }
+
+    if (!rebootTimeMs) {
+      // Fallback: 15 minutes anchor
+      rebootTimeMs = nowMs - (15 * 60 * 1000);
+      anchorActionId = 'ASSUMED_RECENT_REBOOT';
+    }
+
+    const durationSeconds = Math.max(60, Math.round((nowMs - rebootTimeMs) / 1000));
+    return {
+      resolved: true,
+      expression: rebootMatch[0],
+      durationSeconds,
+      startTimeIso: new Date(rebootTimeMs).toISOString(),
+      endTimeIso: new Date(nowMs).toISOString(),
+      anchor: 'OPERATIONAL_DECISION_REBOOT',
+      anchorActionId
+    };
+  }
+
+  // 2. Minute expressions: e.g. "past 15m", "last 5 minutes", "in the past 30 mins"
+  const minMatch = text.match(/\b(?:in the |over the |past |last )?(\d+)\s*(?:m|min|mins|minute|minutes)\b/i);
+  if (minMatch) {
+    const mins = parseInt(minMatch[1], 10);
+    if (!isNaN(mins) && mins > 0) {
+      const durationSeconds = mins * 60;
+      return {
+        resolved: true,
+        expression: minMatch[0].trim(),
+        durationSeconds,
+        startTimeIso: new Date(nowMs - durationSeconds * 1000).toISOString(),
+        endTimeIso: new Date(nowMs).toISOString(),
+        anchor: 'RELATIVE_WINDOW'
+      };
+    }
+  }
+
+  // 3. Hour expressions: e.g. "past 2 hours", "last 1h", "past hour"
+  if (/\b(?:past|last)\s+hour\b/i.test(text)) {
+    const durationSeconds = 3600;
+    return {
+      resolved: true,
+      expression: 'past hour',
+      durationSeconds,
+      startTimeIso: new Date(nowMs - durationSeconds * 1000).toISOString(),
+      endTimeIso: new Date(nowMs).toISOString(),
+      anchor: 'RELATIVE_WINDOW'
+    };
+  }
+
+  const hourMatch = text.match(/\b(?:in the |over the |past |last )?(\d+)\s*(?:h|hr|hrs|hour|hours)\b/i);
+  if (hourMatch) {
+    const hours = parseInt(hourMatch[1], 10);
+    if (!isNaN(hours) && hours > 0) {
+      const durationSeconds = hours * 3600;
+      return {
+        resolved: true,
+        expression: hourMatch[0].trim(),
+        durationSeconds,
+        startTimeIso: new Date(nowMs - durationSeconds * 1000).toISOString(),
+        endTimeIso: new Date(nowMs).toISOString(),
+        anchor: 'RELATIVE_WINDOW'
+      };
+    }
+  }
+
+  // 4. Day expressions: e.g. "past 2 days", "last 24h"
+  const dayMatch = text.match(/\b(?:in the |over the |past |last )?(\d+)\s*(?:d|day|days)\b/i);
+  if (dayMatch) {
+    const days = parseInt(dayMatch[1], 10);
+    if (!isNaN(days) && days > 0) {
+      const durationSeconds = days * 86400;
+      return {
+        resolved: true,
+        expression: dayMatch[0].trim(),
+        durationSeconds,
+        startTimeIso: new Date(nowMs - durationSeconds * 1000).toISOString(),
+        endTimeIso: new Date(nowMs).toISOString(),
+        anchor: 'RELATIVE_WINDOW'
+      };
+    }
+  }
+
+  // 5. Today / since morning:
+  if (/\b(?:today|since morning)\b/i.test(text)) {
+    const todayStart = new Date(nowMs);
+    todayStart.setHours(0, 0, 0, 0);
+    const startMs = todayStart.getTime();
+    const durationSeconds = Math.max(60, Math.round((nowMs - startMs) / 1000));
+    return {
+      resolved: true,
+      expression: 'today',
+      durationSeconds,
+      startTimeIso: new Date(startMs).toISOString(),
+      endTimeIso: new Date(nowMs).toISOString(),
+      anchor: 'CALENDAR_DAY'
+    };
+  }
+
+  // 6. Recently / recent / just now: default 30m (1800s)
+  if (/\b(?:recently|recent|just now)\b/i.test(text)) {
+    const durationSeconds = 1800;
+    return {
+      resolved: true,
+      expression: 'recently',
+      durationSeconds,
+      startTimeIso: new Date(nowMs - durationSeconds * 1000).toISOString(),
+      endTimeIso: new Date(nowMs).toISOString(),
+      anchor: 'RELATIVE_WINDOW'
+    };
+  }
+
+  return {
+    resolved: false,
+    expression: null,
+    durationSeconds: null,
+    startTimeIso: null,
+    endTimeIso: null,
+    anchor: null
   };
 }
 
@@ -3041,5 +3408,7 @@ module.exports = {
   evaluateControlBarrierInvariants,
   CANONICAL_DISCRIMINATIVE_FEATURES,
   formulateSocraticClarification,
-  applySocraticClarificationResponse
+  applySocraticClarificationResponse,
+  disambiguateTopologicalTarget,
+  resolveTemporalScope
 };
