@@ -31,6 +31,11 @@ class HighSpeedPacketRingBuffer {
     this.tail = 0;
     this.count = 0;
     this.droppedOverruns = 0;
+    this.highWatermark = Math.floor(capacity * 0.75); // 75%
+    this.lowWatermark = Math.floor(capacity * 0.25);  // 25%
+    this.backpressureActive = false;
+    this.backpressureTransitions = 0;
+    this.onBackpressure = null;
   }
 
   push(timestamp, length, protoCode = 6) {
@@ -44,6 +49,48 @@ class HighSpeedPacketRingBuffer {
     this.protocols[this.head] = protoCode;
     this.head = (this.head + 1) % this.capacity;
     this.count++;
+
+    if (!this.backpressureActive && this.count >= this.highWatermark) {
+      this.backpressureActive = true;
+      this.backpressureTransitions++;
+      if (typeof this.onBackpressure === 'function') {
+        this.onBackpressure({
+          type: 'BACKPRESSURE_WARNING',
+          state: 'SATURATED',
+          utilizationPct: Number(((this.count / this.capacity) * 100).toFixed(1)),
+          ringBufferCount: this.count,
+          ringBufferCapacity: this.capacity,
+          droppedOverruns: this.droppedOverruns
+        });
+      }
+    }
+  }
+
+  pop() {
+    if (this.count <= 0) return null;
+    const item = {
+      timestamp: this.timestamps[this.tail],
+      length: this.lengths[this.tail],
+      protoCode: this.protocols[this.tail]
+    };
+    this.tail = (this.tail + 1) % this.capacity;
+    this.count--;
+
+    if (this.backpressureActive && this.count <= this.lowWatermark) {
+      this.backpressureActive = false;
+      this.backpressureTransitions++;
+      if (typeof this.onBackpressure === 'function') {
+        this.onBackpressure({
+          type: 'BACKPRESSURE_WARNING',
+          state: 'RECOVERED',
+          utilizationPct: Number(((this.count / this.capacity) * 100).toFixed(1)),
+          ringBufferCount: this.count,
+          ringBufferCapacity: this.capacity,
+          droppedOverruns: this.droppedOverruns
+        });
+      }
+    }
+    return item;
   }
 
   getStats() {
@@ -51,7 +98,11 @@ class HighSpeedPacketRingBuffer {
       ringBufferCapacity: this.capacity,
       ringBufferCount: this.count,
       ringBufferOverruns: this.droppedOverruns,
-      ringBufferUtilizationPct: Number(((this.count / this.capacity) * 100).toFixed(1))
+      ringBufferUtilizationPct: Number(((this.count / this.capacity) * 100).toFixed(1)),
+      highWatermark: this.highWatermark,
+      lowWatermark: this.lowWatermark,
+      backpressureActive: this.backpressureActive,
+      backpressureTransitions: this.backpressureTransitions
     };
   }
 
@@ -60,6 +111,7 @@ class HighSpeedPacketRingBuffer {
     this.tail = 0;
     this.count = 0;
     this.droppedOverruns = 0;
+    this.backpressureActive = false;
   }
 }
 
@@ -67,6 +119,13 @@ class PacketStreamer {
   constructor() {
     this.frameRingBuffer = [];
     this.highSpeedRingBuffer = new HighSpeedPacketRingBuffer(4096);
+    this.highSpeedRingBuffer.onBackpressure = (warning) => {
+      if (typeof this.broadcastCallback === 'function') {
+        try {
+          this.broadcastCallback(warning);
+        } catch (_) {}
+      }
+    };
     this.maxBufferSize = 500;
     this.flowTable = new Map();
     this.isStreaming = false;

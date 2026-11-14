@@ -593,9 +593,38 @@ class FilterEvaluator {
         return frame.timestamp;
 
       // General fallback
-      default:
-        // Try field name in layers or flat frame
-        return frame[fieldName] ?? layers[fieldName];
+      default: {
+        if (frame[fieldName] !== undefined) return frame[fieldName];
+        if (layers[fieldName] !== undefined) return layers[fieldName];
+        if (frame[lower] !== undefined) return frame[lower];
+        if (layers[lower] !== undefined) return layers[lower];
+        // Support deep nested dot-notation path evaluation (e.g. "tcp.flags.syn", "ip.hdr.version")
+        if (fieldName.includes('.')) {
+          const parts = fieldName.split('.');
+          let cur = frame;
+          for (const p of parts) {
+            if (cur && typeof cur === 'object' && p in cur) {
+              cur = cur[p];
+            } else {
+              cur = undefined;
+              break;
+            }
+          }
+          if (cur !== undefined) return cur;
+
+          let layerCur = layers;
+          for (const p of parts) {
+            if (layerCur && typeof layerCur === 'object' && p in layerCur) {
+              layerCur = layerCur[p];
+            } else {
+              layerCur = undefined;
+              break;
+            }
+          }
+          if (layerCur !== undefined) return layerCur;
+        }
+        return undefined;
+      }
     }
   }
 

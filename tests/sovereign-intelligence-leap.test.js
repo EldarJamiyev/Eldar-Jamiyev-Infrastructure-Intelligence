@@ -34,8 +34,10 @@ const { operationalMemoryEngine } = require('../src/core/memory/operational-memo
 const { evidenceFabric } = require('../src/core/evidence/evidence-fabric');
 const { NeuroSymbolicApexEngine } = require('../src/ai/neuro-symbolic-apex');
 const { autonomousWarRoomOrchestrator, AutonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
-const { packetStreamer } = require('../src/network/packet-streaming/packet-streamer');
+const { packetStreamer, HighSpeedPacketRingBuffer } = require('../src/network/packet-streaming/packet-streamer');
 const { temporalInfrastructureGraph } = require('../src/core/topology/temporal-graph-engine');
+const { compileFilter, evaluateFilter } = require('../public/js/components/filter-compiler');
+const { WireDissectorApex } = require('../src/sniffer/wire-dissector-apex');
 
 test('EJII Sovereign Intelligence Leap Suite', async (t) => {
   await t.test('1. verifies zero-loss telemetry distillation across diverse probe outputs', () => {
@@ -1086,5 +1088,109 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(diffEdges.length >= 1, 'Must persist DIFFUSION_BLAST_RADIUS edges to evidenceFabric DAG');
     assert.ok(diffEdges[0].weight > 0);
     assert.ok(diffEdges[0].metadata.diffusionTimeT === 1.0);
+  });
+
+  await t.test('24. verifies high-speed ring buffer dual watermarks (75% high / 25% low) and Wireshark AST boolean precedence', () => {
+    // 1. Dual Watermark Ring Buffer
+    const ring = new HighSpeedPacketRingBuffer(100);
+    assert.equal(ring.highWatermark, 75);
+    assert.equal(ring.lowWatermark, 25);
+    assert.equal(ring.backpressureActive, false);
+
+    const warnings = [];
+    ring.onBackpressure = (evt) => warnings.push(evt);
+
+    // Push 74 items -> below high watermark
+    for (let i = 0; i < 74; i++) {
+      ring.push(Date.now(), 64, 6);
+    }
+    assert.equal(ring.count, 74);
+    assert.equal(ring.backpressureActive, false);
+    assert.equal(warnings.length, 0);
+
+    // Push 75th item -> hits 75% high watermark
+    ring.push(Date.now(), 128, 6);
+    assert.equal(ring.count, 75);
+    assert.equal(ring.backpressureActive, true);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].type, 'BACKPRESSURE_WARNING');
+    assert.equal(warnings[0].state, 'SATURATED');
+    assert.equal(warnings[0].utilizationPct, 75);
+
+    // Pop down to 26 items -> still in backpressure
+    while (ring.count > 26) {
+      ring.pop();
+    }
+    assert.equal(ring.backpressureActive, true);
+    assert.equal(warnings.length, 1);
+
+    // Pop 1 more item down to 25 items -> hits 25% low watermark
+    ring.pop();
+    assert.equal(ring.count, 25);
+    assert.equal(ring.backpressureActive, false);
+    assert.equal(warnings.length, 2);
+    assert.equal(warnings[1].state, 'RECOVERED');
+    assert.equal(warnings[1].utilizationPct, 25);
+
+    // Verify stats
+    const stats = ring.getStats();
+    assert.equal(stats.highWatermark, 75);
+    assert.equal(stats.lowWatermark, 25);
+    assert.equal(stats.backpressureActive, false);
+    assert.equal(stats.backpressureTransitions, 2);
+
+    // 2. Wireshark AST Compiler & Nested Boolean Grouping
+    const filterExpr = 'tcp.flags.syn == 1 and (ip.src == 10.0.0.1 or ip.dst == 10.0.0.1)';
+    const ast = compileFilter(filterExpr);
+    assert.equal(ast.valid, true);
+
+    const frameA = {
+      protocol: 'TCP',
+      srcIp: '10.0.0.1',
+      dstIp: '192.168.1.1',
+      layers: {
+        ipv4: { srcIp: '10.0.0.1', dstIp: '192.168.1.1' },
+        tcp: { flags: { syn: true }, srcPort: 54321, dstPort: 443 }
+      }
+    };
+    assert.equal(evaluateFilter(filterExpr, frameA), true);
+    assert.equal(WireDissectorApex.matchesDisplayFilter(frameA, filterExpr), true);
+
+    const frameB = {
+      protocol: 'TCP',
+      srcIp: '172.16.0.1',
+      dstIp: '192.168.1.1',
+      layers: {
+        ipv4: { srcIp: '172.16.0.1', dstIp: '192.168.1.1' },
+        tcp: { flags: { syn: true }, srcPort: 54321, dstPort: 443 }
+      }
+    };
+    assert.equal(evaluateFilter(filterExpr, frameB), false);
+
+    const frameC = {
+      protocol: 'TCP',
+      srcIp: '10.0.0.1',
+      dstIp: '192.168.1.1',
+      layers: {
+        ipv4: { srcIp: '10.0.0.1', dstIp: '192.168.1.1' },
+        tcp: { flags: { syn: false }, srcPort: 54321, dstPort: 443 }
+      }
+    };
+    assert.equal(evaluateFilter(filterExpr, frameC), false);
+
+    // 3. Boolean precedence: and > or
+    const precExpr = 'ip.src == 1.1.1.1 or ip.src == 2.2.2.2 and tcp.port == 80';
+    const frameD = {
+      protocol: 'TCP',
+      srcIp: '1.1.1.1',
+      dstIp: '8.8.8.8',
+      srcPort: 50000,
+      dstPort: 443,
+      layers: {
+        ipv4: { srcIp: '1.1.1.1', dstIp: '8.8.8.8' },
+        tcp: { srcPort: 50000, dstPort: 443 }
+      }
+    };
+    assert.equal(evaluateFilter(precExpr, frameD), true);
   });
 });

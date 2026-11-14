@@ -403,4 +403,14 @@ export class WireDissectorApex {
     }
     return entropy;
   }
+
+  public static compileDisplayFilter(filterExpr: string) {
+    const { compileFilter } = require('../../public/js/components/filter-compiler');
+    return compileFilter(filterExpr);
+  }
+
+  public static matchesDisplayFilter(frame: any, filterExpr: string): boolean {
+    const { evaluateFilter } = require('../../public/js/components/filter-compiler');
+    return evaluateFilter(filterExpr, frame);
+  }
 }

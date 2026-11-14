@@ -358,6 +358,14 @@ class WireDissectorApex {
         }
         return entropy;
     }
+    static compileDisplayFilter(filterExpr) {
+        const { compileFilter } = require('../../public/js/components/filter-compiler');
+        return compileFilter(filterExpr);
+    }
+    static matchesDisplayFilter(frame, filterExpr) {
+        const { evaluateFilter } = require('../../public/js/components/filter-compiler');
+        return evaluateFilter(filterExpr, frame);
+    }
 }
 exports.WireDissectorApex = WireDissectorApex;
 //# sourceMappingURL=wire-dissector-apex.js.map
