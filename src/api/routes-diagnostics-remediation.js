@@ -12,7 +12,7 @@ const router = express.Router();
 const { hostDiagnosticsEngine } = require('../systems/diagnostics/host-diagnostics-engine');
 const { autonomousRemediationEngine } = require('../systems/remediation/autonomous-remediation-engine');
 const { remediationGovernanceEngine } = require('../core/governance/remediation-governance');
-const { authenticate, requireRole, requirePermission } = require('./middleware');
+const { authenticate, requireRole, requirePermission, validateMutatingCsrfOrigin } = require('./middleware');
 const { verifyAuditLogIntegrity, getAuditLogs } = require('../core/audit-logger');
 
 // Full 4-Pillar Host Diagnostic Audit
@@ -74,7 +74,7 @@ router.get('/remediation/recipes', authenticate, (req, res) => {
 });
 
 // Remediation Dry-Run Preview with Cryptographic Action Token (F-11, S-05)
-router.post('/remediation/preview', authenticate, async (req, res) => {
+router.post('/remediation/preview', authenticate, validateMutatingCsrfOrigin, async (req, res) => {
   try {
     const { recipeId, params } = req.body || {};
     if (!recipeId) {
@@ -98,7 +98,7 @@ router.post('/remediation/preview', authenticate, async (req, res) => {
 });
 
 // Execute Audited Remediation (Requires authentication & host.remediation.execute capability: ADMIN or SYSADMIN)
-router.post('/remediation/execute', authenticate, requireRole('ADMIN', 'SYSADMIN'), async (req, res) => {
+router.post('/remediation/execute', authenticate, requireRole('ADMIN', 'SYSADMIN'), validateMutatingCsrfOrigin, async (req, res) => {
   try {
     const userContext = {
       role: (req.user.role || 'SYSADMIN').toUpperCase(),

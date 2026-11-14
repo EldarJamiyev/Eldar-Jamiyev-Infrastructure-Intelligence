@@ -827,9 +827,24 @@ async function gracefulShutdown(signal = 'SIGTERM') {
   }
   activeClients.clear();
 
+  try {
+    if (typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections();
+    }
+  } catch (_) {}
+
   await new Promise((resolve) => {
+    const forceTimer = setTimeout(() => {
+      console.warn('[EJII] Graceful teardown timeout guard reached (5000ms), forcing completion.');
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      } catch (_) {}
+      resolve();
+    }, 5000);
+
     wss.close(() => {
       server.close(() => {
+        clearTimeout(forceTimer);
         try {
           db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
         } catch (_) {}

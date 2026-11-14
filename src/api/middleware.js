@@ -156,11 +156,15 @@ function requestCorrelationAndTelemetryMiddleware(req, res, next) {
   req.id = reqId;
   res.setHeader('X-Request-Id', reqId);
 
-  // W3C Trace Context pipeline (00-<traceId>-<spanId>-01)
+  // W3C Trace Context pipeline (00-<traceId>-<spanId>-01) + EJII distributed trace propagation
   let traceId = null;
   const spanId = crypto.randomBytes(8).toString('hex');
   const incomingTraceparent = req.headers['traceparent'];
-  if (incomingTraceparent && typeof incomingTraceparent === 'string' && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i.test(incomingTraceparent.trim())) {
+  const customTraceHeader = req.headers['x-ejii-trace-id'] || req.headers['x-trace-id'];
+
+  if (customTraceHeader && typeof customTraceHeader === 'string' && /^[0-9a-fA-F-]{8,64}$/.test(customTraceHeader.trim())) {
+    traceId = customTraceHeader.trim().replace(/-/g, '').slice(0, 32);
+  } else if (incomingTraceparent && typeof incomingTraceparent === 'string' && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i.test(incomingTraceparent.trim())) {
     const parts = incomingTraceparent.trim().split('-');
     traceId = parts[1];
   } else {
@@ -171,6 +175,7 @@ function requestCorrelationAndTelemetryMiddleware(req, res, next) {
   req.spanId = spanId;
   req.traceparent = traceparent;
   res.setHeader('traceparent', traceparent);
+  res.setHeader('X-EJII-Trace-ID', traceId);
 
   const startMs = performance.now();
   totalApiRequests++;
@@ -239,12 +244,61 @@ function getApiTelemetry() {
   };
 }
 
+/**
+ * CSRF & Cross-Origin Request Forgery Protection Middleware for mutating endpoints (POST, PUT, DELETE, PATCH).
+ * Validates Origin and Sec-Fetch-Site headers to ensure requests originate from the same host or trusted origins.
+ */
+function validateMutatingCsrfOrigin(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+
+  // Check Sec-Fetch-Site if provided by modern browsers
+  const secFetchSite = req.headers['sec-fetch-site'];
+  if (secFetchSite && secFetchSite === 'cross-site') {
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF_SECURITY_VIOLATION: Cross-site request rejected (Sec-Fetch-Site: cross-site).'
+    });
+  }
+
+  // Check Origin header if present
+  const origin = req.headers['origin'];
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      const hostHeader = req.headers['host'];
+      const cleanHost = hostHeader ? hostHeader.split(':')[0].toLowerCase() : null;
+      const originHost = originUrl.hostname.toLowerCase();
+
+      // Permit same-host or loopback variations (localhost, 127.0.0.1, ::1)
+      const isLoopback = (originHost === 'localhost' || originHost === '127.0.0.1' || originHost === '::1');
+      const isHostMatch = cleanHost && (originHost === cleanHost || (isLoopback && (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1')));
+
+      if (!isHostMatch && !isLoopback && !origin.includes('ejii.internal')) {
+        return res.status(403).json({
+          success: false,
+          error: `CSRF_SECURITY_VIOLATION: Untrusted origin "${origin}" for mutating endpoint.`
+        });
+      }
+    } catch (_) {
+      return res.status(403).json({
+        success: false,
+        error: 'CSRF_SECURITY_VIOLATION: Malformed Origin header.'
+      });
+    }
+  }
+
+  next();
+}
+
 module.exports = {
   authenticate,
   requireRole,
   requirePermission,
   parseCookies,
   requestCorrelationAndTelemetryMiddleware,
+  validateMutatingCsrfOrigin,
   getApiTelemetry,
   ROLE_HIERARCHY
 };
