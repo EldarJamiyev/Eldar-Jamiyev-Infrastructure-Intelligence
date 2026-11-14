@@ -39,8 +39,16 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EpisodicCausalMemoryEngine = void 0;
+exports.validatePlaybookLifecycleTransition = exports.PLAYBOOK_LIFECYCLE_STATES = exports.EpisodicCausalMemoryEngine = void 0;
 const crypto = __importStar(require("crypto"));
+const PLAYBOOK_LIFECYCLE_STATES = {
+    CANDIDATE: 'CANDIDATE',
+    VERIFIED_ACTIVE: 'VERIFIED_ACTIVE',
+    PROBATIONARY: 'PROBATIONARY',
+    QUARANTINED_DEGRADED: 'QUARANTINED_DEGRADED',
+    SUPERSEDED: 'SUPERSEDED'
+};
+exports.PLAYBOOK_LIFECYCLE_STATES = PLAYBOOK_LIFECYCLE_STATES;
 const SEEDED_EPISODES = [
     {
         episodeId: 'ep-seed-pmtu-tls-cascade',
@@ -222,6 +230,20 @@ class EpisodicCausalMemoryEngine {
             return { valid: false, reason: 'HISTORICAL_LEARNING_REQUIRES_POST_ACTION_MEASUREMENT' };
         }
         return { valid: true, reason: 'VALID_FORWARD_TRANSITION' };
+    }
+    static PLAYBOOK_LIFECYCLE_STATES = PLAYBOOK_LIFECYCLE_STATES;
+    static validatePlaybookLifecycleTransition(fromState, toState) {
+        const validStates = Object.values(PLAYBOOK_LIFECYCLE_STATES);
+        if (!validStates.includes(fromState) || !validStates.includes(toState)) {
+            return { valid: false, reason: `UNRECOGNIZED_PLAYBOOK_STATE:${fromState}->${toState}` };
+        }
+        if (fromState === toState) {
+            return { valid: true, reason: 'IDEMPOTENT_STATE_MAINTAINED' };
+        }
+        if (fromState === PLAYBOOK_LIFECYCLE_STATES.SUPERSEDED) {
+            return { valid: false, reason: 'SUPERSEDED_PLAYBOOK_CANNOT_TRANSITION' };
+        }
+        return { valid: true, reason: `VALID_PLAYBOOK_TRANSITION:${fromState}->${toState}` };
     }
     static _ensureSqlitePersistence(forceRetry = false) {
         if (this.sqliteInitialized && !forceRetry && this.lastPersistenceStatus === 'DURABLE_SQLITE_WAL')
@@ -1516,6 +1538,9 @@ class EpisodicCausalMemoryEngine {
     validateLifecycleTransition(fromStage, toStage) {
         return EpisodicCausalMemoryEngine.validateLifecycleTransition(fromStage, toStage);
     }
+    validatePlaybookLifecycleTransition(fromState, toState) {
+        return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
+    }
     getPersistenceHealth() {
         return EpisodicCausalMemoryEngine.getPersistenceHealth();
     }
@@ -1559,4 +1584,8 @@ class EpisodicCausalMemoryEngine {
     }
 }
 exports.EpisodicCausalMemoryEngine = EpisodicCausalMemoryEngine;
+function validatePlaybookLifecycleTransition(fromState, toState) {
+    return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
+}
+exports.validatePlaybookLifecycleTransition = validatePlaybookLifecycleTransition;
 //# sourceMappingURL=episodic-causal-memory-engine.js.map

@@ -69,6 +69,7 @@ class OperationalMemoryEngine extends EventEmitter {
     this.resolutionsCache = [];
     this.decisionsCache = [];
     this.organizationalKnowledgeCache = [];
+    this.playbookLifecycleCache = new Map();
     this.commanderInvestigations = new Map();
     this.commanderProbeLedger = [];
     this.avoidedDuplicateProbesCount = 0;
@@ -147,6 +148,23 @@ class OperationalMemoryEngine extends EventEmitter {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS ejii_playbook_lifecycle (
+          playbook_id TEXT PRIMARY KEY,
+          lifecycle_state TEXT NOT NULL DEFAULT 'CANDIDATE',
+          total_executions INTEGER NOT NULL DEFAULT 0,
+          successful_executions INTEGER NOT NULL DEFAULT 0,
+          failed_executions INTEGER NOT NULL DEFAULT 0,
+          consecutive_failures INTEGER NOT NULL DEFAULT 0,
+          rolling_success_rate REAL NOT NULL DEFAULT 1.0,
+          last_executed_at TEXT,
+          quarantined_at TEXT,
+          quarantine_reason TEXT,
+          rehabilitated_at TEXT,
+          rehabilitation_notes TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_pbl_state ON ejii_playbook_lifecycle(lifecycle_state);
       `);
     } catch (_) {
       // Safe fallback to in-memory cache if SQLite is read-only
@@ -924,7 +942,14 @@ class OperationalMemoryEngine extends EventEmitter {
       ) ? 1.0 : 0.4;
 
       // Composite score: 45% vector, 35% topology, 20% domain
-      const compositeScore = Number((0.45 * cosSim + 0.35 * topoSim + 0.20 * domainMatch).toFixed(4));
+      let compositeScore = Number((0.45 * cosSim + 0.35 * topoSim + 0.20 * domainMatch).toFixed(4));
+
+      // Track 5: Evaluate Playbook Lifecycle Health & Degradation Quarantine
+      const playbookId = match.recommendedRunbookId || ep.executedRunbookId;
+      const playbookHealth = this.evaluatePlaybookHealth(playbookId);
+      if (playbookHealth.isDegraded) {
+        compositeScore = Number((compositeScore * 0.70).toFixed(4));
+      }
 
       compositeRanked.push({
         episodeId: ep.episodeId,
@@ -939,18 +964,29 @@ class OperationalMemoryEngine extends EventEmitter {
         compositeSimilarity: compositeScore,
         preActionRttMs: ep.preActionRttMs,
         postActionRttMs: ep.postActionRttMs,
-        provenance: ep.provenance || 'HISTORICAL_EPISODIC_REPLAY'
+        provenance: ep.provenance || 'HISTORICAL_EPISODIC_REPLAY',
+        playbookLifecycleState: playbookHealth.lifecycleState,
+        isQuarantined: playbookHealth.isQuarantined,
+        isProbationary: playbookHealth.isDegraded,
+        confidenceMultiplier: playbookHealth.confidenceMultiplier
       });
     }
 
     // 2. Process SQL resolutions if not already present
     for (const res of sqlResolutions) {
-      const alreadyIn = compositeRanked.some(c => c.target === res.targetKey || c.episodeId === `EPISODE-${res.resolutionId}`);
+      const alreadyIn = compositeRanked.some(c => c.episodeId === `EPISODE-${res.resolutionId}` || (c.target === res.targetKey && c.provenRemediationRunbook === res.resolutionSteps));
       if (!alreadyIn) {
         const domain = this._inferRootCauseDomain(res.rootCause, res.symptomSignature);
         const domainSim = domain === queryDomain ? 1.0 : 0.4;
         const targetSim = res.targetKey === cleanTarget ? 0.95 : 0.5;
-        const comp = Number((0.5 * targetSim + 0.5 * domainSim).toFixed(4));
+        let comp = Number((0.5 * targetSim + 0.5 * domainSim).toFixed(4));
+
+        const playbookId = res.resolutionSteps;
+        const playbookHealth = this.evaluatePlaybookHealth(playbookId);
+        if (playbookHealth.isDegraded) {
+          comp = Number((comp * 0.70).toFixed(4));
+        }
+
         compositeRanked.push({
           episodeId: `EPISODE-${res.resolutionId}`,
           target: res.targetKey || cleanTarget,
@@ -964,7 +1000,11 @@ class OperationalMemoryEngine extends EventEmitter {
           compositeSimilarity: comp,
           preActionRttMs: null,
           postActionRttMs: null,
-          provenance: 'SQLITE_INCIDENT_RESOLUTIONS'
+          provenance: 'SQLITE_INCIDENT_RESOLUTIONS',
+          playbookLifecycleState: playbookHealth.lifecycleState,
+          isQuarantined: playbookHealth.isQuarantined,
+          isProbationary: playbookHealth.isDegraded,
+          confidenceMultiplier: playbookHealth.confidenceMultiplier
         });
       }
     }
@@ -972,18 +1012,345 @@ class OperationalMemoryEngine extends EventEmitter {
     // Sort by composite similarity descending
     compositeRanked.sort((a, b) => b.compositeSimilarity - a.compositeSimilarity);
 
-    const topExperiences = compositeRanked.slice(0, topK);
+    // Track 5: Filter out quarantined degraded playbooks from top recommendations
+    const activeExperiences = compositeRanked.filter(e => !e.isQuarantined);
+    const quarantinedExperiences = compositeRanked.filter(e => e.isQuarantined);
+
+    const topExperiences = activeExperiences.slice(0, topK);
     const recommendedAction = topExperiences.length > 0 ? topExperiences[0].provenRemediationRunbook : null;
 
     return {
       queryTarget: cleanTarget,
       queryDomain,
       candidateMatchesCount: compositeRanked.length,
+      quarantinedCount: quarantinedExperiences.length,
       topExperiences,
+      quarantinedExperiences,
       bestMatch: topExperiences[0] || null,
       recommendedAction,
       experienceReplayConfidence: topExperiences.length > 0 ? topExperiences[0].compositeSimilarity : 0.0
     };
+  }
+
+  /**
+   * Track 5: Episodic Playbook Lifecycle Governance & Degradation Quarantine
+   * Retrieves or initializes the lifecycle record for a given playbook ID.
+   *
+   * @param {string} playbookId
+   * @returns {Object} Playbook lifecycle record
+   */
+  getPlaybookLifecycle(playbookId) {
+    if (!playbookId || typeof playbookId !== 'string') {
+      return null;
+    }
+    const cleanId = playbookId.trim();
+    if (this.playbookLifecycleCache.has(cleanId)) {
+      return { ...this.playbookLifecycleCache.get(cleanId) };
+    }
+
+    if (this.useSqlite && db) {
+      try {
+        const row = db.prepare('SELECT * FROM ejii_playbook_lifecycle WHERE playbook_id = ?').get(cleanId);
+        if (row) {
+          const record = {
+            playbookId: row.playbook_id,
+            lifecycleState: row.lifecycle_state,
+            totalExecutions: Number(row.total_executions) || 0,
+            successfulExecutions: Number(row.successful_executions) || 0,
+            failedExecutions: Number(row.failed_executions) || 0,
+            consecutiveFailures: Number(row.consecutive_failures) || 0,
+            rollingSuccessRate: Number(row.rolling_success_rate) || 1.0,
+            lastExecutedAt: row.last_executed_at || null,
+            quarantinedAt: row.quarantined_at || null,
+            quarantineReason: row.quarantine_reason || null,
+            rehabilitatedAt: row.rehabilitated_at || null,
+            rehabilitationNotes: row.rehabilitation_notes || null,
+            metadata: JSON.parse(row.metadata_json || '{}')
+          };
+          this.playbookLifecycleCache.set(cleanId, record);
+          return { ...record };
+        }
+      } catch (_) {}
+    }
+
+    const defaultRecord = {
+      playbookId: cleanId,
+      lifecycleState: 'CANDIDATE',
+      totalExecutions: 0,
+      successfulExecutions: 0,
+      failedExecutions: 0,
+      consecutiveFailures: 0,
+      rollingSuccessRate: 1.0,
+      lastExecutedAt: null,
+      quarantinedAt: null,
+      quarantineReason: null,
+      rehabilitatedAt: null,
+      rehabilitationNotes: null,
+      metadata: {}
+    };
+    return defaultRecord;
+  }
+
+  /**
+   * Records execution of a playbook, updating execution counts, consecutive failures,
+   * rolling success rate, and triggering automatic PROBATIONARY or QUARANTINED_DEGRADED transitions.
+   * Emits tamper-resistant HMAC audit trail on quarantine.
+   *
+   * @param {string} playbookId
+   * @param {Object} executionResult - { success, target, rttDeltaMs, failureReason, executedBy, metadata }
+   * @returns {Object} Updated playbook lifecycle record
+   */
+  recordPlaybookExecution(playbookId, executionResult = {}) {
+    if (!playbookId || typeof playbookId !== 'string') {
+      throw new Error('Valid playbookId string required');
+    }
+    const cleanId = playbookId.trim();
+    const current = this.getPlaybookLifecycle(cleanId);
+    const nowIso = new Date().toISOString();
+    const isSuccess = Boolean(executionResult.success);
+
+    const total = current.totalExecutions + 1;
+    let successful = current.successfulExecutions + (isSuccess ? 1 : 0);
+    let failed = current.failedExecutions + (isSuccess ? 0 : 1);
+    let consecutiveFails = isSuccess ? 0 : current.consecutiveFailures + 1;
+    let rollingRate = Number((successful / total).toFixed(4));
+
+    let newState = current.lifecycleState;
+    let quarantinedAt = current.quarantinedAt;
+    let quarantineReason = current.quarantineReason;
+
+    if (isSuccess) {
+      if (current.lifecycleState === 'CANDIDATE' || current.lifecycleState === 'PROBATIONARY') {
+        newState = 'VERIFIED_ACTIVE';
+      }
+    } else {
+      if (consecutiveFails >= 2) {
+        newState = 'QUARANTINED_DEGRADED';
+        quarantinedAt = nowIso;
+        quarantineReason = executionResult.failureReason || `Consecutive execution failures reached ${consecutiveFails} (threshold >= 2)`;
+
+        try {
+          const { logAction } = require('../audit-logger');
+          logAction({
+            userId: executionResult.executedBy || 'SYSTEM_OPERATOR',
+            username: 'EJII_PLAYBOOK_GOVERNANCE',
+            role: 'AUTONOMOUS_OPERATOR',
+            action: 'PLAYBOOK_QUARANTINE',
+            resource: `playbook://${cleanId}`,
+            details: {
+              playbookId: cleanId,
+              previousState: current.lifecycleState,
+              newState: 'QUARANTINED_DEGRADED',
+              consecutiveFailures: consecutiveFails,
+              rollingSuccessRate: rollingRate,
+              quarantineReason
+            }
+          });
+        } catch (_) {}
+      } else if (current.lifecycleState === 'VERIFIED_ACTIVE') {
+        newState = 'PROBATIONARY';
+      }
+    }
+
+    const updatedRecord = {
+      playbookId: cleanId,
+      lifecycleState: newState,
+      totalExecutions: total,
+      successfulExecutions: successful,
+      failedExecutions: failed,
+      consecutiveFailures: consecutiveFails,
+      rollingSuccessRate: rollingRate,
+      lastExecutedAt: nowIso,
+      quarantinedAt,
+      quarantineReason,
+      rehabilitatedAt: current.rehabilitatedAt,
+      rehabilitationNotes: current.rehabilitationNotes,
+      metadata: { ...current.metadata, ...(executionResult.metadata || {}) }
+    };
+
+    this.playbookLifecycleCache.set(cleanId, updatedRecord);
+
+    if (this.useSqlite && db) {
+      try {
+        db.prepare(`
+          INSERT INTO ejii_playbook_lifecycle (
+            playbook_id, lifecycle_state, total_executions, successful_executions,
+            failed_executions, consecutive_failures, rolling_success_rate,
+            last_executed_at, quarantined_at, quarantine_reason,
+            rehabilitated_at, rehabilitation_notes, metadata_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(playbook_id) DO UPDATE SET
+            lifecycle_state = excluded.lifecycle_state,
+            total_executions = excluded.total_executions,
+            successful_executions = excluded.successful_executions,
+            failed_executions = excluded.failed_executions,
+            consecutive_failures = excluded.consecutive_failures,
+            rolling_success_rate = excluded.rolling_success_rate,
+            last_executed_at = excluded.last_executed_at,
+            quarantined_at = excluded.quarantined_at,
+            quarantine_reason = excluded.quarantine_reason,
+            rehabilitated_at = excluded.rehabilitated_at,
+            rehabilitation_notes = excluded.rehabilitation_notes,
+            metadata_json = excluded.metadata_json
+        `).run(
+          updatedRecord.playbookId,
+          updatedRecord.lifecycleState,
+          updatedRecord.totalExecutions,
+          updatedRecord.successfulExecutions,
+          updatedRecord.failedExecutions,
+          updatedRecord.consecutiveFailures,
+          updatedRecord.rollingSuccessRate,
+          updatedRecord.lastExecutedAt,
+          updatedRecord.quarantinedAt,
+          updatedRecord.quarantineReason,
+          updatedRecord.rehabilitatedAt,
+          updatedRecord.rehabilitationNotes,
+          JSON.stringify(updatedRecord.metadata)
+        );
+      } catch (_) {}
+    }
+
+    this.emit('PLAYBOOK_LIFECYCLE_TRANSITION', {
+      playbookId: cleanId,
+      fromState: current.lifecycleState,
+      toState: newState,
+      consecutiveFailures: consecutiveFails,
+      success: isSuccess
+    });
+
+    return updatedRecord;
+  }
+
+  /**
+   * Evaluates playbook operational health and suitability for recommendation.
+   *
+   * @param {string} playbookId
+   * @returns {Object} Health evaluation
+   */
+  evaluatePlaybookHealth(playbookId) {
+    const record = this.getPlaybookLifecycle(playbookId);
+    if (!record) {
+      return {
+        playbookId,
+        lifecycleState: 'CANDIDATE',
+        isUsable: true,
+        isDegraded: false,
+        isQuarantined: false,
+        confidenceMultiplier: 1.0,
+        consecutiveFailures: 0,
+        rollingSuccessRate: 1.0
+      };
+    }
+
+    const state = record.lifecycleState;
+    const isQuarantined = state === 'QUARANTINED_DEGRADED';
+    const isSuperseded = state === 'SUPERSEDED';
+    const isDegraded = state === 'PROBATIONARY';
+    const isUsable = !isQuarantined && !isSuperseded;
+    const confidenceMultiplier = isDegraded ? 0.70 : (isUsable ? 1.0 : 0.0);
+
+    return {
+      playbookId: record.playbookId,
+      lifecycleState: state,
+      isUsable,
+      isDegraded,
+      isQuarantined,
+      confidenceMultiplier,
+      consecutiveFailures: record.consecutiveFailures,
+      rollingSuccessRate: record.rollingSuccessRate,
+      quarantineReason: record.quarantineReason
+    };
+  }
+
+  /**
+   * Rehabilitates a degraded or quarantined playbook back to VERIFIED_ACTIVE or PROBATIONARY status.
+   *
+   * @param {string} playbookId
+   * @param {Object} options - { rehabilitatedBy, notes, targetState }
+   * @returns {Object} Updated playbook lifecycle record
+   */
+  rehabilitatePlaybook(playbookId, { rehabilitatedBy = 'OPERATOR', notes = '', targetState = 'VERIFIED_ACTIVE' } = {}) {
+    if (!playbookId || typeof playbookId !== 'string') {
+      throw new Error('Valid playbookId string required');
+    }
+    const cleanId = playbookId.trim();
+    const current = this.getPlaybookLifecycle(cleanId);
+    const nowIso = new Date().toISOString();
+
+    const allowedTarget = ['VERIFIED_ACTIVE', 'PROBATIONARY'].includes(targetState) ? targetState : 'VERIFIED_ACTIVE';
+
+    const updatedRecord = {
+      ...current,
+      lifecycleState: allowedTarget,
+      consecutiveFailures: 0,
+      rehabilitatedAt: nowIso,
+      rehabilitationNotes: String(notes || 'Manual operator rehabilitation').trim(),
+      quarantinedAt: null,
+      quarantineReason: null
+    };
+
+    this.playbookLifecycleCache.set(cleanId, updatedRecord);
+
+    if (this.useSqlite && db) {
+      try {
+        db.prepare(`
+          INSERT INTO ejii_playbook_lifecycle (
+            playbook_id, lifecycle_state, total_executions, successful_executions,
+            failed_executions, consecutive_failures, rolling_success_rate,
+            last_executed_at, quarantined_at, quarantine_reason,
+            rehabilitated_at, rehabilitation_notes, metadata_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(playbook_id) DO UPDATE SET
+            lifecycle_state = excluded.lifecycle_state,
+            consecutive_failures = 0,
+            quarantined_at = NULL,
+            quarantine_reason = NULL,
+            rehabilitated_at = excluded.rehabilitated_at,
+            rehabilitation_notes = excluded.rehabilitation_notes
+        `).run(
+          updatedRecord.playbookId,
+          updatedRecord.lifecycleState,
+          updatedRecord.totalExecutions,
+          updatedRecord.successfulExecutions,
+          updatedRecord.failedExecutions,
+          updatedRecord.consecutiveFailures,
+          updatedRecord.rollingSuccessRate,
+          updatedRecord.lastExecutedAt,
+          null,
+          null,
+          updatedRecord.rehabilitatedAt,
+          updatedRecord.rehabilitationNotes,
+          JSON.stringify(updatedRecord.metadata)
+        );
+      } catch (_) {}
+    }
+
+    try {
+      const { logAction } = require('../audit-logger');
+      logAction({
+        userId: rehabilitatedBy,
+        username: 'EJII_PLAYBOOK_GOVERNANCE',
+        role: 'AUTONOMOUS_OPERATOR',
+        action: 'PLAYBOOK_REHABILITATION',
+        resource: `playbook://${cleanId}`,
+        details: {
+          playbookId: cleanId,
+          previousState: current.lifecycleState,
+          newState: allowedTarget,
+          rehabilitatedBy,
+          notes
+        }
+      });
+    } catch (_) {}
+
+    this.emit('PLAYBOOK_REHABILITATED', {
+      playbookId: cleanId,
+      previousState: current.lifecycleState,
+      newState: allowedTarget,
+      rehabilitatedBy
+    });
+
+    return updatedRecord;
   }
 
   listOperationalDecisions(limit = 20) {

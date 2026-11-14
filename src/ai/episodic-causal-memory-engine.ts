@@ -7,6 +7,16 @@
 
 import * as crypto from 'crypto';
 
+export const PLAYBOOK_LIFECYCLE_STATES = {
+  CANDIDATE: 'CANDIDATE',
+  VERIFIED_ACTIVE: 'VERIFIED_ACTIVE',
+  PROBATIONARY: 'PROBATIONARY',
+  QUARANTINED_DEGRADED: 'QUARANTINED_DEGRADED',
+  SUPERSEDED: 'SUPERSEDED'
+} as const;
+
+export type PlaybookLifecycleState = (typeof PLAYBOOK_LIFECYCLE_STATES)[keyof typeof PLAYBOOK_LIFECYCLE_STATES];
+
 export interface TelemetrySignatureVector {
   cusumShiftSigma: number;
   spectralFlatness: number;
@@ -481,6 +491,22 @@ export class EpisodicCausalMemoryEngine {
       return { valid: false, reason: 'HISTORICAL_LEARNING_REQUIRES_POST_ACTION_MEASUREMENT' };
     }
     return { valid: true, reason: 'VALID_FORWARD_TRANSITION' };
+  }
+
+  public static readonly PLAYBOOK_LIFECYCLE_STATES = PLAYBOOK_LIFECYCLE_STATES;
+
+  public static validatePlaybookLifecycleTransition(fromState: string, toState: string): { valid: boolean; reason: string } {
+    const validStates = Object.values(PLAYBOOK_LIFECYCLE_STATES);
+    if (!validStates.includes(fromState as any) || !validStates.includes(toState as any)) {
+      return { valid: false, reason: `UNRECOGNIZED_PLAYBOOK_STATE:${fromState}->${toState}` };
+    }
+    if (fromState === toState) {
+      return { valid: true, reason: 'IDEMPOTENT_STATE_MAINTAINED' };
+    }
+    if (fromState === PLAYBOOK_LIFECYCLE_STATES.SUPERSEDED) {
+      return { valid: false, reason: 'SUPERSEDED_PLAYBOOK_CANNOT_TRANSITION' };
+    }
+    return { valid: true, reason: `VALID_PLAYBOOK_TRANSITION:${fromState}->${toState}` };
   }
 
   private static _ensureSqlitePersistence(forceRetry = false): void {
@@ -2006,6 +2032,10 @@ export class EpisodicCausalMemoryEngine {
     return EpisodicCausalMemoryEngine.validateLifecycleTransition(fromStage, toStage);
   }
 
+  public validatePlaybookLifecycleTransition(fromState: string, toState: string) {
+    return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
+  }
+
   public getPersistenceHealth() {
     return EpisodicCausalMemoryEngine.getPersistenceHealth();
   }
@@ -2051,6 +2081,10 @@ export class EpisodicCausalMemoryEngine {
       operatorObservation: params?.operatorObservation
     });
   }
+}
+
+export function validatePlaybookLifecycleTransition(fromState: string, toState: string): { valid: boolean; reason: string } {
+  return EpisodicCausalMemoryEngine.validatePlaybookLifecycleTransition(fromState, toState);
 }
 
 
