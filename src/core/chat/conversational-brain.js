@@ -906,9 +906,50 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
 
   const currentEntropyBits = computeShannonEntropyFromDistribution(priorDistribution.map((d) => d.probability));
 
+  // Layer domain mapping for analytical sensitivity coupling (Track 3)
+  const LAYER_DOMAIN_MAP = {
+    'DNS_WIRE_LOOKUP_GOOGLE': 'dns',
+    'DNS_MX_RECORD_PROBE': 'dns',
+    'TCP_CONNECT_1_1_1_1_443': 'tcp',
+    'TCP_SSH_PROBE_22': 'tcp',
+    'TCP_DATABASE_PROBE_3306_5432': 'tcp',
+    'HTTPS_L7_PROBE_EXAMPLE': 'http',
+    'ARP_NEIGHBOR_PROBE': 'l2',
+    'ICMP_GATEWAY_PING': 'icmp',
+    'TRACEROUTE_WAN_PROBE': 'wan',
+    'TLS_POSTURE_AUDIT_PROBE': 'tls',
+    'KERNEL_SOCKET_EXHAUSTION_PROBE': 'sockets',
+    'HOST_RESOURCE_HEALTH_PROBE': 'resources'
+  };
+
+  // Evaluate analytical sensitivity gradients if robustness margins are present in sessionContext
+  const sensitivityGradientsByDomain = new Map();
+  const rawMargins = sessionContext?.telemetryMargins || sessionContext?.robustnessMargins;
+  if (rawMargins && typeof rawMargins === 'object') {
+    try {
+      const { NeuroSymbolicApexEngine } = require('../../ai/neuro-symbolic-apex');
+      const domains = Object.keys(rawMargins);
+      const values = domains.map((d) => Number(rawMargins[d]) || 0);
+      if (values.length > 0) {
+        const beta = Number(sessionContext?.sensitivitySmoothingBeta) || 1.0;
+        const grads = NeuroSymbolicApexEngine.computeAnalyticalSensitivityGradients(values, beta);
+        domains.forEach((d, idx) => {
+          sensitivityGradientsByDomain.set(d.toLowerCase(), grads[idx]);
+        });
+      }
+    } catch (_) {}
+  }
+
   // Evaluate candidate probes using exact mathematical IG(X; Y) = H(X) - \sum_y P(y) H(X | Y=y)
   const candidateProbes = CANDIDATE_PROBE_LIKELIHOOD_MODELS.map((model) => {
     const mathIg = computeExpectedProbeInformationGain(priorDistribution, model.likelihoodPassGivenHypothesis);
+
+    // Analytical sensitivity coupling: prioritize bottleneck layer probes (Track 3)
+    const domainKey = LAYER_DOMAIN_MAP[model.probeId] || model.intent;
+    const sensitivityGrad = sensitivityGradientsByDomain.get(domainKey) ?? 0;
+    const couplingGamma = Number(sessionContext?.sensitivityCouplingGamma ?? 0.5);
+    const baseIg = mathIg ? (mathIg.expectedInformationGainBits || 0) : 0;
+    const weightedIg = Number((baseIg * (1 + couplingGamma * sensitivityGrad)).toFixed(3));
 
     // Slight priority adjustment if a probe was already executed in this session
     const alreadyObserved = observedIntents.has(model.intent);
@@ -960,6 +1001,8 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
       entropyGivenFailBits: mathIg ? mathIg.entropyGivenFailBits : null,
       expectedInformationGainBits: mathIg ? mathIg.expectedInformationGainBits : null,
       expectedPosteriorEntropyBits: mathIg ? mathIg.expectedPosteriorEntropyBits : null,
+      sensitivityGradient: Number(sensitivityGrad.toFixed(4)),
+      weightedInformationGainBits: weightedIg,
       calculationMethod: mathIg
         ? (hasEmpiricalHistory ? 'SHANNON_EPISODIC_EMPIRICAL_EXACT' : 'SHANNON_CONDITIONAL_ENTROPY_BAYES_EXACT')
         : 'UNAVAILABLE_NO_PRIOR',
@@ -967,12 +1010,14 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
     };
   });
 
-  // Sort by highest mathematical information gain (preferring unexecuted probes on ties)
+  // Sort by highest weighted mathematical information gain (preferring unexecuted probes on ties)
   candidateProbes.sort((a, b) => {
     if (a.alreadyObservedInSession !== b.alreadyObservedInSession) {
       return a.alreadyObservedInSession ? 1 : -1;
     }
-    return (b.expectedInformationGainBits ?? -1) - (a.expectedInformationGainBits ?? -1);
+    const scoreB = b.weightedInformationGainBits ?? b.expectedInformationGainBits ?? -1;
+    const scoreA = a.weightedInformationGainBits ?? a.expectedInformationGainBits ?? -1;
+    return scoreB - scoreA;
   });
 
   // Determine real observation status of each layer (never hardcode Layer 1 as OBSERVED without checking localNetConfig)
