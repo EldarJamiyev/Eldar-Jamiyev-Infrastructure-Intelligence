@@ -816,6 +816,215 @@ function updateBayesianDistributionFromCompoundOutcomes(priorDistribution = [], 
   return current;
 }
 
+// ============================================================================
+// Track 3: Socratic Multi-Turn Disambiguation & Active Clarification Loop
+// ============================================================================
+
+const CANONICAL_DISCRIMINATIVE_FEATURES = Object.freeze({
+  FIREWALL_ACL_DROP: {
+    domain: 'Security & Access Control',
+    layer: 'Layer 3/4 Network ACL',
+    discriminator: 'a recent firewall rule change, security group update, or egress ACL block was deployed',
+    verificationQuestion: 'were egress firewall rules or network access control lists modified?'
+  },
+  SERVICE_DAEMON_CRASH: {
+    domain: 'Application Daemon Lifecycle',
+    layer: 'Layer 7 Daemon Process',
+    discriminator: 'the backend service daemon or process crashed, exited, or was killed by OOM',
+    verificationQuestion: 'did the host application service process crash or exit unexpectedly?'
+  },
+  DNS_NXDOMAIN_POISON: {
+    domain: 'Name Resolution',
+    layer: 'Layer 7 DNS Resolver',
+    discriminator: 'the domain was misconfigured, unregistered, or upstream DNS cache returns NXDOMAIN',
+    verificationQuestion: 'is the target domain name correctly registered in authoritative DNS?'
+  },
+  UPSTREAM_WAN_BLACKHOLE: {
+    domain: 'WAN & Transit Provider',
+    layer: 'Layer 3 WAN Gateway / ISP',
+    discriminator: 'an external ISP carrier, upstream gateway, or cloud WAN route is blackholing traffic',
+    verificationQuestion: 'is an upstream ISP transit outage or carrier fiber cut currently active?'
+  },
+  TLS_CERT_EXPIRY: {
+    domain: 'Public Key Infrastructure',
+    layer: 'Layer 6/7 Cryptographic Trust',
+    discriminator: 'the TLS/SSL certificate expired or has a hostname mismatch',
+    verificationQuestion: 'did the TLS certificate reach its expiration timestamp?'
+  },
+  MTU_BLACKHOLE_FRAGMENT: {
+    domain: 'Path MTU & Fragmentation',
+    layer: 'Layer 3 IP Fragmentation',
+    discriminator: 'packets exceeding path MTU with DF bit set are silently dropped due to blocked ICMP Type 3 Code 4',
+    verificationQuestion: 'did path MTU drop below 1500 bytes along the routed path?'
+  },
+  ARP_L2_ISOLATION: {
+    domain: 'Data Link & Ethernet Switch',
+    layer: 'Layer 2 ARP / MAC Table',
+    discriminator: 'the local switch port is in an isolated VLAN or ARP resolution for the default gateway fails',
+    verificationQuestion: 'was the host port moved to an isolated VLAN or subnet?'
+  },
+  LOCAL_STACK_CONGESTION: {
+    domain: 'Host Operating System Resources',
+    layer: 'Host Kernel Sockets & Memory',
+    discriminator: 'ephemeral port exhaustion, high CPU scheduling delay, or kernel TCP socket pool exhaustion',
+    verificationQuestion: 'is host CPU, RAM, or ephemeral socket allocation under heavy saturation?'
+  },
+  ICMP_FILTERED_ALIVE: {
+    domain: 'ICMP Filtering Policy',
+    layer: 'Layer 3 ICMP Control',
+    discriminator: 'ICMP echo requests are dropped by an intermediate router while Layer 4/7 TCP services remain active',
+    verificationQuestion: 'is ICMP ping explicitly blocked while TCP services remain reachable?'
+  }
+});
+
+/**
+ * Formulate targeted Socratic clarification when multiple root cause hypotheses
+ * have indistinguishable posterior weights with high entropy and exhausted probe IG.
+ */
+function formulateSocraticClarification(activeHypotheses = [], promptText = '', options = {}) {
+  if (!Array.isArray(activeHypotheses) || activeHypotheses.length === 0) {
+    return { required: false, reason: 'NO_HYPOTHESES' };
+  }
+
+  const probs = activeHypotheses.map((h) => {
+    if (typeof h.probability === 'number') return h.probability;
+    if (typeof h.percentage === 'number') return h.percentage / 100;
+    return 1 / activeHypotheses.length;
+  });
+
+  const totalProb = probs.reduce((sum, p) => sum + p, 0);
+  const normalizedProbs = totalProb > 0 ? probs.map((p) => p / totalProb) : probs;
+
+  let entropyBits = 0;
+  for (const p of normalizedProbs) {
+    if (p > 1e-9) {
+      entropyBits -= p * Math.log2(p);
+    }
+  }
+
+  const sorted = activeHypotheses
+    .map((h, i) => ({
+      ...h,
+      prob: normalizedProbs[i],
+      pct: Number((normalizedProbs[i] * 100).toFixed(1))
+    }))
+    .sort((a, b) => b.prob - a.prob);
+
+  const h1 = sorted[0];
+  const h2 = sorted[1] || null;
+  const deltaP = h2 ? Math.abs(h1.prob - h2.prob) : 1.0;
+
+  let maxIg = 0;
+  if (Array.isArray(options.candidateProbes) && options.candidateProbes.length > 0) {
+    maxIg = Math.max(...options.candidateProbes.map((p) => Number(p.expectedInformationGainBits) || 0));
+  } else {
+    const probeAnalysis = computeOptimalInformationGainProbe(sorted);
+    maxIg = probeAnalysis ? (Number(probeAnalysis.expectedInformationGainBits) || 0) : 0;
+  }
+
+  const entropyThreshold = options.entropyThreshold ?? 1.2;
+  const deltaThreshold = options.deltaThreshold ?? 0.25;
+  const igThreshold = options.igThreshold ?? 0.15;
+
+  const isAmbiguous = (entropyBits >= entropyThreshold || deltaP <= deltaThreshold) && (h1.pct < 60);
+  const probesExhausted = maxIg <= igThreshold || Boolean(options.probesExhausted);
+
+  if (!isAmbiguous || (!probesExhausted && !options.forceClarification)) {
+    return {
+      required: false,
+      entropyBits: Number(entropyBits.toFixed(3)),
+      probabilityDelta: Number(deltaP.toFixed(4)),
+      maxRemainingInformationGain: Number(maxIg.toFixed(4)),
+      reason: 'BELOW_AMBIGUITY_THRESHOLD'
+    };
+  }
+
+  const feat1 = CANONICAL_DISCRIMINATIVE_FEATURES[h1.id] || {
+    domain: 'General Infrastructure',
+    layer: 'System Layer',
+    discriminator: `${h1.name} occurred`,
+    verificationQuestion: `did an incident matching ${h1.name} occur?`
+  };
+  const feat2 = h2 ? (CANONICAL_DISCRIMINATIVE_FEATURES[h2.id] || {
+    domain: 'General Infrastructure',
+    layer: 'System Layer',
+    discriminator: `${h2.name} occurred`,
+    verificationQuestion: `did an incident matching ${h2.name} occur?`
+  }) : null;
+
+  const socraticQuestion = feat2
+    ? `Observational telemetry is inconclusive between **${h1.name}** (${h1.pct}%) and **${h2.name}** (${h2.pct}%) with entropy $H(X) = ${entropyBits.toFixed(2)}$ bits. To disambiguate without guessing: ${feat1.verificationQuestion} Or alternatively, ${feat2.verificationQuestion}`
+    : `Observational telemetry indicates high entropy ($H(X) = ${entropyBits.toFixed(2)}$ bits). To disambiguate: ${feat1.verificationQuestion}`;
+
+  return {
+    required: true,
+    entropyBits: Number(entropyBits.toFixed(3)),
+    probabilityDelta: Number(deltaP.toFixed(4)),
+    maxRemainingInformationGain: Number(maxIg.toFixed(4)),
+    topHypotheses: [
+      { id: h1.id, name: h1.name, percentage: h1.pct, probability: h1.prob },
+      ...(h2 ? [{ id: h2.id, name: h2.name, percentage: h2.pct, probability: h2.prob }] : [])
+    ],
+    contrastiveFeatures: {
+      hypothesisA: { id: h1.id, domain: feat1.domain, layer: feat1.layer, discriminator: feat1.discriminator },
+      ...(h2 ? { hypothesisB: { id: h2.id, domain: feat2.domain, layer: feat2.layer, discriminator: feat2.discriminator } } : {})
+    },
+    socraticQuestion,
+    disambiguationOptions: [
+      { hypothesisId: h1.id, label: `Confirm: ${feat1.discriminator}` },
+      ...(h2 ? [{ hypothesisId: h2.id, label: `Confirm: ${feat2.discriminator}` }] : []),
+      { hypothesisId: null, label: 'External / Unrelated failure trigger' }
+    ]
+  };
+}
+
+/**
+ * Update Bayesian prior distribution when operator provides Socratic ground truth,
+ * collapsing Shannon entropy and transitioning to conclusive remediation gate.
+ */
+function applySocraticClarificationResponse(priorDistribution = [], confirmedHypothesisId, confirmationWeight = 0.95) {
+  if (!Array.isArray(priorDistribution) || priorDistribution.length === 0) {
+    return { hypotheses: priorDistribution, entropyBits: 0, collapsed: false };
+  }
+  const weight = Math.min(0.99, Math.max(0.70, Number(confirmationWeight) || 0.95));
+  let totalJoint = 0;
+
+  const joint = priorDistribution.map((h) => {
+    const priorP = typeof h.probability === 'number'
+      ? h.probability
+      : (typeof h.percentage === 'number' ? h.percentage / 100 : 1 / priorDistribution.length);
+    const likelihood = (h.id === confirmedHypothesisId) ? weight : ((1 - weight) / Math.max(1, priorDistribution.length - 1));
+    const j = priorP * likelihood;
+    totalJoint += j;
+    return {
+      id: h.id,
+      name: h.name,
+      joint: j,
+      contradicted: (h.id !== confirmedHypothesisId && weight >= 0.90) ? true : Boolean(h.contradicted)
+    };
+  });
+
+  const updated = joint.map((h) => {
+    const normP = totalJoint > 0 ? h.joint / totalJoint : 1 / joint.length;
+    return {
+      id: h.id,
+      name: h.name,
+      probability: Number(normP.toFixed(4)),
+      percentage: Number((normP * 100).toFixed(1)),
+      contradicted: h.contradicted
+    };
+  });
+
+  const newEntropyBits = computeShannonEntropyFromDistribution(updated.map((u) => u.probability));
+
+  return {
+    hypotheses: updated,
+    entropyBits: Number(newEntropyBits.toFixed(3)),
+    confirmedHypothesisId,
+    collapsed: newEntropyBits < 0.8
+  };
+}
+
 /**
  * Computes live Shannon entropy and expected information gain (\Delta H in bits)
  * for candidate diagnostic probes against the current Sovereign Fabric v6 Truth Matrix.
@@ -2242,6 +2451,19 @@ async function runAgenticToolLoop({
     } catch (_) {}
   }
 
+  // Track 3: Socratic Multi-Turn Disambiguation & Active Clarification Loop
+  const socraticClarification = formulateSocraticClarification(
+    activeHypotheses,
+    promptText,
+    {
+      candidateProbes: initialAnalysis?.candidateProbes || [],
+      probesExhausted: loopTerminationReason === 'MAX_STEPS_REACHED' || (optimalNextProbe && (optimalNextProbe.expectedInformationGainBits || 0) < 0.15)
+    }
+  );
+  if (socraticClarification.required) {
+    epistemicClassification.socraticClarification = socraticClarification;
+  }
+
   // Track 5: Universal Experience Replay
   try {
     const { operationalMemoryEngine } = require('../memory/operational-memory-engine');
@@ -2278,6 +2500,10 @@ async function runAgenticToolLoop({
       const gate = epistemicClassification.remediationGate;
       single.reply = `${single.reply}\n\n### 🛡️ Recommended Autonomous Remediation: \`${gate.recipeId}\` (${gate.runbookId})\n* **Action**: ${gate.recipeName}\n* **Target**: \`${gate.targetHost}\` | **Risk**: \`${gate.riskLevel}\` | **Elevation**: \`${gate.requiresElevation ? 'Required' : 'User-Space'}\`\n* **Command**: \`${gate.commandPreview}\`\n* **Rationale**: ${gate.rationale}\n* **Action Token**: \`${gate.actionTokenId}\` *(HMAC Signed, 5m TTL)*`;
     }
+    if (epistemicClassification.socraticClarification && epistemicClassification.socraticClarification.required) {
+      const soc = epistemicClassification.socraticClarification;
+      single.reply = `${single.reply}\n\n### ❓ Active Socratic Disambiguation Required\n${soc.socraticQuestion}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2296,6 +2522,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.remediationGate && epistemicClassification.remediationGate.status === 'REMEDIATION_RECOMMENDED') {
     const gate = epistemicClassification.remediationGate;
     combinedReplyParts.push(`### 🛡️ Recommended Autonomous Remediation: \`${gate.recipeId}\` (${gate.runbookId})\n* **Action**: ${gate.recipeName}\n* **Target**: \`${gate.targetHost}\` | **Risk**: \`${gate.riskLevel}\` | **Elevation**: \`${gate.requiresElevation ? 'Required' : 'User-Space'}\`\n* **Command**: \`${gate.commandPreview}\`\n* **Rationale**: ${gate.rationale}\n* **Action Token**: \`${gate.actionTokenId}\` *(HMAC Signed, 5m TTL)*`);
+  }
+  if (epistemicClassification.socraticClarification && epistemicClassification.socraticClarification.required) {
+    const soc = epistemicClassification.socraticClarification;
+    combinedReplyParts.push(`### ❓ Active Socratic Disambiguation Required\n${soc.socraticQuestion}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped
@@ -2808,5 +3038,8 @@ module.exports = {
   executeConversationalSuperpowersBridge,
   formulateRemediationGate,
   executeRemediationAndVerifyPostcondition,
-  evaluateControlBarrierInvariants
+  evaluateControlBarrierInvariants,
+  CANONICAL_DISCRIMINATIVE_FEATURES,
+  formulateSocraticClarification,
+  applySocraticClarificationResponse
 };
