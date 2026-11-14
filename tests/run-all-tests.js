@@ -146,7 +146,32 @@ const COMPANION_TEST_MODULES = [
   './autonomous-cognitive-core-evolution.test',
   './sovereign-fabric-v6-reality.test',
   './skills-ecosystem-migration.test',
-  './sovereign-intelligence-leap.test'
+  './sovereign-intelligence-leap.test',
+  './autonomous-rollback-watchdog.test',
+  './binary-packet-cockpit-worker.test',
+  './binary-packet-streaming.test',
+  './conversational-remediation-loop.test',
+  './dimension-expanded-embedding.test',
+  './distributed-causal-belief-propagation.test',
+  './distributed-saga-orchestration.test',
+  './episodic-experience-replay.test',
+  './episodic-playbook-lifecycle.test',
+  './falcon-conversational-intelligence.test',
+  './generative-remediation-synthesizer.test',
+  './gradient-weighted-information-gain.test',
+  './granger-causal-discovery.test',
+  './hnsw-episodic-index.test',
+  './rca-laplacian-diffusion.test',
+  './shared-ring-pipeline.test',
+  './socratic-conversational-disambiguation.test',
+  './sovereign-intelligence-leap-phase2.test',
+  './sovereign-intelligence-leap-phase3.test',
+  './sovereign-intelligence-leap-phase4.test',
+  './sovereign-intelligence-leap-phase5.test',
+  './structural-causal-counterfactual.test',
+  './topological-conversational-disambiguation.test',
+  './wavelet-hurst-lrd-engine.test',
+  './zk-epistemic-consensus.test'
 ];
 
 async function runAllTests() {
