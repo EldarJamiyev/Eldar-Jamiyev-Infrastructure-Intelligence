@@ -1,0 +1,19 @@
+{
+  "name": "Eldar-Jamiyev-Infrastructure-Intelligence",
+  "description": "Evidence-grounded conversational infrastructure intelligence & autonomous NOC operator with real wire packet dissection, cross-layer causal diagnostics, and verified remediation.",
+  "homepage": "https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence",
+  "topics": [
+    "network-intelligence",
+    "packet-analyzer",
+    "network-observability",
+    "sre-automation",
+    "causal-inference",
+    "autonomous-operations",
+    "wireshark",
+    "bpf",
+    "zero-trust",
+    "sqlite-wal"
+  ],
+  "default_branch": "main",
+  "visibility": "public"
+}
