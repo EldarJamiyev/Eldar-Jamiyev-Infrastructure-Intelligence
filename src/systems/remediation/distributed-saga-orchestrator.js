@@ -9,6 +9,10 @@
  */
 
 const crypto = require('node:crypto');
+const {
+  zkEpistemicConsensusEngine,
+  ZkEpistemicConsensusEngine
+} = require('../../core/agent/zk-epistemic-consensus');
 const { db } = require('../../db/database');
 
 // Canonical Positive-Definite Base & Penalty Matrices (3x3 for [rtt, loss, queue])
@@ -253,20 +257,77 @@ class DistributedSagaOrchestrator {
       const votePayload = `${sagaId}:${participant.nodeId}:${voteCommit ? 'VOTE_COMMIT' : 'VOTE_ABORT'}:${deltaV}`;
       const signedProof = crypto.createHmac('sha256', this.hmacSecret).update(votePayload).digest('hex');
 
+      let ed25519Signature;
+      let publicKeyPem = participant.publicKeyPem;
+      let attestationStatus = 'HMAC_LEGACY_VERIFIED';
+
+      if (participant.privateKeyPem) {
+        try {
+          ed25519Signature = crypto.sign(null, Buffer.from(votePayload, 'utf8'), participant.privateKeyPem).toString('base64url');
+          if (publicKeyPem) {
+            const isValid = crypto.verify(
+              null,
+              Buffer.from(votePayload, 'utf8'),
+              publicKeyPem,
+              Buffer.from(ed25519Signature, 'base64url')
+            );
+            attestationStatus = isValid ? 'ED25519_VERIFIED' : 'ATTESTATION_FAILED';
+            if (!isValid) {
+              allVotedCommit = false;
+            }
+          } else {
+            attestationStatus = 'ED25519_VERIFIED';
+          }
+        } catch (_) {
+          attestationStatus = 'ATTESTATION_FAILED';
+          allVotedCommit = false;
+        }
+      }
+
       const vote = {
         nodeId: participant.nodeId,
-        vote: voteCommit ? 'VOTE_COMMIT' : 'VOTE_ABORT',
+        vote: (voteCommit && attestationStatus !== 'ATTESTATION_FAILED') ? 'VOTE_COMMIT' : 'VOTE_ABORT',
         lyapunovDelta: deltaV,
         energyBefore,
         energyAfter,
         signedProof,
         timestampIso: new Date().toISOString(),
-        reason: voteCommit
+        ed25519Signature,
+        publicKeyPem,
+        attestationStatus,
+        reason: (voteCommit && attestationStatus !== 'ATTESTATION_FAILED')
           ? 'Riemannian contraction verified strictly negative'
-          : 'Lyapunov contraction invariant violated or non-positive definite'
+          : (attestationStatus === 'ATTESTATION_FAILED'
+              ? 'Ed25519 cryptographic attestation signature failed verification'
+              : 'Lyapunov contraction invariant violated or non-positive definite')
       };
 
       saga.votes[participant.nodeId] = vote;
+    }
+
+    // Build Merkle tree across all participant vote leaf hashes
+    const leafHashes = [];
+    const participantList = saga.participants;
+    for (const p of participantList) {
+      const v = saga.votes[p.nodeId];
+      const leafPayload = `${sagaId}:${p.nodeId}:${v.vote}:${v.lyapunovDelta}:${v.signedProof}:${v.ed25519Signature || ''}`;
+      const leafHash = crypto.createHash('sha256').update(leafPayload).digest('hex');
+      leafHashes.push(leafHash);
+    }
+
+    const merkleTree = zkEpistemicConsensusEngine.buildMerkleTree(leafHashes);
+
+    for (let idx = 0; idx < participantList.length; idx++) {
+      const p = participantList[idx];
+      const v = saga.votes[p.nodeId];
+      const proof = zkEpistemicConsensusEngine.generateMerkleProof(idx, merkleTree, p.nodeId);
+      v.merkleInclusionProof = proof;
+
+      const isProofValid = ZkEpistemicConsensusEngine.verifyMerkleProof(proof);
+      if (!isProofValid) {
+        v.attestationStatus = 'ATTESTATION_FAILED';
+        allVotedCommit = false;
+      }
     }
 
     const aggregateDeltaV = Math.round((totalEnergyAfter - totalEnergyBefore) * 1000) / 1000;
@@ -298,6 +359,36 @@ class DistributedSagaOrchestrator {
     if (saga.phase !== 'COMMIT_VOTE_QUORUM') {
       // If quorum not achieved, trigger rollback
       return this.triggerCoordinatedRollback(sagaId, 'Commit attempted without unanimous VOTE_COMMIT quorum');
+    }
+
+    // Verify cryptographic attestations & Merkle inclusion proofs before granting execution tokens
+    for (const p of saga.participants) {
+      const vote = saga.votes[p.nodeId];
+      if (!vote) {
+        return this.triggerCoordinatedRollback(sagaId, `Missing vote record for participant node ${p.nodeId}`);
+      }
+      if (vote.attestationStatus === 'ATTESTATION_FAILED') {
+        return this.triggerCoordinatedRollback(sagaId, `Cryptographic attestation failed for participant node ${p.nodeId}`);
+      }
+      if (vote.merkleInclusionProof && !ZkEpistemicConsensusEngine.verifyMerkleProof(vote.merkleInclusionProof)) {
+        return this.triggerCoordinatedRollback(sagaId, `Merkle inclusion proof verification failed for participant node ${p.nodeId}`);
+      }
+      if (vote.ed25519Signature && vote.publicKeyPem) {
+        const votePayload = `${sagaId}:${p.nodeId}:${vote.vote}:${vote.lyapunovDelta}`;
+        try {
+          const isValid = crypto.verify(
+            null,
+            Buffer.from(votePayload, 'utf8'),
+            vote.publicKeyPem,
+            Buffer.from(vote.ed25519Signature, 'base64url')
+          );
+          if (!isValid) {
+            return this.triggerCoordinatedRollback(sagaId, `Ed25519 signature verification failed for participant node ${p.nodeId}`);
+          }
+        } catch (_) {
+          return this.triggerCoordinatedRollback(sagaId, `Ed25519 signature verification error for participant node ${p.nodeId}`);
+        }
+      }
     }
 
     // Quorum achieved: generate atomic execution tokens for all nodes

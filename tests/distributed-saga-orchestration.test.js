@@ -9,6 +9,7 @@ const {
   CANONICAL_RIEMANNIAN_WEIGHTS,
   MIN_RIEMANNIAN_CONTRACTION
 } = require('../src/systems/remediation/distributed-saga-orchestrator');
+const { zkEpistemicConsensusEngine, ZkEpistemicConsensusEngine } = require('../src/core/agent/zk-epistemic-consensus');
 const { formulateRemediationGate } = require('../src/core/chat/conversational-brain');
 
 describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Orchestrator', () => {
@@ -285,6 +286,135 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
     assert.equal(gate.distributedSagaPlan.commitQuorumReady, true);
     assert.equal(gate.distributedSagaPlan.isRiemannianStable, true);
     assert.ok(gate.distributedSagaPlan.aggregateDeltaV < 0);
+  });
+
+  test('Cryptographic State Attestation: Ed25519 signatures and Merkle inclusion proofs in 2PC prepare/commit', () => {
+    const orchestrator = new DistributedSagaOrchestrator();
+
+    // Generate authentic Ed25519 keypairs for participants
+    const keyPair1 = zkEpistemicConsensusEngine.generateAgentKeyPair();
+    const keyPair2 = zkEpistemicConsensusEngine.generateAgentKeyPair();
+
+    const participants = [
+      {
+        nodeId: 'crypto_edge_01',
+        role: 'EDGE_SWITCH',
+        targetEndpoint: '10.10.1.1',
+        privateKeyPem: keyPair1.privateKeyPem,
+        publicKeyPem: keyPair1.publicKeyPem,
+        currentState: { rttMs: 40.0, lossPct: 1.5, queueDepthPackets: 25 },
+        candidateAction: {
+          actionId: 'act_crypto_01',
+          actionType: 'TCP_WINDOW_CLAMP',
+          target: '10.10.1.1',
+          parameters: { windowBytes: 32768 },
+          rationale: 'Relieve edge queue',
+          expectedImpact: { rttDeltaMs: -15.0, lossDeltaPct: -0.8, queueDeltaPackets: -15 },
+          requiresElevation: false,
+          commandPreview: 'cmd_crypto_01'
+        },
+        candidateInverse: {
+          actionId: 'inv_crypto_01',
+          inverseType: 'TCP_WINDOW_UNCLAMP',
+          reversesActionId: 'act_crypto_01',
+          target: '10.10.1.1',
+          parameters: {},
+          rationale: 'Rollback crypto 01',
+          commandPreview: 'cmd_inv_01',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      },
+      {
+        nodeId: 'crypto_gw_01',
+        role: 'CORE_GATEWAY',
+        targetEndpoint: '10.10.1.254',
+        privateKeyPem: keyPair2.privateKeyPem,
+        publicKeyPem: keyPair2.publicKeyPem,
+        currentState: { rttMs: 25.0, lossPct: 0.5, queueDepthPackets: 15 },
+        candidateAction: {
+          actionId: 'act_crypto_02',
+          actionType: 'DSCP_TRAFFIC_SHAPE',
+          target: '10.10.1.254',
+          parameters: {},
+          rationale: 'Prioritize traffic',
+          expectedImpact: { rttDeltaMs: -10.0, lossDeltaPct: -0.3, queueDeltaPackets: -8 },
+          requiresElevation: false,
+          commandPreview: 'cmd_crypto_02'
+        },
+        candidateInverse: {
+          actionId: 'inv_crypto_02',
+          inverseType: 'DSCP_DEFAULT',
+          reversesActionId: 'act_crypto_02',
+          target: '10.10.1.254',
+          parameters: {},
+          rationale: 'Rollback crypto 02',
+          commandPreview: 'cmd_inv_02',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      }
+    ];
+
+    // 1. Initiate saga
+    const saga = orchestrator.initiateSaga('PROVE_CRYPTO_2PC', 'secops_agent', participants);
+
+    // 2. Prepare phase: verify Ed25519 signatures and Merkle inclusion proofs generated
+    const prepared = orchestrator.executePreparePhase(saga.sagaId);
+    assert.equal(prepared.phase, 'COMMIT_VOTE_QUORUM');
+
+    for (const p of participants) {
+      const vote = prepared.votes[p.nodeId];
+      assert.ok(vote.ed25519Signature, `Participant ${p.nodeId} must have Ed25519 signature`);
+      assert.equal(vote.attestationStatus, 'ED25519_VERIFIED');
+      assert.ok(vote.merkleInclusionProof, `Participant ${p.nodeId} must have Merkle inclusion proof`);
+      assert.equal(ZkEpistemicConsensusEngine.verifyMerkleProof(vote.merkleInclusionProof), true);
+    }
+
+    // 3. Commit phase: verify tokens issued after attestation check
+    const committed = orchestrator.executeCommitPhase(saga.sagaId);
+    assert.equal(committed.phase, 'COMMITTED');
+    assert.ok(committed.commitTokens['crypto_edge_01']);
+    assert.ok(committed.commitTokens['crypto_gw_01']);
+
+    // 4. Byzantine forged signature test: verify tampered signature forces rollback
+    const forgedParticipants = [
+      {
+        nodeId: 'byzantine_node_01',
+        role: 'EDGE_SWITCH',
+        targetEndpoint: '10.10.2.1',
+        privateKeyPem: keyPair1.privateKeyPem,
+        publicKeyPem: keyPair2.publicKeyPem, // Mismatched public key!
+        currentState: { rttMs: 30.0, lossPct: 1.0, queueDepthPackets: 20 },
+        candidateAction: {
+          actionId: 'act_byz_01',
+          actionType: 'TCP_WINDOW_CLAMP',
+          target: '10.10.2.1',
+          parameters: {},
+          rationale: 'Byzantine action',
+          expectedImpact: { rttDeltaMs: -10.0, lossDeltaPct: -0.5, queueDeltaPackets: -10 },
+          requiresElevation: false,
+          commandPreview: 'cmd_byz'
+        },
+        candidateInverse: {
+          actionId: 'inv_byz_01',
+          inverseType: 'TCP_WINDOW_UNCLAMP',
+          reversesActionId: 'act_byz_01',
+          target: '10.10.2.1',
+          parameters: {},
+          rationale: 'Rollback byz',
+          commandPreview: 'cmd_inv_byz',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      }
+    ];
+
+    const byzSaga = orchestrator.initiateSaga('BYZANTINE_TEST', 'attacker', forgedParticipants);
+    const byzPrepared = orchestrator.executePreparePhase(byzSaga.sagaId);
+    assert.equal(byzPrepared.phase, 'ABORTED_PRE');
+    assert.equal(byzPrepared.votes['byzantine_node_01'].attestationStatus, 'ATTESTATION_FAILED');
+    assert.equal(byzPrepared.votes['byzantine_node_01'].vote, 'VOTE_ABORT');
   });
 
 });
