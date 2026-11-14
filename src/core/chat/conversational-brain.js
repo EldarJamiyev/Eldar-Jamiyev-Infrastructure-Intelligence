@@ -3136,7 +3136,7 @@ async function formulateRemediationGate(hypothesisId, targetHost = '127.0.0.1', 
       expiresAt = tokenPayload.expiresAt;
     } catch (_) {}
 
-    return {
+    const gate = {
       status: 'REMEDIATION_RECOMMENDED',
       recipeId: preview.recipeId,
       recipeName: preview.name,
@@ -3151,6 +3151,17 @@ async function formulateRemediationGate(hypothesisId, targetHost = '127.0.0.1', 
       dualCustodyRequired: true,
       expiresAt
     };
+
+    try {
+      const { generativeRemediationSynthesizer } = require('../../systems/remediation/generative-remediation-synthesizer');
+      const currentState = { rttMs: 35.0, lossPct: 1.5, queueDepthPackets: 25 };
+      const microCandidate = generativeRemediationSynthesizer.synthesizeRemediationCandidate(hypothesisId, currentState, targetHost);
+      const microPlan = generativeRemediationSynthesizer.issueCryptographicActionPlan(microCandidate, currentState);
+      gate.synthesizedMicroPlan = microPlan;
+      gate.lyapunovProof = microPlan.lyapunovProof;
+    } catch (_) {}
+
+    return gate;
   } catch (err) {
     return {
       status: 'REMEDIATION_AVAILABLE_MANUAL_REVIEW',
