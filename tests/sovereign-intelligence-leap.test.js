@@ -851,4 +851,72 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(topWlMatch.wlIterationHashes.labels2['db-cluster-node-01.internal']);
     assert.equal(topWlMatch.isIsomorphic, true);
   });
+
+  await t.test('21. verifies distributed trace propagation, mutating CSRF Origin protection, and server teardown hooks', () => {
+    const { validateMutatingCsrfOrigin, requestCorrelationAndTelemetryMiddleware } = require('../src/api/middleware');
+    const { gracefulShutdown } = require('../src/server');
+
+    // 1. Verify trace header propagation in telemetry middleware
+    const mockReq = {
+      method: 'GET',
+      headers: { 'x-ejii-trace-id': '0123456789abcdef0123456789abcdef' },
+      url: '/api/diagnostics/host/audit'
+    };
+    const setHeaders = {};
+    const mockRes = {
+      setHeader: (k, v) => { setHeaders[k.toLowerCase()] = v; },
+      on: () => {}
+    };
+    let nextCalled = false;
+    requestCorrelationAndTelemetryMiddleware(mockReq, mockRes, () => { nextCalled = true; });
+
+    assert.equal(nextCalled, true);
+    assert.equal(mockReq.traceId, '0123456789abcdef0123456789abcdef');
+    assert.equal(setHeaders['x-ejii-trace-id'], '0123456789abcdef0123456789abcdef');
+
+    // 2. Verify CSRF rejection on cross-site mutating requests
+    const attackReq = {
+      method: 'POST',
+      headers: {
+        'sec-fetch-site': 'cross-site',
+        origin: 'https://evil-cross-origin.com',
+        host: 'localhost:8445'
+      }
+    };
+    let attackBlocked = false;
+    let attackStatus = 0;
+    const attackRes = {
+      status: (code) => {
+        attackStatus = code;
+        return {
+          json: (body) => {
+            if (body && body.error && body.error.includes('CSRF_SECURITY_VIOLATION')) {
+              attackBlocked = true;
+            }
+          }
+        };
+      }
+    };
+    validateMutatingCsrfOrigin(attackReq, attackRes, () => {
+      assert.fail('Cross-site mutating request must never call next()');
+    });
+    assert.equal(attackStatus, 403);
+    assert.equal(attackBlocked, true);
+
+    // 3. Verify CSRF acceptance on legitimate same-origin requests
+    const legitReq = {
+      method: 'POST',
+      headers: {
+        'sec-fetch-site': 'same-origin',
+        origin: 'http://localhost:8445',
+        host: 'localhost:8445'
+      }
+    };
+    let legitPassed = false;
+    validateMutatingCsrfOrigin(legitReq, attackRes, () => { legitPassed = true; });
+    assert.equal(legitPassed, true);
+
+    // 4. Verify gracefulShutdown export
+    assert.equal(typeof gracefulShutdown, 'function');
+  });
 });
