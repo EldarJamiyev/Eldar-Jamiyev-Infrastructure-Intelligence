@@ -2663,15 +2663,22 @@ async function executeRemediationAndVerifyPostcondition({
     // Log rollback to cryptographic tamper-resistant HMAC audit trail
     try {
       const { logAction } = require('../audit-logger');
-      logAction('AUTONOMOUS_ROLLBACK_TRIGGERED', {
-        originalActionTokenId: execResult.actionTokenId,
-        executedRecipeId,
-        compensatingRecipeId: rollbackRecipeId,
-        target: targetHost,
-        durationMs: rollbackDuration,
-        violatedBarriers: cbf.violatedBarriers,
-        stabilityVerdict: stability.overallVerdict
-      }, userContext);
+      logAction({
+        userId: userContext.userId || userContext.username || 'AUTONOMOUS_OPERATOR',
+        username: userContext.username || 'AUTONOMOUS_OPERATOR',
+        role: userContext.role || 'ADMIN',
+        action: 'AUTONOMOUS_ROLLBACK_TRIGGERED',
+        resource: targetHost,
+        details: {
+          originalActionTokenId: execResult.actionTokenId,
+          executedRecipeId,
+          compensatingRecipeId: rollbackRecipeId,
+          target: targetHost,
+          durationMs: rollbackDuration,
+          violatedBarriers: cbf.violatedBarriers,
+          stabilityVerdict: stability.overallVerdict
+        }
+      });
     } catch (_) {}
 
     return {
