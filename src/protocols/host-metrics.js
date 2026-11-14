@@ -485,7 +485,9 @@ async function getServices(filter = '') {
       name: s.Name,
       displayName: s.DisplayName,
       status: s.Status === 4 || s.Status === 'Running' ? 'Running' : (s.Status === 1 || s.Status === 'Stopped' ? 'Stopped' : String(s.Status)),
-      startType: String(s.StartType || 'Auto')
+      startType: String(s.StartType || 'Auto'),
+      entityType: 'SYSTEM_SERVICE',
+      collectionMethod: 'windows_get_service'
     }));
   } catch (err) {
     console.error('[getServices Error]:', err.message);
