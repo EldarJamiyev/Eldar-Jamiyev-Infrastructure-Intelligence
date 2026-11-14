@@ -1456,16 +1456,25 @@ class AutonomousInfrastructureOperator {
     try {
       const nodes = db.prepare('SELECT * FROM topology_nodes').all();
       const updateNodeStmt = db.prepare('UPDATE topology_nodes SET status = ?, last_checked = ?, last_latency_ms = ? WHERE id = ?');
-      for (const n of nodes) {
-        const probeHost = (!n.hostname_or_ip || n.hostname_or_ip === 'localhost') ? '127.0.0.1' : n.hostname_or_ip;
-        const probePort = Number(n.port) || (probeHost === '127.0.0.1' ? preTel.localPort : 80);
-        const tcpCheck = await this._measureLiveTcpRtt(probeHost, probePort, 350);
-        if (tcpCheck.reachable) {
-          updateNodeStmt.run('healthy', nowIso, tcpCheck.rttMs, n.id);
-        } else {
-          updateNodeStmt.run('unreachable', nowIso, null, n.id);
+      const concurrency = 8;
+      for (let i = 0; i < nodes.length; i += concurrency) {
+        const chunk = nodes.slice(i, i + concurrency);
+        const chunkResults = await Promise.all(
+          chunk.map(async (n) => {
+            const probeHost = (!n.hostname_or_ip || n.hostname_or_ip === 'localhost') ? '127.0.0.1' : n.hostname_or_ip;
+            const probePort = Number(n.port) || (probeHost === '127.0.0.1' ? preTel.localPort : 80);
+            const tcpCheck = await this._measureLiveTcpRtt(probeHost, probePort, 350);
+            return { id: n.id, tcpCheck };
+          })
+        );
+        for (const { id, tcpCheck } of chunkResults) {
+          if (tcpCheck.reachable) {
+            updateNodeStmt.run('healthy', nowIso, tcpCheck.rttMs, id);
+          } else {
+            updateNodeStmt.run('unreachable', nowIso, null, id);
+          }
+          reconciledNodesCount++;
         }
-        reconciledNodesCount++;
       }
     } catch (_) {}
 
