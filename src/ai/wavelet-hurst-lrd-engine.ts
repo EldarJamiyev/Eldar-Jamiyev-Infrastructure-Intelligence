@@ -144,15 +144,14 @@ export function computeMorletWaveletTransform(
     }
   }
 
-  // Micro-burst high-frequency energy ratio: scale 2 vs macro scales (>= 16)
-  const lowScaleEnergy = energySpectrum.find((e) => e.scale === 2)?.energy || 0;
-  const macroEnergies = energySpectrum.filter((e) => e.scale >= 16).map((e) => e.energy);
-  const macroAvg = macroEnergies.length > 0
-    ? macroEnergies.reduce((a, b) => a + b, 0) / macroEnergies.length
-    : 0.1;
+  // Micro-burst high-frequency energy ratio: scale 2 vs intermediate scales (4 and 8)
+  const e2 = energySpectrum.find((e) => e.scale === 2)?.energy || 0;
+  const e4 = energySpectrum.find((e) => e.scale === 4)?.energy || 0;
+  const e8 = energySpectrum.find((e) => e.scale === 8)?.energy || 0;
+  const intermediateAvg = Math.max(0.01, (e4 + e8) / 2);
 
-  const highFrequencyRatio = Number((lowScaleEnergy / Math.max(0.0001, macroAvg)).toFixed(3));
-  const microBurstDetected = highFrequencyRatio > 2.5 && lowScaleEnergy > 1.0;
+  const highFrequencyRatio = Number((e2 / intermediateAvg).toFixed(3));
+  const microBurstDetected = highFrequencyRatio > 2.0 && e2 > 1.0;
 
   return {
     scales,

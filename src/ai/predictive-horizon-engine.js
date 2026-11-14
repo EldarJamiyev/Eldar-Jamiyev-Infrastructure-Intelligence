@@ -485,6 +485,31 @@ class PredictiveHorizonEngine {
     return this.evaluatePredictiveHorizon(options);
   }
 
+  evaluateWaveletLrdHorizon(series = [], options = {}) {
+    const { analyzeWaveletAndHurstLrd } = require('./wavelet-hurst-lrd-engine');
+    const clean = (Array.isArray(series) ? series : [])
+      .map((v) => (typeof v === 'object' ? Number(v.latencyMs ?? v.value ?? 0) : Number(v)))
+      .filter((v) => Number.isFinite(v));
+    const report = analyzeWaveletAndHurstLrd(clean);
+    const target = options.target || 'target-node';
+
+    let adjustedAction = report.riskAssessment.actionableInsight;
+    if (report.hurst.isLongRangeDependent) {
+      adjustedAction = `PREDICTIVE LRD MITIGATION: ${report.riskAssessment.actionableInsight} (H=${report.hurst.hurstExponent}, scale=2 ratio=${report.wavelet.highFrequencyRatio})`;
+    }
+
+    return {
+      target,
+      report,
+      isLongRangeDependent: report.hurst.isLongRangeDependent,
+      hurstExponent: report.hurst.hurstExponent,
+      microBurstDetected: report.wavelet.microBurstDetected,
+      dispersionMultiplier: report.hurst.dispersionMultiplier,
+      queueCliffRisk: report.riskAssessment.queueCliffRisk,
+      recommendedAction: adjustedAction
+    };
+  }
+
   _buildPreventativeAction(target, riskTier, mm1, hw, isSpof) {
     const isLoop = isLoopbackTarget(target);
     if (riskTier === 'CRITICAL' || mm1.inSaturationCliffRegime) {
@@ -513,6 +538,7 @@ module.exports = {
   computeMg1PollaczekKhinchineQueueing,
   computeHoltWintersForecast,
   findTarjanCutVertices,
+  evaluateWaveletLrdHorizon: (series, opts) => predictiveHorizonEngine.evaluateWaveletLrdHorizon(series, opts),
   PredictiveHorizonEngine,
   predictiveHorizonEngine
 };
