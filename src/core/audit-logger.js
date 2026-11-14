@@ -394,12 +394,13 @@ function verifyAuditLogIntegrity(targetAuditFile, targetAnchorFile) {
  * Retrieve recent audit records
  */
 function getAuditLogs(limit = 50) {
-  if (!fs.existsSync(activeAuditFile)) {
+  const activeFile = getAuditFilePath();
+  if (!fs.existsSync(activeFile)) {
     return [];
   }
 
   try {
-    const content = fs.readFileSync(AUDIT_FILE, 'utf8').trim();
+    const content = fs.readFileSync(activeFile, 'utf8').trim();
     if (!content) return [];
 
     const lines = content.split('\n').filter(l => l.trim().length > 0);
@@ -536,6 +537,7 @@ module.exports = {
   computeRecordHash,
   getLastRecordHash,
   getAuditLogs,
+  getAuditTrail: getAuditLogs,
   AUDIT_FILE,
   CHAIN_HEAD_FILE,
   GENESIS_HASH
