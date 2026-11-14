@@ -16,7 +16,7 @@
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.waveletHurstLrdEngine = exports.WaveletHurstLrdEngine = exports.analyzeWaveletAndHurstLrd = exports.computeHurstExponent = exports.computeMorletWaveletTransform = void 0;
+exports.waveletHurstLrdEngine = exports.WaveletHurstLrdEngine = exports.estimateTimeToFailureHorizon = exports.analyzeWaveletAndHurstLrd = exports.computeHurstExponent = exports.computeMorletWaveletTransform = void 0;
 
 const PI_POW_MINUS_QUARTER = 0.7511255444649425; // pi^(-1/4)
 const OMEGA_0 = 6.0;
@@ -318,6 +318,117 @@ function analyzeWaveletAndHurstLrd(series) {
 }
 exports.analyzeWaveletAndHurstLrd = analyzeWaveletAndHurstLrd;
 
+/**
+ * Track 4: Predictive Time-to-Failure (TTF) Capacity Horizon Estimation
+ *
+ * Implements:
+ *   TTF = (Capacity_max - Usage_current) / (d/dt(Usage) + sigma_hurst * Dispersion)
+ *
+ * Evaluates drift velocity, long-range dispersion expansion under Hurst LRD,
+ * and categorizes degradation risk into CRITICAL_IMMINENT, WARNING_DRIFT, or STABLE_NOMINAL.
+ *
+ * @param {number[]} usageSeries Chronological telemetry usage samples (e.g. CPU %, Buffer %, RAM %)
+ * @param {Object} options Configuration parameters
+ * @param {number} [options.capacityMax=100.0] Saturation capacity threshold (default: 100)
+ * @param {number} [options.sampleIntervalSeconds=1.0] Time delta between successive samples
+ * @returns {Object} TTF horizon projection
+ */
+function estimateTimeToFailureHorizon(usageSeries, options = {}) {
+  const clean = (usageSeries || []).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const capacityMax = typeof options.capacityMax === 'number' ? options.capacityMax : 100.0;
+  const sampleIntervalSeconds = Math.max(0.1, Number(options.sampleIntervalSeconds) || 1.0);
+
+  if (clean.length === 0) {
+    return {
+      capacityMax,
+      usageCurrent: 0,
+      headroomRemaining: capacityMax,
+      driftRatePerSecond: 0,
+      hurstExponent: 0.5,
+      dispersionMultiplier: 1.0,
+      effectiveDegradationRate: 0,
+      timeToFailureSeconds: Infinity,
+      timeToFailureFormatted: 'INFINITE_HEADROOM',
+      riskHorizonTier: 'STABLE_NOMINAL',
+      actionableAdvisory: 'Insufficient telemetry to calculate drift horizon.'
+    };
+  }
+
+  const usageCurrent = clean[clean.length - 1];
+  const headroomRemaining = Math.max(0, capacityMax - usageCurrent);
+
+  // Compute Hurst & Wavelet properties
+  const hurst = computeHurstExponent(clean);
+  const N = clean.length;
+  const mean = clean.reduce((a, b) => a + b, 0) / N;
+  const variance = N > 1 ? clean.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / (N - 1) : 0;
+  const sigma = Math.sqrt(variance);
+
+  // Calculate drift rate d/dt(Usage) using ordinary least squares regression over the series
+  let sumT = 0, sumU = 0, sumTU = 0, sumT2 = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i * sampleIntervalSeconds;
+    const u = clean[i];
+    sumT += t;
+    sumU += u;
+    sumTU += t * u;
+    sumT2 += t * t;
+  }
+  const denom = N * sumT2 - sumT * sumT;
+  const slopePerSec = denom !== 0 ? (N * sumTU - sumT * sumU) / denom : 0;
+  const driftRatePerSecond = Math.round(slopePerSec * 10000) / 10000;
+
+  // Dispersion penalty: sigma_hurst = sigma * (dispersionMultiplier - 1) / 10.0
+  // When series is persistent (H >= 0.70), heavy-tailed bursts increase effective degradation rate
+  const dispersionPenalty = hurst.isLongRangeDependent
+    ? Math.max(0, (sigma * (hurst.dispersionMultiplier - 1)) / 10.0)
+    : 0;
+
+  const effectiveDegradationRate = Math.round(
+    Math.max(0.0001, driftRatePerSecond + dispersionPenalty) * 10000
+  ) / 10000;
+
+  let timeToFailureSeconds = Infinity;
+  if (headroomRemaining <= 0) {
+    timeToFailureSeconds = 0;
+  } else if (effectiveDegradationRate > 0.0001) {
+    timeToFailureSeconds = Math.round(headroomRemaining / effectiveDegradationRate);
+  }
+
+  let riskHorizonTier = 'STABLE_NOMINAL';
+  let actionableAdvisory = 'Nominal capacity headroom; telemetry slope is stable.';
+
+  if (timeToFailureSeconds <= 60) {
+    riskHorizonTier = 'CRITICAL_IMMINENT';
+    actionableAdvisory = `CRITICAL: Saturation failure projected within ${timeToFailureSeconds}s. Trigger preemptive shed / rate-limiting immediately.`;
+  } else if (timeToFailureSeconds <= 600) {
+    riskHorizonTier = 'WARNING_DRIFT';
+    actionableAdvisory = `WARNING: Monotonic drift detected with TTF horizon ${Math.round(timeToFailureSeconds / 60)} minutes. Scale buffer/worker capacity.`;
+  }
+
+  const formatTtf = (sec) => {
+    if (!Number.isFinite(sec)) return 'INFINITE_HEADROOM';
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.round(sec / 60)}m ${sec % 60}s`;
+    return `${(sec / 3600).toFixed(1)}h`;
+  };
+
+  return {
+    capacityMax,
+    usageCurrent: Number(usageCurrent.toFixed(2)),
+    headroomRemaining: Number(headroomRemaining.toFixed(2)),
+    driftRatePerSecond,
+    hurstExponent: hurst.hurstExponent,
+    dispersionMultiplier: hurst.dispersionMultiplier,
+    effectiveDegradationRate,
+    timeToFailureSeconds,
+    timeToFailureFormatted: formatTtf(timeToFailureSeconds),
+    riskHorizonTier,
+    actionableAdvisory
+  };
+}
+exports.estimateTimeToFailureHorizon = estimateTimeToFailureHorizon;
+
 class WaveletHurstLrdEngine {
   computeMorletWaveletTransform(series, scales) {
     return computeMorletWaveletTransform(series, scales);
@@ -329,6 +440,10 @@ class WaveletHurstLrdEngine {
 
   analyzeWaveletAndHurstLrd(series) {
     return analyzeWaveletAndHurstLrd(series);
+  }
+
+  estimateTimeToFailureHorizon(series, options) {
+    return estimateTimeToFailureHorizon(series, options);
   }
 }
 exports.WaveletHurstLrdEngine = WaveletHurstLrdEngine;

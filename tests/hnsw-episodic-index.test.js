@@ -199,4 +199,23 @@ describe('Phase 5.0 Track 3: HNSW Vector Graph Index & Louvain Modularity Cluste
     assert.ok(cascades.communities.length >= 1);
   });
 
+  test('Multi-Scale Incident Cascade Clustering: identifies propagation pathways, dominant scale, and early warning signature', () => {
+    const index = new HnswEpisodicIndex();
+    const edges = [
+      { source: 'bgp_route_withdraw', target: 'ingress_packet_loss', weight: 6 },
+      { source: 'ingress_packet_loss', target: 'gateway_502_spike', weight: 5 },
+      { source: 'gateway_502_spike', target: 'client_retry_storm', weight: 4 }
+    ];
+
+    const result = index.clusterMultiScaleCascades(edges, { leadTimeBaseSeconds: 25.0 });
+    assert.ok(result.communities.length >= 1);
+    assert.ok(result.modularityQ >= 0);
+    assert.ok(Array.isArray(result.pathways) && result.pathways.length >= 1);
+    assert.strictEqual(result.pathways[0].sourceIncident, 'bgp_route_withdraw');
+    assert.ok(result.pathways[0].propagatedTo.length >= 1);
+    assert.ok(result.pathways[0].earlyWarningLeadTimeSeconds >= 25.0);
+    assert.ok(typeof result.dominantFrequencyScale === 'number');
+    assert.match(result.earlyWarningSignature, /CASCADE_EARLY_WARNING/);
+  });
+
 });

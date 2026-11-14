@@ -12,6 +12,7 @@ const {
   computeMorletWaveletTransform,
   computeHurstExponent,
   analyzeWaveletAndHurstLrd,
+  estimateTimeToFailureHorizon,
   waveletHurstLrdEngine
 } = require('../src/ai/wavelet-hurst-lrd-engine');
 
@@ -115,5 +116,32 @@ describe('Track 1: Multi-Scale Wavelet Changepoint Engine & Hurst Exponent LRD F
     const classResult = predictiveHorizonEngine.evaluateWaveletLrdHorizon(series);
     assert.strictEqual(classResult.target, 'target-node');
     assert.ok(classResult.report);
+  });
+
+  it('Subtest 6: Evaluates predictive Time-to-Failure (TTF) capacity horizon with Hurst dispersion', () => {
+    // 6a. Rapidly escalating usage series (approaching 100% capacity)
+    const escalating = [50, 55, 61, 68, 76, 85, 93];
+    const ttfImminent = estimateTimeToFailureHorizon(escalating, { capacityMax: 100.0, sampleIntervalSeconds: 1.0 });
+
+    assert.strictEqual(ttfImminent.capacityMax, 100.0);
+    assert.strictEqual(ttfImminent.usageCurrent, 93);
+    assert.strictEqual(ttfImminent.headroomRemaining, 7);
+    assert.ok(ttfImminent.driftRatePerSecond > 0, 'Drift rate must be positive');
+    assert.ok(ttfImminent.timeToFailureSeconds <= 60, `TTF must be imminent (<= 60s), got ${ttfImminent.timeToFailureSeconds}`);
+    assert.strictEqual(ttfImminent.riskHorizonTier, 'CRITICAL_IMMINENT');
+    assert.ok(ttfImminent.actionableAdvisory.includes('CRITICAL'));
+
+    // 6b. Moderate linear drift
+    const linearDrift = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+    const ttfWarning = waveletHurstLrdEngine.estimateTimeToFailureHorizon(linearDrift, { capacityMax: 100.0, sampleIntervalSeconds: 1.0 });
+    assert.ok(ttfWarning.timeToFailureSeconds > 60);
+    assert.strictEqual(ttfWarning.riskHorizonTier, 'WARNING_DRIFT');
+
+    // 6c. Saturated state (headroom <= 0)
+    const saturated = [80, 90, 100];
+    const ttfSat = estimateTimeToFailureHorizon(saturated, { capacityMax: 100.0 });
+    assert.strictEqual(ttfSat.headroomRemaining, 0);
+    assert.strictEqual(ttfSat.timeToFailureSeconds, 0);
+    assert.strictEqual(ttfSat.riskHorizonTier, 'CRITICAL_IMMINENT');
   });
 });
