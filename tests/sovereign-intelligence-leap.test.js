@@ -30,7 +30,7 @@ const {
 
 const { operationalMemoryEngine } = require('../src/core/memory/operational-memory-engine');
 const { NeuroSymbolicApexEngine } = require('../src/ai/neuro-symbolic-apex');
-const { autonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
+const { autonomousWarRoomOrchestrator, AutonomousWarRoomOrchestrator } = require('../src/ai/autonomous-war-room');
 const { packetStreamer } = require('../src/network/packet-streaming/packet-streamer');
 
 test('EJII Sovereign Intelligence Leap Suite', async (t) => {
@@ -407,5 +407,189 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     });
     assert.equal(snmpDist.type, 'SNMP_PROBE_DISTILLATION');
     assert.equal(snmpDist.totalOids, 1);
+  });
+
+  await t.test('13. verifies autonomous war room automated key rotation and receipt expiration TTL', () => {
+    const testSecret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const warRoom = new AutonomousWarRoomOrchestrator({
+      secretKey: testSecret,
+      rotationPolicy: {
+        maxAgeMs: 500,
+        maxReceiptsBeforeRotation: 3,
+        autoRotate: true
+      }
+    });
+
+    const initialKeyId = warRoom.getDiagnostics().activeKeyId;
+    assert.ok(initialKeyId);
+
+    // Issue receipt 1 & 2
+    const rcpt1 = warRoom.signCollectorExecutionReceipt({
+      sessionId: 'ROT_SESS_1',
+      probeId: 'TCP_443',
+      target: '10.0.0.1',
+      durationMs: 5.2,
+      rawCommandOutput: 'TCP_SYN_ACK'
+    });
+    assert.equal(rcpt1.keyId, initialKeyId);
+    assert.equal(warRoom.getDiagnostics().receiptsIssuedCurrentKey, 1);
+
+    const rcpt2 = warRoom.signCollectorExecutionReceipt({
+      sessionId: 'ROT_SESS_1',
+      probeId: 'TCP_443',
+      target: '10.0.0.1',
+      durationMs: 4.8,
+      rawCommandOutput: 'TCP_SYN_ACK'
+    });
+    assert.equal(rcpt2.keyId, initialKeyId);
+    assert.equal(warRoom.getDiagnostics().receiptsIssuedCurrentKey, 2);
+
+    // Issue receipt 3 (hits maxReceiptsBeforeRotation threshold = 3)
+    const rcpt3 = warRoom.signCollectorExecutionReceipt({
+      sessionId: 'ROT_SESS_1',
+      probeId: 'TCP_443',
+      target: '10.0.0.1',
+      durationMs: 4.9,
+      rawCommandOutput: 'TCP_SYN_ACK'
+    });
+    assert.equal(rcpt3.keyId, initialKeyId);
+
+    // Issue receipt 4 (triggers checkRotationNeeded and auto-rotates)
+    const rcpt4 = warRoom.signCollectorExecutionReceipt({
+      sessionId: 'ROT_SESS_1',
+      probeId: 'TCP_443',
+      target: '10.0.0.1',
+      durationMs: 5.0,
+      rawCommandOutput: 'TCP_SYN_ACK'
+    });
+    const rotatedKeyId = warRoom.getDiagnostics().activeKeyId;
+    assert.notEqual(rotatedKeyId, initialKeyId);
+    assert.equal(rcpt4.keyId, rotatedKeyId);
+
+    // Verify older receipt within grace period still verifies cleanly
+    const verifyRcpt1 = warRoom.verifyCollectorExecutionReceipt(rcpt1, 'TCP_443', '10.0.0.1', 'ROT_SESS_1');
+    assert.equal(verifyRcpt1.valid, true);
+
+    // Verify expired receipt (older than 3600s TTL)
+    const expiredReceipt = {
+      ...rcpt1,
+      receiptId: 'rcpt-expired-999',
+      startedAt: new Date(Date.now() - 3600_000 * 2).toISOString(),
+      completedAt: new Date(Date.now() - 3600_000 * 2 + 100).toISOString()
+    };
+    const expiredCheck = warRoom.verifyCollectorExecutionReceipt(expiredReceipt, 'TCP_443', '10.0.0.1', 'ROT_SESS_1');
+    assert.equal(expiredCheck.valid, false);
+    assert.equal(expiredCheck.reasonCode, 'COLLECTOR_RECEIPT_EXPIRED');
+
+    // Verify future skew receipt (> 60s in future)
+    const futureReceipt = {
+      ...rcpt1,
+      receiptId: 'rcpt-future-999',
+      startedAt: new Date(Date.now() + 120_000).toISOString(),
+      completedAt: new Date(Date.now() + 120_100).toISOString()
+    };
+    const futureCheck = warRoom.verifyCollectorExecutionReceipt(futureReceipt, 'TCP_443', '10.0.0.1', 'ROT_SESS_1');
+    assert.equal(futureCheck.valid, false);
+    assert.equal(futureCheck.reasonCode, 'COLLECTOR_RECEIPT_FUTURE_SKEW');
+  });
+
+  await t.test('14. verifies rate limiting coverage, headers, and 429 throttling across API endpoints', () => {
+    const { createApiRateLimiter } = require('../src/api/rate-limiter');
+    const limiter = createApiRateLimiter({
+      endpointName: 'api/test-scope',
+      windowMs: 10_000,
+      maxRequests: 2
+    });
+
+    const headers = {};
+    const mockRes = {
+      setHeader(k, v) { headers[k] = v; },
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+
+    let nextCount = 0;
+    const req1 = { ip: '192.168.1.100' };
+    limiter(req1, mockRes, () => { nextCount++; });
+    assert.equal(nextCount, 1);
+    assert.equal(headers['X-RateLimit-Limit'], 2);
+    assert.equal(headers['X-RateLimit-Remaining'], 1);
+
+    const req2 = { ip: '192.168.1.100' };
+    limiter(req2, mockRes, () => { nextCount++; });
+    assert.equal(nextCount, 2);
+    assert.equal(headers['X-RateLimit-Remaining'], 0);
+
+    // 3rd request should exceed maxRequests and return 429
+    const req3 = { ip: '192.168.1.100' };
+    limiter(req3, mockRes, () => { nextCount++; });
+    assert.equal(nextCount, 2); // next() was not called
+    assert.equal(mockRes.statusCode, 429);
+    assert.equal(mockRes.body.ok, false);
+    assert.match(mockRes.body.error, /Rate limit exceeded on \/api\/test-scope/);
+  });
+
+  await t.test('15. verifies standardized EJIIResult<T> error envelope across protocol engines', () => {
+    const { wrapProtocolProbeResult, validateEjiiResult } = require('../src/core/contracts/ejii-result');
+
+    // Case 1: TCP Port Closed error
+    const rawTcpClosed = {
+      host: '127.0.0.1',
+      port: 65431,
+      status: 'CLOSED',
+      open: false,
+      connectLatencyMs: 1.2,
+      error: 'ECONNREFUSED (Host is up, but no service is listening on port)',
+      errorCode: 'ECONNREFUSED'
+    };
+    const wrappedTcp = wrapProtocolProbeResult('ejii.protocols.tcp_port', rawTcpClosed);
+    assert.equal(wrappedTcp.ok, false);
+    assert.equal(wrappedTcp.success, false);
+    assert.equal(wrappedTcp.status, 'failed');
+    assert.equal(wrappedTcp.error.code, 'ECONNREFUSED');
+    assert.match(wrappedTcp.error.message, /ECONNREFUSED/);
+    assert.equal(wrappedTcp.source.module, 'ejii.protocols.tcp_port');
+    const validTcp = validateEjiiResult(wrappedTcp);
+    assert.equal(validTcp.valid, true);
+
+    // Case 2: DNS lookup error
+    const rawDnsError = {
+      success: false,
+      error: 'queryA ENOTFOUND invalid.domain.corp',
+      errorCode: 'ENOTFOUND'
+    };
+    const wrappedDns = wrapProtocolProbeResult('ejii.protocols.dns_lookup', rawDnsError);
+    assert.equal(wrappedDns.ok, false);
+    assert.equal(wrappedDns.status, 'failed');
+    assert.equal(wrappedDns.error.code, 'ENOTFOUND');
+    assert.equal(validateEjiiResult(wrappedDns).valid, true);
+
+    // Case 3: Security blocked (SSRF)
+    const rawSecurityBlocked = {
+      host: '169.254.169.254',
+      port: 80,
+      status: 'SECURITY_BLOCKED',
+      open: false,
+      error: 'Prohibited cloud metadata endpoint'
+    };
+    const wrappedSecurity = wrapProtocolProbeResult('ejii.protocols.tcp_port', rawSecurityBlocked);
+    assert.equal(wrappedSecurity.ok, false);
+    assert.equal(wrappedSecurity.status, 'denied');
+    assert.equal(validateEjiiResult(wrappedSecurity).valid, true);
+
+    // Case 4: Successful ping probe
+    const rawPingSuccess = {
+      host: '127.0.0.1',
+      alive: true,
+      avgRttMs: 0.8,
+      packetLossPct: 0.0
+    };
+    const wrappedPing = wrapProtocolProbeResult('ejii.protocols.icmp_ping', rawPingSuccess);
+    assert.equal(wrappedPing.ok, true);
+    assert.equal(wrappedPing.success, true);
+    assert.equal(wrappedPing.status, 'ok');
+    assert.equal(wrappedPing.error, undefined);
+    assert.equal(validateEjiiResult(wrappedPing).valid, true);
   });
 });

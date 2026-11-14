@@ -46,6 +46,13 @@ const observabilityRoutes = require('./api/routes-observability');
 const learningRoutes = require('./api/routes-learning');
 const v6FabricRoutes = require('./api/routes-v6-fabric');
 const enterpriseRoutes = require('./api/routes-enterprise');
+const {
+  chatRateLimiter,
+  enterpriseRateLimiter,
+  v6FabricRateLimiter,
+  atlasRateLimiter,
+  diagnosticsRateLimiter
+} = require('./api/rate-limiter');
 const { handleActionsList, handleActionReview } = require('./api/webauthn-automation');
 const { initLearningSchema } = require('./db/learning-schema');
 const { cncfObservabilityExporter } = require('./integrations/observability/cncf-observability-exporter');
@@ -311,6 +318,15 @@ app.get('/api/system/bootstrap', authenticate, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// Rate Limiter Enforcement on Public and High-Volume APIs
+app.use('/api/chat', chatRateLimiter);
+app.use('/api/v6/chat', chatRateLimiter);
+app.use('/api/enterprise', enterpriseRateLimiter);
+app.use('/api/v6', v6FabricRateLimiter);
+app.use('/api/atlas', atlasRateLimiter);
+app.use('/api/v6/atlas', atlasRateLimiter);
+app.use('/api/diagnostics', diagnosticsRateLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/diagnostics', hostRemediationRoutes);

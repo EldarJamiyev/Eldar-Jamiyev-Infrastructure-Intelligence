@@ -123,6 +123,76 @@ function getAttemptsMapSize() {
   return attemptsMap.size;
 }
 
+/**
+ * Sliding-window in-memory rate limiter factory for API routes.
+ * Emits X-RateLimit-* headers and enforces 429 when threshold exceeded.
+ */
+function createApiRateLimiter(options = {}) {
+  const windowMs = Number(options.windowMs) || 60_000;
+  const maxRequests = Number(options.maxRequests) || 300;
+  const endpointName = String(options.endpointName || 'api');
+  const requestCounts = new Map();
+  const maxTrackedClients = 10000;
+
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of requestCounts.entries()) {
+      if (now - entry.windowStart > windowMs) {
+        requestCounts.delete(ip);
+      }
+    }
+  }, Math.min(windowMs, 30_000));
+  if (timer.unref) timer.unref();
+
+  return function apiRateLimiter(req, res, next) {
+    if (process.env.NODE_ENV === 'test' && req.headers && req.headers['x-bypass-ratelimit'] === 'true') {
+      return next();
+    }
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const now = Date.now();
+
+    let entry = requestCounts.get(ip);
+    if (!entry || now - entry.windowStart > windowMs) {
+      entry = { count: 1, windowStart: now };
+      if (requestCounts.size >= maxTrackedClients) {
+        const firstKey = requestCounts.keys().next().value;
+        if (firstKey) requestCounts.delete(firstKey);
+      }
+      requestCounts.set(ip, entry);
+    } else {
+      entry.count++;
+    }
+
+    const remaining = Math.max(0, maxRequests - entry.count);
+    const resetSec = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+    if (typeof res.setHeader === 'function') {
+      res.setHeader('X-RateLimit-Limit', maxRequests);
+      res.setHeader('X-RateLimit-Remaining', remaining);
+      res.setHeader('X-RateLimit-Reset', resetSec);
+    }
+
+    if (entry.count > maxRequests) {
+      if (typeof res.setHeader === 'function') {
+        res.setHeader('Retry-After', resetSec);
+      }
+      return res.status(429).json({
+        ok: false,
+        error: `Rate limit exceeded on /${endpointName}. Max ${maxRequests} requests per ${Math.round(windowMs / 1000)}s. Please retry in ${resetSec} seconds.`,
+        endpoint: endpointName,
+        retryAfter: resetSec
+      });
+    }
+
+    next();
+  };
+}
+
+const chatRateLimiter = createApiRateLimiter({ endpointName: 'api/chat', windowMs: 60_000, maxRequests: 180 });
+const enterpriseRateLimiter = createApiRateLimiter({ endpointName: 'api/enterprise', windowMs: 60_000, maxRequests: 300 });
+const v6FabricRateLimiter = createApiRateLimiter({ endpointName: 'api/v6', windowMs: 60_000, maxRequests: 300 });
+const atlasRateLimiter = createApiRateLimiter({ endpointName: 'api/atlas', windowMs: 60_000, maxRequests: 240 });
+const diagnosticsRateLimiter = createApiRateLimiter({ endpointName: 'api/diagnostics', windowMs: 60_000, maxRequests: 200 });
+
 module.exports = {
   loginRateLimiter,
   recordLoginAttempt,
@@ -130,6 +200,12 @@ module.exports = {
   recordFailedAttempt,
   resetRateLimit,
   getAttemptsMapSize,
+  createApiRateLimiter,
+  chatRateLimiter,
+  enterpriseRateLimiter,
+  v6FabricRateLimiter,
+  atlasRateLimiter,
+  diagnosticsRateLimiter,
   MAX_TRACKED_CLIENTS
 };
 

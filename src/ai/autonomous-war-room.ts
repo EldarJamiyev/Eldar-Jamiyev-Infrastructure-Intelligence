@@ -251,10 +251,13 @@ export class AutonomousWarRoomOrchestrator {
   private corruptSessionsSkippedCount = 0;
   private lastPersistenceState = 'VOLATILE_MEMORY_ONLY';
   private lastPersistenceError: string | null = null;
+  private keyCreatedAtMs: number = Date.now();
+  private receiptsIssuedCurrentKey = 0;
+  private rotationPolicy: { maxAgeMs: number; maxReceiptsBeforeRotation: number; autoRotate: boolean };
 
-  constructor(secretKeyOrOptions?: string | { secretKey?: string; db?: any; maxRetainedSessions?: number; keyId?: string }, maybeOptions: { db?: any; maxRetainedSessions?: number; keyId?: string } = {}) {
+  constructor(secretKeyOrOptions?: string | { secretKey?: string; db?: any; maxRetainedSessions?: number; keyId?: string; rotationPolicy?: { maxAgeMs?: number; maxReceiptsBeforeRotation?: number; autoRotate?: boolean } }, maybeOptions: { db?: any; maxRetainedSessions?: number; keyId?: string; rotationPolicy?: { maxAgeMs?: number; maxReceiptsBeforeRotation?: number; autoRotate?: boolean } } = {}) {
     let secretKey: string | undefined;
-    let options: { db?: any; maxRetainedSessions?: number; keyId?: string } = {};
+    let options: { db?: any; maxRetainedSessions?: number; keyId?: string; rotationPolicy?: { maxAgeMs?: number; maxReceiptsBeforeRotation?: number; autoRotate?: boolean } } = {};
     if (typeof secretKeyOrOptions === 'object' && secretKeyOrOptions !== null) {
       options = secretKeyOrOptions;
       secretKey = secretKeyOrOptions.secretKey;
@@ -270,6 +273,14 @@ export class AutonomousWarRoomOrchestrator {
     this.hmacValidationReason = validation.reason;
     this.customDb = options.db !== undefined ? options.db : undefined;
     this.maxRetainedSessions = Math.max(5, Math.min(1000, Number(options.maxRetainedSessions) || 100));
+    const rawPolicy = options?.rotationPolicy || {};
+    this.rotationPolicy = {
+      maxAgeMs: Math.max(10, Number(rawPolicy.maxAgeMs) || 4 * 3600 * 1000),
+      maxReceiptsBeforeRotation: Math.max(1, Number(rawPolicy.maxReceiptsBeforeRotation) || 10000),
+      autoRotate: rawPolicy.autoRotate !== false
+    };
+    this.keyCreatedAtMs = Date.now();
+    this.receiptsIssuedCurrentKey = 0;
     this.hydrateSessionsFromDb();
   }
 
@@ -308,12 +319,33 @@ export class AutonomousWarRoomOrchestrator {
     this.activeKeyId = nextKeyId;
     this.hmacConfigured = true;
     this.hmacValidationReason = 'VALID_SOVEREIGN_SECRET';
+    this.keyCreatedAtMs = now;
+    this.receiptsIssuedCurrentKey = 0;
     return {
       rotated: true,
       activeKeyId: this.activeKeyId,
       previousKeysCount: this.previousKeys.length,
       gracePeriodMs
     };
+  }
+
+  /**
+   * Checks whether the active signing key needs rotation based on configured age or volume policies.
+   * Auto-rotates if rotationPolicy.autoRotate is true.
+   */
+  public checkRotationNeeded(): boolean {
+    const now = Date.now();
+    const ageExceeded = (now - this.keyCreatedAtMs) >= this.rotationPolicy.maxAgeMs;
+    const countExceeded = this.receiptsIssuedCurrentKey >= this.rotationPolicy.maxReceiptsBeforeRotation;
+    if ((ageExceeded || countExceeded) && this.rotationPolicy.autoRotate && this.hmacConfigured) {
+      const nextSecret = crypto.randomBytes(32).toString('hex');
+      const nextKeyId = `sre-war-room-v1-auto-${now}`;
+      this.rotateHmacKey(nextSecret, { keyId: nextKeyId, gracePeriodMs: 3600_000 });
+      this.keyCreatedAtMs = now;
+      this.receiptsIssuedCurrentKey = 0;
+      return true;
+    }
+    return ageExceeded || countExceeded;
   }
 
   /**
@@ -435,6 +467,9 @@ export class AutonomousWarRoomOrchestrator {
       hmacConfigured: this.hmacConfigured,
       hmacValidationReason: this.hmacValidationReason,
       activeKeyId: this.activeKeyId,
+      keyCreatedAtMs: this.keyCreatedAtMs,
+      receiptsIssuedCurrentKey: this.receiptsIssuedCurrentKey,
+      rotationPolicy: { ...this.rotationPolicy },
       revokedKeysCount: this.revokedKeyIds.size,
       retainedSessionsInMemory: this.sessionHistory.size,
       maxRetainedSessions: this.maxRetainedSessions,
@@ -443,6 +478,22 @@ export class AutonomousWarRoomOrchestrator {
       lastPersistenceState: this.lastPersistenceState,
       lastPersistenceError: this.lastPersistenceError
     };
+  }
+
+  public signCollectorExecutionReceipt(params: {
+    sessionId?: string;
+    probeId: string;
+    probeType?: string;
+    target: string;
+    collectorId?: string;
+    startedAt?: string;
+    completedAt?: string;
+    durationMs: number;
+    timingTarget?: ProbeTimingTarget;
+    nativeResultCode?: string;
+    rawCommandOutput: string;
+  }): CollectorExecutionReceipt {
+    return this.createCollectorExecutionReceipt(params);
   }
 
   /**
@@ -478,6 +529,8 @@ export class AutonomousWarRoomOrchestrator {
     nativeResultCode?: string;
     rawCommandOutput: string;
   }): CollectorExecutionReceipt {
+    this.checkRotationNeeded();
+    this.receiptsIssuedCurrentKey++;
     const receiptId = `rcpt-${crypto.randomBytes(6).toString('hex')}`;
     const sessionId = params.sessionId || 'LIVE_COLLECTOR';
     const probeType = params.probeType || (
@@ -612,6 +665,28 @@ export class AutonomousWarRoomOrchestrator {
         reasonCode: 'COLLECTOR_RECEIPT_KEY_REVOKED',
         message: `Collector execution receipt signing key "${r.keyId}" was revoked.`
       };
+    }
+
+    const maxReceiptAgeMs = 3600_000;
+    const receiptTime = new Date(r.completedAt || r.startedAt).getTime();
+    if (Number.isFinite(receiptTime)) {
+      const now = Date.now();
+      if (now - receiptTime > maxReceiptAgeMs) {
+        return {
+          valid: false,
+          code: 'COLLECTOR_RECEIPT_EXPIRED',
+          reasonCode: 'COLLECTOR_RECEIPT_EXPIRED',
+          message: `Collector execution receipt "${r.receiptId}" has expired (age: ${Math.round((now - receiptTime) / 1000)}s exceeds TTL ${maxReceiptAgeMs / 1000}s).`
+        };
+      }
+      if (receiptTime - now > 60_000) {
+        return {
+          valid: false,
+          code: 'COLLECTOR_RECEIPT_FUTURE_SKEW',
+          reasonCode: 'COLLECTOR_RECEIPT_FUTURE_SKEW',
+          message: `Collector execution receipt "${r.receiptId}" has invalid future timestamp.`
+        };
+      }
     }
 
     if (!this.hmacConfigured) {

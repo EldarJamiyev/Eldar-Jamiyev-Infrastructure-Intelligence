@@ -61,6 +61,7 @@ function createEjiiResult(opts = {}) {
   }
 
   const envelope = {
+    ok: success,
     success,
     capabilityId,
     requestId,
@@ -78,12 +79,95 @@ function createEjiiResult(opts = {}) {
     envelope.error = {
       code: String(opts.error.code || 'EJII_CAPABILITY_ERROR'),
       message: String(opts.error.message || 'Capability execution encountered an error'),
+      category: String(opts.error.category || 'EXECUTION_ERROR'),
       recoverable: opts.error.recoverable !== undefined ? Boolean(opts.error.recoverable) : true,
       ...(opts.error.remediationHint ? { remediationHint: String(opts.error.remediationHint) } : {})
     };
   }
 
   return envelope;
+}
+
+/**
+ * Checks whether an object already conforms to the EJIIResult<T> envelope.
+ * @param {any} candidate
+ * @returns {boolean}
+ */
+function isEjiiResult(candidate) {
+  return Boolean(
+    candidate &&
+    typeof candidate === 'object' &&
+    typeof candidate.success === 'boolean' &&
+    typeof candidate.capabilityId === 'string' &&
+    typeof candidate.status === 'string' &&
+    candidate.source &&
+    typeof candidate.source === 'object'
+  );
+}
+
+/**
+ * Standardizes any protocol probe result or error into a canonical EJIIResult<T> envelope.
+ * @param {string} capabilityId
+ * @param {any} rawResult
+ * @param {Object} [options]
+ * @returns {Object} EJIIResult<T>
+ */
+function wrapProtocolProbeResult(capabilityId, rawResult, options = {}) {
+  if (isEjiiResult(rawResult)) {
+    return rawResult;
+  }
+  const isErr = rawResult instanceof Error;
+  const isSuccess = !isErr && Boolean(
+    rawResult &&
+    (rawResult.success === true ||
+     rawResult.open === true ||
+     rawResult.alive === true ||
+     rawResult.reachable === true ||
+     rawResult.healthy === true ||
+     (rawResult.status && (rawResult.status === 'OPEN' || rawResult.status === 'ok' || rawResult.status === 'RESOLVED' || rawResult.status === 'VERIFIED')))
+  );
+
+  let status = isSuccess ? 'ok' : 'failed';
+  if (rawResult?.status === 'SECURITY_BLOCKED' || rawResult?.status === 'ACCESS_DENIED') {
+    status = 'denied';
+  } else if (rawResult?.status === 'FILTERED' || rawResult?.status === 'DEGRADED') {
+    status = 'degraded';
+  } else if (rawResult?.status === 'partial') {
+    status = 'partial';
+  }
+
+  let errorObj = null;
+  if (!isSuccess) {
+    const code = rawResult?.errorCode || rawResult?.code || (isErr ? rawResult.name : 'PROTOCOL_PROBE_ERROR');
+    const msg = rawResult?.error || (isErr ? rawResult.message : (rawResult?.summary || 'Protocol probe failed or unanswered'));
+    errorObj = {
+      code: String(code),
+      message: String(msg),
+      category: rawResult?.errorCategory || 'NETWORK_TRANSPORT_ERROR',
+      recoverable: rawResult?.recoverable !== false,
+      ...(rawResult?.remediationHint ? { remediationHint: String(rawResult.remediationHint) } : {})
+    };
+  }
+
+  return createEjiiResult({
+    success: isSuccess,
+    capabilityId: String(capabilityId || 'ejii.protocols.unknown'),
+    requestId: options.requestId,
+    correlationId: options.correlationId,
+    observedAt: options.observedAt || new Date().toISOString(),
+    source: {
+      module: String(capabilityId || 'ejii.protocols.unknown'),
+      method: options.method || 'wire_socket_probe',
+      privilege: options.privilege || 'unprivileged',
+      platform: process.platform,
+      fidelity: options.fidelity || 'live'
+    },
+    status,
+    data: rawResult,
+    evidenceIds: options.evidenceIds || [],
+    warnings: options.warnings || [],
+    error: errorObj
+  });
 }
 
 /**
@@ -122,5 +206,7 @@ module.exports = {
   VALID_FIDELITIES,
   VALID_STATUSES,
   createEjiiResult,
-  validateEjiiResult
+  validateEjiiResult,
+  wrapProtocolProbeResult,
+  isEjiiResult
 };
