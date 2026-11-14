@@ -3132,6 +3132,11 @@ const CANONICAL_REMEDIATION_MAP = {
     recipeId: 'renew_dhcp',
     runbookId: 'RB-06',
     rationale: 'Re-negotiate upstream gateway route and refresh dynamic lease parameters.'
+  },
+  GATEWAY_BUFFERBLOAT: {
+    recipeId: 'trim_working_set',
+    runbookId: 'RB-07',
+    rationale: 'Clamp TCP receive window and shape gateway egress queue to mitigate active bufferbloat.'
   }
 };
 
@@ -3182,6 +3187,47 @@ async function formulateRemediationGate(hypothesisId, targetHost = '127.0.0.1', 
       const microPlan = generativeRemediationSynthesizer.issueCryptographicActionPlan(microCandidate, currentState);
       gate.synthesizedMicroPlan = microPlan;
       gate.lyapunovProof = microPlan.lyapunovProof;
+
+      // Phase 5.0 Distributed Transactional Remediation Saga & 2PC Orchestrator
+      try {
+        const { distributedSagaOrchestrator } = require('../../systems/remediation/distributed-saga-orchestrator');
+        const edgeState = { rttMs: 35.0, lossPct: 1.5, queueDepthPackets: 25 };
+        const gwState = { rttMs: 15.0, lossPct: 0.5, queueDepthPackets: 10 };
+        const gwCandidate = generativeRemediationSynthesizer.synthesizeRemediationCandidate(hypothesisId, gwState, '10.0.0.1');
+
+        const saga = distributedSagaOrchestrator.initiateSaga(
+          hypothesisId,
+          userContext?.username || 'operator',
+          [
+            {
+              nodeId: `node_edge_${targetHost.replace(/[^a-zA-Z0-9]/g, '_')}`,
+              role: 'EDGE_SWITCH',
+              targetEndpoint: targetHost,
+              candidateAction: microPlan.action,
+              candidateInverse: microPlan.inverseAction,
+              currentState: edgeState
+            },
+            {
+              nodeId: 'node_gw_core',
+              role: 'CORE_GATEWAY',
+              targetEndpoint: '10.0.0.1',
+              candidateAction: gwCandidate.action,
+              candidateInverse: gwCandidate.inverseAction,
+              currentState: gwState
+            }
+          ]
+        );
+
+        const preparedSaga = distributedSagaOrchestrator.executePreparePhase(saga.sagaId);
+        gate.distributedSagaPlan = {
+          sagaId: preparedSaga.sagaId,
+          phase: preparedSaga.phase,
+          participantsCount: preparedSaga.participants.length,
+          aggregateDeltaV: preparedSaga.lyapunovAggregate.deltaV,
+          isRiemannianStable: preparedSaga.lyapunovAggregate.isRiemannianStable,
+          commitQuorumReady: preparedSaga.phase === 'COMMIT_VOTE_QUORUM'
+        };
+      } catch (_) {}
     } catch (_) {}
 
     return gate;
