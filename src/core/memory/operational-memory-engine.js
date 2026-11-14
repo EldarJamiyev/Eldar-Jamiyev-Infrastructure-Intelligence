@@ -4505,6 +4505,162 @@ class OperationalMemoryEngine {
       topMatches: matches.slice(0, 5)
     };
   }
+
+  /**
+   * Calculate empirical Bayesian prior distribution for a target host based on
+   * historical incident resolutions (`ejii_incident_resolutions`) and operational memory observations (`ejii_operational_memory`).
+   *
+   * Applies symmetric Dirichlet smoothing (\alpha = 0.5) over the 9 canonical failure hypotheses:
+   *   P_empirical(H_i) = (c_i + \alpha) / (N + 9 * \alpha)
+   *
+   * @param {string} targetHost - Target hostname or IP
+   * @returns {Object} { hasHistory, sampleCount, target, empiricalPriors, dominantHypothesis }
+   */
+  calculateTargetEmpiricalPrior(targetHost) {
+    const cleanTarget = targetHost ? String(targetHost).trim().toLowerCase() : null;
+    if (!cleanTarget) {
+      return {
+        hasHistory: false,
+        sampleCount: 0,
+        target: null,
+        empiricalPriors: []
+      };
+    }
+
+    const CANONICAL_HYPOTHESIS_IDS = [
+      'FIREWALL_ACL_DROP',
+      'SERVICE_DAEMON_CRASH',
+      'DNS_NXDOMAIN_POISON',
+      'UPSTREAM_WAN_BLACKHOLE',
+      'TLS_CERT_EXPIRY',
+      'MTU_BLACKHOLE_FRAGMENT',
+      'ARP_L2_ISOLATION',
+      'LOCAL_STACK_CONGESTION',
+      'ICMP_FILTERED_ALIVE'
+    ];
+
+    const counts = Object.create(null);
+    for (const id of CANONICAL_HYPOTHESIS_IDS) {
+      counts[id] = 0;
+    }
+
+    let matchCount = 0;
+
+    // 1. Scan SQLite ejii_incident_resolutions or in-memory cache
+    let resolutions = [];
+    if (this.useSqlite && db) {
+      try {
+        resolutions = db.prepare(
+          'SELECT root_cause, symptom_signature, hit_count FROM ejii_incident_resolutions WHERE target_key = ?'
+        ).all(cleanTarget);
+      } catch (_) {
+        resolutions = [];
+      }
+    }
+    // Also include cache
+    for (const r of this.resolutionsCache) {
+      if (r.targetKey === cleanTarget && !resolutions.some((dbR) => dbR.resolutionId === r.resolutionId)) {
+        resolutions.push(r);
+      }
+    }
+
+    const classifyFaultText = (text) => {
+      const lower = String(text || '').toLowerCase();
+      if (/dns|nxdomain|resolver|query|poison|named|resolv|record/i.test(lower)) return 'DNS_NXDOMAIN_POISON';
+      if (/tls|cert|x509|ssl|expired|handshake fail/i.test(lower)) return 'TLS_CERT_EXPIRY';
+      if (/mtu|fragment|packet size|df bit|blackhole.*fragment/i.test(lower)) return 'MTU_BLACKHOLE_FRAGMENT';
+      if (/arp|l2|mac|neighbor|ndp/i.test(lower)) return 'ARP_L2_ISOLATION';
+      if (/wan|isp|upstream|route blackhole|default gateway/i.test(lower)) return 'UPSTREAM_WAN_BLACKHOLE';
+      if (/firewall|acl|iptables|security group|blocked|filtered|drop/i.test(lower)) return 'FIREWALL_ACL_DROP';
+      if (/daemon|service|crash|econnrefused|not running|down|closed port/i.test(lower)) return 'SERVICE_DAEMON_CRASH';
+      if (/congestion|socket|backlog|ephemeral|port exhaustion|resource/i.test(lower)) return 'LOCAL_STACK_CONGESTION';
+      if (/icmp|ping filter/i.test(lower)) return 'ICMP_FILTERED_ALIVE';
+      return null;
+    };
+
+    for (const res of resolutions) {
+      const hyp = classifyFaultText(res.root_cause || res.rootCause) || classifyFaultText(res.symptom_signature || res.symptomSignature);
+      const weight = Math.max(1, Number(res.hit_count || res.hitCount) || 1);
+      if (hyp && counts[hyp] !== undefined) {
+        counts[hyp] += weight;
+        matchCount += weight;
+      }
+    }
+
+    // 2. Scan entity operational memory for failure layers and transitions
+    const entity = this._loadEntity(cleanTarget);
+    if (entity) {
+      if (entity.lastFailureLayer) {
+        const hyp = classifyFaultText(entity.lastFailureLayer) || classifyFaultText(entity.lastSummary);
+        if (hyp && counts[hyp] !== undefined) {
+          counts[hyp] += 1;
+          matchCount += 1;
+        }
+      }
+      if (Array.isArray(entity.transitions)) {
+        for (const t of entity.transitions) {
+          if (String(t.type || '').includes('REGRESSION') || String(t.type || '').includes('FAILED')) {
+            const hyp = classifyFaultText(t.detail || t.type);
+            if (hyp && counts[hyp] !== undefined) {
+              counts[hyp] += 1;
+              matchCount += 1;
+            }
+          }
+        }
+      }
+    }
+
+    if (matchCount === 0) {
+      return {
+        hasHistory: false,
+        sampleCount: 0,
+        target: cleanTarget,
+        empiricalPriors: []
+      };
+    }
+
+    // Apply Dirichlet smoothing with symmetric prior alpha = 0.5
+    const alpha = 0.5;
+    const K = CANONICAL_HYPOTHESIS_IDS.length; // 9
+    const totalWithSmoothing = matchCount + (K * alpha);
+
+    const empiricalPriors = CANONICAL_HYPOTHESIS_IDS.map((id) => {
+      const count = counts[id];
+      const probability = (count + alpha) / totalWithSmoothing;
+      return {
+        id,
+        name: this._hypothesisName(id),
+        count,
+        probability: Number(probability.toFixed(4)),
+        percentage: Number((probability * 100).toFixed(1))
+      };
+    });
+
+    empiricalPriors.sort((a, b) => b.probability - a.probability);
+
+    return {
+      hasHistory: true,
+      sampleCount: matchCount,
+      target: cleanTarget,
+      dominantHypothesis: empiricalPriors[0]?.id || null,
+      empiricalPriors
+    };
+  }
+
+  _hypothesisName(id) {
+    const NAMES = {
+      FIREWALL_ACL_DROP: 'Firewall / Security Group / ACL Drop',
+      SERVICE_DAEMON_CRASH: 'Service Daemon Crash / Listener Down',
+      DNS_NXDOMAIN_POISON: 'DNS Resolution Failure / Poisoning',
+      UPSTREAM_WAN_BLACKHOLE: 'Upstream WAN / ISP Route Blackhole',
+      TLS_CERT_EXPIRY: 'TLS Certificate Expiration / Handshake Failure',
+      MTU_BLACKHOLE_FRAGMENT: 'Path MTU Discovery Blackhole / Fragmentation Drop',
+      ARP_L2_ISOLATION: 'Layer 2 ARP / Neighbor Unreachable',
+      LOCAL_STACK_CONGESTION: 'Local Kernel Socket / Ephemeral Exhaustion',
+      ICMP_FILTERED_ALIVE: 'ICMP Filtered (Host Alive on L4/L7)'
+    };
+    return NAMES[id] || id;
+  }
 }
 
 const operationalMemoryEngine = new OperationalMemoryEngine();

@@ -674,4 +674,52 @@ test('EJII Sovereign Intelligence Leap Suite', async (t) => {
     assert.ok(result.epistemicClassification);
     assert.ok(Array.isArray(result.epistemicClassification.recommendedConcurrentProbes));
   });
+
+  await t.test('18. verifies episodic incident memory feedback into Bayesian diagnostic priors and Shannon IG probe selection', () => {
+    const { computeLiveInformationGainAnalysis, CANONICAL_FAULT_HYPOTHESES } = require('../src/core/chat/conversational-brain');
+
+    // 1. Unseen target has no history and falls back to baseline canonical prior
+    const unseenPrior = operationalMemoryEngine.calculateTargetEmpiricalPrior('unseen-target-host.test');
+    assert.equal(unseenPrior.hasHistory, false);
+    assert.equal(unseenPrior.sampleCount, 0);
+
+    const baselineAnalysis = computeLiveInformationGainAnalysis({ target: 'unseen-target-host.test' });
+    assert.equal(baselineAnalysis.entropyStatus, 'BASELINE_CANONICAL_PRIOR');
+    assert.equal(baselineAnalysis.empiricalPriorApplied, false);
+    assert.ok(baselineAnalysis.currentEntropyBits > 3.0, '9-hypothesis canonical baseline entropy should be > 3 bits');
+    assert.equal(baselineAnalysis.hypotheses.length, 9);
+
+    // 2. Seed verified DNS resolution incident for historical host
+    const testHost = 'flaky-resolver-edge.corp.test';
+    operationalMemoryEngine.recordVerifiedResolution({
+      target: testHost,
+      symptomSignature: 'DNS_NXDOMAIN_TIMEOUT_EXCEPTION',
+      rootCause: 'Upstream authoritative DNS resolver poisoning and c-ares cache pollution',
+      resolutionSteps: 'Flushed resolver cache and verified authoritative NS delegation',
+      port: 53,
+      verifiedBy: 'sre-lead'
+    });
+
+    // 3. Verify empirical prior reflects Dirichlet-smoothed DNS failure mode
+    const empirical = operationalMemoryEngine.calculateTargetEmpiricalPrior(testHost);
+    assert.equal(empirical.hasHistory, true);
+    assert.ok(empirical.sampleCount >= 1);
+    assert.equal(empirical.dominantHypothesis, 'DNS_NXDOMAIN_POISON');
+    assert.equal(empirical.empiricalPriors.length, 9);
+
+    const dnsHyp = empirical.empiricalPriors.find((h) => h.id === 'DNS_NXDOMAIN_POISON');
+    assert.ok(dnsHyp.probability > 0.25, `DNS poisoning prior should be significantly elevated (> 0.25), got ${dnsHyp.probability}`);
+
+    // Verify mathematical normalization of Dirichlet distribution
+    const probSum = empirical.empiricalPriors.reduce((acc, h) => acc + h.probability, 0);
+    assert.ok(Math.abs(probSum - 1.0) < 0.005, `Dirichlet smoothed probabilities must sum to 1.0, got ${probSum}`);
+
+    // 4. Verify brain incorporates episodic prior to skew Shannon IG analysis
+    const episodicAnalysis = computeLiveInformationGainAnalysis({ target: testHost });
+    assert.equal(episodicAnalysis.entropyStatus, 'EMPIRICAL_EPISODIC_PRIOR');
+    assert.equal(episodicAnalysis.empiricalPriorApplied, true);
+    assert.equal(episodicAnalysis.topHypotheses[0].id, 'DNS_NXDOMAIN_POISON');
+    assert.ok(episodicAnalysis.currentEntropyBits > 0);
+    assert.equal(episodicAnalysis.candidateProbes[0].calculationMethod, 'SHANNON_EPISODIC_EMPIRICAL_EXACT');
+  });
 });

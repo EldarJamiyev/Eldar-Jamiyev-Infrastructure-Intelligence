@@ -16,6 +16,7 @@ const { aiModelOrchestrator } = require('../ai-model-orchestrator');
 const hostMetrics = require('../../protocols/host-metrics');
 const dnsDiag = require('../../protocols/dns-diag');
 const { evidenceFabric } = require('../evidence/evidence-fabric');
+const { operationalMemoryEngine } = require('../memory/operational-memory-engine');
 
 /**
  * Native Gemini Function Declarations for EJII's 12 Infrastructure & Epistemic Tools
@@ -311,6 +312,21 @@ function getDynamicFunctionDeclarations() {
   }
   return declarations;
 }
+
+/**
+ * The 9 Canonical Infrastructure Fault Hypotheses for Vectorized Bayesian Diagnostic Engine.
+ */
+const CANONICAL_FAULT_HYPOTHESES = [
+  { id: 'FIREWALL_ACL_DROP', name: 'Firewall / Security Group / ACL Drop', baselineWeight: 0.12 },
+  { id: 'SERVICE_DAEMON_CRASH', name: 'Service Daemon Crash / Listener Down', baselineWeight: 0.16 },
+  { id: 'DNS_NXDOMAIN_POISON', name: 'DNS Resolution Failure / Poisoning', baselineWeight: 0.14 },
+  { id: 'UPSTREAM_WAN_BLACKHOLE', name: 'Upstream WAN / ISP Route Blackhole', baselineWeight: 0.10 },
+  { id: 'TLS_CERT_EXPIRY', name: 'TLS Certificate Expiration / Handshake Failure', baselineWeight: 0.11 },
+  { id: 'MTU_BLACKHOLE_FRAGMENT', name: 'Path MTU Discovery Blackhole / Fragmentation Drop', baselineWeight: 0.08 },
+  { id: 'ARP_L2_ISOLATION', name: 'Layer 2 ARP / Neighbor Unreachable', baselineWeight: 0.09 },
+  { id: 'LOCAL_STACK_CONGESTION', name: 'Local Kernel Socket / Ephemeral Exhaustion', baselineWeight: 0.10 },
+  { id: 'ICMP_FILTERED_ALIVE', name: 'ICMP Filtered (Host Alive on L4/L7)', baselineWeight: 0.10 }
+];
 
 /**
  * Candidate diagnostic probes and their empirical likelihood models P(Y=pass | X=hypothesis_i)
@@ -810,6 +826,11 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
   const dhcpInfo = hostMetrics.discoverLocalDhcpServer();
   const localNetConfig = hostMetrics.inspectLocalNetworkConfiguration();
 
+  // Target resolution for host-specific empirical prior retrieval
+  const targetHost = sessionContext?.target || sessionContext?.lastTarget || sessionContext?.lastValidTarget || null;
+  const targetEmpiricalPrior = targetHost ? operationalMemoryEngine.calculateTargetEmpiricalPrior(targetHost) : null;
+  const hasEmpiricalHistory = Boolean(targetEmpiricalPrior && targetEmpiricalPrior.hasHistory && targetEmpiricalPrior.empiricalPriors.length > 0);
+
   // Retrieve live Bayesian posterior distribution from AIModelOrchestrator
   const bayesianState = aiModelOrchestrator.bayesianEngine
     ? aiModelOrchestrator.bayesianEngine.computePosteriors({
@@ -823,6 +844,56 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
   const hypotheses = Array.isArray(bayesianState?.hypotheses) ? bayesianState.hypotheses : [];
   const hasValidPosteriors = hypotheses.length > 0;
 
+  // Baseline prior from canonical fault hypotheses
+  const totalBaseWeight = CANONICAL_FAULT_HYPOTHESES.reduce((acc, h) => acc + h.baselineWeight, 0);
+  const baselineDistribution = CANONICAL_FAULT_HYPOTHESES.map((h) => ({
+    id: h.id,
+    name: h.name,
+    probability: Number((h.baselineWeight / totalBaseWeight).toFixed(4)),
+    percentage: Number(((h.baselineWeight / totalBaseWeight) * 100).toFixed(1)),
+    contradicted: false
+  }));
+
+  const basePrior = hasValidPosteriors
+    ? hypotheses.map((h) => ({
+        id: h.id,
+        name: h.name,
+        probability: typeof h.rawProbability === 'number' ? h.rawProbability : (Number(h.percentage) || 0) / 100,
+        percentage: h.percentage,
+        contradicted: Boolean(h.contradicted)
+      }))
+    : baselineDistribution;
+
+  // Blend empirical priors if available: P_blended = 0.6 * P_empirical + 0.4 * P_base
+  let priorDistribution;
+  if (hasEmpiricalHistory) {
+    const empiricalMap = new Map(targetEmpiricalPrior.empiricalPriors.map((p) => [p.id, p.probability]));
+    let totalWeight = 0;
+    const blended = basePrior.map((h) => {
+      const empP = empiricalMap.get(h.id) ?? (1 / basePrior.length);
+      const blendedP = 0.6 * empP + 0.4 * h.probability;
+      totalWeight += blendedP;
+      return {
+        id: h.id,
+        name: h.name,
+        probability: blendedP,
+        contradicted: h.contradicted
+      };
+    });
+    priorDistribution = blended.map((h) => {
+      const normP = totalWeight > 0 ? h.probability / totalWeight : 1 / blended.length;
+      return {
+        id: h.id,
+        name: h.name,
+        probability: Number(normP.toFixed(4)),
+        percentage: Number((normP * 100).toFixed(1)),
+        contradicted: h.contradicted
+      };
+    });
+  } else {
+    priorDistribution = basePrior;
+  }
+
   // Distinguish directly observed probes in the current session
   const observedIntents = new Set();
   if (sessionContext?.lastIntent) observedIntents.add(sessionContext.lastIntent);
@@ -833,28 +904,11 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
   }
   const lastProbe = sessionContext?.lastProbeResult || sessionContext?.lastToolResults || null;
 
-  // Build prior distribution for exact Shannon IG math
-  const priorDistribution = hasValidPosteriors
-    ? hypotheses.map((h) => ({
-        id: h.id,
-        name: h.name,
-        probability: typeof h.rawProbability === 'number' ? h.rawProbability : (Number(h.percentage) || 0) / 100,
-        percentage: h.percentage,
-        contradicted: Boolean(h.contradicted)
-      }))
-    : [];
-
-  const currentEntropyBits = hasValidPosteriors
-    ? (typeof bayesianState.shannonEntropyBits === 'number'
-        ? bayesianState.shannonEntropyBits
-        : computeShannonEntropyFromDistribution(priorDistribution.map((d) => d.probability)))
-    : null;
+  const currentEntropyBits = computeShannonEntropyFromDistribution(priorDistribution.map((d) => d.probability));
 
   // Evaluate candidate probes using exact mathematical IG(X; Y) = H(X) - \sum_y P(y) H(X | Y=y)
   const candidateProbes = CANDIDATE_PROBE_LIKELIHOOD_MODELS.map((model) => {
-    const mathIg = hasValidPosteriors
-      ? computeExpectedProbeInformationGain(priorDistribution, model.likelihoodPassGivenHypothesis)
-      : null;
+    const mathIg = computeExpectedProbeInformationGain(priorDistribution, model.likelihoodPassGivenHypothesis);
 
     // Slight priority adjustment if a probe was already executed in this session
     const alreadyObserved = observedIntents.has(model.intent);
@@ -906,7 +960,9 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
       entropyGivenFailBits: mathIg ? mathIg.entropyGivenFailBits : null,
       expectedInformationGainBits: mathIg ? mathIg.expectedInformationGainBits : null,
       expectedPosteriorEntropyBits: mathIg ? mathIg.expectedPosteriorEntropyBits : null,
-      calculationMethod: mathIg ? 'SHANNON_CONDITIONAL_ENTROPY_BAYES_EXACT' : 'UNAVAILABLE_NO_PRIOR',
+      calculationMethod: mathIg
+        ? (hasEmpiricalHistory ? 'SHANNON_EPISODIC_EMPIRICAL_EXACT' : 'SHANNON_CONDITIONAL_ENTROPY_BAYES_EXACT')
+        : 'UNAVAILABLE_NO_PRIOR',
       rationale
     };
   });
@@ -976,11 +1032,18 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
   const liveEvidenceCount = fabricRecords.filter((r) => r.freshnessState === 'live' || r.freshnessState === 'fresh').length;
   const staleEvidenceCount = fabricRecords.filter((r) => r.freshnessState === 'stale' || r.freshnessState === 'expired').length;
 
+  const sortedHypotheses = [...priorDistribution].sort((a, b) => b.probability - a.probability);
+
   return {
     currentEntropyBits,
-    entropyStatus: hasValidPosteriors ? 'COMPUTED_FROM_BAYESIAN_POSTERIOR' : 'UNAVAILABLE_NO_POSTERIOR',
+    entropyStatus: hasEmpiricalHistory
+      ? 'EMPIRICAL_EPISODIC_PRIOR'
+      : (hasValidPosteriors ? 'COMPUTED_FROM_BAYESIAN_POSTERIOR' : 'BASELINE_CANONICAL_PRIOR'),
+    empiricalPriorApplied: hasEmpiricalHistory,
+    targetEmpiricalPrior: targetEmpiricalPrior || null,
     converged: Boolean(bayesianState?.converged),
-    topHypotheses: hypotheses.slice(0, 5).map((h) => ({
+    hypotheses: priorDistribution,
+    topHypotheses: sortedHypotheses.slice(0, 5).map((h) => ({
       id: h.id,
       name: h.name,
       posteriorPct: h.percentage,
@@ -988,7 +1051,7 @@ function computeLiveInformationGainAnalysis(sessionContext = {}) {
       // A Bayesian posterior is an inference (INFERRED_HIGH_CONFIDENCE) unless corroborated by direct wire observation.
       status: h.contradicted
         ? 'CONTRADICTED'
-        : (h.percentage >= 85
+        : (h.percentage >= 60
             ? (l4Observed && l7Observed ? 'CORROBORATED_BY_OBSERVATION' : 'INFERRED_HIGH_CONFIDENCE')
             : 'ACTIVE_HYPOTHESIS')
     })),
@@ -2200,6 +2263,7 @@ async function executeConversationalSuperpowersBridge(promptText = '', sessionCo
 
 module.exports = {
   EJII_FUNCTION_DECLARATIONS,
+  CANONICAL_FAULT_HYPOTHESES,
   discoverDynamicRuntimeCapabilities,
   getDynamicFunctionDeclarations,
   CANDIDATE_PROBE_LIKELIHOOD_MODELS,
