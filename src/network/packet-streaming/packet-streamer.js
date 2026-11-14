@@ -12,6 +12,13 @@ const { IS_WINDOWS } = require('../../config');
 const { dissectPacket } = require('../../tools/wireshark-engine');
 const { getPhysicalNetworkInfo } = require('../routing/physical-network-detector');
 const { PacketDecoder } = require('../packet-decoding/packet-decoder');
+const {
+  encodeBinaryPacketFrame,
+  decodeBinaryPacketFrame,
+  MAGIC_BYTES,
+  MAGIC_UINT32,
+  FLAGS
+} = require('./binary-frame-codec');
 
 // Target Roster (empty in pure passive wire capture; zero pre-seeded phantom domains)
 const GOVERNMENT_TARGETS = [];
@@ -2530,6 +2537,20 @@ class PacketStreamer {
       backpressureHealthy: ringStats.ringBufferOverruns === 0 && ringStats.ringBufferUtilizationPct < 85
     };
   }
+
+  /**
+   * Encode a frame to high-throughput binary EJII frame (Track 4)
+   */
+  encodeBinaryFrame(frame, maxSlice = 128) {
+    return encodeBinaryPacketFrame(frame, maxSlice);
+  }
+
+  /**
+   * Decode a binary EJII frame buffer to structured object (Track 4)
+   */
+  decodeBinaryFrame(buf) {
+    return decodeBinaryPacketFrame(buf);
+  }
 }
 
 const defaultStreamer = new PacketStreamer();
@@ -2767,5 +2788,10 @@ module.exports = {
   HighSpeedPacketRingBuffer,
   PacketStreamer,
   packetStreamer: defaultStreamer,
-  troubleshootEndpoint
+  troubleshootEndpoint,
+  encodeBinaryPacketFrame,
+  decodeBinaryPacketFrame,
+  MAGIC_BYTES,
+  MAGIC_UINT32,
+  FLAGS
 };

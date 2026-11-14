@@ -442,10 +442,28 @@ wss.on('connection', (ws, req) => {
     role: 'READONLY'
   };
 
+  // Binary stream negotiation (Track 4: line-rate packet cockpit)
+  let isBinaryStream = false;
+  if (req.headers['sec-websocket-protocol']) {
+    const protocols = req.headers['sec-websocket-protocol'].split(',').map(s => s.trim().toLowerCase());
+    if (protocols.includes('binary-stream') || protocols.includes('ejii-binary-v1')) {
+      isBinaryStream = true;
+    }
+  }
+  try {
+    const urlObj = new URL(req.url, 'http://localhost');
+    const format = urlObj.searchParams.get('format') || urlObj.searchParams.get('stream');
+    if (format && format.toLowerCase() === 'binary') {
+      isBinaryStream = true;
+    }
+  } catch (_) {}
+  ws.isBinaryStream = isBinaryStream;
+
   ws.send(JSON.stringify({
     type: 'CONNECTED',
     message: 'EJII Pure NOC Workstation Stream Connected.',
     user: { username: ws.user.username, role: ws.user.role },
+    streamFormat: ws.isBinaryStream ? 'binary' : 'json',
     timestamp: new Date().toISOString()
   }));
 
@@ -454,6 +472,14 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (raw) => {
     try {
       const data = JSON.parse(raw.toString());
+      if (data.type === 'SET_STREAM_FORMAT') {
+        ws.isBinaryStream = (data.format === 'binary');
+        return ws.send(JSON.stringify({
+          type: 'STREAM_FORMAT_CONFIRMED',
+          format: ws.isBinaryStream ? 'binary' : 'json',
+          timestamp: new Date().toISOString()
+        }));
+      }
       if (data.type === 'START_PACKET_STREAM') {
         // Enforce strict network.capture.execute capability (S-04)
         const canCapture = hasPermission(ws.user.role, 'network.capture.execute');
@@ -500,6 +526,16 @@ function broadcast(type, payload) {
   } else {
     message = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
   }
+
+  // Pre-encode binary frame once if streaming high-throughput packet frame (Track 4)
+  let binaryBuffer = null;
+  if (eventType === 'PACKET_STREAM_FRAME' && payload) {
+    try {
+      const { encodeBinaryPacketFrame } = require('./network/packet-streaming/binary-frame-codec');
+      binaryBuffer = encodeBinaryPacketFrame(payload);
+    } catch (_) {}
+  }
+
   for (const client of activeClients) {
     if (client.readyState === 1) { // OPEN
       // Security Filter: PACKET_STREAM_FRAME requires authenticated session with network.capture.execute or telemetry.read
@@ -513,6 +549,16 @@ function broadcast(type, payload) {
 
         // WebSocket Backpressure Guard: Drop high-frequency frames if client buffer exceeds 512 KB
         if (client.bufferedAmount > 512 * 1024) {
+          continue;
+        }
+
+        // Deliver compact zero-copy binary frame to clients in binary streaming mode
+        if (client.isBinaryStream && binaryBuffer) {
+          try {
+            client.send(binaryBuffer, { binary: true });
+          } catch (err) {
+            activeClients.delete(client);
+          }
           continue;
         }
       }
