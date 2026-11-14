@@ -2168,6 +2168,21 @@ async function runAgenticToolLoop({
     } catch (_) {}
   }
 
+  // Track 5: Universal Experience Replay
+  try {
+    const { operationalMemoryEngine } = require('../memory/operational-memory-engine');
+    const targetHost = sessionContext?.target || currentPlan?.target || initialPlan?.target || '127.0.0.1';
+    const failureLayer = dominantProbable ? dominantProbable.id : null;
+    const replay = operationalMemoryEngine.replayHistoricalExperiences({
+      target: targetHost,
+      failureLayer,
+      topK: 3
+    });
+    if (replay && replay.topExperiences && replay.topExperiences.length > 0) {
+      epistemicClassification.experienceReplay = replay;
+    }
+  } catch (_) {}
+
   if (outcomes.length === 1) {
     const single = outcomes[0].outcome;
     const latestReflection = toolReflectionTrace[toolReflectionTrace.length - 1];
