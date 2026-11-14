@@ -2485,6 +2485,21 @@ async function runAgenticToolLoop({
   epistemicClassification.topologicalDisambiguation = topologicalDisambiguation;
   epistemicClassification.temporalScope = temporalScope;
 
+  // Phase 5.0 Track 1: Structural Causal Models & Counterfactual "What-If" Reasoning
+  try {
+    const { structuralCausalEngine } = require('../../ai/structural-causal-engine');
+    const factualState = {
+      rttMs: Number(sessionContext?.lastRttMs || sessionContext?.rttMs || 45.0),
+      packetLossPct: Number(sessionContext?.lastLossPct || sessionContext?.packetLossPct || 2.5),
+      queueDepthPackets: Number(sessionContext?.queueDepthPackets || 35.0),
+      windowSizeBytes: Number(sessionContext?.windowSizeBytes || 65535)
+    };
+    const counterfactualAnalysis = structuralCausalEngine.parseCounterfactualQuery(promptText, factualState);
+    if (counterfactualAnalysis) {
+      epistemicClassification.counterfactualAnalysis = counterfactualAnalysis;
+    }
+  } catch (_) {}
+
   if (outcomes.length === 0) {
     return {
       reply: 'No diagnostic tool observations were recorded for this session.',
@@ -2514,6 +2529,10 @@ async function runAgenticToolLoop({
       const topo = epistemicClassification.topologicalDisambiguation;
       single.reply = `${single.reply}\n\n### 🌐 Topological Target Ambiguity Detected\n${topo.disambiguationQuestion}`;
     }
+    if (epistemicClassification.counterfactualAnalysis) {
+      const cf = epistemicClassification.counterfactualAnalysis;
+      single.reply = `${single.reply}\n\n### 🔮 Pearlian Counterfactual "What-If" Projection\n${cf.synthesis}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2540,6 +2559,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.topologicalDisambiguation && epistemicClassification.topologicalDisambiguation.ambiguous) {
     const topo = epistemicClassification.topologicalDisambiguation;
     combinedReplyParts.push(`### 🌐 Topological Target Ambiguity Detected\n${topo.disambiguationQuestion}`);
+  }
+  if (epistemicClassification.counterfactualAnalysis) {
+    const cf = epistemicClassification.counterfactualAnalysis;
+    combinedReplyParts.push(`### 🔮 Pearlian Counterfactual "What-If" Projection\n${cf.synthesis}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped
