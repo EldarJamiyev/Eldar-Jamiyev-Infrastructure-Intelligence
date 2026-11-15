@@ -2369,6 +2369,13 @@ async function runAgenticToolLoop({
       }
     }
 
+    const latestOutcome = outcomes[outcomes.length - 1]?.outcome;
+    // Clarifications, rejections, or errors do not loop
+    if (latestOutcome?.status === 'clarification_needed' || latestOutcome?.promptClarification || latestOutcome?.status === 'rejected' || latestOutcome?.errorCode) {
+      loopTerminationReason = latestOutcome?.status === 'clarification_needed' ? 'CLARIFICATION_NEEDED' : 'ERROR_TERMINATION';
+      break;
+    }
+
     // Non-operational turns (greetings, clarifications, pure conceptual answers) do not loop
     if (currentPlan.mode === 'conversational' || currentPlan.mode === 'informational') {
       loopTerminationReason = 'NON_OPERATIONAL_TURN';
@@ -2389,7 +2396,6 @@ async function runAgenticToolLoop({
       });
     }
 
-    const latestOutcome = outcomes[outcomes.length - 1]?.outcome;
     const reflection = await reflectOnToolObservation({
       promptText,
       currentPlan,
@@ -2707,6 +2713,7 @@ async function runAgenticToolLoop({
     reply: combinedReplyParts.join('\n\n'),
     epistemicClassification,
     structuredAnswer: {
+      ...(primaryOutcome.structuredAnswer || {}),
       result: outcomes.map((o) => o.outcome.structuredAnswer?.result).filter(Boolean).join(' '),
       meaning: outcomes.map((o) => o.outcome.structuredAnswer?.meaning).filter(Boolean).join(' '),
       nextStep: primaryOutcome.structuredAnswer?.nextStep || null,
