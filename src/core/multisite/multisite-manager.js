@@ -1257,6 +1257,14 @@ class MultiSiteManager {
     const { bftStateMachineReplicator } = require('./bft-state-machine-replicator');
     return bftStateMachineReplicator.proposePrePrepare(statePayload);
   }
+
+  /**
+   * Accesses the self-healing autonomous mesh fabric and peer quarantine protocol
+   */
+  getMeshFabric() {
+    const { selfHealingMeshFabric } = require('./self-healing-mesh-fabric');
+    return selfHealingMeshFabric;
+  }
 }
 
 const multiSiteManager = new MultiSiteManager();
@@ -1265,6 +1273,7 @@ module.exports = {
   MultiSiteManager,
   multiSiteManager,
   bftStateMachineReplicator: require('./bft-state-machine-replicator').bftStateMachineReplicator,
+  selfHealingMeshFabric: require('./self-healing-mesh-fabric').selfHealingMeshFabric,
   detectRuntimeExecutionEnvironment,
   classifyNetworkTargetScope,
   DEFAULT_SITES,

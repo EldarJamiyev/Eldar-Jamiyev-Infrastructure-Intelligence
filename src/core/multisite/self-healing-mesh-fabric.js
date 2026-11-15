@@ -71,7 +71,7 @@ class SelfHealingMeshFabric {
 
   registerPeer(peerData) {
     const secret = peerData.secretKey || crypto.randomBytes(16).toString('hex');
-    const latticeKeyPair = postQuantumZkAttestor.generateLatticeKeyPair(peerData.nodeId);
+    const latticeKeyPair = postQuantumZkAttestor.generatePqcKeyPair(peerData.nodeId);
 
     const peer = {
       nodeId: peerData.nodeId,
@@ -259,9 +259,12 @@ class SelfHealingMeshFabric {
     const payloadDigest = crypto.createHash('sha256').update(payloadStr).digest('hex');
 
     let latticeSignature = {
+      keyId: `pqc_key_${nodeId}`,
+      challengeHash: '00',
+      w1HighBits: new Array(RING_N).fill(0),
       z: new Array(RING_N).fill(0),
-      c: new Array(RING_N).fill(0),
-      keyId: `pqc_key_${nodeId}`
+      signatureHex: '00',
+      timestampIso: new Date().toISOString()
     };
 
     if (peer.latticeKeyPair) {
