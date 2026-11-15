@@ -130,6 +130,19 @@ class BftStateMachineReplicator {
     const signPayload = `PRE_PREPARE:${this.currentView}:${seq}:${digest}:${leaderId}:${nowIso}`;
     const signature = this.signMessage(leaderId, signPayload);
 
+    let proposeTimeNs = null;
+    let trueTimeInterval = null;
+    try {
+      const { nanosecondTrueTimeEngine } = require('../../observability/nanosecond-truetime-engine');
+      const tt = nanosecondTrueTimeEngine.now();
+      proposeTimeNs = tt.timestampNs.toString();
+      trueTimeInterval = {
+        earliestNs: tt.earliestNs.toString(),
+        latestNs: tt.latestNs.toString(),
+        uncertaintyNs: Number(tt.uncertaintyNs)
+      };
+    } catch (_) {}
+
     const msg = {
       type: 'PRE_PREPARE',
       view: this.currentView,
@@ -138,7 +151,9 @@ class BftStateMachineReplicator {
       payload,
       leaderId,
       signature,
-      timestampIso: nowIso
+      timestampIso: nowIso,
+      proposeTimeNs,
+      trueTimeInterval
     };
 
     const key = `${this.currentView}:${seq}:${digest}`;

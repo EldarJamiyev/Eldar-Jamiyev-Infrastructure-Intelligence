@@ -452,9 +452,24 @@ class ZeroCopyFlowPipeline {
       }
     }
 
+    let timestampNs = null;
+    let trueTimeInterval = null;
+    try {
+      const { nanosecondTrueTimeEngine } = require('../../observability/nanosecond-truetime-engine');
+      const tt = nanosecondTrueTimeEngine.now();
+      timestampNs = tt.timestampNs.toString();
+      trueTimeInterval = {
+        earliestNs: tt.earliestNs.toString(),
+        latestNs: tt.latestNs.toString(),
+        uncertaintyNs: Number(tt.uncertaintyNs)
+      };
+    } catch (_) {}
+
     const report = {
       burstId,
       timestampIso: new Date(nowMs).toISOString(),
+      timestampNs,
+      trueTimeInterval,
       scale2EnergyRatio: ratio,
       hurstExponent: burstEvent.hurstExponent,
       totalActiveFlows: flowList.length,

@@ -43,6 +43,12 @@ export interface BftPrePrepareMessage {
   leaderId: string;
   signature: string;
   timestampIso: string;
+  proposeTimeNs?: string | null;
+  trueTimeInterval?: {
+    earliestNs: string;
+    latestNs: string;
+    uncertaintyNs: number;
+  } | null;
 }
 
 export interface BftPrepareMessage {
@@ -222,6 +228,20 @@ export class BftStateMachineReplicator {
     const signPayload = `PRE_PREPARE:${this.currentView}:${seq}:${digest}:${leaderId}:${nowIso}`;
     const signature = this.signMessage(leaderId, signPayload);
 
+    let proposeTimeNs: string | null = null;
+    let trueTimeInterval: { earliestNs: string; latestNs: string; uncertaintyNs: number } | null = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { nanosecondTrueTimeEngine } = require('../../observability/nanosecond-truetime-engine');
+      const tt = nanosecondTrueTimeEngine.now();
+      proposeTimeNs = tt.timestampNs.toString();
+      trueTimeInterval = {
+        earliestNs: tt.earliestNs.toString(),
+        latestNs: tt.latestNs.toString(),
+        uncertaintyNs: Number(tt.uncertaintyNs)
+      };
+    } catch (_) {}
+
     const msg: BftPrePrepareMessage = {
       type: 'PRE_PREPARE',
       view: this.currentView,
@@ -230,7 +250,9 @@ export class BftStateMachineReplicator {
       payload,
       leaderId,
       signature,
-      timestampIso: nowIso
+      timestampIso: nowIso,
+      proposeTimeNs,
+      trueTimeInterval
     };
 
     const key = `${this.currentView}:${seq}:${digest}`;

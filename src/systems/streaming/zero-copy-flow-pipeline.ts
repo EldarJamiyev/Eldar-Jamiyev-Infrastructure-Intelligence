@@ -87,6 +87,12 @@ export interface MicroBurstAttribution {
 export interface MicroBurstSnapshotReport {
   burstId: string;
   timestampIso: string;
+  timestampNs?: string | null;
+  trueTimeInterval?: {
+    earliestNs: string;
+    latestNs: string;
+    uncertaintyNs: number;
+  } | null;
   scale2EnergyRatio: number;
   hurstExponent?: number;
   totalActiveFlows: number;
@@ -574,9 +580,25 @@ export class ZeroCopyFlowPipeline {
       }
     }
 
+    let timestampNs: string | null = null;
+    let trueTimeInterval: { earliestNs: string; latestNs: string; uncertaintyNs: number } | null = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { nanosecondTrueTimeEngine } = require('../../observability/nanosecond-truetime-engine');
+      const tt = nanosecondTrueTimeEngine.now();
+      timestampNs = tt.timestampNs.toString();
+      trueTimeInterval = {
+        earliestNs: tt.earliestNs.toString(),
+        latestNs: tt.latestNs.toString(),
+        uncertaintyNs: Number(tt.uncertaintyNs)
+      };
+    } catch (_) {}
+
     const report: MicroBurstSnapshotReport = {
       burstId,
       timestampIso: new Date(nowMs).toISOString(),
+      timestampNs,
+      trueTimeInterval,
       scale2EnergyRatio: ratio,
       hurstExponent: burstEvent.hurstExponent,
       totalActiveFlows: flowList.length,
