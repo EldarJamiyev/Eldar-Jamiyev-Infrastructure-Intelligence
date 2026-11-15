@@ -242,6 +242,11 @@ class DistributedSagaOrchestrator extends EventEmitter {
       } catch (_) {
         // Column may already exist
       }
+      try {
+        db.exec('ALTER TABLE ejii_remediation_sagas ADD COLUMN smt_proofs_json TEXT');
+      } catch (_) {
+        // Column may already exist
+      }
       this.sqliteInitialized = true;
     } catch (_) {
       // Graceful fallback to memory mode if SQLite is query-only or busy
@@ -445,6 +450,30 @@ class DistributedSagaOrchestrator extends EventEmitter {
       }
     } catch (_) {}
 
+    // Phase 11.0 Track 2: First-Order SMT Safety Invariant Verification
+    const smtSafetyProofs = {};
+    try {
+      const { formalSmtSafetyVerifier } = require('../../security/formal-smt-safety-verifier');
+      for (const p of participants) {
+        if (p.candidateAction) {
+          const envState = {
+            nodes: participants.map((part) => ({
+              id: part.nodeId,
+              nextHop: part.candidateAction?.parameters?.nextHop || undefined,
+              queueDepthPackets: part.currentState?.queueDepthPackets || 5,
+              bufferCapacityPackets: 256
+            }))
+          };
+          const proof = formalSmtSafetyVerifier.verifySafetyInvariants(
+            sagaId,
+            p.candidateAction,
+            envState
+          );
+          smtSafetyProofs[p.nodeId] = proof;
+        }
+      }
+    } catch (_) {}
+
     const record = {
       sagaId,
       hypothesisId,
@@ -461,6 +490,7 @@ class DistributedSagaOrchestrator extends EventEmitter {
       commitTokens: {},
       banditPolicySelection,
       chaosValidationReceipts,
+      smtSafetyProofs,
       rollbackExecuted: false,
       rollbackLog: [],
       createdAtIso: nowIso,
@@ -516,8 +546,10 @@ class DistributedSagaOrchestrator extends EventEmitter {
       const isPositiveDefinite = this.isMetricPositiveDefinite(stateBefore);
       const chaosReceipt = saga.chaosValidationReceipts?.[participant.nodeId];
       const chaosPassed = chaosReceipt ? chaosReceipt.passed : true;
+      const smtProof = saga.smtSafetyProofs?.[participant.nodeId];
+      const smtPassed = smtProof ? smtProof.isSatisfied : true;
 
-      const voteCommit = isContraction && isPositiveDefinite && chaosPassed;
+      const voteCommit = isContraction && isPositiveDefinite && chaosPassed && smtPassed;
       if (!voteCommit) {
         allVotedCommit = false;
       }
@@ -570,7 +602,9 @@ class DistributedSagaOrchestrator extends EventEmitter {
               ? 'Ed25519 cryptographic attestation signature failed verification'
               : (!chaosPassed
                   ? `Chaos sandbox perturbation failed: ${chaosReceipt?.failureReason || 'DESTABILIZING'}`
-                  : 'Lyapunov contraction invariant violated or non-positive definite'))
+                  : (!smtPassed
+                      ? `SMT formal safety invariant violated: ${smtProof?.violatedInvariant || 'UNKNOWN'}`
+                      : 'Lyapunov contraction invariant violated or non-positive definite')))
       };
 
       saga.votes[participant.nodeId] = vote;
