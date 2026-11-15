@@ -2661,7 +2661,7 @@ async function runAgenticToolLoop({
   }
 
   // Combine multi-step outcomes into a unified response
-  const primaryOutcome = outcomes[outcomes.length - 1].outcome;
+  const primaryOutcome = outcomes[0].outcome;
   const combinedReplyParts = outcomes.map((item, idx) => `### Step ${idx + 1}: \`${item.plan.intent}\` (${item.plan.target || 'local'})\n${item.outcome.reply}`);
   const lastReflection = toolReflectionTrace[toolReflectionTrace.length - 1];
   if (lastReflection?.reflectionSynthesis) {
@@ -2707,6 +2707,13 @@ async function runAgenticToolLoop({
       Object.assign(mergedStepEvidence, o.outcome.technicalEvidence);
     }
   }
+  // Retain primary outcome's technical evidence attributes (tool, errorClassification, etc.)
+  if (primaryOutcome.technicalEvidence && typeof primaryOutcome.technicalEvidence === 'object') {
+    Object.assign(mergedStepEvidence, primaryOutcome.technicalEvidence);
+  }
+
+  const allStructuredAnswers = outcomes.map((o) => o.outcome?.structuredAnswer).filter(Boolean);
+  const foundProvenance = allStructuredAnswers.find((s) => s.telemetryProvenance)?.telemetryProvenance || primaryOutcome.structuredAnswer?.telemetryProvenance || null;
 
   return {
     ...primaryOutcome,
@@ -2714,6 +2721,7 @@ async function runAgenticToolLoop({
     epistemicClassification,
     structuredAnswer: {
       ...(primaryOutcome.structuredAnswer || {}),
+      ...(foundProvenance ? { telemetryProvenance: foundProvenance } : {}),
       result: outcomes.map((o) => o.outcome.structuredAnswer?.result).filter(Boolean).join(' '),
       meaning: outcomes.map((o) => o.outcome.structuredAnswer?.meaning).filter(Boolean).join(' '),
       nextStep: primaryOutcome.structuredAnswer?.nextStep || null,
