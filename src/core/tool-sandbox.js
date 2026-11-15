@@ -23,7 +23,9 @@ const ALL_TOOLS = [
   'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'bleachbit_hygiene', 'filezilla_sftp_check',
   'snmp_probe', 'dual_probe', 'winrm_collect',
   'procmon_trace', 'packet_factory', 'protocol_audit', 'ebpf_probe',
-  'paping_jitter', 'process_sandbox'
+  'paping_jitter', 'process_sandbox',
+  'pomdp_active_probe', 'socratic_dialectic_debate', 'compositional_remediation_synthesizer',
+  'crdt_wan_reconcile', 'cacheline_perf_inspect'
 ];
 
 const ROLE_PERMISSIONS = {
@@ -34,26 +36,29 @@ const ROLE_PERMISSIONS = {
     'ping', 'pmtu_sweep', 'tcp_handshake', 'dns_resolve', 'arp_lookup', 'traceroute',
     'nmap_scan', 'mtr_trace', 'iperf_bandwidth', 'wireshark_dissect', 'sysinternals_forensics',
     'hwinfo_sensors', 'netcat_probe', 'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
-    'snmp_probe', 'dual_probe', 'procmon_trace', 'protocol_audit', 'paping_jitter', 'process_sandbox'
+    'snmp_probe', 'dual_probe', 'procmon_trace', 'protocol_audit', 'paping_jitter', 'process_sandbox',
+    'pomdp_active_probe', 'socratic_dialectic_debate', 'cacheline_perf_inspect'
   ],
   OPERATOR: [
     'ping', 'tcp_handshake', 'dns_resolve',
     'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
     'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
-    'snmp_probe', 'dual_probe', 'protocol_audit'
+    'snmp_probe', 'dual_probe', 'protocol_audit',
+    'pomdp_active_probe', 'socratic_dialectic_debate', 'cacheline_perf_inspect'
   ],
   NOC_OPERATOR: [
     'ping', 'tcp_handshake', 'dns_resolve',
     'nmap_scan', 'mtr_trace', 'wireshark_dissect', 'hwinfo_sensors', 'netcat_probe',
     'putty_ssh_banner', 'packet_tracer_sim', 'filezilla_sftp_check',
-    'snmp_probe', 'dual_probe', 'protocol_audit'
+    'snmp_probe', 'dual_probe', 'protocol_audit',
+    'pomdp_active_probe', 'socratic_dialectic_debate', 'cacheline_perf_inspect'
   ],
   VIEWER: [
     'ping', 'hwinfo_sensors', 'dns_resolve', 'tcp_handshake',
     'host_diagnostics_snapshot', 'process_socket_correlator', 'gateway_underlay_probe',
-    'dns_lookup', 'tcp_connect_probe', 'tls_and_http_verifier'
+    'dns_lookup', 'tcp_connect_probe', 'tls_and_http_verifier', 'cacheline_perf_inspect'
   ],
-  READONLY: ['hwinfo_sensors']
+  READONLY: ['hwinfo_sensors', 'cacheline_perf_inspect']
 };
 
 class ToolExecutionError extends Error {
@@ -398,6 +403,73 @@ class ToolSandbox {
             filterPort: { type: 'integer', default: 0 }
           }
         }
+      },
+      {
+        name: 'pomdp_active_probe',
+        description: 'Submodular cost-constrained active POMDP diagnostic probe selection and Bayesian entropy reduction.',
+        requiredRole: 'ANALYST',
+        parameters: {
+          type: 'object',
+          properties: {
+            incidentId: { type: 'string', default: 'inc_active_pomdp' },
+            budgetMs: { type: 'number', default: 50.0 },
+            prior: { type: 'object' },
+            observations: { type: 'array' }
+          }
+        }
+      },
+      {
+        name: 'socratic_dialectic_debate',
+        description: 'Adversarial multi-agent dialectic debate with Minimax equilibrium payoff and Dempster-Shafer belief fusion.',
+        requiredRole: 'ANALYST',
+        parameters: {
+          type: 'object',
+          properties: {
+            incidentId: { type: 'string', default: 'inc_dialectic_debate' },
+            hypotheses: { type: 'array', items: { type: 'string' } },
+            evidence: { type: 'object' },
+            maxRounds: { type: 'integer', default: 3 }
+          }
+        }
+      },
+      {
+        name: 'compositional_remediation_synthesizer',
+        description: 'Type-directed compositional remediation DSL compiler with formal Presburger SMT safety verification.',
+        requiredRole: 'ADMIN',
+        parameters: {
+          type: 'object',
+          required: ['dominantFault', 'targetNode'],
+          properties: {
+            incidentId: { type: 'string' },
+            dominantFault: { type: 'string' },
+            targetNode: { type: 'string' },
+            currentTelemetry: { type: 'object' },
+            environment: { type: 'object' }
+          }
+        }
+      },
+      {
+        name: 'crdt_wan_reconcile',
+        description: 'Geo-partition tolerant state-based Delta CRDT synchronization and 3-way anti-entropy WAN reconciliation.',
+        requiredRole: 'ADMIN',
+        parameters: {
+          type: 'object',
+          required: ['remoteSiteId'],
+          properties: {
+            remoteSiteId: { type: 'string' },
+            remoteClock: { type: 'object' },
+            remoteDeltas: { type: 'array' }
+          }
+        }
+      },
+      {
+        name: 'cacheline_perf_inspect',
+        description: 'Microarchitectural hardware performance counters and 64-byte L1 cacheline isolation audit on lock-free ring buffer.',
+        requiredRole: 'VIEWER',
+        parameters: {
+          type: 'object',
+          properties: {}
+        }
       }
     ];
   }
@@ -496,6 +568,21 @@ class ToolSandbox {
           break;
         case 'ebpf_probe':
           result = await this._execEbpfProbe(sanitizedParams);
+          break;
+        case 'pomdp_active_probe':
+          result = await this._execPomdpActiveProbe(sanitizedParams);
+          break;
+        case 'socratic_dialectic_debate':
+          result = await this._execSocraticDialecticDebate(sanitizedParams);
+          break;
+        case 'compositional_remediation_synthesizer':
+          result = await this._execCompositionalRemediation(sanitizedParams);
+          break;
+        case 'crdt_wan_reconcile':
+          result = await this._execCrdtWanReconcile(sanitizedParams);
+          break;
+        case 'cacheline_perf_inspect':
+          result = await this._execCachelinePerfInspect(sanitizedParams);
           break;
         default:
           throw new ToolExecutionError(`Unknown diagnostic tool: '${toolName}'`, 404);
@@ -954,6 +1041,129 @@ class ToolSandbox {
     });
   }
 
+  async _execPomdpActiveProbe(params) {
+    const { adaptivePomdpProbeOrchestrator, DEFAULT_DIAGNOSTIC_PROBES } = require('../diagnostics/adaptive-pomdp-probe-orchestrator');
+    const incidentId = params.incidentId || `inc_pomdp_${Date.now()}`;
+    const prior = (params.prior && typeof params.prior === 'object') ? params.prior : {
+      H_MTU_BLACKHOLE: 0.25,
+      H_BGP_HIJACK: 0.25,
+      H_TRANSIT_CONGESTION: 0.25,
+      H_LOCAL_SWITCH_BUFFER: 0.25
+    };
+    const budgetMs = Number(params.budgetMs || 50.0);
+    const planReceipt = adaptivePomdpProbeOrchestrator.selectOptimalProbeSet(incidentId, prior, DEFAULT_DIAGNOSTIC_PROBES, budgetMs);
+    let posteriorReport = null;
+    if (Array.isArray(params.observations) && params.observations.length > 0) {
+      posteriorReport = adaptivePomdpProbeOrchestrator.updateBeliefWithObservations(prior, params.observations);
+    }
+    return {
+      success: true,
+      tool: 'pomdp_active_probe',
+      planReceipt,
+      posteriorReport,
+      evidence: {
+        incidentId,
+        selectedProbesCount: planReceipt.selectedProbes.length,
+        expectedMutualInformation: planReceipt.expectedMutualInformation,
+        totalCostMs: planReceipt.totalCostMs
+      }
+    };
+  }
+
+  async _execSocraticDialecticDebate(params) {
+    const { gameTheoreticDebateEngine } = require('../ai/game-theoretic-debate-engine');
+    const incidentId = params.incidentId || `inc_debate_${Date.now()}`;
+    const hypotheses = Array.isArray(params.hypotheses) && params.hypotheses.length >= 2
+      ? params.hypotheses
+      : ['BUFFER_CONGESTION', 'TOPOLOGICAL_ROUTING_LOOP'];
+    const evidence = (params.evidence && typeof params.evidence === 'object') ? params.evidence : {
+      rttSpikeDetected: true,
+      packetLossElevated: true,
+      queueDepthHigh: true
+    };
+    const debateReceipt = gameTheoreticDebateEngine.conductDialecticDebate(incidentId, hypotheses, evidence);
+    return {
+      success: true,
+      tool: 'socratic_dialectic_debate',
+      debateReceipt,
+      evidence: {
+        incidentId,
+        winningHypothesis: debateReceipt.winningHypothesis,
+        confidenceScore: debateReceipt.confidenceScore,
+        conflictK: debateReceipt.dempsterShafer.conflictK,
+        gameValue: debateReceipt.minimax.gameValue
+      }
+    };
+  }
+
+  async _execCompositionalRemediation(params) {
+    const { compositionalProgramSynthesizer } = require('../ai/compositional-program-synthesizer');
+    const incidentContext = {
+      incidentId: params.incidentId || `inc_remed_${Date.now()}`,
+      dominantFault: params.dominantFault || 'BUFFER_OVERFLOW',
+      targetNode: params.targetNode || 'node-r1',
+      currentTelemetry: params.currentTelemetry || { rttMs: 120, lossPct: 0.1, queueDepthPackets: 450 }
+    };
+    const environment = params.environment || {
+      nodes: [{ id: incidentContext.targetNode }],
+      paths: [[incidentContext.targetNode]]
+    };
+    const receipt = compositionalProgramSynthesizer.synthesizeRemediationProgram(incidentContext, environment);
+    return {
+      success: true,
+      tool: 'compositional_remediation_synthesizer',
+      programReceipt: receipt,
+      evidence: {
+        programId: receipt.programId,
+        isSafe: receipt.isSafe,
+        smtProofId: receipt.smtProofId,
+        stepsCount: receipt.ast.steps.length,
+        compensationsCount: receipt.ast.compensations.length
+      }
+    };
+  }
+
+  async _execCrdtWanReconcile(params) {
+    const { geoPartitionCrdtEngine } = require('./multisite/geo-partition-crdt-engine');
+    const remoteSiteId = params.remoteSiteId || 'site-remote-backup';
+    const remoteClock = params.remoteClock || { [remoteSiteId]: 1 };
+    const remoteDeltas = Array.isArray(params.remoteDeltas) ? params.remoteDeltas : [];
+    const report = geoPartitionCrdtEngine.reconcileWithRemote(remoteSiteId, remoteClock, remoteDeltas);
+    return {
+      success: true,
+      tool: 'crdt_wan_reconcile',
+      reconciliationReport: report,
+      currentState: geoPartitionCrdtEngine.getFullStateSnapshot(),
+      evidence: {
+        localSiteId: geoPartitionCrdtEngine.getLocalSiteId(),
+        remoteSiteId,
+        convergenceStatus: report.convergenceStatus,
+        deltasApplied: report.deltasAppliedCount
+      }
+    };
+  }
+
+  async _execCachelinePerfInspect() {
+    const { getSharedCachelineRingBuffer } = require('../sniffer/lockfree-cacheline-ring-buffer');
+    const ring = getSharedCachelineRingBuffer();
+    const stats = ring.getStats();
+    const perfStats = ring.getHardwarePerfStats();
+    return {
+      success: true,
+      tool: 'cacheline_perf_inspect',
+      stats,
+      perfStats,
+      evidence: {
+        cachelineAlignmentVerified: stats.cachelineAlignmentVerified,
+        capacity: stats.capacity,
+        occupancy: stats.occupancy,
+        throughputMbps: perfStats.throughputMbps,
+        instructionsPerCycleEst: perfStats.instructionsPerCycleEst,
+        l1CacheMissRateEst: perfStats.l1CacheMissRateEst
+      }
+    };
+  }
+
   getAuditLog(limit = 100) {
     return this.auditLog.slice(-limit).reverse();
   }
@@ -966,7 +1176,12 @@ class ToolSandbox {
       throw new ToolExecutionError('Parameters must be a valid JSON object.');
     }
 
-    const NO_TARGET_TOOLS = ['sysinternals_forensics', 'hwinfo_sensors', 'bleachbit_hygiene', 'wireshark_dissect', 'winrm_collect', 'procmon_trace', 'packet_factory', 'ebpf_probe'];
+    const NO_TARGET_TOOLS = [
+      'sysinternals_forensics', 'hwinfo_sensors', 'bleachbit_hygiene', 'wireshark_dissect', 'winrm_collect',
+      'procmon_trace', 'packet_factory', 'ebpf_probe',
+      'pomdp_active_probe', 'socratic_dialectic_debate', 'compositional_remediation_synthesizer',
+      'crdt_wan_reconcile', 'cacheline_perf_inspect'
+    ];
     const target = params.target || params.ip || params.domain;
 
     if (toolName === 'arp_lookup' && !params.ip) {
@@ -1002,6 +1217,22 @@ class ToolSandbox {
     }
     if (params.ip) sanitized.ip = validateHost(params.ip);
     if (params.domain) sanitized.domain = validateHost(params.domain);
+
+    // Sovereign parameters pass-through
+    if (params.incidentId) sanitized.incidentId = String(params.incidentId);
+    if (params.budgetMs !== undefined) sanitized.budgetMs = Number(params.budgetMs);
+    if (params.prior) sanitized.prior = params.prior;
+    if (params.observations) sanitized.observations = params.observations;
+    if (params.hypotheses) sanitized.hypotheses = params.hypotheses;
+    if (params.evidence) sanitized.evidence = params.evidence;
+    if (params.maxRounds !== undefined) sanitized.maxRounds = Number(params.maxRounds);
+    if (params.dominantFault) sanitized.dominantFault = String(params.dominantFault);
+    if (params.targetNode) sanitized.targetNode = String(params.targetNode);
+    if (params.currentTelemetry) sanitized.currentTelemetry = params.currentTelemetry;
+    if (params.environment) sanitized.environment = params.environment;
+    if (params.remoteSiteId) sanitized.remoteSiteId = String(params.remoteSiteId);
+    if (params.remoteClock) sanitized.remoteClock = params.remoteClock;
+    if (params.remoteDeltas) sanitized.remoteDeltas = params.remoteDeltas;
 
     if (params.port !== undefined) {
       const p = parseInt(params.port, 10);

@@ -220,6 +220,62 @@ const EJII_FUNCTION_DECLARATIONS = [
         target: { type: 'STRING', description: 'Primary service or node ID to disambiguate' }
       }
     }
+  },
+  {
+    name: 'socratic_dialectic_debate',
+    description: 'Execute structured thesis vs antithesis dialectic debate across agents with epistemic scoring, argument graph synthesis, and consensus convergence.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        incidentId: { type: 'STRING', description: 'Incident or investigation ID' },
+        issueSummary: { type: 'STRING', description: 'Summary of the infrastructure issue to debate' },
+        maxRounds: { type: 'INTEGER', description: 'Maximum dialectic debate rounds (default 3)' }
+      }
+    }
+  },
+  {
+    name: 'pomdp_active_probe',
+    description: 'Perform POMDP belief state update and select next optimal diagnostic probe minimizing entropy.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        target: { type: 'STRING', description: 'Target host, service, or network node' },
+        maxProbes: { type: 'INTEGER', description: 'Maximum active probes to select (default 3)' }
+      }
+    }
+  },
+  {
+    name: 'compositional_remediation_synthesizer',
+    description: 'Synthesize verified domain-specific remediation programs with safety invariants, topological dependency ordering, and rollback guards.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        incidentId: { type: 'STRING', description: 'Target incident ID for remediation' },
+        rootCause: { type: 'STRING', description: 'Identified root cause' },
+        targetSystem: { type: 'STRING', description: 'Target system or host' }
+      }
+    }
+  },
+  {
+    name: 'crdt_wan_reconcile',
+    description: 'Reconcile multi-region distributed telemetry and operator state across WAN partitions via state-based CvRDT and vector clocks.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        targetPartition: { type: 'STRING', description: 'Remote partition ID to reconcile with' },
+        syncMode: { type: 'STRING', description: 'Sync mode: full or delta' }
+      }
+    }
+  },
+  {
+    name: 'cacheline_perf_inspect',
+    description: 'Inspect 64-byte hardware cacheline alignment, false sharing avoidance, ring buffer occupancy, and L1 cache miss estimates for zero-loss packet sniffer.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        detailed: { type: 'BOOLEAN', description: 'Whether to return detailed per-cacheline memory layout metrics' }
+      }
+    }
   }
 ];
 
@@ -2003,6 +2059,52 @@ function mapFunctionCallToExecutionPlan(functionCall, sessionContext = {}) {
         explicitTarget: args.target || null,
         ports: [],
         preserveLastRemoteTarget: true,
+        modelInterpreted: true,
+        invokedToolName: name
+      };
+    case 'socratic_dialectic_debate':
+      return {
+        intent: 'socratic_dialectic_debate',
+        mode: 'operational',
+        incidentId: args.incidentId || 'INC-LIVE-DIALECTIC',
+        issueSummary: args.issueSummary || 'Multi-agent adversarial consensus dispute',
+        maxRounds: args.maxRounds || 3,
+        modelInterpreted: true,
+        invokedToolName: name
+      };
+    case 'pomdp_active_probe':
+      return {
+        intent: 'pomdp_active_probe',
+        mode: 'operational',
+        target: args.target || sessionContext.lastTarget || 'localhost',
+        maxProbes: args.maxProbes || 3,
+        modelInterpreted: true,
+        invokedToolName: name
+      };
+    case 'compositional_remediation_synthesizer':
+      return {
+        intent: 'compositional_remediation_synthesizer',
+        mode: 'operational',
+        incidentId: args.incidentId || 'INC-PROG-SYNTH',
+        rootCause: args.rootCause || 'Upstream BGP routing flap / TCP RST injection',
+        targetSystem: args.targetSystem || args.target || 'core-gw-01',
+        modelInterpreted: true,
+        invokedToolName: name
+      };
+    case 'crdt_wan_reconcile':
+      return {
+        intent: 'crdt_wan_reconcile',
+        mode: 'operational',
+        targetPartition: args.targetPartition || 'region-us-east',
+        syncMode: args.syncMode || 'delta',
+        modelInterpreted: true,
+        invokedToolName: name
+      };
+    case 'cacheline_perf_inspect':
+      return {
+        intent: 'cacheline_perf_inspect',
+        mode: 'operational',
+        detailed: Boolean(args.detailed !== false),
         modelInterpreted: true,
         invokedToolName: name
       };
