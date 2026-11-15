@@ -11,6 +11,10 @@ const {
   TelemetryKalmanFilter,
   calculateJitteredBackoffMs
 } = require('../src/systems/remediation/distributed-saga-orchestrator');
+const {
+  contextualBanditPolicy,
+  ContextualBanditPolicyEngine
+} = require('../src/systems/remediation/contextual-bandit-policy');
 const { zkEpistemicConsensusEngine, ZkEpistemicConsensusEngine } = require('../src/core/agent/zk-epistemic-consensus');
 const { formulateRemediationGate } = require('../src/core/chat/conversational-brain');
 
@@ -483,6 +487,13 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
   });
 
   test('Phase 8.0 Track 5: Self-Healing Saga Compensation Coordinator WAL re-drive and DLQ escalation', async () => {
+    const db = require('../src/db/database').db;
+    if (db) {
+      try {
+        db.prepare("DELETE FROM ejii_saga_compensations_pending WHERE status = 'PENDING_RETRY'").run();
+      } catch (_) {}
+    }
+
     const orchestrator = new DistributedSagaOrchestrator();
 
     const mockInverse = {
@@ -653,5 +664,117 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
     const enqueuedItem = pendingList.find((p) => p.sagaId === saga.sagaId && p.nodeId === 'node_failing_02');
     assert.ok(enqueuedItem, 'Failing rollback node must be enqueued into pending compensations');
     assert.equal(enqueuedItem.inverseAction.actionId, 'inv_f2');
+  });
+
+  test('Phase 9.0 Track 2: Contextual Multi-Armed Bandit (MAB) with Thompson Sampling & LinUCB updates posteriors and minimizes regret', () => {
+    const bandit = new ContextualBanditPolicyEngine();
+    bandit.resetForTesting();
+
+    const arms = [
+      { armId: 'arm_pacing', actionType: 'TCP_PACING' },
+      { armId: 'arm_bbr', actionType: 'BBR_PROBE_RTT' },
+      { armId: 'arm_codel', actionType: 'CODEL_TARGET_TUNING' }
+    ];
+
+    const ctx = bandit.buildContextVector({
+      lyapunovEnergy: 45.0,
+      hurstParameter: 0.85,
+      queueDepthPackets: 65,
+      bufferCapacityPackets: 100,
+      blastRadiusRisk: 0.3
+    });
+
+    assert.equal(ctx.length, 4);
+
+    // Initial selection
+    const initialSelection = bandit.selectAction(arms, ctx, { algorithm: 'HYBRID_BANDIT' });
+    assert.ok(initialSelection);
+    assert.ok(['arm_pacing', 'arm_bbr', 'arm_codel'].includes(initialSelection.selectedArmId));
+    assert.equal(initialSelection.evaluations.length, 3);
+    assert.equal(initialSelection.explorationBonusApplied, true);
+
+    // Reward arm_codel with high contraction and success
+    for (let i = 0; i < 5; i++) {
+      bandit.recordReward({
+        armId: 'arm_codel',
+        contextVector: ctx,
+        deltaV: -25.0,
+        energyBefore: 50.0,
+        blastRadius: 0.1,
+        executionDurationMs: 100,
+        success: true,
+        rollbackOccurred: false
+      });
+    }
+
+    // Penalize arm_pacing with failure / rollback
+    for (let i = 0; i < 5; i++) {
+      bandit.recordReward({
+        armId: 'arm_pacing',
+        contextVector: ctx,
+        deltaV: 0.0,
+        energyBefore: 50.0,
+        blastRadius: 0.8,
+        executionDurationMs: 800,
+        success: false,
+        rollbackOccurred: true
+      });
+    }
+
+    const armCodelState = bandit.getArmState('arm_codel');
+    const armPacingState = bandit.getArmState('arm_pacing');
+
+    assert.ok(armCodelState.alpha > armCodelState.beta, 'Successful arm must have alpha > beta');
+    assert.ok(armPacingState.beta > armPacingState.alpha, 'Failing arm must have beta > alpha');
+    assert.ok(armCodelState.cumulativeReward > armPacingState.cumulativeReward);
+
+    // LinUCB exploitation (alphaUcb: 0) should decisively favor arm_codel over arm_pacing
+    const postSelection = bandit.selectAction(['arm_codel', 'arm_pacing'], ctx, { algorithm: 'LIN_UCB', alphaUcb: 0 });
+    assert.equal(postSelection.selectedArmId, 'arm_codel', 'LinUCB must exploit learned weights and select arm_codel');
+
+    const codelEval = postSelection.evaluations.find((e) => e.armId === 'arm_codel');
+    const pacingEval = postSelection.evaluations.find((e) => e.armId === 'arm_pacing');
+    assert.ok(codelEval.linUcbScore > pacingEval.linUcbScore, 'arm_codel score must exceed arm_pacing score');
+  });
+
+  test('Phase 9.0 Track 2: Distributed Saga integrates Contextual Bandit into initiateSaga and rewards/penalizes policy', () => {
+    const orchestrator = new DistributedSagaOrchestrator();
+
+    const participants = [
+      {
+        nodeId: 'gw_01',
+        role: 'CORE_GATEWAY',
+        targetEndpoint: '10.0.1.1',
+        currentState: { rttMs: 65, lossPct: 1.5, queueDepthPackets: 45 },
+        candidateAction: {
+          actionId: 'act_bandit_01',
+          actionType: 'TCP_PACING',
+          target: '10.0.1.1',
+          parameters: { rateMbps: 100 },
+          rationale: 'Pacing test',
+          requiresElevation: false
+        },
+        candidateInverse: {
+          actionId: 'inv_bandit_01',
+          inverseType: 'TCP_PACING_RESET',
+          reversesActionId: 'act_bandit_01',
+          target: '10.0.1.1',
+          parameters: {},
+          rationale: 'Reset',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      }
+    ];
+
+    const saga = orchestrator.initiateSaga('SAGA_BANDIT_EVAL', 'tester', participants);
+    assert.ok(saga.banditPolicySelection, 'Initiated saga must attach bandit policy selection');
+    assert.equal(saga.banditPolicySelection.selectedArmId, 'act_bandit_01');
+
+    // Trigger rollback to assert negative reward attribution
+    orchestrator.triggerCoordinatedRollback(saga.sagaId, 'Testing policy penalty on rollback');
+    const armState = contextualBanditPolicy.getArmState('act_bandit_01');
+    assert.ok(armState, 'Arm state must be registered and updated');
+    assert.ok(armState.failures >= 1, 'Arm must record failure upon rollback');
   });
 });

@@ -140,6 +140,7 @@ export interface DistributedSagaRecord {
   };
   commitTokens: Record<string, string>;
   batchQuorumReceipt?: BatchEpistemicQuorumReceipt;
+  banditPolicySelection?: any;
   rollbackExecuted: boolean;
   rollbackLog: RollbackStepResult[];
   createdAtIso: string;
@@ -568,6 +569,25 @@ export class DistributedSagaOrchestrator extends EventEmitter {
     const sagaId = `saga_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const nowIso = new Date().toISOString();
 
+    // Phase 9.0 Track 2: Contextual Multi-Armed Bandit policy evaluation
+    let banditPolicySelection: any = undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { contextualBanditPolicy } = require('./contextual-bandit-policy');
+      const avgRtt = participants.reduce((sum, p) => sum + (p.currentState?.rttMs || 0), 0) / participants.length;
+      const avgQueue = participants.reduce((sum, p) => sum + (p.currentState?.queueDepthPackets || 0), 0) / participants.length;
+      const contextVec = contextualBanditPolicy.buildContextVector({
+        lyapunovEnergy: avgRtt * 0.5 + avgQueue * 0.5,
+        queueDepthPackets: avgQueue,
+        blastRadiusRisk: Math.min(1.0, participants.length / 10.0)
+      });
+      const candidateArms = participants.map((p) => ({
+        armId: p.candidateAction.actionId,
+        actionType: p.candidateAction.actionType
+      }));
+      banditPolicySelection = contextualBanditPolicy.selectAction(candidateArms, contextVec);
+    } catch (_) {}
+
     const record: DistributedSagaRecord = {
       sagaId,
       hypothesisId,
@@ -582,6 +602,7 @@ export class DistributedSagaOrchestrator extends EventEmitter {
         isRiemannianStable: false
       },
       commitTokens: {},
+      banditPolicySelection,
       rollbackExecuted: false,
       rollbackLog: [],
       createdAtIso: nowIso,
@@ -822,6 +843,25 @@ export class DistributedSagaOrchestrator extends EventEmitter {
     saga.phase = 'COMMITTED';
     this.processedSagaNonces.add(sagaId);
     saga.updatedAtIso = new Date().toISOString();
+
+    // Phase 9.0 Track 2: Bayesian Reward Attribution for Contextual Bandit
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { contextualBanditPolicy } = require('./contextual-bandit-policy');
+      for (const p of saga.participants) {
+        contextualBanditPolicy.recordReward({
+          armId: p.candidateAction.actionId,
+          contextVector: saga.banditPolicySelection?.contextVector || [0.5, 0.5, 0.5, 0.2],
+          deltaV: saga.lyapunovAggregate.deltaV,
+          energyBefore: saga.lyapunovAggregate.energyBefore,
+          blastRadius: saga.participants.length / 10.0,
+          executionDurationMs: 150,
+          success: true,
+          rollbackOccurred: false
+        });
+      }
+    } catch (_) {}
+
     this.persistSaga(saga);
     return saga;
   }
@@ -863,6 +903,25 @@ export class DistributedSagaOrchestrator extends EventEmitter {
 
     saga.phase = 'ROLLED_BACK';
     saga.updatedAtIso = new Date().toISOString();
+
+    // Phase 9.0 Track 2: Negative Reward Attribution on Rollback
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { contextualBanditPolicy } = require('./contextual-bandit-policy');
+      for (const participant of saga.participants) {
+        contextualBanditPolicy.recordReward({
+          armId: participant.candidateAction.actionId,
+          contextVector: saga.banditPolicySelection?.contextVector || [0.5, 0.5, 0.5, 0.2],
+          deltaV: 0,
+          energyBefore: saga.lyapunovAggregate.energyBefore,
+          blastRadius: saga.participants.length / 10.0,
+          executionDurationMs: 500,
+          success: false,
+          rollbackOccurred: true
+        });
+      }
+    } catch (_) {}
+
     this.persistSaga(saga);
     return saga;
   }
