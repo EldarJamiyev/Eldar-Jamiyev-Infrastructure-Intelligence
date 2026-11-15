@@ -63,6 +63,10 @@ class WarRoomSwarmCoordinator {
     return Array.from(this.members.values()).filter((m) => m.role === role);
   }
 
+  getAllMembers() {
+    return Array.from(this.members.values());
+  }
+
   incrementVectorClock(agentId) {
     const member = this.members.get(agentId);
     if (!member) throw new Error(`Agent ${agentId} not found in War Room roster`);
