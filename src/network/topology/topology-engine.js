@@ -9,6 +9,7 @@ const { getPhysicalNetworkInfo, isIpInSubnet, syncTopologyWithCurrentLocation } 
 const { getArpTable, resolveOuiVendor } = require('../../tools/ip-scanner');
 const { walkOid, STANDARD_OIDS } = require('../../protocols/snmp-engine');
 const { SpectralGNNTopologyEngine } = require('../../topology/spectral-gnn-apex');
+const { hypergraphNeuralOperator } = require('../../topology/hypergraph-neural-operator');
 
 class TopologyEngine {
   constructor() {
@@ -928,6 +929,23 @@ class TopologyEngine {
     const routingTable = (netInfo && netInfo.routes) ? netInfo.routes : [{ destination: '0.0.0.0', gateway: netInfo.defaultGateway || '192.168.31.1' }];
     return processSocketCorrelator.buildProcessServiceDependencyGraph(options.activeSockets, arpTable, routingTable, options.dnsCache);
   }
+
+  /**
+   * Evaluates Non-Euclidean Hypergraph and Persistent Homology (\beta_0, \beta_1)
+   */
+  analyzeHypergraphTopology(hyperedges = [], options = {}) {
+    const topo = this.getTopology();
+    const hNodes = (topo.nodes || []).map((n) => ({
+      id: n.id,
+      role: n.type || 'ENDPOINT',
+      metrics: {
+        rttMs: n.metrics?.rtt || 10,
+        lossPct: n.metrics?.loss || 0,
+        queueDepthPackets: n.metrics?.queue || 5
+      }
+    }));
+    return hypergraphNeuralOperator.analyzeHypergraph(hNodes, hyperedges, options);
+  }
 }
 
 const defaultEngine = new TopologyEngine();
@@ -948,6 +966,7 @@ function getDependencyTopology() {
 module.exports = {
   TopologyEngine,
   topologyEngine: defaultEngine,
+  hypergraphNeuralOperator,
   getDependencyTopology,
   computeTopologicalGNNEmbeddings: (nodes, edges) => {
     const { computeTopologicalGNNEmbeddings } = require('../../core/rca-engine');
