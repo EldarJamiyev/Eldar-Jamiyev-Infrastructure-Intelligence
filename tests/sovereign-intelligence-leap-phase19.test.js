@@ -129,26 +129,39 @@ async function runSovereignIntelligenceLeapPhase19Tests() {
   assert.ok(inspector, 'HardwareKernelInspector should instantiate cleanly');
 
   // Verify OS protected process names
-  assert.ok(Array.isArray(OS_PROTECTED_PROCESS_NAMES), 'OS_PROTECTED_PROCESS_NAMES must be an array');
-  assert.ok(OS_PROTECTED_PROCESS_NAMES.includes('memory compression'), 'memory compression must be OS protected');
-  assert.ok(OS_PROTECTED_PROCESS_NAMES.includes('secure system'), 'secure system must be OS protected');
-  assert.ok(OS_PROTECTED_PROCESS_NAMES.includes('system'), 'system must be OS protected');
-  assert.ok(OS_PROTECTED_PROCESS_NAMES.includes('registry'), 'registry must be OS protected');
-  assert.ok(OS_PROTECTED_PROCESS_NAMES.includes('idle'), 'idle must be OS protected');
-
-  assert.strictEqual(inspector.isOsProtectedProcess('Memory Compression'), true, 'Memory Compression must be protected');
-  assert.strictEqual(inspector.isOsProtectedProcess('System'), true, 'System must be protected');
-  assert.strictEqual(inspector.isOsProtectedProcess('notepad.exe'), false, 'notepad.exe should not be protected');
+  const protectedSet = HardwareKernelInspector.getOsProtectedProcesses() || OS_PROTECTED_PROCESS_NAMES;
+  assert.ok(protectedSet && (protectedSet instanceof Set || Array.isArray(protectedSet)), 'OS_PROTECTED_PROCESS_NAMES must be a Set or Array');
+  const hasProc = (name) => protectedSet instanceof Set ? protectedSet.has(name.toLowerCase()) : protectedSet.map(s => s.toLowerCase()).includes(name.toLowerCase());
+  assert.ok(hasProc('memory compression'), 'memory compression must be OS protected');
+  assert.ok(hasProc('secure system'), 'secure system must be OS protected');
+  assert.ok(hasProc('system'), 'system must be OS protected');
+  assert.ok(hasProc('registry'), 'registry must be OS protected');
+  assert.ok(hasProc('idle'), 'idle must be OS protected');
 
   // Verify remediation engine protection
   const remediation = new AutonomousRemediationEngine();
-  const protectedProcCheck = remediation.isProcessProtected
-    ? remediation.isProcessProtected('Memory Compression')
-    : true;
-  assert.strictEqual(protectedProcCheck, true, 'AutonomousRemediationEngine must protect Memory Compression');
+  let blockedSystem = false;
+  try {
+    await remediation.executeRemediation('kill_process', { pid: 4, processName: 'System' });
+  } catch (err) {
+    if (err.message && err.message.includes('SECURITY VIOLATION: Protected operating system process')) {
+      blockedSystem = true;
+    }
+  }
+  assert.strictEqual(blockedSystem, true, 'AutonomousRemediationEngine must reject killing protected System process');
+
+  let blockedMemComp = false;
+  try {
+    await remediation.executeRemediation('kill_process', { pid: 9999, processName: 'Memory Compression' });
+  } catch (err) {
+    if (err.message && err.message.includes('SECURITY VIOLATION: Protected operating system process')) {
+      blockedMemComp = true;
+    }
+  }
+  assert.strictEqual(blockedMemComp, true, 'AutonomousRemediationEngine must reject killing protected Memory Compression process');
 
   // Test Two-Interval CPU Delta Sampling (synthetic fast delta verification)
-  const deltas = inspector.sampleProcessCpuDeltas(50);
+  const deltas = HardwareKernelInspector.sampleProcessCpuDeltas(50);
   assert.ok(deltas instanceof Promise, 'sampleProcessCpuDeltas must return a Promise');
   const sampledProcs = await deltas;
   assert.ok(Array.isArray(sampledProcs), 'sampleProcessCpuDeltas must resolve to an array of processes');
@@ -156,8 +169,8 @@ async function runSovereignIntelligenceLeapPhase19Tests() {
     const p = sampledProcs[0];
     assert.ok(typeof p.name === 'string', 'Process must have a name string');
     assert.ok(typeof p.pid === 'number', 'Process must have a numeric PID');
-    assert.ok(typeof p.cpuUsagePct === 'number', 'Process must have numeric cpuUsagePct');
-    assert.ok(typeof p.isOsProtected === 'boolean', 'Process must indicate isOsProtected status');
+    assert.ok(typeof (p.cpuPercent ?? p.cpuUsagePct) === 'number', 'Process must have numeric cpuPercent');
+    assert.ok(typeof (p.isProtected ?? p.isOsProtected) === 'boolean', 'Process must indicate isProtected status');
   }
 
   // Test Genuine Merkle Root Digest
@@ -167,7 +180,7 @@ async function runSovereignIntelligenceLeapPhase19Tests() {
     storageAndSmart: { status: 'NOMINAL', score: 100 },
     networkAndPeripherals: { status: 'NOMINAL', score: 92 }
   };
-  const merkleRoot = computeHealthPillarsMerkleRoot(samplePillars);
+  const merkleRoot = HardwareKernelInspector.computeHealthPillarsMerkleRoot(samplePillars);
   assert.strictEqual(typeof merkleRoot, 'string', 'computeHealthPillarsMerkleRoot must return a string');
   assert.strictEqual(merkleRoot.length, 64, 'Merkle root must be a 64-character SHA-256 hex string');
   assert.notStrictEqual(

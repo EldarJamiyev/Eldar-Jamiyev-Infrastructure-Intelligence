@@ -40,6 +40,7 @@ const PROTECTED_OS_PROCESSES = new Set([
   'explorer.exe', 'explorer',
   'ntoskrnl.exe', 'ntoskrnl',
   'system', 'system idle process', 'registry',
+  'memory compression', 'secure system', 'idle',
   'node.exe', 'node' // Workstation runtime self-defense
 ]);
 
