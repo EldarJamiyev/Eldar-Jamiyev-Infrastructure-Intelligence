@@ -281,3 +281,97 @@ test('Falcon Turn 8: semanticDiagnostics schema and security guarantees', async 
   assert.ok(!serialized.includes('AIzaSy'), 'No API keys in diagnostics');
   assert.ok(!serialized.includes('bearer'), 'No bearer tokens in diagnostics');
 });
+
+test('Falcon Turn 9: RLOF preference parsing, Bradley-Terry likelihood and DPO gradient computation', () => {
+  const { rlofPreferenceAligner } = require('../src/ai/rlof-preference-aligner');
+
+  // Test 1: Parser
+  const parse1 = rlofPreferenceAligner.parseOperatorFeedback('prefer TCP_WINDOW_CLAMP over DNS_UPSTREAM_PIVOT');
+  assert.equal(parse1.matched, true);
+  assert.equal(parse1.winningAction, 'TCP_WINDOW_CLAMP');
+  assert.equal(parse1.losingAction, 'DNS_UPSTREAM_PIVOT');
+  assert.equal(parse1.feedbackType, 'PREFERENCE_RANKING');
+
+  const parse2 = rlofPreferenceAligner.parseOperatorFeedback('override DNS_UPSTREAM_PIVOT with DSCP_TRAFFIC_SHAPE');
+  assert.equal(parse2.matched, true);
+  assert.equal(parse2.winningAction, 'DSCP_TRAFFIC_SHAPE');
+  assert.equal(parse2.losingAction, 'DNS_UPSTREAM_PIVOT');
+  assert.equal(parse2.feedbackType, 'EXPLICIT_OVERRIDE');
+
+  const parse3 = rlofPreferenceAligner.parseOperatorFeedback('reject BPF_RATE_LIMIT, use SOCKET_BUFFER_EXPEDITE');
+  assert.equal(parse3.matched, true);
+  assert.equal(parse3.winningAction, 'SOCKET_BUFFER_EXPEDITE');
+  assert.equal(parse3.losingAction, 'BPF_RATE_LIMIT');
+  assert.equal(parse3.feedbackType, 'EXPLICIT_OVERRIDE');
+
+  // Test 2: Bradley-Terry Probability and DPO gradients
+  const contextVector = [0.8, 0.7, 0.9, 0.3];
+  const pInitial = rlofPreferenceAligner.computeBradleyTerryProbability(
+    contextVector,
+    'ACTION_ALPHA',
+    'ACTION_BETA'
+  );
+  assert.ok(pInitial >= 0.0 && pInitial <= 1.0);
+
+  const { dpoLoss, gradW, gradL } = rlofPreferenceAligner.computeDpoLossAndGradients(
+    contextVector,
+    'ACTION_ALPHA',
+    'ACTION_BETA',
+    0.5
+  );
+  assert.ok(dpoLoss > 0, 'DPO loss must be positive');
+  assert.equal(gradW.length, 4);
+  assert.equal(gradL.length, 4);
+  // Winning gradient entries should be negative (direction to decrease loss)
+  assert.ok(gradW.every((g) => g <= 0));
+  // Losing gradient entries should be positive
+  assert.ok(gradL.every((g) => g >= 0));
+});
+
+test('Falcon Turn 10: RLOF end-to-end chat turn: operator override shifts contextual bandit arm priors and persists to SQLite WAL', async () => {
+  const { rlofPreferenceAligner } = require('../src/ai/rlof-preference-aligner');
+  const { contextualBanditPolicy } = require('../src/systems/remediation/contextual-bandit-policy');
+
+  const armWinInitial = contextualBanditPolicy.registerOrGetArm('TCP_WINDOW_CLAMP');
+  const armLossInitial = contextualBanditPolicy.registerOrGetArm('DNS_UPSTREAM_PIVOT');
+  const alphaBefore = armWinInitial.alpha;
+  const betaBefore = armLossInitial.beta;
+
+  const sessionId = `test-falcon-rlof-${Date.now()}`;
+  const user = { id: 'sre-lead', username: 'alex', role: 'ADMIN' };
+
+  // Operator issues natural language preference override in chat
+  const prompt = 'override DNS_UPSTREAM_PIVOT with TCP_WINDOW_CLAMP';
+  const plan = chatOperatorService.parseIntentAndEntities(prompt);
+  assert.equal(plan.intent, 'operator_preference_feedback');
+  assert.equal(plan.feedback.winningAction, 'TCP_WINDOW_CLAMP');
+  assert.equal(plan.feedback.losingAction, 'DNS_UPSTREAM_PIVOT');
+
+  // Execute turn through ChatOperatorService
+  const res = await chatOperatorService.processMessage({
+    sessionId,
+    message: prompt,
+    user
+  });
+
+  assert.equal(res.success, true);
+  assert.equal(res.intent, 'operator_preference_feedback');
+  assert.ok(res.reply.includes('Reinforcement Learning from Operator Feedback'));
+  assert.ok(res.reply.includes('TCP_WINDOW_CLAMP'));
+  assert.ok(res.reply.includes('DNS_UPSTREAM_PIVOT'));
+  assert.ok(res.data.rlofAlignment, 'rlofAlignment must be present in response data');
+
+  // Verify bandit arm shifts
+  const armWinAfter = contextualBanditPolicy.registerOrGetArm('TCP_WINDOW_CLAMP');
+  const armLossAfter = contextualBanditPolicy.registerOrGetArm('DNS_UPSTREAM_PIVOT');
+  assert.ok(armWinAfter.alpha > alphaBefore, 'Winning arm alpha prior must increase');
+  assert.ok(armLossAfter.beta > betaBefore, 'Losing arm beta prior must increase');
+
+  // Verify persistence in SQLite WAL table
+  const history = rlofPreferenceAligner.getPreferenceHistory(10);
+  assert.ok(history.length > 0);
+  const matchedTriplet = history.find((t) => t.tripletId === res.data.rlofAlignment.triplet.tripletId);
+  assert.ok(matchedTriplet, 'Recorded triplet must be found in SQLite WAL table');
+  assert.equal(matchedTriplet.winningAction, 'TCP_WINDOW_CLAMP');
+  assert.equal(matchedTriplet.losingAction, 'DNS_UPSTREAM_PIVOT');
+});

@@ -3702,6 +3702,12 @@ class StreamingEpistemicObserver extends EventEmitter {
   }
 }
 
+const { rlofPreferenceAligner } = require('../../ai/rlof-preference-aligner');
+
+function alignOperatorRemediationPreference(params) {
+  return rlofPreferenceAligner.recordPreferenceAndAlign(params);
+}
+
 module.exports = {
   EJII_FUNCTION_DECLARATIONS,
   CANONICAL_FAULT_HYPOTHESES,
@@ -3734,5 +3740,7 @@ module.exports = {
   applySocraticClarificationResponse,
   disambiguateTopologicalTarget,
   resolveTemporalScope,
-  StreamingEpistemicObserver
+  StreamingEpistemicObserver,
+  rlofPreferenceAligner,
+  alignOperatorRemediationPreference
 };

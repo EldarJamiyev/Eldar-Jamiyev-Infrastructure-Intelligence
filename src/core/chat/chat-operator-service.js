@@ -56,6 +56,7 @@ const { superpowersSkillsEngine } = require('../skills/superpowers-skills-engine
 const { claudeMemEngine } = require('../memory/claude-mem-engine');
 const { readOnlySkillCatalog } = require('../skills/read-only-skill-router');
 const { projectAtlasEngine } = require('../../network/atlas/project-atlas-engine');
+const { rlofPreferenceAligner } = require('../../ai/rlof-preference-aligner');
 
 const MAX_WORKING_MEMORY_MESSAGES = 40;
 const MAX_ENTITY_OBSERVATIONS = 25;
@@ -620,6 +621,21 @@ class ChatOperatorService {
         Object.keys(session.entityMemory || {}).length > 0 ||
         (session.socketSnapshots && session.socketSnapshots.length > 0))
     );
+
+    // 00-RLOF. Reinforcement Learning from Operator Feedback & Preference Policy Alignment
+    const rlofMatch = rlofPreferenceAligner.parseOperatorFeedback(raw);
+    if (rlofMatch && rlofMatch.matched) {
+      return {
+        intent: 'operator_preference_feedback',
+        mode: 'operational',
+        target: null,
+        explicitTarget: null,
+        ports: [],
+        feedback: rlofMatch,
+        usedFollowUpTarget: false,
+        preserveContextOnly: true
+      };
+    }
 
     // 00-Epistemic. Sovereign Fabric v6 Truth Matrix, Bayesian Posteriors, Shannon Information-Gain, & Default Gateway Epistemic Queries
     if (isEpistemicOrSovereignFabricQuestion(raw)) {
@@ -2403,7 +2419,8 @@ class ChatOperatorService {
         'gateway_ip_query',
         'dhcp_check',
         'local_path_diagnostic',
-        'active_connections'
+        'active_connections',
+        'operator_preference_feedback'
       ]);
 
       if (!nonRemoteProbeIntents.has(plan.intent) && plan.target) {
@@ -2517,6 +2534,8 @@ class ChatOperatorService {
             return await this._executeFollowUpExplanation(stepPlan, session, cleanPrompt);
           case 'remediation':
             return await this._executeRemediationScenario(stepPlan, user, abortController.signal);
+          case 'operator_preference_feedback':
+            return await this._executeOperatorPreferenceFeedbackScenario(stepPlan, user, session);
           case 'multi_step_investigation':
           default:
             return await this._executeMultiStepInvestigation(stepPlan, session, cleanPrompt, abortController.signal);
@@ -2645,6 +2664,7 @@ class ChatOperatorService {
     status = 'ok',
     promptClarification = false,
     errorCode = undefined,
+    rlofAlignment = null,
     startWall
   }) {
     const totalDurationMs = Number((performance.now() - startWall).toFixed(1));
@@ -3205,6 +3225,7 @@ class ChatOperatorService {
         commandCenterOverview,
         scenarioSimulation,
         suggestedFollowUps,
+        rlofAlignment,
         technicalEvidence
       }
     };
@@ -3260,6 +3281,7 @@ class ChatOperatorService {
       commandCenterOverview,
       scenarioSimulation,
       suggestedFollowUps,
+      rlofAlignment,
       technicalEvidence,
       sessionContext: {
         lastTarget: session.lastTarget,
@@ -6424,6 +6446,72 @@ class ChatOperatorService {
         { label: 'Snapshot', value: healRes.verification?.preSnapshotId || 'N/A', tone: 'neutral' }
       ],
       technicalEvidence: healRes
+    };
+  }
+
+  async _executeOperatorPreferenceFeedbackScenario(stepPlan, user, session) {
+    const fb = stepPlan.feedback;
+    const operatorId = user?.id || user?.username || 'operator-1';
+    const sessionId = session?.sessionId || 'default';
+
+    const contextVector = [0.5, 0.5, 0.5, 0.2];
+
+    const result = rlofPreferenceAligner.recordPreferenceAndAlign({
+      winningAction: fb.winningAction,
+      losingAction: fb.losingAction,
+      contextVector,
+      operatorId,
+      sessionId,
+      feedbackType: fb.feedbackType
+    });
+
+    const reply =
+      `### Reinforcement Learning from Operator Feedback (RLOF) Policy Update\n\n` +
+      `- **Feedback Type**: \`${fb.feedbackType}\`\n` +
+      `- **Preferred Action ($y_w$)**: \`${result.triplet.winningAction}\` (Prior $\\alpha \\to ${result.winningArmPrior.priorAlpha}$)\n` +
+      `- **Dispreferred Action ($y_l$)**: \`${result.triplet.losingAction}\` (Prior $\\beta \\to ${result.losingArmPrior.priorBeta}$)\n` +
+      `- **Bradley-Terry Likelihood**: $P(y_w \\succ y_l \\mid x) = ${(result.bradleyTerryLikelihood * 100).toFixed(2)}\\%$\n` +
+      `- **DPO Implicit Loss**: $\\mathcal{L}_{\\text{DPO}} = ${result.dpoLoss.toFixed(4)}$ (Gradient Norm: ${result.gradientNorm.toFixed(4)})\n` +
+      `- **Audit Triplet ID**: \`${result.triplet.tripletId}\` (Persisted to SQLite WAL \`ejii_rlof_preference_triplets\`)\n\n` +
+      `The contextual bandit arm priors and LinUCB decision boundaries have been updated in real-time.`;
+
+    const structuredAnswer = {
+      result: `Operator preference aligned: ${result.triplet.winningAction} preferred over ${result.triplet.losingAction}.`,
+      meaning: `Bandit arm priors shifted based on human operator feedback (${fb.feedbackType}).`,
+      nextStep: 'Subsequent remediation proposals will reflect this reinforced preference order.',
+      layerFailedFirst: null,
+      uncertainty: null
+    };
+
+    const steps = [
+      {
+        stepNumber: 1,
+        label: `Applying RLOF policy alignment for ${result.triplet.winningAction} vs ${result.triplet.losingAction}…`,
+        tool: 'rlof_preference_aligner',
+        status: 'PASS',
+        summary: `Updated Thompson Sampling Beta priors and LinUCB feature vectors (Loss: ${result.dpoLoss.toFixed(4)})`,
+        durationMs: 2
+      }
+    ];
+
+    return {
+      reply,
+      structuredAnswer,
+      steps,
+      findings: [
+        { label: 'Winning Action', value: result.triplet.winningAction, tone: 'ok' },
+        { label: 'Losing Action', value: result.triplet.losingAction, tone: 'warning' },
+        { label: 'Bradley-Terry P', value: `${(result.bradleyTerryLikelihood * 100).toFixed(1)}%`, tone: 'neutral' },
+        { label: 'Triplet ID', value: result.triplet.tripletId, tone: 'neutral' }
+      ],
+      technicalEvidence: {
+        tool: 'rlof_preference_aligner',
+        tripletId: result.triplet.tripletId,
+        dpoLoss: result.dpoLoss,
+        gradientNorm: result.gradientNorm,
+        observedAt: result.triplet.timestamp
+      },
+      rlofAlignment: result
     };
   }
 
