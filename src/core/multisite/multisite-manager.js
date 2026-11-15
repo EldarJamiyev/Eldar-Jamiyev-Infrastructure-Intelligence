@@ -1249,6 +1249,14 @@ class MultiSiteManager {
       generatedAt: new Date().toISOString()
     };
   }
+
+  /**
+   * Replicates distributed state updates across geo-distributed sites using BFT consensus
+   */
+  replicateStateAcrossSites(statePayload) {
+    const { bftStateMachineReplicator } = require('./bft-state-machine-replicator');
+    return bftStateMachineReplicator.proposePrePrepare(statePayload);
+  }
 }
 
 const multiSiteManager = new MultiSiteManager();
@@ -1256,6 +1264,7 @@ const multiSiteManager = new MultiSiteManager();
 module.exports = {
   MultiSiteManager,
   multiSiteManager,
+  bftStateMachineReplicator: require('./bft-state-machine-replicator').bftStateMachineReplicator,
   detectRuntimeExecutionEnvironment,
   classifyNetworkTargetScope,
   DEFAULT_SITES,

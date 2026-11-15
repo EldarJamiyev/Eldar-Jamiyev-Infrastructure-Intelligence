@@ -794,6 +794,18 @@ export class DistributedSagaOrchestrator extends EventEmitter {
     }
 
     saga.updatedAtIso = new Date().toISOString();
+    // Phase 10.0 Track 5: Replicate Committed Saga Transaction across BFT State Machine
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { bftStateMachineReplicator } = require('../../core/multisite/bft-state-machine-replicator');
+      bftStateMachineReplicator.proposePrePrepare({
+        sagaId,
+        phase: saga.phase,
+        participantsCount: saga.participants.length,
+        committedAtIso: saga.updatedAtIso
+      });
+    } catch (_) {}
+
     this.persistSaga(saga);
     return saga;
   }
@@ -885,6 +897,18 @@ export class DistributedSagaOrchestrator extends EventEmitter {
       }
     } catch (_) {}
 
+    // Phase 10.0 Track 5: Replicate Committed Saga Transaction across BFT State Machine
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { bftStateMachineReplicator } = require('../../core/multisite/bft-state-machine-replicator');
+      bftStateMachineReplicator.proposePrePrepare({
+        sagaId,
+        phase: saga.phase,
+        participantsCount: saga.participants.length,
+        committedAtIso: saga.updatedAtIso
+      });
+    } catch (_) {}
+
     this.persistSaga(saga);
     return saga;
   }
@@ -943,6 +967,18 @@ export class DistributedSagaOrchestrator extends EventEmitter {
           rollbackOccurred: true
         });
       }
+    } catch (_) {}
+
+    // Phase 10.0 Track 5: Replicate Committed Saga Transaction across BFT State Machine
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { bftStateMachineReplicator } = require('../../core/multisite/bft-state-machine-replicator');
+      bftStateMachineReplicator.proposePrePrepare({
+        sagaId,
+        phase: saga.phase,
+        participantsCount: saga.participants.length,
+        committedAtIso: saga.updatedAtIso
+      });
     } catch (_) {}
 
     this.persistSaga(saga);

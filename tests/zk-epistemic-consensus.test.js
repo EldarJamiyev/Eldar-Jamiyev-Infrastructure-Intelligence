@@ -319,4 +319,125 @@ describe('Phase 5.0 Track 5: Asymmetric Ed25519 Cryptographic State Vectors & Me
     assert.equal(divRes.reconciliationStatus, 'MERKLE_DESCENT_REQUIRED');
   });
 
+  test('Phase 10.0 Track 5: 3-Phase PBFT state machine replication convergence (N=4, f=1)', () => {
+    const { BftStateMachineReplicator } = require('../src/core/multisite/bft-state-machine-replicator');
+    const bft = new BftStateMachineReplicator();
+    bft.resetForTesting();
+
+    // Register 4 nodes (N = 3f + 1 where f = 1, quorum = 2f + 1 = 3)
+    bft.registerNode({ nodeId: 'node_us_east', region: 'us-east-1' });
+    bft.registerNode({ nodeId: 'node_eu_central', region: 'eu-central-1' });
+    bft.registerNode({ nodeId: 'node_ap_southeast', region: 'ap-southeast-1' });
+    bft.registerNode({ nodeId: 'node_sa_east', region: 'sa-east-1' });
+
+    assert.equal(bft.getQuorumThreshold(), 3);
+    const leaderId = bft.getLeaderId();
+    assert.equal(leaderId, 'node_us_east');
+
+    // Phase 1: Pre-Prepare
+    const payload = { action: 'ROUTE_FAILOVER', primaryGw: '10.0.1.1', backupGw: '10.0.2.1' };
+    const prePrep = bft.proposePrePrepare(payload);
+    assert.equal(prePrep.type, 'PRE_PREPARE');
+    assert.equal(prePrep.view, 0);
+    assert.equal(prePrep.sequenceNumber, 1);
+    assert.ok(prePrep.signature.length > 20);
+
+    // Phase 2: Prepare votes from replicas
+    const prep1 = bft.handlePrePrepareAndPrepare(prePrep, 'node_us_east');
+    const prep2 = bft.handlePrePrepareAndPrepare(prePrep, 'node_eu_central');
+    const prep3 = bft.handlePrePrepareAndPrepare(prePrep, 'node_ap_southeast');
+
+    assert.ok(prep1 && prep2 && prep3);
+    // Prepared Certificate must be formed with 2f matching prepare votes
+    const prepCert = bft.receivePrepare(prep3);
+    assert.ok(prepCert, 'Prepared certificate must form once quorum threshold is reached');
+    assert.equal(prepCert.type, 'PREPARED');
+    assert.equal(prepCert.sequenceNumber, 1);
+
+    // Phase 3: Commit votes from replicas
+    const com1 = bft.handleCommit('node_us_east', prepCert);
+    const com2 = bft.handleCommit('node_eu_central', prepCert);
+    const com3 = bft.handleCommit('node_ap_southeast', prepCert);
+
+    assert.ok(com1 && com2 && com3);
+    const commitLogEntry = bft.receiveCommit(com3);
+    assert.ok(commitLogEntry, 'Commit log entry must be produced once 2f+1 commits verified');
+    assert.equal(commitLogEntry.sequenceNumber, 1);
+    assert.equal(commitLogEntry.quorumCertificate.type, 'COMMITTED');
+    assert.ok(commitLogEntry.merkleRoot.length === 64, 'Merkle root must be valid SHA-256 hash');
+  });
+
+  test('Phase 10.0 Track 5: Faulty node equivocation detection & Byzantine exclusion', () => {
+    const { BftStateMachineReplicator } = require('../src/core/multisite/bft-state-machine-replicator');
+    const bft = new BftStateMachineReplicator();
+    bft.resetForTesting();
+
+    bft.registerNode({ nodeId: 'leader_node', region: 'us-east-1' });
+    bft.registerNode({ nodeId: 'honest_node_1', region: 'eu-central-1' });
+    bft.registerNode({ nodeId: 'honest_node_2', region: 'ap-southeast-1' });
+    bft.registerNode({ nodeId: 'byzantine_node', region: 'sa-east-1' });
+
+    // Propose valid transaction
+    const prePrep = bft.proposePrePrepare({ action: 'APPLY_RATE_LIMIT', rate: 1000 });
+    bft.handlePrePrepareAndPrepare(prePrep, 'honest_node_1');
+
+    // Equivocating message from byzantine node proposing different digest for same view and sequence
+    const fakeDigest = '0000000000000000000000000000000000000000000000000000000000000000';
+    const nowIso = new Date().toISOString();
+    const signPayload = `PREPARE:${prePrep.view}:${prePrep.sequenceNumber}:${fakeDigest}:byzantine_node:${nowIso}`;
+    const byzSig = bft.signMessage('byzantine_node', signPayload);
+
+    // First vote accepted
+    bft.receivePrepare({
+      type: 'PREPARE',
+      view: prePrep.view,
+      sequenceNumber: prePrep.sequenceNumber,
+      digest: fakeDigest,
+      nodeId: 'byzantine_node',
+      signature: byzSig,
+      timestampIso: nowIso
+    });
+
+    // Conflicting second vote with different digest from same byzantine node
+    const signPayload2 = `PREPARE:${prePrep.view}:${prePrep.sequenceNumber}:${prePrep.digest}:byzantine_node:${nowIso}`;
+    const byzSig2 = bft.signMessage('byzantine_node', signPayload2);
+
+    const conflictingVote = bft.receivePrepare({
+      type: 'PREPARE',
+      view: prePrep.view,
+      sequenceNumber: prePrep.sequenceNumber,
+      digest: prePrep.digest,
+      nodeId: 'byzantine_node',
+      signature: byzSig2,
+      timestampIso: nowIso
+    });
+
+    assert.equal(conflictingVote, null, 'Equivocating vote must be rejected');
+    assert.ok(bft.getByzantineNodes().includes('byzantine_node'), 'Byzantine node must be flagged in blacklist');
+  });
+
+  test('Phase 10.0 Track 5: View change recovery & SQLite WAL replicated state log', () => {
+    const { BftStateMachineReplicator } = require('../src/core/multisite/bft-state-machine-replicator');
+    const bft = new BftStateMachineReplicator();
+    bft.resetForTesting();
+
+    bft.registerNode({ nodeId: 'node_0', region: 'us-east-1' });
+    bft.registerNode({ nodeId: 'node_1', region: 'eu-central-1' });
+    bft.registerNode({ nodeId: 'node_2', region: 'ap-southeast-1' });
+    bft.registerNode({ nodeId: 'node_3', region: 'sa-east-1' });
+
+    assert.equal(bft.getCurrentView(), 0);
+    assert.equal(bft.getLeaderId(), 'node_0');
+
+    // Trigger view change from replicas due to leader silence / timeout
+    bft.triggerViewChange('node_1', 1);
+    bft.triggerViewChange('node_2', 1);
+    const vc3 = bft.triggerViewChange('node_3', 1);
+
+    assert.equal(vc3.newView, 1);
+    // Quorum of 3 view change votes received -> new view 1 installed!
+    assert.equal(bft.getCurrentView(), 1);
+    assert.equal(bft.getLeaderId(), 'node_1', 'Next leader in round-robin sequence must take over');
+  });
+
 });

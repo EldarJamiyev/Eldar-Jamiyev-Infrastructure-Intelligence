@@ -19,11 +19,13 @@ console.log('===================================================================
 const ROOT_DIR = path.resolve(__dirname, '..');
 const SEARCH_DIRS = [
   path.join(ROOT_DIR, 'src', 'ai'),
+  path.join(ROOT_DIR, 'src', 'core', 'multisite'),
   path.join(ROOT_DIR, 'src', 'diagnostics'),
   path.join(ROOT_DIR, 'src', 'observability'),
   path.join(ROOT_DIR, 'src', 'scanner'),
   path.join(ROOT_DIR, 'src', 'security'),
   path.join(ROOT_DIR, 'src', 'sniffer'),
+  path.join(ROOT_DIR, 'src', 'systems', 'remediation'),
   path.join(ROOT_DIR, 'src', 'topology')
 ];
 
@@ -106,10 +108,12 @@ for (const tsFile of allTsFiles) {
     for (const clsName of tsClassMatches) {
       const cls = jsModule[clsName];
       if (typeof cls === 'function' && cls.prototype) {
-        // Extract public methods declared in TS class body
+        // Extract class body for this specific class
+        const classBodyMatch = tsContent.match(new RegExp(`class\\s+${clsName}\\b[^{]*\\{([\\s\\S]*?)(?:\\n\\}\\n|\\nexport|\\Z)`));
+        const classBody = classBodyMatch ? classBodyMatch[1] : '';
         const methodRegex = /public\s+([a-zA-Z0-9_]+)\s*\(/g;
         let m;
-        while ((m = methodRegex.exec(tsContent)) !== null) {
+        while ((m = methodRegex.exec(classBody)) !== null) {
           const methodName = m[1];
           if (methodName !== 'constructor' && typeof cls.prototype[methodName] !== 'function' && typeof cls[methodName] !== 'function') {
             failures++;
