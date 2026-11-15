@@ -207,8 +207,9 @@ export class FormalSmtSafetyVerifier {
     action: InfrastructureAction,
     env: NetworkEnvironmentState
   ): NetworkEnvironmentState {
-    const nodes = (env.nodes || []).map((n) => ({ ...n }));
-    const paths = (env.paths || []).map((p) => ({ ...p }));
+    const safeEnv = env || { nodes: [], paths: [] };
+    const nodes = (safeEnv.nodes || []).map((n) => ({ ...n }));
+    const paths = (safeEnv.paths || []).map((p) => ({ ...p }));
 
     // Apply action mutations
     switch (action.actionType) {

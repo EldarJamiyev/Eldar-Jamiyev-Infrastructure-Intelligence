@@ -501,6 +501,54 @@ wss.on('connection', (ws, req) => {
       } else if (data.type === 'STOP_PACKET_STREAM') {
         packetStreamer.stopStreaming();
         ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: false }));
+      } else if (data.type === 'SUBSCRIBE_SOVEREIGN_FEEDS') {
+        const { geoPartitionCrdtEngine } = require('./core/multisite/geo-partition-crdt-engine');
+        const { getSharedCachelineRingBuffer } = require('./sniffer/lockfree-cacheline-ring-buffer');
+        const ringBuffer = getSharedCachelineRingBuffer();
+        ws.send(JSON.stringify({
+          type: 'SOVEREIGN_FEEDS_SNAPSHOT',
+          timestamp: new Date().toISOString(),
+          crdtState: {
+            vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || { 'cluster-core': 1 },
+            partitions: ['region-us-east', 'region-eu-west', 'region-ap-south']
+          },
+          ringBufferPerf: ringBuffer.getHardwarePerfStats()
+        }));
+      } else if (data.type === 'TRIGGER_SOVEREIGN_PROBE') {
+        const { adaptivePomdpProbeOrchestrator, DEFAULT_DIAGNOSTIC_PROBES } = require('./diagnostics/adaptive-pomdp-probe-orchestrator');
+        const target = data.target || '127.0.0.1';
+        const incidentId = data.incidentId || `inc_ws_${Date.now()}`;
+        const prior = data.prior || {
+          H_MTU_BLACKHOLE: 0.25,
+          H_BGP_HIJACK: 0.25,
+          H_TRANSIT_CONGESTION: 0.25,
+          H_LOCAL_SWITCH_BUFFER: 0.25
+        };
+        const plan = adaptivePomdpProbeOrchestrator.selectOptimalProbeSet(incidentId, prior, DEFAULT_DIAGNOSTIC_PROBES, 50.0);
+        ws.send(JSON.stringify({
+          type: 'SOVEREIGN_PROBE_RESULT',
+          target,
+          plan,
+          timestamp: new Date().toISOString()
+        }));
+      } else if (data.type === 'GET_CACHELINE_STATS') {
+        const { getSharedCachelineRingBuffer } = require('./sniffer/lockfree-cacheline-ring-buffer');
+        const ringBuffer = getSharedCachelineRingBuffer();
+        ws.send(JSON.stringify({
+          type: 'CACHELINE_STATS_RESULT',
+          stats: ringBuffer.getStats(),
+          hardwarePerf: ringBuffer.getHardwarePerfStats(),
+          timestamp: new Date().toISOString()
+        }));
+      } else if (data.type === 'TRIGGER_CRDT_SYNC') {
+        const { geoPartitionCrdtEngine } = require('./core/multisite/geo-partition-crdt-engine');
+        const targetPartition = data.targetPartition || 'region-us-east';
+        const report = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition);
+        broadcast('CRDT_PARTITION_RECONCILED', {
+          targetPartition,
+          report,
+          timestamp: new Date().toISOString()
+        });
       }
     } catch (e) {}
   });

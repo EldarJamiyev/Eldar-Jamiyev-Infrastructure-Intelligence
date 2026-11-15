@@ -3007,19 +3007,27 @@ class AutonomousWarRoomOrchestrator {
         };
         if (debateResult.conflictMetricK >= 0.25) {
             try {
-                const { adaptivePomdpProbeOrchestrator } = require('../diagnostics/adaptive-pomdp-probe-orchestrator');
-                if (adaptivePomdpProbeOrchestrator && typeof adaptivePomdpProbeOrchestrator.selectOptimalDiagnosticProbes === 'function') {
-                    const pRes = adaptivePomdpProbeOrchestrator.selectOptimalDiagnosticProbes({
-                        target,
-                        maxProbes: 3
-                    });
+                const { adaptivePomdpProbeOrchestrator, DEFAULT_DIAGNOSTIC_PROBES } = require('../diagnostics/adaptive-pomdp-probe-orchestrator');
+                if (adaptivePomdpProbeOrchestrator && typeof adaptivePomdpProbeOrchestrator.selectOptimalProbeSet === 'function') {
+                    const prior = {
+                        H_MTU_BLACKHOLE: 0.25,
+                        H_BGP_HIJACK: 0.25,
+                        H_TRANSIT_CONGESTION: 0.25,
+                        H_LOCAL_SWITCH_BUFFER: 0.25
+                    };
+                    const pRes = adaptivePomdpProbeOrchestrator.selectOptimalProbeSet(
+                        incidentId,
+                        prior,
+                        DEFAULT_DIAGNOSTIC_PROBES,
+                        50.0
+                    );
                     pomdpData = {
                         activeProbingTriggered: true,
-                        probesCount: pRes.probes?.length || 0,
+                        probesCount: pRes.selectedProbes?.length || 0,
                         priorEntropy: pRes.priorEntropy ?? 1.585,
                         expectedPosteriorEntropy: pRes.expectedPosteriorEntropy ?? 0.0,
-                        expectedInformationGain: pRes.expectedTotalInformationGain ?? 1.585,
-                        recommendedProbes: pRes.probes || []
+                        expectedInformationGain: pRes.expectedMutualInformation ?? 1.585,
+                        recommendedProbes: pRes.selectedProbes || []
                     };
                 }
             } catch (_) {}

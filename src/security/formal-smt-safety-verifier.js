@@ -147,8 +147,9 @@ class FormalSmtSafetyVerifier {
   }
 
   projectActionEffects(action, env) {
-    const nodes = (env.nodes || []).map((n) => ({ ...n }));
-    const paths = (env.paths || []).map((p) => ({ ...p }));
+    const safeEnv = env || { nodes: [], paths: [] };
+    const nodes = (safeEnv.nodes || []).map((n) => ({ ...n }));
+    const paths = (safeEnv.paths || []).map((p) => ({ ...p }));
 
     switch (action.actionType) {
       case 'ADJUST_MTU': {

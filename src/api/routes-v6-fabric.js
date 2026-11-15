@@ -2322,4 +2322,122 @@ router.get('/skills/taxonomy-reconciliation', authenticate, (req, res) => {
   }));
 });
 
+// Phase 13.0 Sovereign Intelligence Fabric REST Endpoints
+router.post('/sovereign/debate/execute', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.debate',
+      status: 'denied',
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: authCheck.error }
+    }));
+  }
+  const { gameTheoreticDebateEngine } = require('../ai/game-theoretic-debate-engine');
+  const result = gameTheoreticDebateEngine.executeMultiRoundDialecticDebate(req.body || {});
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.debate',
+    status: 'ok',
+    data: result
+  }));
+});
+
+router.post('/sovereign/pomdp/select-probes', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.pomdp',
+      status: 'denied',
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: authCheck.error }
+    }));
+  }
+  const { adaptivePomdpProbeOrchestrator, DEFAULT_DIAGNOSTIC_PROBES } = require('../diagnostics/adaptive-pomdp-probe-orchestrator');
+  const incidentId = req.body?.incidentId || `inc_pomdp_${Date.now()}`;
+  const prior = req.body?.prior || {
+    H_MTU_BLACKHOLE: 0.25,
+    H_BGP_HIJACK: 0.25,
+    H_TRANSIT_CONGESTION: 0.25,
+    H_LOCAL_SWITCH_BUFFER: 0.25
+  };
+  const budgetMs = Number(req.body?.budgetMs || 50.0);
+  const planReceipt = adaptivePomdpProbeOrchestrator.selectOptimalProbeSet(incidentId, prior, DEFAULT_DIAGNOSTIC_PROBES, budgetMs);
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.pomdp',
+    status: 'ok',
+    data: planReceipt
+  }));
+});
+
+router.post('/sovereign/remediation/synthesize', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'ADMIN');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.remediation_synthesize',
+      status: 'denied',
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: authCheck.error }
+    }));
+  }
+  const { compositionalProgramSynthesizer } = require('../ai/compositional-program-synthesizer');
+  const result = compositionalProgramSynthesizer.synthesizeRemediationProgram(req.body || {});
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.remediation_synthesize',
+    status: 'ok',
+    data: result
+  }));
+});
+
+router.get('/sovereign/crdt/state', authenticate, (req, res) => {
+  const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.crdt_state',
+    status: 'ok',
+    data: {
+      vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || { 'cluster-core': 1 },
+      knownPartitions: ['region-us-east', 'region-eu-west', 'region-ap-south'],
+      localStateSummary: geoPartitionCrdtEngine.getStateSummary?.() || { status: 'ONLINE', nodes: 3 }
+    }
+  }));
+});
+
+router.post('/sovereign/crdt/reconcile', authenticate, (req, res) => {
+  const authCheck = resolveVerifiedUser(req, 'OPERATOR');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+      status: 'denied',
+      error: { code: 'INSUFFICIENT_PERMISSIONS', message: authCheck.error }
+    }));
+  }
+  const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
+  const targetPartition = req.body?.targetPartition || 'region-us-east';
+  const result = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition);
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+    status: 'ok',
+    data: result
+  }));
+});
+
+router.get('/sovereign/sniffer/cacheline-perf', authenticate, (req, res) => {
+  const { getSharedCachelineRingBuffer } = require('../sniffer/lockfree-cacheline-ring-buffer');
+  const ringBuffer = getSharedCachelineRingBuffer();
+  res.json(createEjiiResult({
+    success: true,
+    capabilityId: 'ejii.v6.sovereign.cacheline_perf',
+    status: 'ok',
+    data: {
+      stats: ringBuffer.getStats(),
+      hardwarePerf: ringBuffer.getHardwarePerfStats()
+    }
+  }));
+});
+
 module.exports = router;
