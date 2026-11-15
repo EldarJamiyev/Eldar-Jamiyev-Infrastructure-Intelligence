@@ -8,7 +8,8 @@ const {
   DistributedSagaOrchestrator,
   CANONICAL_RIEMANNIAN_WEIGHTS,
   MIN_RIEMANNIAN_CONTRACTION,
-  TelemetryKalmanFilter
+  TelemetryKalmanFilter,
+  calculateJitteredBackoffMs
 } = require('../src/systems/remediation/distributed-saga-orchestrator');
 const { zkEpistemicConsensusEngine, ZkEpistemicConsensusEngine } = require('../src/core/agent/zk-epistemic-consensus');
 const { formulateRemediationGate } = require('../src/core/chat/conversational-brain');
@@ -461,4 +462,196 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
     );
   });
 
+  test('Phase 8.0 Track 5: Truncated exponential backoff with full jitter bounded correctly', () => {
+    // retry 0: base 1000, range [500, 1000]
+    for (let i = 0; i < 20; i++) {
+      const b0 = calculateJitteredBackoffMs(0);
+      assert.ok(b0 >= 500 && b0 <= 1000, `Expected backoff in [500, 1000], got ${b0}`);
+    }
+
+    // retry 1: base 2000, range [1000, 2000]
+    const b1Min = calculateJitteredBackoffMs(1, () => 0.0);
+    const b1Max = calculateJitteredBackoffMs(1, () => 1.0);
+    assert.equal(b1Min, 1000);
+    assert.equal(b1Max, 2000);
+
+    // retry 6+: capped at base 60000, range [30000, 60000]
+    const bCapMin = calculateJitteredBackoffMs(10, () => 0.0);
+    const bCapMax = calculateJitteredBackoffMs(10, () => 1.0);
+    assert.equal(bCapMin, 30000);
+    assert.equal(bCapMax, 60000);
+  });
+
+  test('Phase 8.0 Track 5: Self-Healing Saga Compensation Coordinator WAL re-drive and DLQ escalation', async () => {
+    const orchestrator = new DistributedSagaOrchestrator();
+
+    const mockInverse = {
+      actionId: 'inv_action_edge_99',
+      inverseType: 'TCP_WINDOW_UNCLAMP',
+      reversesActionId: 'act_clamp_edge_99',
+      target: '192.168.10.1',
+      parameters: { windowBytes: 65536 },
+      rationale: 'Revert clamp after aborted saga',
+      commandPreview: 'sysctl -w net.ipv4.tcp_rmem="4096 87380 6291456"',
+      requiresElevation: false,
+      isCompensatingInverse: true
+    };
+
+    // 1. Enqueue a pending compensation with 0 initial delay for immediate test reconciliation
+    const enqueued = orchestrator.enqueuePendingCompensation('SAGA-TEST-DLQ', 'edge_sw_99', mockInverse, {
+      maxRetries: 3,
+      initialDelayMs: 0
+    });
+
+    assert.ok(enqueued.compensationId.startsWith('COMP-SAGA-TEST-DLQ'));
+    assert.equal(enqueued.status, 'PENDING_RETRY');
+    assert.equal(enqueued.retryCount, 0);
+    assert.equal(enqueued.maxRetries, 3);
+
+    // Verify lookup
+    const lookedUp = orchestrator.getPendingCompensation(enqueued.compensationId);
+    assert.ok(lookedUp);
+    assert.equal(lookedUp.compensationId, enqueued.compensationId);
+
+    // 2. First retry attempt fails -> retry scheduled with backoff
+    let retryScheduledEvent = null;
+    orchestrator.once('SAGA_COMPENSATION_RETRY_SCHEDULED', (evt) => {
+      retryScheduledEvent = evt;
+    });
+
+    const fixedNow = Date.now() + 100;
+    const res1 = await orchestrator.reconcilePendingCompensations(
+      async () => false, // fails
+      { nowMs: fixedNow, randomFn: () => 0.5 }
+    );
+
+    assert.equal(res1.processedCount, 1);
+    assert.equal(res1.retriedCount, 1);
+    assert.equal(res1.deadLetterCount, 0);
+    assert.equal(res1.succeededCount, 0);
+    assert.ok(retryScheduledEvent);
+    assert.equal(retryScheduledEvent.record.retryCount, 1);
+
+    // 3. Second retry attempt fails
+    const fixedNow2 = new Date(res1.reconciledRecords[0].nextRetryAtIso).getTime() + 10;
+    const res2 = await orchestrator.reconcilePendingCompensations(
+      async () => false,
+      { nowMs: fixedNow2, randomFn: () => 0.5 }
+    );
+    assert.equal(res2.reconciledRecords[0].retryCount, 2);
+    assert.equal(res2.reconciledRecords[0].status, 'PENDING_RETRY');
+
+    // 4. Third retry attempt reaches maxRetries (3) -> DLQ escalation with HMAC audit signature
+    let dlqEvent = null;
+    orchestrator.once('SAGA_COMPENSATION_DLQ_ESCALATED', (evt) => {
+      dlqEvent = evt;
+    });
+
+    const fixedNow3 = new Date(res2.reconciledRecords[0].nextRetryAtIso).getTime() + 10;
+    const res3 = await orchestrator.reconcilePendingCompensations(
+      async () => false,
+      { nowMs: fixedNow3, randomFn: () => 0.5 }
+    );
+
+    assert.equal(res3.deadLetterCount, 1);
+    assert.equal(res3.retriedCount, 0);
+    const dlqRecord = res3.reconciledRecords[0];
+    assert.equal(dlqRecord.status, 'DEAD_LETTER_ESCALATED');
+    assert.equal(dlqRecord.retryCount, 3);
+    assert.ok(dlqRecord.auditHmac, 'HMAC audit signature must be generated');
+    assert.ok(dlqEvent, 'SAGA_COMPENSATION_DLQ_ESCALATED event must be emitted');
+    assert.equal(dlqEvent.record.compensationId, enqueued.compensationId);
+
+    // 5. Success reconciliation scenario
+    const successEnqueued = orchestrator.enqueuePendingCompensation('SAGA-SUCCESS-TEST', 'node_ok_1', mockInverse, {
+      initialDelayMs: 0
+    });
+    let reconciledEvent = null;
+    orchestrator.once('SAGA_COMPENSATION_RECONCILED', (evt) => {
+      reconciledEvent = evt;
+    });
+
+    const resSuccess = await orchestrator.reconcilePendingCompensations(
+      async () => true,
+      { nowMs: Date.now() + 50 }
+    );
+    assert.ok(resSuccess.succeededCount >= 1);
+    assert.ok(reconciledEvent);
+    assert.equal(reconciledEvent.record.status, 'SUCCESS');
+  });
+
+  test('Phase 8.0 Track 5: triggerCoordinatedRollback with failingNodes enqueues pending compensations for WAL re-drive', () => {
+    const orchestrator = new DistributedSagaOrchestrator();
+
+    const participants = [
+      {
+        nodeId: 'node_healthy_01',
+        role: 'EDGE_SWITCH',
+        targetEndpoint: '10.0.1.1',
+        currentState: { rttMs: 20, lossPct: 0.1, queueDepthPackets: 5 },
+        candidateAction: {
+          actionId: 'act_h1',
+          actionType: 'TCP_WINDOW_CLAMP',
+          target: '10.0.1.1',
+          parameters: {},
+          rationale: 'Clamp',
+          requiresElevation: false
+        },
+        candidateInverse: {
+          actionId: 'inv_h1',
+          inverseType: 'TCP_WINDOW_UNCLAMP',
+          reversesActionId: 'act_h1',
+          target: '10.0.1.1',
+          parameters: {},
+          rationale: 'Unclamp',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      },
+      {
+        nodeId: 'node_failing_02',
+        role: 'CORE_GATEWAY',
+        targetEndpoint: '10.0.2.1',
+        currentState: { rttMs: 25, lossPct: 0.2, queueDepthPackets: 8 },
+        candidateAction: {
+          actionId: 'act_f2',
+          actionType: 'DSCP_TRAFFIC_SHAPE',
+          target: '10.0.2.1',
+          parameters: {},
+          rationale: 'Shape',
+          requiresElevation: false
+        },
+        candidateInverse: {
+          actionId: 'inv_f2',
+          inverseType: 'DSCP_DEFAULT',
+          reversesActionId: 'act_f2',
+          target: '10.0.2.1',
+          parameters: {},
+          rationale: 'Default',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      }
+    ];
+
+    const saga = orchestrator.initiateSaga('FAILING_ROLLBACK_TEST', 'tester', participants);
+    const rollbackRecord = orchestrator.triggerCoordinatedRollback(saga.sagaId, 'Testing node failure during rollback', {
+      failingNodes: ['node_failing_02']
+    });
+
+    assert.equal(rollbackRecord.phase, 'ROLLED_BACK');
+    assert.equal(rollbackRecord.rollbackLog.length, 2);
+
+    const healthyStep = rollbackRecord.rollbackLog.find((s) => s.nodeId === 'node_healthy_01');
+    const failingStep = rollbackRecord.rollbackLog.find((s) => s.nodeId === 'node_failing_02');
+
+    assert.equal(healthyStep.status, 'COMPENSATED_SUCCESS');
+    assert.equal(failingStep.status, 'COMPENSATION_FAILED');
+
+    // Verify it was enqueued in pending compensations
+    const pendingList = orchestrator.listPendingCompensations('PENDING_RETRY');
+    const enqueuedItem = pendingList.find((p) => p.sagaId === saga.sagaId && p.nodeId === 'node_failing_02');
+    assert.ok(enqueuedItem, 'Failing rollback node must be enqueued into pending compensations');
+    assert.equal(enqueuedItem.inverseAction.actionId, 'inv_f2');
+  });
 });
