@@ -1265,6 +1265,22 @@ class MultiSiteManager {
     const { selfHealingMeshFabric } = require('./self-healing-mesh-fabric');
     return selfHealingMeshFabric;
   }
+
+  /**
+   * Accesses the Geo-Partition Tolerant CRDT state engine
+   */
+  getCrdtEngine() {
+    const { geoPartitionCrdtEngine } = require('./geo-partition-crdt-engine');
+    return geoPartitionCrdtEngine;
+  }
+
+  /**
+   * Synchronizes CRDT deltas across partitioned WAN links
+   */
+  syncCrdtDeltas(remoteSiteId, remoteClock, remoteDeltas) {
+    const { geoPartitionCrdtEngine } = require('./geo-partition-crdt-engine');
+    return geoPartitionCrdtEngine.reconcileWithRemote(remoteSiteId, remoteClock, remoteDeltas);
+  }
 }
 
 const multiSiteManager = new MultiSiteManager();
@@ -1274,6 +1290,7 @@ module.exports = {
   multiSiteManager,
   bftStateMachineReplicator: require('./bft-state-machine-replicator').bftStateMachineReplicator,
   selfHealingMeshFabric: require('./self-healing-mesh-fabric').selfHealingMeshFabric,
+  geoPartitionCrdtEngine: require('./geo-partition-crdt-engine').geoPartitionCrdtEngine,
   detectRuntimeExecutionEnvironment,
   classifyNetworkTargetScope,
   DEFAULT_SITES,

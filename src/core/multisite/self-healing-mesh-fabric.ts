@@ -612,6 +612,17 @@ export class SelfHealingMeshFabric {
     return [...this.quarantineHistory];
   }
 
+  public triggerAntiEntropyReconciliation(peerId: string): any {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { geoPartitionCrdtEngine } = require('./geo-partition-crdt-engine');
+      const digest = geoPartitionCrdtEngine.generateDeltaDigest();
+      return geoPartitionCrdtEngine.reconcileWithRemote(peerId, digest.vectorClock, digest.deltas);
+    } catch (_) {
+      return null;
+    }
+  }
+
   public reset(): void {
     this.peers.clear();
     this.quarantineHistory = [];

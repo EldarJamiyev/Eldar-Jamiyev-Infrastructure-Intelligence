@@ -451,6 +451,16 @@ class SelfHealingMeshFabric {
     return [...this.quarantineHistory];
   }
 
+  triggerAntiEntropyReconciliation(peerId) {
+    try {
+      const { geoPartitionCrdtEngine } = require('./geo-partition-crdt-engine');
+      const digest = geoPartitionCrdtEngine.generateDeltaDigest();
+      return geoPartitionCrdtEngine.reconcileWithRemote(peerId, digest.vectorClock, digest.deltas);
+    } catch (_) {
+      return null;
+    }
+  }
+
   reset() {
     this.peers.clear();
     this.quarantineHistory = [];
