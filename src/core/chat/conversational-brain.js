@@ -12,6 +12,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 const { aiModelOrchestrator } = require('../ai-model-orchestrator');
 const hostMetrics = require('../../protocols/host-metrics');
 const dnsDiag = require('../../protocols/dns-diag');
@@ -3498,6 +3499,103 @@ async function executeRemediationAndVerifyPostcondition({
   };
 }
 
+/**
+ * Phase 7.0 Track 2: Streaming Epistemic Observer & Interrupt-Driven Belief Invalidation
+ *
+ * Ingests live telemetry streams, calculates moving probability distributions,
+ * computes rolling Kullback-Leibler (KL) divergence against active prior beliefs,
+ * and triggers asynchronous invalidation events when live telemetry deviates significantly.
+ */
+class StreamingEpistemicObserver extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.divergenceThresholdBits = options.divergenceThresholdBits || 0.85;
+    this.windowSize = options.windowSize || 10;
+    this.activePriorDistribution = options.priorDistribution || [
+      { id: 'BUFFERBLOAT_QUEUE_CONGESTION', probability: 0.60 },
+      { id: 'LINK_BANDWIDTH_SATURATION', probability: 0.30 },
+      { id: 'NOMINAL_STATE', probability: 0.10 }
+    ];
+    this.telemetryBuffer = [];
+    this.invalidationCount = 0;
+  }
+
+  computeKullbackLeiblerDivergence(liveDistribution, priorDistribution) {
+    let klDiv = 0;
+    for (let i = 0; i < liveDistribution.length; i++) {
+      const p = Math.max(0.001, liveDistribution[i]);
+      const q = Math.max(0.001, priorDistribution[i] || 0.001);
+      klDiv += p * Math.log2(p / q);
+    }
+    return Math.max(0, Math.round(klDiv * 1000) / 1000);
+  }
+
+  ingestTelemetrySample(sample) {
+    this.telemetryBuffer.push(sample);
+    if (this.telemetryBuffer.length > this.windowSize) {
+      this.telemetryBuffer.shift();
+    }
+
+    const rtt = Number(sample.rttMs || 0);
+    const queue = Number(sample.queueDepthPackets || 0);
+    const loss = Number(sample.packetLossPct || 0);
+
+    let pBuffer = 0.10;
+    let pSat = 0.10;
+    let pNominal = 0.80;
+
+    if (queue > 35 || rtt > 45) {
+      pBuffer = 0.70;
+      pSat = 0.20;
+      pNominal = 0.10;
+    } else if (loss > 5.0) {
+      pBuffer = 0.20;
+      pSat = 0.70;
+      pNominal = 0.10;
+    } else {
+      pBuffer = 0.10;
+      pSat = 0.10;
+      pNominal = 0.80;
+    }
+
+    const liveDist = [pBuffer, pSat, pNominal];
+    const priorProbs = this.activePriorDistribution.map(d => d.probability);
+
+    const klDivergence = this.computeKullbackLeiblerDivergence(liveDist, priorProbs);
+
+    if (klDivergence >= this.divergenceThresholdBits) {
+      this.invalidationCount++;
+      const topPrior = this.activePriorDistribution.reduce((a, b) => (a.probability > b.probability ? a : b));
+      const newTopIndex = liveDist.indexOf(Math.max(...liveDist));
+      const hypothesisNames = ['BUFFERBLOAT_QUEUE_CONGESTION', 'LINK_BANDWIDTH_SATURATION', 'NOMINAL_STATE'];
+      const newTopHypothesis = hypothesisNames[newTopIndex];
+
+      const invalidationEvent = {
+        type: 'BELIEF_INVALIDATION_EVENT',
+        invalidationId: `inval_${Date.now()}_${this.invalidationCount}`,
+        klDivergenceBits: klDivergence,
+        thresholdBits: this.divergenceThresholdBits,
+        priorTopHypothesis: topPrior.id,
+        newTopHypothesis,
+        telemetrySample: sample,
+        timestampIso: new Date().toISOString(),
+        advisoryMessage: `⚠️ Telemetry Shift Detected: Previous hypothesis [${topPrior.id}] invalidated (KL divergence ${klDivergence} bits). Telemetry moved to [${newTopHypothesis}] (RTT=${rtt}ms, Queue=${queue}).`
+      };
+
+      this.activePriorDistribution = [
+        { id: hypothesisNames[0], probability: pBuffer },
+        { id: hypothesisNames[1], probability: pSat },
+        { id: hypothesisNames[2], probability: pNominal }
+      ];
+
+      this.emit('BELIEF_INVALIDATION', invalidationEvent);
+      return invalidationEvent;
+    }
+
+    return null;
+  }
+}
+
 module.exports = {
   EJII_FUNCTION_DECLARATIONS,
   CANONICAL_FAULT_HYPOTHESES,
@@ -3529,5 +3627,6 @@ module.exports = {
   formulateSocraticClarification,
   applySocraticClarificationResponse,
   disambiguateTopologicalTarget,
-  resolveTemporalScope
+  resolveTemporalScope,
+  StreamingEpistemicObserver
 };

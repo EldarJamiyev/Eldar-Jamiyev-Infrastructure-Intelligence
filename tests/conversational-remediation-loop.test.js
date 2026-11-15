@@ -12,7 +12,8 @@ const {
   formulateRemediationGate,
   executeRemediationAndVerifyPostcondition,
   runAgenticToolLoop,
-  CANONICAL_REMEDIATION_MAP
+  CANONICAL_REMEDIATION_MAP,
+  StreamingEpistemicObserver
 } = require('../src/core/chat/conversational-brain');
 const { autonomousRemediationEngine } = require('../src/systems/remediation/autonomous-remediation-engine');
 
@@ -150,5 +151,45 @@ test('EJII Conversational Remediation Loop & Dual-Custody Gate Suite', async (t)
       },
       /REPLAY_DETECTED/
     );
+  });
+
+  await t.test('5. verifies StreamingEpistemicObserver detects belief divergence and invalidates prior hypotheses', async () => {
+    const observer = new StreamingEpistemicObserver({
+      divergenceThresholdBits: 0.85,
+      windowSize: 5,
+      priorDistribution: [
+        { id: 'BUFFERBLOAT_QUEUE_CONGESTION', probability: 0.60 },
+        { id: 'LINK_BANDWIDTH_SATURATION', probability: 0.30 },
+        { id: 'NOMINAL_STATE', probability: 0.10 }
+      ]
+    });
+
+    let emittedEvent = null;
+    observer.on('BELIEF_INVALIDATION', (event) => {
+      emittedEvent = event;
+    });
+
+    // Ingest sample consistent with bufferbloat
+    const sample1 = { rttMs: 55, queueDepthPackets: 42, packetLossPct: 0.2 };
+    const res1 = observer.ingestTelemetrySample(sample1);
+    assert.equal(res1, null, 'No invalidation should trigger when sample aligns with bufferbloat prior');
+    assert.equal(emittedEvent, null);
+
+    // Now stream a sharp drop in RTT and queue: nominal condition
+    const sample2 = { rttMs: 12, queueDepthPackets: 2, packetLossPct: 0.0 };
+    const res2 = observer.ingestTelemetrySample(sample2);
+
+    assert.ok(res2, 'Invalidation event returned on sharp divergence');
+    assert.ok(emittedEvent, 'Invalidation event emitted via EventEmitter');
+    assert.equal(emittedEvent.type, 'BELIEF_INVALIDATION_EVENT');
+    assert.ok(emittedEvent.klDivergenceBits >= 0.85, `KL divergence (${emittedEvent.klDivergenceBits}) must be >= 0.85`);
+    assert.equal(emittedEvent.priorTopHypothesis, 'BUFFERBLOAT_QUEUE_CONGESTION');
+    assert.equal(emittedEvent.newTopHypothesis, 'NOMINAL_STATE');
+    assert.ok(emittedEvent.advisoryMessage.includes('Telemetry Shift Detected'));
+
+    // Check updated active prior
+    const nominalPrior = observer.activePriorDistribution.find(d => d.id === 'NOMINAL_STATE');
+    assert.ok(nominalPrior);
+    assert.equal(nominalPrior.probability, 0.80);
   });
 });
