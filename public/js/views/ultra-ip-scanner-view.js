@@ -31,6 +31,40 @@
   let isScanning = false;
   let hideNoPing = false;
   let cachedScannerSubnet = null;
+  let privacyMaskActive = false;
+
+  function formatMaskedIp(ip) {
+    if (!privacyMaskActive || !ip) return ip || '';
+    return String(ip).replace(/^(\d+\.\d+)\.\d+\.\d+$/, '$1.xxx.xxx');
+  }
+
+  function formatMaskedMac(mac) {
+    if (!privacyMaskActive || !mac) return mac || '—';
+    return String(mac).replace(/^([0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2})[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}$/, '$1:xx:xx:xx');
+  }
+
+  function formatMaskedShare(shareName) {
+    if (!privacyMaskActive || !shareName) return shareName || '';
+    if (/users|admin|c\$|ipc\$/i.test(shareName)) {
+      return 'Share_***';
+    }
+    return shareName;
+  }
+
+  window.togglePrivacyMask = function() {
+    privacyMaskActive = !privacyMaskActive;
+    const btn = document.getElementById('btnTogglePrivacyMask');
+    if (btn) {
+      btn.classList.toggle('btn-primary', privacyMaskActive);
+      btn.classList.toggle('btn-secondary', !privacyMaskActive);
+      btn.textContent = privacyMaskActive ? '🔒 Sensitive Data Masked' : '👁 Mask Sensitive IPs/MACs';
+    }
+    renderScannerRows();
+    if (window._advMultiSubnetScanData) {
+      const hosts = Array.isArray(window._advMultiSubnetScanData.hosts) ? window._advMultiSubnetScanData.hosts : [];
+      renderMultiSubnetMasterTree(hosts);
+    }
+  };
 
   window.stopUltraIpScanPolling = function() {
     if (scanPollingTimer) {
@@ -171,7 +205,8 @@
               </div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <button id="btnTogglePrivacyMask" class="btn btn-secondary" onclick="window.togglePrivacyMask()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Mask sensitive IP octets, MAC addresses, and share paths for screen sharing/demo">👁 Mask Sensitive IPs/MACs</button>
               <button class="btn btn-secondary" onclick="window.runGitopsDriftModal()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px; color: #0284C7;" title="Audit live discovered assets against policies/desired-infrastructure-state.json">🛡️ GitOps Drift</button>
               <button class="btn btn-secondary" onclick="window.exportScannerCsv()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Export Excel / Sheets CSV spreadsheet">📄 Export CSV</button>
               <button class="btn btn-secondary" onclick="window.exportScannerJson()" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px;" title="Export full JSON payload">📋 Export JSON</button>
@@ -180,15 +215,19 @@
           </div>
 
           <div id="scannerDeepDrawer" class="ejii-deep-intelligence-drawer" style="display:block;">
-          <!-- Target & Scan Control Toolbar -->
+          <!-- Target & Scan Control Toolbar (2-Row Responsive Layout) -->
           <div style="background: var(--bg-surface-subtle); border-bottom: 1px solid var(--border-default); padding: 10px 18px; flex-shrink: 0;">
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;">
+            <!-- Row 1: Full-Width Multi-Subnet Ranges -->
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
               <span style="font-weight: 700; font-size: 11px; color: var(--text-primary); font-family: var(--font-mono); white-space: nowrap;">Multi-Subnet Ranges:</span>
-              <input type="text" id="scannerSubnetInput" class="form-input" value="${defaultSubnet}" placeholder="10.168.195.1-254, 172.29.192.1-172.29.207.254, 172.29.224.1-172.29.239.254" style="width: 390px; font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 6px;">
-              <button class="btn btn-secondary" onclick="window.autoDetectSubnet()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Auto-detect active local physical network subnet">⚡ Auto-Detect</button>
+              <input type="text" id="scannerSubnetInput" class="form-input" value="${defaultSubnet}" placeholder="10.168.195.1-254, 172.29.192.1-172.29.207.254, 172.29.224.1-172.29.239.254" style="flex: 1; font-family: var(--font-mono); font-size: 11px; padding: 5px 8px; border-radius: 6px;">
+              <button class="btn btn-secondary" onclick="window.autoDetectSubnet()" style="font-size: 11px; padding: 5px 10px; border-radius: 6px; white-space: nowrap;" title="Auto-detect active local physical network subnet">⚡ Auto-Detect</button>
+            </div>
 
-              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); margin-left: 4px;">Port Profile:</span>
-              <select id="scannerProfileSelect" class="form-input" style="width: 240px; font-size: 11px; padding: 4px 6px; border-radius: 6px;" onchange="window.runAdvancedMultiSubnetScan()">
+            <!-- Row 2: Port Profile, Concurrency Workers, and Action Controls -->
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); white-space: nowrap;">Port Profile:</span>
+              <select id="scannerProfileSelect" class="form-input" style="min-width: 250px; font-size: 11px; padding: 4px 6px; border-radius: 6px;" onchange="window.runAdvancedMultiSubnetScan()">
                 <option value="all_enterprise" selected>🔍 All Enterprise Ports (135, 139, 445, 623, 2179, 80, 443)</option>
                 <option value="rpc_smb">📁 RPC / NetBIOS / SMB Shares (135, 139, 445)</option>
                 <option value="oob_amt">🛡️ Out-of-Band Management (Intel AMT 623, IPMI, iDRAC)</option>
@@ -196,25 +235,27 @@
                 <option value="web_api">🌐 Web &amp; API (80, 443, 3000, 8080, 8443)</option>
               </select>
 
-              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); margin-left: 4px;">Workers:</span>
+              <span style="font-weight: 700; font-size: 11px; color: var(--text-secondary); margin-left: 4px; white-space: nowrap;">Workers:</span>
               <select id="scannerConcurrencySelect" class="form-input" style="width: 85px; font-size: 11px; padding: 4px 6px; border-radius: 6px;">
                 <option value="4">4</option>
                 <option value="8" selected>8 (Safe)</option>
                 <option value="12">12</option>
               </select>
 
-              <button id="startScanBtn" class="btn btn-primary" onclick="window.runAdvancedMultiSubnetScan()" style="font-size: 11px; padding: 5px 14px; font-weight: 700; margin-left: auto; border-radius: 6px;">
-                ▶ Scan Multi-Subnet ⚡
-              </button>
-              <button id="stopScanBtn" class="btn btn-secondary" onclick="window.stopSubnetScan()" style="font-size: 11px; padding: 5px 10px; border-radius: 6px;" disabled>
-                ⏹ Stop
-              </button>
-              <button class="btn btn-secondary" onclick="window.clearScanResults()" style="font-size: 11px; padding: 5px 8px; border-radius: 6px;">
-                Clear
-              </button>
-              <button id="btnSynthesizeZeroTrust" class="btn btn-secondary" onclick="window.openZeroTrustPolicyModal()" style="font-size: 11px; padding: 5px 10px; font-weight: 700; border-radius: 6px; color: #10B981; border-color: rgba(16, 185, 129, 0.4);" title="Synthesize Zero-Trust Micro-Segmentation Firewall Policies">
-                🛡️ Zero-Trust Policies
-              </button>
+              <div style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button id="startScanBtn" class="btn btn-primary" onclick="window.runAdvancedMultiSubnetScan()" style="font-size: 11px; padding: 5px 14px; font-weight: 700; border-radius: 6px;">
+                  ▶ Scan Multi-Subnet ⚡
+                </button>
+                <button id="stopScanBtn" class="btn btn-secondary" onclick="window.stopSubnetScan()" style="font-size: 11px; padding: 5px 10px; border-radius: 6px;" disabled>
+                  ⏹ Stop
+                </button>
+                <button class="btn btn-secondary" onclick="window.clearScanResults()" style="font-size: 11px; padding: 5px 8px; border-radius: 6px;">
+                  Clear
+                </button>
+                <button id="btnSynthesizeZeroTrust" class="btn btn-secondary" onclick="window.openZeroTrustPolicyModal()" style="font-size: 11px; padding: 5px 10px; font-weight: 700; border-radius: 6px; color: #10B981; border-color: rgba(16, 185, 129, 0.4);" title="Synthesize Zero-Trust Micro-Segmentation Firewall Policies">
+                  🛡️ Zero-Trust Policies
+                </button>
+              </div>
             </div>
 
             <!-- Live Progress Bar & Telemetry Counters -->
@@ -805,7 +846,7 @@
         : (h.status === 'UNRESPONSIVE' ? `<span style="color: var(--text-muted); font-size: 10px;">timed out</span>` : `<span style="color: var(--text-muted);">&lt;1 ms</span>`);
 
       const hasMac = Boolean(h.macAddress && h.macAddress !== 'Unknown' && h.macAddress !== 'N/A' && h.macAddress !== '00:00:00:00:00:00' && h.macAddress !== '— (No MAC Observed)');
-      const macDisplay = hasMac ? escapeHtml(h.macAddress) : '—';
+      const macDisplay = hasMac ? escapeHtml(formatMaskedMac(h.macAddress)) : '—';
       const vendorDisplay = hasMac ? escapeHtml(h.vendor || h.manufacturer || 'Standard Network Device') : '— (No MAC Observed)';
       const eqIcon = h.equipmentProfile?.icon ? `${h.equipmentProfile.icon} ` : '';
       const categoryDisplay = escapeHtml(eqIcon + (h.equipmentProfile?.equipmentLabel || h.category || (h.status === 'ONLINE' ? 'Network Endpoint' : 'Unoccupied / Silent IP')));
@@ -814,10 +855,10 @@
         <tr>
           <td class="col-nowrap" style="text-align: center; white-space: nowrap; width: 110px; min-width: 110px;">${statusDot}</td>
           <td>
-            <div style="font-weight: 700; color: var(--text-primary);">${escapeHtml(h.hostname || h.ip)}</div>
+            <div style="font-weight: 700; color: var(--text-primary);">${escapeHtml(h.hostname || formatMaskedIp(h.ip))}</div>
             ${h.computerName ? `<div style="font-size: 9.5px; color: var(--accent-primary);">[${escapeHtml(h.nameSource || (h.reverseDns ? 'PTR' : 'NetBIOS'))}: ${escapeHtml(h.computerName)}]</div>` : ''}
           </td>
-          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent-primary);">${escapeHtml(h.ip)}</td>
+          <td class="col-ip" style="white-space: nowrap; font-weight: 700; color: var(--accent-primary);">${escapeHtml(formatMaskedIp(h.ip))}</td>
           <td class="col-nowrap" style="white-space: nowrap; color: var(--text-secondary);">${macDisplay}</td>
           <td style="color: var(--text-secondary);">${vendorDisplay}</td>
           <td class="col-nowrap" style="white-space: nowrap; color: var(--text-primary);">${categoryDisplay}</td>
@@ -1659,14 +1700,37 @@
 
   window._advMultiSubnetScanData = null;
 
+  function renderMultiSubnetMasterTree(hosts) {
+    const treeBody = document.getElementById('advScannerMasterTreeBody');
+    if (!treeBody) return;
+    if (!Array.isArray(hosts) || hosts.length === 0) {
+      treeBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 18px; color: var(--text-muted);">No hosts discovered in scanned subnets.</td></tr>';
+      return;
+    }
+    treeBody.innerHTML = hosts.map(h => {
+      const isAlive = h.status === 'Alive';
+      const portsSummary = (h.services || []).map(s => `${s.port}/${s.name}`).join(', ');
+      const sharesSummary = (h.sharedFolders || []).length > 0 ? ` 📁 ${h.sharedFolders.map(f => formatMaskedShare(f.name)).join(',')}` : '';
+      return `
+        <tr style="cursor: pointer; ${h.ip === '172.29.192.1' || h.ip === '10.168.195.33' ? 'background: rgba(56,189,248,0.07);' : ''}" onclick="window.inspectMultiSubnetHost('${escapeHtml(h.ip)}')">
+          <td><span class="badge" style="background:${isAlive ? 'rgba(16,185,129,0.16)' : 'rgba(148,163,184,0.15)'}; color:${isAlive ? '#10B981' : '#94A3B8'}; font-size:9px;">${escapeHtml(h.status)}</span></td>
+          <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(h.name || formatMaskedIp(h.ip))}</td>
+          <td style="color:#38BDF8; font-weight:700;">${escapeHtml(formatMaskedIp(h.ip))}</td>
+          <td style="color:var(--text-secondary);">${escapeHtml(h.manufacturer || 'Unknown')}</td>
+          <td style="font-family:var(--font-mono); font-size:10px;">${escapeHtml(formatMaskedMac(h.mac))}</td>
+          <td style="font-size:10px; color:#F59E0B;">${escapeHtml(portsSummary || 'No open TCP')}${escapeHtml(sharesSummary)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
   window.runAdvancedMultiSubnetScan = async function(silentInit = false) {
     const input = document.getElementById('scannerSubnetInput');
-    const profileSel = document.getElementById('scannerPortProfileSelect');
+    const profileSel = document.getElementById('scannerProfileSelect') || document.getElementById('scannerPortProfileSelect');
     const rangeExpression = input ? input.value.trim() : '10.168.195.1-254, 172.29.192.1-172.29.207.254, 172.29.224.1-172.29.239.254';
     const portProfile = profileSel ? profileSel.value : 'all_enterprise';
     const progressFill = document.getElementById('advScannerProgressBarFill');
     const progressText = document.getElementById('advScannerProgressText');
-    const treeBody = document.getElementById('advScannerMasterTreeBody');
 
     if (!silentInit && progressFill && progressText) {
       progressFill.style.width = '38%';
@@ -1674,10 +1738,11 @@
     }
 
     try {
-      const res = await window.api('/api/enterprise/multi-subnet-scan', {
+      const rawRes = await window.api('/api/enterprise/multi-subnet-scan', {
         method: 'POST',
         body: JSON.stringify({ rangeExpression, portProfile })
       });
+      const res = rawRes?.data || rawRes;
       window._advMultiSubnetScanData = res;
 
       if (progressFill && progressText && res?.progress) {
@@ -1686,23 +1751,7 @@
       }
 
       const hosts = Array.isArray(res?.hosts) ? res.hosts : [];
-      if (treeBody) {
-        treeBody.innerHTML = hosts.map(h => {
-          const isAlive = h.status === 'Alive';
-          const portsSummary = (h.services || []).map(s => `${s.port}/${s.name}`).join(', ');
-          const sharesSummary = (h.sharedFolders || []).length > 0 ? ` 📁 ${h.sharedFolders.map(f => f.name).join(',')}` : '';
-          return `
-            <tr style="cursor: pointer; ${h.ip === '172.29.192.1' || h.ip === '10.168.195.33' ? 'background: rgba(56,189,248,0.07);' : ''}" onclick="window.inspectMultiSubnetHost('${escapeHtml(h.ip)}')">
-              <td><span class="badge" style="background:${isAlive ? 'rgba(16,185,129,0.16)' : 'rgba(148,163,184,0.15)'}; color:${isAlive ? '#10B981' : '#94A3B8'}; font-size:9px;">${escapeHtml(h.status)}</span></td>
-              <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(h.name || h.ip)}</td>
-              <td style="color:#38BDF8; font-weight:700;">${escapeHtml(h.ip)}</td>
-              <td style="color:var(--text-secondary);">${escapeHtml(h.manufacturer || 'Unknown')}</td>
-              <td style="font-family:var(--font-mono); font-size:10px;">${escapeHtml(h.mac || '—')}</td>
-              <td style="font-size:10px; color:#F59E0B;">${escapeHtml(portsSummary || 'No open TCP')}${escapeHtml(sharesSummary)}</td>
-            </tr>
-          `;
-        }).join('');
-      }
+      renderMultiSubnetMasterTree(hosts);
 
       // Default inspect 172.29.192.1 (or first Alive host) so right-hand Split-Pane Detail Card is always populated
       const targetDefault = hosts.find(h => h.ip === '172.29.192.1') || hosts.find(h => h.status === 'Alive') || hosts[0];
@@ -1710,8 +1759,8 @@
         window.inspectMultiSubnetHost(targetDefault.ip);
       }
 
-      // Also sync main fleet table if empty or if user clicked Multi-Subnet Scan
-      if (!silentInit && hosts.length > 0) {
+      // Single reactive state store: bind KPI cards, filter tabs, and results table to discovered alive hosts
+      if (hosts.length > 0) {
         currentScanResults = hosts.filter(h => h.status === 'Alive').map(h => ({
           ip: h.ip,
           status: 'ONLINE',
@@ -1724,6 +1773,12 @@
         }));
         renderScannerRows();
         updateEquipmentKpis(currentScanResults);
+      }
+
+      // Viewport Optimization: Collapse hero banner once scan completes to bring results above fold
+      const hero = document.getElementById('heroFleetScanner');
+      if (hero && !silentInit) {
+        hero.style.display = 'none';
       }
     } catch (err) {
       if (progressText) progressText.textContent = `Scan warning: ${err.message}`;
