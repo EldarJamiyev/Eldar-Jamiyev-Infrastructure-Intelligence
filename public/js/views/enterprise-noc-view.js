@@ -1833,6 +1833,32 @@
     return { renderTopology, getNodeCount: () => nodes.length, getEdgeCount: () => edges.length };
   };
 
+  window.initBroadcastChannelWorkspaceBus = window.initBroadcastChannelWorkspaceBus || function () {
+    if (typeof BroadcastChannel === 'undefined') return null;
+    if (window.__ejiiWorkspaceBus) return window.__ejiiWorkspaceBus;
+
+    try {
+      const bus = new BroadcastChannel('ejii_operator_workspace_bus');
+      bus.onmessage = function (event) {
+        if (!event || !event.data) return;
+        const { type, payload } = event.data;
+        if (type === 'FOCUS_NODE' && payload && payload.nodeId) {
+          window.__ejiiSelectedNocNodeId = payload.nodeId;
+        }
+      };
+
+      bus.postNodeFocus = function (nodeId) {
+        bus.postMessage({ type: 'FOCUS_NODE', payload: { nodeId, timestamp: Date.now() } });
+      };
+
+      window.__ejiiWorkspaceBus = bus;
+      return bus;
+    } catch (e) {
+      console.warn('[WorkspaceBus] BroadcastChannel init failed:', e);
+      return null;
+    }
+  };
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       evaluateEnterpriseNocEndpointFreshness: evaluateEndpointFreshness,
@@ -1840,6 +1866,7 @@
       partitionBoundedNocTableRows,
       createCoalescedNocRenderScheduler,
       configureEnterpriseNocFreshnessThresholds: window.configureEnterpriseNocFreshnessThresholds,
+      initBroadcastChannelWorkspaceBus: window.initBroadcastChannelWorkspaceBus,
       EJIIEnterpriseNocData: enterpriseData
     };
   }

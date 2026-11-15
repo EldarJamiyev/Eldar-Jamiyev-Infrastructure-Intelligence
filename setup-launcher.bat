@@ -51,7 +51,7 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b %ERRORLEVEL%
 )
-echo [TIP] To run the full 150-suite deep regression battery, use: setup-launcher.bat --verify
+echo [TIP] To run the full 151-suite deep regression battery, use: setup-launcher.bat --verify
 goto LAUNCH_SERVER
 
 :RUN_FULL_TESTS
@@ -91,6 +91,10 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8443" ^| findstr "LISTENING
 )
 
 start http://localhost:8443/
-node src/server.js
+if "%1"=="--supervised" (
+    node scripts/ejii-supervisor.js
+) else (
+    node src/server.js
+)
 
 pause

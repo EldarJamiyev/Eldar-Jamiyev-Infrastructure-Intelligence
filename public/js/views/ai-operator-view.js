@@ -2146,13 +2146,60 @@
     }
   };
 
+  window.initBroadcastChannelWorkspaceBus = function () {
+    if (typeof BroadcastChannel === 'undefined') return null;
+    if (window.__ejiiWorkspaceBus) return window.__ejiiWorkspaceBus;
+
+    try {
+      const bus = new BroadcastChannel('ejii_operator_workspace_bus');
+      bus.onmessage = function (event) {
+        if (!event || !event.data) return;
+        const { type, payload } = event.data;
+        if (type === 'FOCUS_INCIDENT' && payload && payload.incidentId) {
+          if (window.__ejiiOperatorState) {
+            window.__ejiiOperatorState.activeIncidentId = payload.incidentId;
+            if (typeof window.renderAiOperatorDOM === 'function') {
+              window.renderAiOperatorDOM(window.__ejiiOperatorState);
+            }
+          }
+        } else if (type === 'SCRUB_DVR_TIMELINE' && payload && typeof payload.cursorMs === 'number') {
+          const slider = document.getElementById('aiOpDvrSlider');
+          if (slider) {
+            slider.value = payload.cursorMs;
+            slider.dispatchEvent(new Event('input'));
+          }
+        }
+      };
+
+      bus.postIncidentFocus = function (incidentId) {
+        bus.postMessage({ type: 'FOCUS_INCIDENT', payload: { incidentId, timestamp: Date.now() } });
+      };
+
+      bus.postDvrScrub = function (cursorMs) {
+        bus.postMessage({ type: 'SCRUB_DVR_TIMELINE', payload: { cursorMs, timestamp: Date.now() } });
+      };
+
+      window.__ejiiWorkspaceBus = bus;
+      return bus;
+    } catch (e) {
+      console.warn('[WorkspaceBus] BroadcastChannel initialization failed:', e);
+      return null;
+    }
+  };
+
   window.loadAiOperatorView = window.renderAiOperatorView;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => window.refreshProactiveOperatorBanner(), 600);
+      setTimeout(() => {
+        window.refreshProactiveOperatorBanner();
+        window.initBroadcastChannelWorkspaceBus();
+      }, 600);
     }, { once: true });
   } else {
-    setTimeout(() => window.refreshProactiveOperatorBanner(), 600);
+    setTimeout(() => {
+      window.refreshProactiveOperatorBanner();
+      window.initBroadcastChannelWorkspaceBus();
+    }, 600);
   }
 })();

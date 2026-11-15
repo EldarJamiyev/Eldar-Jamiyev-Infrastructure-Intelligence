@@ -42,7 +42,7 @@ if [ "$1" = "--verify" ] || [ "$1" = "--test" ] || [ "$EJII_RUN_FULL_TESTS" = "1
 else
     # High-Speed Pre-Flight (< 150ms) for Instant Launch
     node scripts/verify-fast-preflight.js
-    echo "[TIP] To run the full 150-suite deep regression battery, use: ./setup-launcher.sh --verify"
+    echo "[TIP] To run the full 151-suite deep regression battery, use: ./setup-launcher.sh --verify"
 fi
 
 # 4. Start Server
@@ -53,4 +53,9 @@ echo "  Access Mode: Unprivileged NOC Operator Access"
 echo "========================================================================"
 export NODE_ENV=${NODE_ENV:-development}
 if [ "$NODE_ENV" = "test" ]; then export NODE_ENV=development; fi
-node src/server.js
+
+if [ "$1" = "--supervised" ]; then
+    node scripts/ejii-supervisor.js
+else
+    node src/server.js
+fi
