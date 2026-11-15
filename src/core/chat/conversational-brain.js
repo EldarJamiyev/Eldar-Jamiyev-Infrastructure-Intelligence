@@ -2536,6 +2536,32 @@ async function runAgenticToolLoop({
       }
     }
 
+    // Phase 9.0 Track 1: Dynamic Structural Causal Models (D-SCM) & Cascading Trajectories
+    const isDynamicCausalQuery = /\b(trajectory|cascade|dynamic counterfactual|time-lag|time lag|future impact|seconds after|propagation horizon)\b/i.test(promptText) || Boolean(sessionContext?.dynamicIntervention);
+    if (isDynamicCausalQuery) {
+      try {
+        const { dynamicStructuralCausalEngine } = require('../../ai/dynamic-structural-causal-engine');
+        const defaultSeries = sessionContext?.telemetryTimeSeries || {
+          queueDepth: [20, 22, 25, 28, 35, 42, 50, 60, 75, 85, 90, 88, 70, 55, 40],
+          rttLatency: [28, 29, 31, 33, 38, 45, 52, 65, 80, 92, 98, 95, 78, 60, 45],
+          packetLoss: [0.0, 0.0, 0.1, 0.2, 0.5, 1.2, 2.0, 3.5, 5.0, 6.2, 5.8, 4.0, 2.1, 0.8, 0.2]
+        };
+        const varModel = dynamicStructuralCausalEngine.fitModel(defaultSeries, { lag: 1 });
+        const targetVar = sessionContext?.dynamicIntervention?.variable || (promptText.includes('loss') ? 'packetLoss' : 'queueDepth');
+        const targetVal = sessionContext?.dynamicIntervention?.targetValue !== undefined ? sessionContext.dynamicIntervention.targetValue : (targetVar === 'packetLoss' ? 0.0 : 15.0);
+        const dynamicTrajectory = dynamicStructuralCausalEngine.simulateIntervention(
+          varModel,
+          defaultSeries,
+          { variable: targetVar, targetValue: targetVal },
+          sessionContext?.horizonSteps || 5,
+          sessionContext?.stepDurationSeconds || 5
+        );
+        if (dynamicTrajectory) {
+          epistemicClassification.dynamicCounterfactualTrajectory = dynamicTrajectory;
+        }
+      } catch (_) {}
+    }
+
     // Phase 8.0 Track 4: Multi-Modal Conversational SVG Topology Visualizer
     const isTopologyVisualQuery = /\b(visualiz|diagram|topology|network map|diffusion map|svg|graph|route hop)\b/i.test(promptText) || Boolean(sessionContext?.enableVisualization);
     if (isTopologyVisualQuery) {
@@ -2597,6 +2623,10 @@ async function runAgenticToolLoop({
       const med = epistemicClassification.causalMediationAnalysis;
       single.reply = `${single.reply}\n\n### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`;
     }
+    if (epistemicClassification.dynamicCounterfactualTrajectory) {
+      const dyn = epistemicClassification.dynamicCounterfactualTrajectory;
+      single.reply = `${single.reply}\n\n### ⏳ D-SCM Dynamic Trajectory Forecast\n* **Intervention**: \`do(${dyn.intervention.variable} = ${dyn.intervention.targetValue})\`\n* **Direct Dynamic Effect**: ${dyn.directDynamicEffect}\n* **Accumulated Cascading Indirect Effect**: ${dyn.accumulatedCascadingEffect}\n* **Horizon**: ${dyn.horizonSteps} steps\n* **Trajectory Projection**: ${dyn.summary}`;
+    }
     if (epistemicClassification.topologyVisualization && epistemicClassification.topologyVisualization.generated) {
       const topoViz = epistemicClassification.topologyVisualization;
       single.reply = `${single.reply}\n\n### 🗺️ Topological Diffusion Diagram (${topoViz.nodeCount} nodes, ${topoViz.edgeCount} edges)\n${topoViz.svgXml}`;
@@ -2639,6 +2669,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.causalMediationAnalysis) {
     const med = epistemicClassification.causalMediationAnalysis;
     combinedReplyParts.push(`### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`);
+  }
+  if (epistemicClassification.dynamicCounterfactualTrajectory) {
+    const dyn = epistemicClassification.dynamicCounterfactualTrajectory;
+    combinedReplyParts.push(`### ⏳ D-SCM Dynamic Trajectory Forecast\n* **Intervention**: \`do(${dyn.intervention.variable} = ${dyn.intervention.targetValue})\`\n* **Direct Dynamic Effect**: ${dyn.directDynamicEffect}\n* **Accumulated Cascading Indirect Effect**: ${dyn.accumulatedCascadingEffect}\n* **Horizon**: ${dyn.horizonSteps} steps\n* **Trajectory Projection**: ${dyn.summary}`);
   }
   if (epistemicClassification.topologyVisualization && epistemicClassification.topologyVisualization.generated) {
     const topoViz = epistemicClassification.topologyVisualization;

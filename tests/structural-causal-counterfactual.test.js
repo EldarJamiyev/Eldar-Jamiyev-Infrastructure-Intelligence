@@ -7,6 +7,10 @@ const {
   StructuralCausalEngine,
   CANONICAL_SCM_PARAMETERS
 } = require('../src/ai/structural-causal-engine');
+const {
+  dynamicStructuralCausalEngine,
+  DynamicStructuralCausalEngine
+} = require('../src/ai/dynamic-structural-causal-engine');
 const { runAgenticToolLoop } = require('../src/core/chat/conversational-brain');
 
 test('Phase 5.0 Track 1: Structural Causal Models & Pearlian do-Calculus Counterfactuals', async (t) => {
@@ -283,5 +287,62 @@ test('Phase 5.0 Track 1: Structural Causal Models & Pearlian do-Calculus Counter
     assert.ok(outcome.epistemicClassification.latentConfounderAnalysis, 'latentConfounderAnalysis must be attached');
     assert.strictEqual(outcome.epistemicClassification.latentConfounderAnalysis.isCausallySufficient, false);
     assert.ok(outcome.epistemicClassification.latentConfounderAnalysis.latentConfoundersDetected.length >= 1);
+  });
+
+  await t.test('12. D-SCM fits VAR model, computes spectral radius and forecasts dynamic intervention cascade', () => {
+    const engine = new DynamicStructuralCausalEngine();
+    const series = {
+      queueDepth: [20, 24, 28, 35, 45, 58, 70, 82, 90, 85, 72, 60, 48, 38, 30],
+      rttLatency: [25, 27, 30, 36, 44, 55, 68, 80, 88, 84, 71, 59, 47, 37, 29],
+      packetLoss: [0.0, 0.0, 0.1, 0.2, 0.6, 1.4, 2.5, 4.0, 5.2, 4.8, 3.2, 1.8, 0.9, 0.3, 0.1]
+    };
+
+    const model = engine.fitModel(series, { lag: 1 });
+    assert.ok(model);
+    assert.strictEqual(model.variables.length, 3);
+    assert.ok(typeof model.spectralRadius === 'number');
+    assert.ok(model.spectralRadius < 1.0, `Spectral radius must be < 1.0 for stability, got ${model.spectralRadius}`);
+    assert.strictEqual(model.isStable, true);
+
+    const result = engine.simulateIntervention(
+      model,
+      series,
+      { variable: 'queueDepth', targetValue: 10.0 },
+      5,
+      5
+    );
+
+    assert.ok(result);
+    assert.strictEqual(result.horizonSteps, 5);
+    assert.strictEqual(result.trajectory.length, 5);
+    assert.ok(typeof result.directDynamicEffect === 'number');
+    assert.ok(typeof result.accumulatedCascadingEffect === 'number');
+    assert.ok(result.summary.includes('D-SCM Dynamic Projection'));
+    // Downstream variables (e.g. rttLatency, packetLoss) should experience cumulative reductions
+    assert.ok(result.cumulativeImpact.queueDepth < 0, 'Intervening to lower queueDepth should produce negative cumulative shift');
+  });
+
+  await t.test('13. Integrates D-SCM dynamic trajectory forecasting into runAgenticToolLoop', async () => {
+    const outcome = await runAgenticToolLoop({
+      promptText: 'what is the future downstream cascade trajectory if we intervene on queueDepth over the next seconds?',
+      initialPlan: { intent: 'host_metrics', target: '10.0.0.1', mode: 'operational' },
+      executeSinglePlan: async () => ({
+        reply: 'Dynamic telemetry observed.',
+        technicalEvidence: { rttMs: 50.0 },
+        structuredAnswer: { result: 'OK' }
+      }),
+      sessionContext: {
+        dynamicIntervention: { variable: 'queueDepth', targetValue: 15.0 },
+        horizonSteps: 4,
+        stepDurationSeconds: 5
+      },
+      maxSteps: 1
+    });
+
+    assert.ok(outcome.epistemicClassification);
+    assert.ok(outcome.epistemicClassification.dynamicCounterfactualTrajectory, 'dynamicCounterfactualTrajectory must be attached');
+    assert.strictEqual(outcome.epistemicClassification.dynamicCounterfactualTrajectory.horizonSteps, 4);
+    assert.ok(outcome.epistemicClassification.dynamicCounterfactualTrajectory.directDynamicEffect !== 0);
+    assert.ok(outcome.reply.includes('D-SCM Dynamic Trajectory Forecast'));
   });
 });
