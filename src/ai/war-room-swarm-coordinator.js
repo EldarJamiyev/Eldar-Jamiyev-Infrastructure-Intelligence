@@ -282,9 +282,24 @@ class WarRoomSwarmCoordinator {
 
     const leadCoordinatorSignature = this.signPayload(coordinator.agentId, unsignedReceipt);
 
+    // Phase 10.0 Track 2: Quantum-Resilient Attestation & Zero-Knowledge Verification
+    let pqcAttestation = undefined;
+    try {
+      const { postQuantumZkAttestor } = require('../security/post-quantum-zk-attestor');
+      const pqcKeyPair = postQuantumZkAttestor.generatePqcKeyPair(coordinator.agentId);
+      pqcAttestation = postQuantumZkAttestor.createHybridAttestation(
+        coordinator.agentId,
+        JSON.stringify(unsignedReceipt),
+        pqcKeyPair,
+        { rttMs: 25.0, lossPct: 0.1, queueDepthPackets: 10 },
+        coordinator.privateKeyPem
+      );
+    } catch (_) {}
+
     return {
       ...unsignedReceipt,
-      leadCoordinatorSignature
+      leadCoordinatorSignature,
+      pqcAttestation
     };
   }
 

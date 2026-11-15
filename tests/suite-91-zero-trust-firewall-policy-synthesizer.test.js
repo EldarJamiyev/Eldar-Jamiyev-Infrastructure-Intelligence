@@ -105,6 +105,45 @@ async function runSuite91ZeroTrustFirewallPolicySynthesizer() {
   assert.ok(typeof policyJson.kubernetesNetworkPolicyYaml === 'string');
   console.log(`  ✓ GET /api/network/zero-trust-policies returned 200 OK: ${policyJson.windowsNetshRules.length} netsh rules, Subnet=${policyJson.targetSubnet}`);
 
+  // [91.5] Phase 10.0 Track 2: PQC Lattice Signatures (ML-DSA / Dilithium)
+  console.log('[Test 91.5] Testing Post-Quantum Cryptography (PQC) lattice ring arithmetic & signature...');
+  const { postQuantumZkAttestor, PostQuantumZkAttestor, RING_N, RING_Q, GAMMA1, BETA } = require('../src/security/post-quantum-zk-attestor');
+  const pqc = new PostQuantumZkAttestor();
+
+  const keyPair = pqc.generatePqcKeyPair('test_pqc_seed_2026');
+  assert.ok(keyPair.keyId.startsWith('pqc_key_'));
+  assert.equal(keyPair.publicKey.t.length, RING_N);
+  assert.equal(keyPair.secretKey.s1.length, RING_N);
+
+  const testPayload = JSON.stringify({ action: 'LOCKDOWN_EDGE_INTERFACES', subnet: '10.0.0.0/24' });
+  const latticeSig = pqc.signLattice(testPayload, keyPair);
+  assert.ok(latticeSig.challengeHash.length === 64);
+  assert.equal(latticeSig.z.length, RING_N);
+  assert.ok(pqc.polyInfinityNorm(latticeSig.z) < GAMMA1 - BETA, 'Infinity norm must satisfy rejection sampling bound');
+
+  const isLatticeValid = pqc.verifyLattice(testPayload, latticeSig, keyPair.publicKey);
+  assert.equal(isLatticeValid, true, 'Authentic PQC lattice signature must verify cleanly');
+
+  // Tampered payload verification
+  const isTamperValid = pqc.verifyLattice(testPayload + '_tampered', latticeSig, keyPair.publicKey);
+  assert.equal(isTamperValid, false, 'Tampered payload must fail PQC verification');
+  console.log('  ✓ PQC lattice signatures verified and protected against tampering');
+
+  // [91.6] Phase 10.0 Track 2: Zero-Knowledge Pedersen Telemetry Prover & Hybrid Attestations
+  console.log('[Test 91.6] Testing Zero-Knowledge Pedersen Telemetry Range Prover & Hybrid Receipts...');
+  const telemetryGood = { rttMs: 35.0, lossPct: 0.5, queueDepthPackets: 25 };
+  const zkCommitment = pqc.generateZkPedersenCommitment(telemetryGood, { maxRttMs: 100.0, maxLossPct: 2.0, maxQueuePackets: 50 });
+  assert.ok(zkCommitment.commitmentHex.length > 20);
+  assert.equal(zkCommitment.satisfiesThresholds, true);
+
+  const isZkValid = pqc.verifyZkCommitment(zkCommitment);
+  assert.equal(isZkValid, true, 'Zero-knowledge proof must verify without revealing raw telemetry');
+
+  const hybridReceipt = pqc.createHybridAttestation('node_alpha_01', testPayload, keyPair, telemetryGood);
+  assert.ok(hybridReceipt.receiptId.startsWith('hyb_rcpt_'));
+  assert.equal(hybridReceipt.isHybridVerified, true);
+  console.log(`  ✓ Hybrid PQC + ZK Attestation verified: Receipt=${hybridReceipt.receiptId}`);
+
   console.log('\n========================================================================');
   console.log('  SUITE 91 PASSED: ZERO-TRUST POLICY SYNTHESIZER 100% GREEN             ');
   console.log('========================================================================\n');
