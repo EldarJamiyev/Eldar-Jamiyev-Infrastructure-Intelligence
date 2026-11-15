@@ -200,6 +200,7 @@ class DistributedSagaOrchestrator {
           votes_json TEXT NOT NULL,
           lyapunov_aggregate_json TEXT NOT NULL,
           commit_tokens_json TEXT,
+          batch_quorum_receipt_json TEXT,
           rollback_executed INTEGER NOT NULL DEFAULT 0,
           rollback_log_json TEXT,
           created_at TEXT NOT NULL,
@@ -208,6 +209,11 @@ class DistributedSagaOrchestrator {
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_phase ON ejii_remediation_sagas(phase);
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_created ON ejii_remediation_sagas(created_at);
       `);
+      try {
+        db.exec('ALTER TABLE ejii_remediation_sagas ADD COLUMN batch_quorum_receipt_json TEXT');
+      } catch (_) {
+        // Column may already exist
+      }
       this.sqliteInitialized = true;
     } catch (_) {
       // Graceful fallback to memory mode if SQLite is query-only or busy
@@ -527,6 +533,23 @@ class DistributedSagaOrchestrator {
       }
     }
 
+    // Phase 7.0 Track 4: Batch Ed25519 Cryptographic Attestation & Rollup Receipt
+    const attestationItems = saga.participants.map(p => {
+      const v = saga.votes[p.nodeId];
+      return {
+        nodeId: p.nodeId,
+        payload: `${sagaId}:${p.nodeId}:${v.vote}:${v.lyapunovDelta}`,
+        signature: v.ed25519Signature,
+        publicKeyPem: v.publicKeyPem,
+        hmacProof: v.signedProof
+      };
+    });
+    const batchReceipt = zkEpistemicConsensusEngine.createBatchQuorumReceipt(sagaId, attestationItems);
+    saga.batchQuorumReceipt = batchReceipt;
+    if (!batchReceipt.isQuorumValid) {
+      allVotedCommit = false;
+    }
+
     const aggregateDeltaV = Math.round((totalEnergyAfter - totalEnergyBefore) * 1000) / 1000;
     saga.lyapunovAggregate = {
       energyBefore: Math.round(totalEnergyBefore * 1000) / 1000,
@@ -556,6 +579,14 @@ class DistributedSagaOrchestrator {
     if (saga.phase !== 'COMMIT_VOTE_QUORUM') {
       // If quorum not achieved, trigger rollback
       return this.triggerCoordinatedRollback(sagaId, 'Commit attempted without unanimous VOTE_COMMIT quorum');
+    }
+
+    // Phase 7.0 Track 4: Fast O(1) Batch Quorum Receipt Verification
+    if (
+      !saga.batchQuorumReceipt ||
+      !ZkEpistemicConsensusEngine.verifyBatchQuorumReceipt(saga.batchQuorumReceipt, sagaId)
+    ) {
+      return this.triggerCoordinatedRollback(sagaId, 'Batch quorum attestation receipt verification failed');
     }
 
     // Verify cryptographic attestations & Merkle inclusion proofs before granting execution tokens
@@ -660,6 +691,7 @@ class DistributedSagaOrchestrator {
         votes: JSON.parse(row.votes_json),
         lyapunovAggregate: JSON.parse(row.lyapunov_aggregate_json),
         commitTokens: row.commit_tokens_json ? JSON.parse(row.commit_tokens_json) : {},
+        batchQuorumReceipt: row.batch_quorum_receipt_json ? JSON.parse(row.batch_quorum_receipt_json) : undefined,
         rollbackExecuted: Boolean(row.rollback_executed),
         rollbackLog: row.rollback_log_json ? JSON.parse(row.rollback_log_json) : [],
         createdAtIso: row.created_at,
@@ -679,14 +711,15 @@ class DistributedSagaOrchestrator {
         INSERT INTO ejii_remediation_sagas (
           saga_id, hypothesis_id, phase, initiator,
           participants_json, votes_json, lyapunov_aggregate_json,
-          commit_tokens_json, rollback_executed, rollback_log_json,
+          commit_tokens_json, batch_quorum_receipt_json, rollback_executed, rollback_log_json,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(saga_id) DO UPDATE SET
           phase = excluded.phase,
           votes_json = excluded.votes_json,
           lyapunov_aggregate_json = excluded.lyapunov_aggregate_json,
           commit_tokens_json = excluded.commit_tokens_json,
+          batch_quorum_receipt_json = excluded.batch_quorum_receipt_json,
           rollback_executed = excluded.rollback_executed,
           rollback_log_json = excluded.rollback_log_json,
           updated_at = excluded.updated_at
@@ -699,6 +732,7 @@ class DistributedSagaOrchestrator {
         JSON.stringify(record.votes),
         JSON.stringify(record.lyapunovAggregate),
         JSON.stringify(record.commitTokens),
+        record.batchQuorumReceipt ? JSON.stringify(record.batchQuorumReceipt) : null,
         record.rollbackExecuted ? 1 : 0,
         JSON.stringify(record.rollbackLog),
         record.createdAtIso,

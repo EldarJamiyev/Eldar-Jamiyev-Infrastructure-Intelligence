@@ -178,4 +178,55 @@ describe('Phase 5.0 Track 5: Asymmetric Ed25519 Cryptographic State Vectors & Me
     }
   });
 
+  test('Phase 7.0 Track 4: Batch Ed25519 Cryptographic Attestation & Rollup Quorum Receipt O(1) verification', () => {
+    const crypto = require('node:crypto');
+    const engine = new ZkEpistemicConsensusEngine();
+
+    const node1Key = engine.generateAgentKeyPair();
+    const node2Key = engine.generateAgentKeyPair();
+    const node3Key = engine.generateAgentKeyPair();
+
+    const payload1 = 'saga_batch_01:node_1:VOTE_COMMIT:-15.4';
+    const payload2 = 'saga_batch_01:node_2:VOTE_COMMIT:-8.2';
+    const payload3 = 'saga_batch_01:node_3:VOTE_COMMIT:-12.1';
+
+    const sig1 = crypto.sign(null, Buffer.from(payload1, 'utf8'), node1Key.privateKeyPem).toString('base64url');
+    const sig2 = crypto.sign(null, Buffer.from(payload2, 'utf8'), node2Key.privateKeyPem).toString('base64url');
+    const sig3 = crypto.sign(null, Buffer.from(payload3, 'utf8'), node3Key.privateKeyPem).toString('base64url');
+
+    const items = [
+      { nodeId: 'node_1', payload: payload1, signature: sig1, publicKeyPem: node1Key.publicKeyPem },
+      { nodeId: 'node_2', payload: payload2, signature: sig2, publicKeyPem: node2Key.publicKeyPem },
+      { nodeId: 'node_3', payload: payload3, signature: sig3, publicKeyPem: node3Key.publicKeyPem }
+    ];
+
+    const receipt = engine.createBatchQuorumReceipt('saga_batch_01', items);
+
+    assert.equal(receipt.batchReceiptId, 'saga_batch_01');
+    assert.equal(receipt.isQuorumValid, true);
+    assert.equal(receipt.quorumCount, 3);
+    assert.equal(receipt.totalSignatures, 3);
+    assert.ok(receipt.merkleRoot.length > 20);
+    assert.ok(receipt.aggregatedAttestationDigest.length > 20);
+
+    // Verify valid receipt
+    const isValid = ZkEpistemicConsensusEngine.verifyBatchQuorumReceipt(receipt, 'saga_batch_01');
+    assert.equal(isValid, true, 'Batch quorum receipt must verify cleanly in O(1)');
+
+    // Verify ID mismatch fails
+    const isMismatch = ZkEpistemicConsensusEngine.verifyBatchQuorumReceipt(receipt, 'wrong_saga_id');
+    assert.equal(isMismatch, false, 'Batch receipt with mismatched ID must fail verification');
+
+    // Test with one forged signature: quorum fails
+    const forgedItems = [
+      { nodeId: 'node_1', payload: payload1, signature: sig1, publicKeyPem: node1Key.publicKeyPem },
+      { nodeId: 'node_2', payload: payload2, signature: 'forged_invalid_signature', publicKeyPem: node2Key.publicKeyPem }
+    ];
+    const invalidReceipt = engine.createBatchQuorumReceipt('saga_batch_bad', forgedItems);
+    assert.equal(invalidReceipt.isQuorumValid, false);
+    assert.equal(invalidReceipt.quorumCount, 1);
+    assert.equal(invalidReceipt.totalSignatures, 2);
+    assert.equal(ZkEpistemicConsensusEngine.verifyBatchQuorumReceipt(invalidReceipt), false);
+  });
+
 });
