@@ -1790,6 +1790,49 @@
     renderEnterpriseNocView();
   };
 
+  window.initVirtualizedTopologyCanvas = function(canvasId, topology = {}) {
+    const canvas = typeof document !== 'undefined' ? document.getElementById(canvasId) : null;
+    if (!canvas || !canvas.getContext) return null;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width || 800;
+    const height = canvas.height || 400;
+    const nodes = topology.nodes || [];
+    const edges = topology.edges || [];
+
+    function renderTopology() {
+      ctx.fillStyle = '#0B0F19';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = '#1E293B';
+      ctx.lineWidth = 1.5;
+      for (const e of edges) {
+        const u = nodes.find((n) => n.id === e.source);
+        const v = nodes.find((n) => n.id === e.target);
+        if (u && v && u.x !== undefined && v.x !== undefined) {
+          ctx.beginPath();
+          ctx.moveTo(u.x, u.y);
+          ctx.lineTo(v.x, v.y);
+          ctx.stroke();
+        }
+      }
+
+      for (const n of nodes) {
+        const nx = n.x !== undefined ? n.x : width / 2;
+        const ny = n.y !== undefined ? n.y : height / 2;
+        ctx.fillStyle = n.isAnomalous ? '#EF4444' : '#3B82F6';
+        ctx.beginPath();
+        ctx.arc(nx, ny, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = '10px monospace';
+        ctx.fillText(n.id || '', nx + 12, ny + 4);
+      }
+    }
+
+    return { renderTopology, getNodeCount: () => nodes.length, getEdgeCount: () => edges.length };
+  };
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       evaluateEnterpriseNocEndpointFreshness: evaluateEndpointFreshness,

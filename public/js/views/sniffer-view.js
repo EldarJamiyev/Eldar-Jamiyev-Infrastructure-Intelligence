@@ -1807,4 +1807,56 @@ window.escapeAttr = escapeAttr;
       if (el) el.innerHTML = `<div style="color:var(--status-warning,#F59E0B);padding:10px;">Inspection notice: ${escapeHtml(e.message)}</div>`;
     }
   };
+
+  window.initVirtualizedPacketStreamCanvas = function(canvasId, options = {}) {
+    const canvas = typeof document !== 'undefined' ? document.getElementById(canvasId) : null;
+    if (!canvas || !canvas.getContext) return null;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width || 600;
+    const height = canvas.height || 180;
+    const packetBuffer = [];
+    const maxEntries = options.maxEntries || 120;
+
+    function pushPacket(packet) {
+      packetBuffer.push({
+        x: width,
+        y: Math.random() * (height - 30) + 15,
+        length: packet.length || 64,
+        protocol: packet.protocol || 'TCP',
+        isAnomaly: Boolean(packet.isAnomaly),
+        timestamp: (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      });
+      if (packetBuffer.length > maxEntries) packetBuffer.shift();
+    }
+
+    function renderFrame() {
+      ctx.fillStyle = options.bgColor || '#0F172A';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = '#1E293B';
+      ctx.lineWidth = 1;
+      for (let y = 30; y < height; y += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < packetBuffer.length; i++) {
+        const p = packetBuffer[i];
+        p.x -= 2.5;
+        ctx.fillStyle = p.isAnomaly ? '#EF4444' : (p.protocol === 'TCP' ? '#3B82F6' : '#10B981');
+        const radius = Math.min(8, Math.max(3, (p.length / 1500) * 8));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      while (packetBuffer.length > 0 && packetBuffer[0].x < -10) {
+        packetBuffer.shift();
+      }
+    }
+
+    return { pushPacket, renderFrame, getBufferCount: () => packetBuffer.length };
+  };
 })(window);
