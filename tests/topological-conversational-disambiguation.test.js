@@ -137,4 +137,85 @@ test('Phase 4.0 Track 3: Multi-Tier Topological Target & Temporal Scope Disambig
     assert.strictEqual(outcome.epistemicClassification.temporalScope.resolved, true);
     assert.strictEqual(outcome.epistemicClassification.temporalScope.durationSeconds, 900);
   });
+
+  await t.test('7. Procedural SVG topology visualizer produces well-formed XML with Laplacian thermal contours', () => {
+    const { conversationalVisualizer, generateTopologySvg, getThermalColor } = require('../src/core/chat/conversational-visualizer');
+
+    // Thermal color thresholds
+    assert.strictEqual(getThermalColor(0.10).tier, 'NOMINAL');
+    assert.strictEqual(getThermalColor(0.10).stroke, '#00e676');
+    assert.strictEqual(getThermalColor(0.35).tier, 'WARNING');
+    assert.strictEqual(getThermalColor(0.35).stroke, '#ffab00');
+    assert.strictEqual(getThermalColor(0.85).tier, 'DEGRADED');
+    assert.strictEqual(getThermalColor(0.85).stroke, '#ff1744');
+
+    const sampleGraph = {
+      nodes: [
+        { id: 'gw-ingress-01', label: 'Ingress GW', role: 'ingress', temperature: 0.05 },
+        { id: 'sw-core-01', label: 'Core Switch', role: 'core', temperature: 0.30 },
+        { id: 'db-primary-01', label: 'Postgres DB', role: 'datastore', temperature: 0.90 }
+      ],
+      edges: [
+        { source: 'gw-ingress-01', target: 'sw-core-01', weight: 0.4, label: '10G' },
+        { source: 'sw-core-01', target: 'db-primary-01', weight: 0.9, label: 'Causal Bottleneck', mediationRatio: 0.85, status: 'degraded' }
+      ]
+    };
+
+    const svg = generateTopologySvg(sampleGraph, { title: 'Test Cluster Diffusion' });
+
+    assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
+    assert.ok(svg.endsWith('</svg>'));
+    assert.ok(svg.includes('viewBox="0 0 760 380"'));
+    assert.ok(svg.includes('Test Cluster Diffusion'));
+    assert.ok(svg.includes('#ff1744'), 'Must render degraded color for high-temperature DB');
+    assert.ok(svg.includes('#00e676'), 'Must render nominal color for Ingress');
+    assert.ok(svg.includes('#ffab00'), 'Must render warning color for Core Switch');
+    assert.ok(svg.includes('marker-end="url(#arrow-degraded)"'));
+
+    // Payload budget: must be <= 12 KB (12288 bytes)
+    const sizeBytes = Buffer.byteLength(svg, 'utf8');
+    assert.ok(sizeBytes <= 12288, `SVG payload (${sizeBytes}B) must not exceed 12 KB`);
+  });
+
+  await t.test('8. Sanitizes XML entities against XSS and handles empty graphs safely', () => {
+    const { conversationalVisualizer, sanitizeXml } = require('../src/core/chat/conversational-visualizer');
+
+    const unsafeInput = '<script>alert("xss")</script> & \'test\'';
+    const sanitized = sanitizeXml(unsafeInput);
+    assert.ok(!sanitized.includes('<script>'));
+    assert.ok(sanitized.includes('&lt;script&gt;'));
+    assert.ok(sanitized.includes('&amp;'));
+    assert.ok(sanitized.includes('&apos;test&apos;'));
+
+    // Safe default for empty graph
+    const emptySvg = conversationalVisualizer.generateTopologySvg({ nodes: [], edges: [] });
+    assert.ok(emptySvg.startsWith('<svg'));
+    assert.ok(emptySvg.endsWith('</svg>'));
+  });
+
+  await t.test('9. Integrates seamlessly with runAgenticToolLoop for conversational topology queries', async () => {
+    const mockPlan = {
+      intent: 'topology_visualize',
+      target: 'gw-core-01',
+      mode: 'operational'
+    };
+
+    const outcome = await runAgenticToolLoop({
+      promptText: 'visualize network topology diagram and route hop',
+      initialPlan: mockPlan,
+      executeSinglePlan: async (plan) => ({
+        reply: 'Topology inspection completed for gw-core-01.',
+        technicalEvidence: { hops: 3 },
+        structuredAnswer: { result: 'OK', meaning: 'Diagram generated' }
+      }),
+      maxSteps: 1
+    });
+
+    assert.ok(outcome.epistemicClassification.topologyVisualization, 'topologyVisualization must be present');
+    assert.strictEqual(outcome.epistemicClassification.topologyVisualization.generated, true);
+    assert.ok(outcome.epistemicClassification.topologyVisualization.nodeCount > 0);
+    assert.ok(outcome.epistemicClassification.topologyVisualization.svgPayloadSize <= 12288);
+    assert.ok(outcome.reply.includes('<svg xmlns="http://www.w3.org/2000/svg"'));
+    assert.ok(outcome.reply.includes('Topological Diffusion Diagram'));
+  });
 });

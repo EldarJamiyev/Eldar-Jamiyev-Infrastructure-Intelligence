@@ -2535,6 +2535,25 @@ async function runAgenticToolLoop({
         epistemicClassification.latentConfounderAnalysis = pag;
       }
     }
+
+    // Phase 8.0 Track 4: Multi-Modal Conversational SVG Topology Visualizer
+    const isTopologyVisualQuery = /\b(visualiz|diagram|topology|network map|diffusion map|svg|graph|route hop)\b/i.test(promptText) || Boolean(sessionContext?.enableVisualization);
+    if (isTopologyVisualQuery) {
+      try {
+        const { conversationalVisualizer } = require('./conversational-visualizer');
+        const graphData = sessionContext?.graphData || conversationalVisualizer.buildTopologyFromTemporalGraph(sessionContext?.temporalGraph);
+        const svg = conversationalVisualizer.generateTopologySvg(graphData, {
+          title: `Topology Map: ${sessionContext?.target || currentPlan?.target || 'Fabric Mesh'}`
+        });
+        epistemicClassification.topologyVisualization = {
+          generated: true,
+          nodeCount: graphData.nodes?.length || 0,
+          edgeCount: graphData.edges?.length || 0,
+          svgPayloadSize: Buffer.byteLength(svg, 'utf8'),
+          svgXml: svg
+        };
+      } catch (_) {}
+    }
   } catch (_) {}
 
   if (outcomes.length === 0) {
@@ -2578,6 +2597,10 @@ async function runAgenticToolLoop({
       const med = epistemicClassification.causalMediationAnalysis;
       single.reply = `${single.reply}\n\n### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`;
     }
+    if (epistemicClassification.topologyVisualization && epistemicClassification.topologyVisualization.generated) {
+      const topoViz = epistemicClassification.topologyVisualization;
+      single.reply = `${single.reply}\n\n### 🗺️ Topological Diffusion Diagram (${topoViz.nodeCount} nodes, ${topoViz.edgeCount} edges)\n${topoViz.svgXml}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2616,6 +2639,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.causalMediationAnalysis) {
     const med = epistemicClassification.causalMediationAnalysis;
     combinedReplyParts.push(`### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`);
+  }
+  if (epistemicClassification.topologyVisualization && epistemicClassification.topologyVisualization.generated) {
+    const topoViz = epistemicClassification.topologyVisualization;
+    combinedReplyParts.push(`### 🗺️ Topological Diffusion Diagram (${topoViz.nodeCount} nodes, ${topoViz.edgeCount} edges)\n${topoViz.svgXml}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped
