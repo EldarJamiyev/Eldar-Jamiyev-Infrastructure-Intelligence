@@ -53,6 +53,22 @@ class ProcessSocketCorrelatorEngine {
             beaconingSuspected,
         };
     }
+    static normalizeSocketState(state) {
+        if (!state) return 'UNKNOWN';
+        const s = String(state).trim().toUpperCase();
+        if (s === '01' || s === 'ESTABLISHED' || s === 'ESTAB') return 'ESTABLISHED';
+        if (s === '0A' || s === 'LISTEN' || s === 'LISTENING') return 'LISTENING';
+        if (s === '06' || s === 'TIME_WAIT' || s === 'TIMEWAIT') return 'TIME_WAIT';
+        if (s === '02' || s === 'SYN_SENT') return 'SYN_SENT';
+        if (s === '03' || s === 'SYN_RECV') return 'SYN_RECV';
+        if (s === '04' || s === 'FIN_WAIT1') return 'FIN_WAIT1';
+        if (s === '05' || s === 'FIN_WAIT2') return 'FIN_WAIT2';
+        if (s === '07' || s === 'CLOSE') return 'CLOSE';
+        if (s === '08' || s === 'CLOSE_WAIT') return 'CLOSE_WAIT';
+        if (s === '09' || s === 'LAST_ACK') return 'LAST_ACK';
+        if (s === '0B' || s === 'CLOSING') return 'CLOSING';
+        return s;
+    }
     /**
      * Alias for collecting and analyzing live host socket matrix.
      */
@@ -76,10 +92,11 @@ class ProcessSocketCorrelatorEngine {
             if (s.localPort >= this.EPHEMERAL_MIN && s.localPort <= this.EPHEMERAL_MAX) {
                 activeEphemeralCount++;
             }
-            if (s.state === 'TIME_WAIT') {
+            const normState = ProcessSocketCorrelatorEngine.normalizeSocketState(s.state);
+            if (normState === 'TIME_WAIT') {
                 timeWaitCount++;
             }
-            else if (s.state === 'ESTABLISHED') {
+            else if (normState === 'ESTABLISHED') {
                 establishedCount++;
             }
             const list = socketsByPid.get(s.pid) || [];
@@ -118,11 +135,12 @@ class ProcessSocketCorrelatorEngine {
             let eph = 0;
             const remoteIps = new Set();
             for (const s of pSockets) {
-                if (s.state === 'ESTABLISHED')
+                const normState = ProcessSocketCorrelatorEngine.normalizeSocketState(s.state);
+                if (normState === 'ESTABLISHED')
                     est++;
-                else if (s.state === 'TIME_WAIT')
+                else if (normState === 'TIME_WAIT')
                     tw++;
-                else if (s.state === 'LISTENING')
+                else if (normState === 'LISTENING')
                     listen++;
                 if (s.localPort >= this.EPHEMERAL_MIN && s.localPort <= this.EPHEMERAL_MAX) {
                     eph++;
