@@ -2508,6 +2508,17 @@ async function runAgenticToolLoop({
         epistemicClassification.causalEvidenceTrace = causalEvidenceTrace;
       }
     }
+
+    const isMediationQuery = /\b(mediat|indirect|through|via|direct vs indirect)\b/i.test(promptText) || Boolean(sessionContext?.mediator);
+    if (isMediationQuery) {
+      const treatment = sessionContext?.treatment || (factualState.queueDepthPackets > 30 ? 'bufferbloat' : 'arrival_burst');
+      const mediator = sessionContext?.mediator || 'queue_accumulation';
+      const outcome = sessionContext?.outcome || (factualState.rttMs > 30 ? 'latency_spike' : 'packet_loss');
+      const causalMediation = structuralCausalEngine.analyzeCausalMediation(treatment, mediator, outcome, factualState);
+      if (causalMediation) {
+        epistemicClassification.causalMediationAnalysis = causalMediation;
+      }
+    }
   } catch (_) {}
 
   if (outcomes.length === 0) {
@@ -2547,6 +2558,10 @@ async function runAgenticToolLoop({
       const trace = epistemicClassification.causalEvidenceTrace;
       single.reply = `${single.reply}\n\n### 🧬 Pearlian Causal Evidence Trace\n* **Proof Verdict**: \`${trace.proofVerdict}\`\n* **Causal Path**: ${trace.causalPath.join(' ➔ ')}\n* **Probability of Necessity (PN)**: ${(trace.probabilityOfNecessity * 100).toFixed(1)}% | **Sufficiency (PS)**: ${(trace.probabilityOfSufficiency * 100).toFixed(1)}% | **PNS**: ${(trace.probabilityOfNecessityAndSufficiency * 100).toFixed(1)}%\n* **Empirical Likelihood Ratio (Λ)**: ${trace.empiricalLikelihoodRatio.toFixed(2)}x\n* **Proof**: ${trace.rationale}`;
     }
+    if (epistemicClassification.causalMediationAnalysis) {
+      const med = epistemicClassification.causalMediationAnalysis;
+      single.reply = `${single.reply}\n\n### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`;
+    }
     if (single.technicalEvidence && typeof single.technicalEvidence === 'object') {
       single.technicalEvidence.agenticReflectionTrace = toolReflectionTrace;
       single.technicalEvidence.terminationReason = loopTerminationReason;
@@ -2581,6 +2596,10 @@ async function runAgenticToolLoop({
   if (epistemicClassification.causalEvidenceTrace) {
     const trace = epistemicClassification.causalEvidenceTrace;
     combinedReplyParts.push(`### 🧬 Pearlian Causal Evidence Trace\n* **Proof Verdict**: \`${trace.proofVerdict}\`\n* **Causal Path**: ${trace.causalPath.join(' ➔ ')}\n* **Probability of Necessity (PN)**: ${(trace.probabilityOfNecessity * 100).toFixed(1)}% | **Sufficiency (PS)**: ${(trace.probabilityOfSufficiency * 100).toFixed(1)}% | **PNS**: ${(trace.probabilityOfNecessityAndSufficiency * 100).toFixed(1)}%\n* **Empirical Likelihood Ratio (Λ)**: ${trace.empiricalLikelihoodRatio.toFixed(2)}x\n* **Proof**: ${trace.rationale}`);
+  }
+  if (epistemicClassification.causalMediationAnalysis) {
+    const med = epistemicClassification.causalMediationAnalysis;
+    combinedReplyParts.push(`### ⚖️ Pearlian Causal Mediation Analysis\n* **Decomposition**: Treatment \`${med.treatment}\` ➔ Mediator \`${med.mediator}\` ➔ Outcome \`${med.outcome}\`\n* **Total Effect**: ${med.totalEffect}ms | **Direct Effect (CDE)**: ${med.controlledDirectEffect}ms | **Indirect Effect (NIE)**: ${med.naturalIndirectEffect}ms\n* **Mediated Proportion**: ${(med.mediatedProportion * 100).toFixed(1)}%\n* **Intervention Target**: \`${med.actionableInterventionTarget}\`\n* **Synthesis**: ${med.rationale}`);
   }
 
   // Merge technical evidences across all executed iterations so specific probe outputs (e.g. rawResult, configuredServers) are never dropped

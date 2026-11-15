@@ -166,4 +166,49 @@ test('Phase 5.0 Track 1: Structural Causal Models & Pearlian do-Calculus Counter
     assert.match(outcome.reply, /Pearlian Causal Evidence Trace/);
     assert.match(outcome.reply, /NECESSARY_AND_SUFFICIENT_PROVEN/);
   });
+
+  await t.test('8. Computes analytical Pearlian causal mediation decomposition (CDE, NDE, NIE, Mediated Proportion)', () => {
+    const engine = new StructuralCausalEngine();
+    const mediation = engine.analyzeCausalMediation('arrival_burst', 'queue_accumulation', 'latency_spike', {
+      queueDepthPackets: 55.0,
+      rttMs: 50.0,
+      packetLossPct: 3.0
+    });
+
+    assert.ok(mediation.totalEffect > 0, `Total effect must be positive, got ${mediation.totalEffect}`);
+    assert.ok(typeof mediation.controlledDirectEffect === 'number');
+    assert.ok(typeof mediation.naturalDirectEffect === 'number');
+    assert.ok(mediation.naturalIndirectEffect > 0, `Natural indirect effect must be positive, got ${mediation.naturalIndirectEffect}`);
+    assert.ok(mediation.mediatedProportion >= 0.50, `Mediated proportion should be >= 0.50, got ${mediation.mediatedProportion}`);
+    assert.ok(['MEDIATOR_MITIGATION_SUFFICIENT', 'DUAL_INTERVENTION_REQUIRED'].includes(mediation.actionableInterventionTarget));
+    assert.ok(mediation.rationale.includes('Pearlian causal mediation decomposition'));
+  });
+
+  await t.test('9. Integrates causal mediation analysis into runAgenticToolLoop for multi-hop queries', async () => {
+    const mockPlan = { intent: 'host_metrics', target: '10.0.0.1', mode: 'operational' };
+
+    const outcome = await runAgenticToolLoop({
+      promptText: 'is the latency spike mediated through queue accumulation or directly caused by arrival burst?',
+      initialPlan: mockPlan,
+      executeSinglePlan: async (plan) => ({
+        reply: 'Gateway metrics retrieved.',
+        technicalEvidence: { rttMs: 52.0 },
+        structuredAnswer: { result: 'OK', meaning: 'High queue depth detected' }
+      }),
+      sessionContext: {
+        treatment: 'arrival_burst',
+        mediator: 'queue_accumulation',
+        outcome: 'latency_spike',
+        queueDepthPackets: 60.0,
+        rttMs: 52.0
+      },
+      maxSteps: 1
+    });
+
+    assert.ok(outcome.epistemicClassification.causalMediationAnalysis, 'causalMediationAnalysis must be populated');
+    const med = outcome.epistemicClassification.causalMediationAnalysis;
+    assert.ok(med.mediatedProportion >= 0.50);
+    assert.match(outcome.reply, /Pearlian Causal Mediation Analysis/);
+    assert.match(outcome.reply, /Total Effect/);
+  });
 });

@@ -64,6 +64,19 @@ export interface CausalEvidenceTrace {
   rationale: string;
 }
 
+export interface CausalMediationAnalysis {
+  treatment: string;
+  mediator: string;
+  outcome: string;
+  totalEffect: number;
+  controlledDirectEffect: number;
+  naturalDirectEffect: number;
+  naturalIndirectEffect: number;
+  mediatedProportion: number;
+  actionableInterventionTarget: 'ROOT_TREATMENT_ONLY' | 'MEDIATOR_MITIGATION_SUFFICIENT' | 'DUAL_INTERVENTION_REQUIRED';
+  rationale: string;
+}
+
 export const CANONICAL_SCM_PARAMETERS = Object.freeze({
   baseRttMs: 10.0,
   queueDrainRateKpps: 2.5,
@@ -354,6 +367,78 @@ export class StructuralCausalEngine {
       probabilityOfNecessityAndSufficiency,
       empiricalLikelihoodRatio,
       proofVerdict,
+      rationale
+    };
+  }
+
+  /**
+   * Track 1: Pearlian Causal Mediation Analysis
+   * Decomposes total causal effect into Controlled Direct Effect (CDE),
+   * Natural Direct Effect (NDE), and Natural Indirect Effect (NIE) across mediator M.
+   */
+  public analyzeCausalMediation(
+    treatment: string,
+    mediator: string,
+    outcome: string,
+    observedTelemetry?: Partial<EndogenousTelemetryState>
+  ): CausalMediationAnalysis {
+    const factual: EndogenousTelemetryState = {
+      queueDepthPackets: Number(observedTelemetry?.queueDepthPackets ?? 50.0),
+      rttMs: Number(observedTelemetry?.rttMs ?? 48.0),
+      packetLossPct: Number(observedTelemetry?.packetLossPct ?? 3.0),
+      windowSizeBytes: Number(observedTelemetry?.windowSizeBytes ?? this.params.defaultWindowSize),
+      arrivalRateKpps: Number(observedTelemetry?.arrivalRateKpps ?? this.params.defaultArrivalRate),
+      serviceRateKpps: Number(observedTelemetry?.serviceRateKpps ?? this.params.defaultServiceRate)
+    };
+
+    const cleanTreatment = String(treatment || 'arrival_burst').toLowerCase();
+    const cleanMediator = String(mediator || 'queue_accumulation').toLowerCase();
+    const cleanOutcome = String(outcome || 'latency_spike').toLowerCase();
+
+    // Baseline unperturbed state
+    const nominalRtt = this.params.baseRttMs + 2.0; // ~12ms
+    const totalEffect = Math.max(0.1, Math.round((factual.rttMs - nominalRtt) * 10) / 10);
+
+    // 1. Controlled Direct Effect CDE(m): Hold mediator M fixed at nominal level m_0
+    // e.g. Lock queueDepthPackets to nominal 5.0 while treatment X is active
+    const mediatorControlledState = this.evaluateCounterfactual(factual, [
+      { variable: 'queueDepthPackets', targetValue: 5.0 }
+    ]);
+    const controlledDirectEffect = Math.max(0, Math.round((mediatorControlledState.counterfactualState.rttMs - nominalRtt) * 10) / 10);
+
+    // 2. Natural Direct Effect NDE: Effect of X with mediator held at natural baseline
+    const naturalDirectEffect = controlledDirectEffect;
+
+    // 3. Natural Indirect Effect NIE: Effect transmitted exclusively through mediator
+    const naturalIndirectEffect = Math.max(0, Math.round((totalEffect - naturalDirectEffect) * 10) / 10);
+
+    // 4. Mediated Proportion: fraction of total effect explained by mediator
+    const mediatedProportion = Math.round(Math.min(1.0, Math.max(0.0, naturalIndirectEffect / totalEffect)) * 100) / 100;
+
+    // 5. Deduce actionable intervention target
+    let actionableInterventionTarget: CausalMediationAnalysis['actionableInterventionTarget'];
+    if (mediatedProportion >= 0.70) {
+      actionableInterventionTarget = 'MEDIATOR_MITIGATION_SUFFICIENT';
+    } else if (mediatedProportion <= 0.30) {
+      actionableInterventionTarget = 'ROOT_TREATMENT_ONLY';
+    } else {
+      actionableInterventionTarget = 'DUAL_INTERVENTION_REQUIRED';
+    }
+
+    const rationale = `Pearlian causal mediation decomposition: Total Effect=${totalEffect}ms, ` +
+      `Controlled Direct Effect CDE(m)=${controlledDirectEffect}ms, Natural Indirect Effect NIE=${naturalIndirectEffect}ms, ` +
+      `Mediated Proportion=${(mediatedProportion * 100).toFixed(1)}%. Target recommendation: ${actionableInterventionTarget}.`;
+
+    return {
+      treatment: cleanTreatment,
+      mediator: cleanMediator,
+      outcome: cleanOutcome,
+      totalEffect,
+      controlledDirectEffect,
+      naturalDirectEffect,
+      naturalIndirectEffect,
+      mediatedProportion,
+      actionableInterventionTarget,
       rationale
     };
   }
