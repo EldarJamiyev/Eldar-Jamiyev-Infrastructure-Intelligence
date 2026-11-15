@@ -535,6 +535,14 @@ class ZeroCopyFlowPipeline {
     if (parts.length !== 4) return 0;
     return (((Number(parts[0]) << 24) | (Number(parts[1]) << 16) | (Number(parts[2]) << 8) | Number(parts[3])) >>> 0);
   }
+
+  attachCachelineRingBuffer(ringBuffer) {
+    this.attachedCachelineBuffer = ringBuffer;
+  }
+
+  getAttachedCachelineRingBuffer() {
+    return this.attachedCachelineBuffer || null;
+  }
 }
 
 const zeroCopyFlowPipeline = new ZeroCopyFlowPipeline();
