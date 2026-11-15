@@ -229,4 +229,94 @@ describe('Phase 5.0 Track 5: Asymmetric Ed25519 Cryptographic State Vectors & Me
     assert.equal(ZkEpistemicConsensusEngine.verifyBatchQuorumReceipt(invalidReceipt), false);
   });
 
+  test('Phase 8.0 Track 2: Byzantine Vector Clock Gossip & Anti-Entropy Merkle Synchronization', () => {
+    const {
+      ByzantineVectorClockGossipEngine,
+      byzantineVectorClockGossipEngine
+    } = require('../src/core/agent/byzantine-vector-clock-gossip');
+
+    const nodeA = new ByzantineVectorClockGossipEngine('edge_node_a');
+    const nodeB = new ByzantineVectorClockGossipEngine('edge_node_b');
+    const consensus = new ZkEpistemicConsensusEngine();
+
+    const keyPairA = consensus.generateAgentKeyPair();
+    const keyPairB = consensus.generateAgentKeyPair();
+    const attackerKey = consensus.generateAgentKeyPair();
+
+    // 1. Vector Clock Causal Precedence & Concurrency
+    const vc1 = { edge_node_a: 1, edge_node_b: 0 };
+    const vc2 = { edge_node_a: 2, edge_node_b: 1 };
+    const vcConcurrent = { edge_node_a: 0, edge_node_b: 2 };
+
+    assert.equal(nodeA.isCausallyPrecedent(vc1, vc2), true, 'vc1 must causally precede vc2');
+    assert.equal(nodeA.isCausallyPrecedent(vc2, vc1), false);
+    assert.equal(nodeA.isConcurrent(vc1, vcConcurrent), true, 'vc1 and vcConcurrent must be concurrent');
+
+    // 2. State Sampling & Local Merkle Root Creation
+    nodeA.recordStateSample({ rttMs: 25.4, lossPct: 0.1 });
+    nodeA.recordStateSample({ rttMs: 26.1, lossPct: 0.1 });
+
+    const rootA = nodeA.getLocalMerkleRoot();
+    assert.ok(rootA.length > 20);
+
+    // 3. Create authentic signed gossip message
+    const gossipMsgA = nodeA.createGossipMessage(keyPairA.privateKeyPem, keyPairA.publicKeyPem, 1);
+    assert.equal(gossipMsgA.nodeId, 'edge_node_a');
+    assert.ok(gossipMsgA.signature.length > 20);
+
+    // Node B ingests Node A's gossip message
+    const ingestRes = nodeB.ingestPeerGossip(gossipMsgA);
+    assert.equal(ingestRes.accepted, true, 'Valid Ed25519 gossip must be accepted');
+    assert.ok(nodeB.getVectorClock()['edge_node_a'] >= 1, 'Node B vector clock must reflect Node A counter');
+
+    // 4. Reject Byzantine forged gossip
+    const forgedMsg = {
+      ...gossipMsgA,
+      stateDigest: 'tampered_state_digest',
+      signature: gossipMsgA.signature // Stale signature over altered payload
+    };
+    const byzRes = nodeB.ingestPeerGossip(forgedMsg);
+    assert.equal(byzRes.accepted, false);
+    assert.equal(byzRes.reason, 'ED25519_SIGNATURE_INVALID');
+
+    // 5. Reject Byzantine clock jump (> 1000)
+    const jumpMsg = nodeA.createGossipMessage(keyPairA.privateKeyPem, keyPairA.publicKeyPem, 2);
+    jumpMsg.vectorClock['edge_node_a'] = 50000; // Unreasonable jump
+    const jumpSig = require('node:crypto').sign(null, Buffer.from(JSON.stringify({
+      nodeId: jumpMsg.nodeId,
+      epoch: jumpMsg.epoch,
+      vectorClock: jumpMsg.vectorClock,
+      stateDigest: jumpMsg.stateDigest,
+      merkleRoot: jumpMsg.merkleRoot,
+      timestampIso: jumpMsg.timestampIso
+    }), 'utf8'), keyPairA.privateKeyPem).toString('base64url');
+    jumpMsg.signature = jumpSig;
+
+    const jumpRes = nodeB.ingestPeerGossip(jumpMsg);
+    assert.equal(jumpRes.accepted, false);
+    assert.equal(jumpRes.reason, 'BYZANTINE_CLOCK_JUMP_REJECTED');
+
+    // 6. Anti-Entropy Merkle Reconciliation
+    const peerLeavesInSync = [
+      require('node:crypto').createHash('sha256').update(JSON.stringify({ rttMs: 25.4, lossPct: 0.1 })).digest('hex'),
+      require('node:crypto').createHash('sha256').update(JSON.stringify({ rttMs: 26.1, lossPct: 0.1 })).digest('hex')
+    ];
+    const peerRootInSync = consensus.buildMerkleTree(peerLeavesInSync).root;
+    const syncRes = nodeA.reconcileAntiEntropy('edge_node_b', peerRootInSync, peerLeavesInSync);
+    assert.equal(syncRes.inSync, true);
+    assert.equal(syncRes.reconciliationStatus, 'IDENTICAL_IN_SYNC');
+
+    // Divergent leaves
+    const divergentLeaves = [
+      peerLeavesInSync[0],
+      require('node:crypto').createHash('sha256').update('divergent_sample').digest('hex')
+    ];
+    const divergentRoot = consensus.buildMerkleTree(divergentLeaves).root;
+    const divRes = nodeA.reconcileAntiEntropy('edge_node_b', divergentRoot, divergentLeaves);
+    assert.equal(divRes.inSync, false);
+    assert.equal(divRes.divergenceDetected, true);
+    assert.ok(divRes.divergentIndices.includes(1));
+    assert.equal(divRes.reconciliationStatus, 'MERKLE_DESCENT_REQUIRED');
+  });
+
 });
