@@ -99,6 +99,18 @@ class BftStateMachineReplicator {
     return Array.from(this.byzantineNodes);
   }
 
+  quarantineNode(nodeId, reason = 'Byzantine epistemic anomaly detected') {
+    this.byzantineNodes.add(nodeId);
+    this.nodes.delete(nodeId);
+    return {
+      quarantinedNodeId: nodeId,
+      reason,
+      remainingNodes: this.nodes.size,
+      newQuorumThreshold: this.getQuorumThreshold(),
+      currentLeader: this.getLeaderId()
+    };
+  }
+
   computeDigest(payload) {
     return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }

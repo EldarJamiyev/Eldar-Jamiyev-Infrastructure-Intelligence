@@ -181,6 +181,24 @@ export class BftStateMachineReplicator {
     return Array.from(this.byzantineNodes);
   }
 
+  public quarantineNode(nodeId: string, reason = 'Byzantine epistemic anomaly detected'): {
+    quarantinedNodeId: string;
+    reason: string;
+    remainingNodes: number;
+    newQuorumThreshold: number;
+    currentLeader: string;
+  } {
+    this.byzantineNodes.add(nodeId);
+    this.nodes.delete(nodeId);
+    return {
+      quarantinedNodeId: nodeId,
+      reason,
+      remainingNodes: this.nodes.size,
+      newQuorumThreshold: this.getQuorumThreshold(),
+      currentLeader: this.getLeaderId()
+    };
+  }
+
   /**
    * Calculates cryptographic state digest d = H(m)
    */
