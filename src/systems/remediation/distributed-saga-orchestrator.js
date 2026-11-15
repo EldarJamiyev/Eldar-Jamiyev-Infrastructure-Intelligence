@@ -9,6 +9,7 @@
  */
 
 const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const {
   zkEpistemicConsensusEngine,
   ZkEpistemicConsensusEngine
@@ -41,6 +42,16 @@ const CANONICAL_RIEMANNIAN_WEIGHTS = Object.freeze({
 
 const SAGA_PREPARE_TIMEOUT_MS = 1500;
 const MIN_RIEMANNIAN_CONTRACTION = 0.05;
+
+/**
+ * Calculates truncated exponential backoff with full jitter:
+ * t_backoff = min(60000, 1000 * 2^retryCount) * (0.5 + 0.5 * rand())
+ */
+function calculateJitteredBackoffMs(retryCount, randomFn = Math.random) {
+  const base = Math.min(60000, 1000 * Math.pow(2, retryCount));
+  const jitter = 0.5 + 0.5 * randomFn();
+  return Math.round(base * jitter);
+}
 
 /**
  * Phase 7.0 Track 3: Discrete Kalman-Lyapunov Filter
@@ -178,10 +189,12 @@ class TelemetryKalmanFilter {
   }
 }
 
-class DistributedSagaOrchestrator {
+class DistributedSagaOrchestrator extends EventEmitter {
   constructor(secretKey = process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026') {
+    super();
     this.hmacSecret = Buffer.from(secretKey, 'utf-8');
     this.inMemorySagas = new Map();
+    this.inMemoryPendingCompensations = new Map();
     this.processedSagaNonces = new Set();
     this.sqliteInitialized = false;
     this.ensureSqliteTable();
@@ -208,6 +221,21 @@ class DistributedSagaOrchestrator {
         );
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_phase ON ejii_remediation_sagas(phase);
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_created ON ejii_remediation_sagas(created_at);
+
+        CREATE TABLE IF NOT EXISTS ejii_saga_compensations_pending (
+          compensation_id TEXT PRIMARY KEY,
+          saga_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          inverse_action_json TEXT NOT NULL,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          max_retries INTEGER NOT NULL DEFAULT 5,
+          next_retry_at TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_saga_compensations_status ON ejii_saga_compensations_pending(status);
+        CREATE INDEX IF NOT EXISTS idx_saga_compensations_retry ON ejii_saga_compensations_pending(next_retry_at);
       `);
       try {
         db.exec('ALTER TABLE ejii_remediation_sagas ADD COLUMN batch_quorum_receipt_json TEXT');
