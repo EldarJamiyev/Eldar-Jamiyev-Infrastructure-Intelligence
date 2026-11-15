@@ -186,4 +186,51 @@ test('Phase 4.0 Track 4: Generative Neuro-Symbolic Remediation Synthesizer & Lya
     assert.ok(gate.lyapunovProof, 'lyapunovProof must be attached');
     assert.strictEqual(gate.lyapunovProof.verified, true);
   });
+
+  await t.test('7. Phase 7.0 Track 5: Digital twin pre-flight chaos simulation verifies buffer stability and rejects unsafe second-order actions', () => {
+    const synthesizer = new GenerativeRemediationSynthesizer();
+    const baseline = { rttMs: 35.0, lossPct: 0.5, queueDepthPackets: 15 };
+
+    // Safe action: clamps window, drains queue
+    const safeAction = {
+      actionId: 'act_safe_drain',
+      actionType: 'TCP_WINDOW_CLAMP',
+      target: '10.0.0.1',
+      parameters: { windowBytes: 32768 },
+      rationale: 'Clamp window to relieve bufferbloat',
+      expectedImpact: { rttDeltaMs: -15.0, lossDeltaPct: -0.2, queueDeltaPackets: -10 },
+      requiresElevation: false,
+      commandPreview: 'cmd_safe'
+    };
+
+    const safeSim = synthesizer.simulatePreFlightChaos(safeAction, baseline);
+    assert.strictEqual(safeSim.isSimulationSafe, true);
+    assert.strictEqual(safeSim.iterationsRun, 500);
+    assert.ok(safeSim.meanQueueDepth < 50);
+    assert.ok(safeSim.estimatedPacketLossPct < 3.0);
+    assert.ok(safeSim.rationale.includes('Pre-flight digital twin chaos simulation passed'));
+
+    // Unsafe action: causes high queue surge and loss
+    const unsafeAction = {
+      actionId: 'act_unsafe_surge',
+      actionType: 'SOCKET_BUFFER_EXPEDITE',
+      target: '10.0.0.1',
+      parameters: { bufferBytes: 1048576 },
+      rationale: 'Dangerously large allocation',
+      expectedImpact: { rttDeltaMs: 80.0, lossDeltaPct: 6.0, queueDeltaPackets: 55 },
+      requiresElevation: false,
+      commandPreview: 'cmd_unsafe'
+    };
+
+    const unsafeSim = synthesizer.simulatePreFlightChaos(unsafeAction, baseline);
+    assert.strictEqual(unsafeSim.isSimulationSafe, false);
+    assert.ok(unsafeSim.overflowCount > 0);
+    assert.ok(unsafeSim.rationale.includes('FAILED: excessive buffer saturation'));
+
+    // issueCryptographicActionPlan must throw PRE_FLIGHT_SIMULATION_UNSAFE
+    assert.throws(
+      () => synthesizer.issueCryptographicActionPlan(unsafeAction, baseline),
+      (err) => err.code === 'PRE_FLIGHT_SIMULATION_UNSAFE' || err.code === 'LYAPUNOV_INVARIANT_VIOLATED'
+    );
+  });
 });

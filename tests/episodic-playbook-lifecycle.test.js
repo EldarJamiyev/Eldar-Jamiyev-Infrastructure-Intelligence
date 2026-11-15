@@ -226,4 +226,41 @@ describe('Track 5: Episodic Playbook Lifecycle Governance & Degradation Quaranti
     assert.strictEqual(rehabEntry.details.rehabilitatedBy, 'SENIOR_SRE_OPERATOR');
     assert.strictEqual(rehabEntry.details.newState, 'VERIFIED_ACTIVE');
   });
+
+  it('Subtest 6: Phase 7.0 Track 5: 4-Tier Memory Consolidation and Automated Playbook Promotion Engine', () => {
+    const memory = new OperationalMemoryEngine({ useSqlite: true });
+    const playbookId = `RB-AUTO-PROMO-${Date.now()}`;
+
+    // Test rejection when requirements not met (e.g. only 1 execution or rollback > 0)
+    const unqualifiedRes = memory.evaluateAutomatedPlaybookPromotion(playbookId, {
+      successCount: 1,
+      distinctNodes: ['node_1'],
+      pnNecessity: 0.60,
+      rollbackCount: 1
+    });
+    assert.strictEqual(unqualifiedRes.promoted, false);
+    assert.ok(unqualifiedRes.reasons.length >= 3);
+
+    // Test successful promotion when requirements met (>= 3 successes, >= 2 nodes, PN >= 0.75, 0 rollbacks)
+    const qualifiedRes = memory.evaluateAutomatedPlaybookPromotion(playbookId, {
+      successCount: 4,
+      distinctNodes: ['node_edge_1', 'node_core_2'],
+      pnNecessity: 0.88,
+      rollbackCount: 0
+    });
+    assert.strictEqual(qualifiedRes.promoted, true);
+    assert.strictEqual(qualifiedRes.lifecycleState, 'VERIFIED_ACTIVE');
+    assert.strictEqual(qualifiedRes.tier, 4);
+    assert.strictEqual(qualifiedRes.tierName, 'OPERATIONAL_PLAYBOOK');
+
+    // Test 4-tier memory consolidation snapshot
+    const consolidation = memory.consolidateMemoryTiers();
+    assert.strictEqual(consolidation.isFullyConsolidated, true);
+    assert.ok(consolidation.tiers.tier1_workingMemory);
+    assert.ok(consolidation.tiers.tier2_episodicIncidents);
+    assert.ok(consolidation.tiers.tier3_semanticTopology);
+    assert.ok(consolidation.tiers.tier4_operationalPlaybooks);
+    assert.ok(consolidation.tiers.tier4_operationalPlaybooks.count >= 1);
+    assert.ok(consolidation.tiers.tier4_operationalPlaybooks.verifiedPlaybooks.includes(playbookId));
+  });
 });

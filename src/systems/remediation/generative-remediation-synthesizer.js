@@ -263,6 +263,78 @@ class GenerativeRemediationSynthesizer {
   }
 
   /**
+   * Phase 7.0 Track 5: Digital Twin Pre-Flight Chaos Simulation
+   * Runs 500-iteration discrete M/M/1/K queue simulation to verify that the
+   * candidate remediation action does not cause second-order buffer overflows or packet loss spikes.
+   */
+  simulatePreFlightChaos(candidateAction = {}, baselineTopologyState = {}, options = {}) {
+    const K = options.bufferCapacity || 64;
+    const iterations = options.iterations || 500;
+
+    const deltaQueue = candidateAction.expectedImpact?.queueDeltaPackets || 0;
+    const deltaLoss = candidateAction.expectedImpact?.lossDeltaPct || 0;
+    const deltaRtt = candidateAction.expectedImpact?.rttDeltaMs || 0;
+
+    let currentQueue = Math.max(0, baselineTopologyState.queueDepthPackets || 10);
+    let peakQueue = currentQueue;
+    let totalQueue = currentQueue;
+    let overflows = 0;
+
+    const baseArrivalProb = 0.48;
+    const netDrift = (deltaQueue * 0.01) + (deltaRtt * 0.005) + (deltaLoss * 0.02);
+    const pArrival = Math.min(0.95, Math.max(0.05, baseArrivalProb + netDrift));
+    const pService = 0.52;
+
+    let seed = 42;
+    const pseudoRand = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    for (let t = 0; t < iterations; t++) {
+      if (pseudoRand() < pArrival) {
+        if (currentQueue < K) {
+          currentQueue++;
+        } else {
+          overflows++;
+        }
+      }
+      if (pseudoRand() < pService && currentQueue > 0) {
+        currentQueue--;
+      }
+
+      if (currentQueue > peakQueue) {
+        peakQueue = currentQueue;
+      }
+      totalQueue += currentQueue;
+    }
+
+    const meanQueueDepth = Math.round((totalQueue / iterations) * 100) / 100;
+    const estimatedPacketLossPct = Math.round((overflows / iterations) * 10000) / 100;
+    const retransmissionRiskFactor = Math.round((peakQueue / K) * 100) / 100;
+
+    const isSimulationSafe =
+      overflows < (iterations * 0.03) &&
+      meanQueueDepth < (K * 0.80) &&
+      retransmissionRiskFactor < 0.90;
+
+    const rationale = isSimulationSafe
+      ? `Pre-flight digital twin chaos simulation passed: 500 iterations, peak queue ${peakQueue}/${K}, mean queue ${meanQueueDepth}, overflow rate ${estimatedPacketLossPct}%.`
+      : `Pre-flight digital twin chaos simulation FAILED: excessive buffer saturation (peak ${peakQueue}/${K}, overflows ${overflows}, loss ${estimatedPacketLossPct}%). Action rejected.`;
+
+    return {
+      isSimulationSafe,
+      iterationsRun: iterations,
+      peakQueueDepth: peakQueue,
+      meanQueueDepth,
+      overflowCount: overflows,
+      estimatedPacketLossPct,
+      retransmissionRiskFactor,
+      rationale
+    };
+  }
+
+  /**
    * Formulates full plan with verified Lyapunov invariant proof and cryptographic HMAC action token.
    */
   issueCryptographicActionPlan(action = {}, currentState = {}, options = {}) {
@@ -272,6 +344,15 @@ class GenerativeRemediationSynthesizer {
       const err = new Error(`Action plan rejected: ${proof.reason}`);
       err.code = 'LYAPUNOV_INVARIANT_VIOLATED';
       err.proof = proof;
+      throw err;
+    }
+
+    // Phase 7.0 Track 5: Digital Twin Pre-Flight Simulation Gate
+    const simulation = this.simulatePreFlightChaos(action, currentState);
+    if (!simulation.isSimulationSafe) {
+      const err = new Error(`Action plan rejected by digital twin chaos pre-flight simulation: ${simulation.rationale}`);
+      err.code = 'PRE_FLIGHT_SIMULATION_UNSAFE';
+      err.simulation = simulation;
       throw err;
     }
 
@@ -301,6 +382,7 @@ class GenerativeRemediationSynthesizer {
       action,
       inverseAction,
       lyapunovProof: proof,
+      preFlightSimulation: simulation,
       actionToken,
       issuedAtIso: new Date(issuedAt).toISOString(),
       expiresAtIso: new Date(expiresAt).toISOString()
