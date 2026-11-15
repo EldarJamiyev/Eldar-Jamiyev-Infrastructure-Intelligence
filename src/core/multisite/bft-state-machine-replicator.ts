@@ -30,6 +30,7 @@ function getDb(): any {
 export interface BftNodeConfig {
   nodeId: string;
   region: string;
+  endpoint?: string;
   secretKey?: string;
   publicKey?: string;
 }

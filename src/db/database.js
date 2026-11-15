@@ -20,12 +20,18 @@ if (typeof db.pragma !== 'function') {
   db.pragma = (str) => db.exec('PRAGMA ' + str + ';');
 }
 
-// High-performance WAL mode for low latency
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA busy_timeout = 8000;');
-db.exec('PRAGMA synchronous = NORMAL;');
-db.exec('PRAGMA cache_size = -64000;');
-db.exec('PRAGMA foreign_keys = ON;');
+// High-performance WAL mode for low latency with resilient busy retry
+try {
+  db.exec('PRAGMA busy_timeout = 10000;');
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA synchronous = NORMAL;');
+  db.exec('PRAGMA cache_size = -64000;');
+  db.exec('PRAGMA foreign_keys = ON;');
+} catch (_) {
+  try {
+    db.exec('PRAGMA busy_timeout = 10000;');
+  } catch (__) {}
+}
 
 let lastMigrationStatus = 'UNINITIALIZED';
 let lastMigrationError = null;

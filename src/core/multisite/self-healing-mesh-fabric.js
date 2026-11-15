@@ -350,7 +350,7 @@ class SelfHealingMeshFabric {
       newViewNumber += 1;
       const nextLeaderId = bftStateMachineReplicator.getLeaderId();
       try {
-        bftStateMachineReplicator.proposeViewChange(newViewNumber, nextLeaderId);
+        bftStateMachineReplicator.triggerViewChange(nextLeaderId, newViewNumber);
       } catch (_) {}
       viewChanged = true;
     }
@@ -454,6 +454,9 @@ class SelfHealingMeshFabric {
   reset() {
     this.peers.clear();
     this.quarantineHistory = [];
+    try {
+      bftStateMachineReplicator.resetForTesting();
+    } catch (_) {}
   }
 }
 

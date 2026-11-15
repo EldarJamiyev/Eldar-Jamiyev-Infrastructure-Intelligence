@@ -492,7 +492,7 @@ export class SelfHealingMeshFabric {
       // Propose view change with next alive leader
       const nextLeaderId = bftStateMachineReplicator.getLeaderId();
       try {
-        bftStateMachineReplicator.proposeViewChange(newViewNumber, nextLeaderId);
+        bftStateMachineReplicator.triggerViewChange(nextLeaderId, newViewNumber);
       } catch (_) {}
       viewChanged = true;
     }
@@ -584,7 +584,7 @@ export class SelfHealingMeshFabric {
       }
 
       // Byzantine telemetry check: extreme packet loss (> 25%) triggers quarantine
-      if (peer.hardwareHealth.nicDropRatePct > 25.0 && peer.state !== 'QUARANTINED') {
+      if (peer.hardwareHealth.nicDropRatePct > 25.0) {
         this.quarantinePeer(
           peer.nodeId,
           `NIC drop rate anomaly: ${peer.hardwareHealth.nicDropRatePct}% exceeds Byzantine safety threshold (25%)`
@@ -615,6 +615,9 @@ export class SelfHealingMeshFabric {
   public reset(): void {
     this.peers.clear();
     this.quarantineHistory = [];
+    try {
+      bftStateMachineReplicator.resetForTesting();
+    } catch (_) {}
   }
 }
 

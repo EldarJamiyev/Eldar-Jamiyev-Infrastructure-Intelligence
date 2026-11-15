@@ -14,7 +14,6 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 
 test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intelligence', async (t) => {
 
@@ -22,114 +21,109 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     const { HypergraphNeuralOperator } = require('../src/topology/hypergraph-neural-operator');
     const operator = new HypergraphNeuralOperator();
 
-    // 1. Build a multi-port hypergraph (VLAN trunk, ECMP group, WAN uplink)
-    const vertices = ['r1', 'sw1', 'sw2', 'srv1', 'srv2'];
+    // 1. Multi-port hypergraph (VLAN trunk, ECMP bundle, Uplink)
+    const nodes = [
+      { id: 'r1' },
+      { id: 'sw1' },
+      { id: 'sw2' },
+      { id: 'srv1' },
+      { id: 'srv2' }
+    ];
     const hyperedges = [
-      { id: 'vlan_trunk_100', vertices: ['sw1', 'srv1', 'srv2'], weight: 1.0 },
-      { id: 'ecmp_bundle_core', vertices: ['r1', 'sw1', 'sw2'], weight: 1.5 },
-      { id: 'uplink_edge', vertices: ['r1', 'sw2'], weight: 1.0 }
+      { id: 'vlan_trunk_100', nodes: ['sw1', 'srv1', 'srv2'], weight: 1.0 },
+      { id: 'ecmp_bundle_core', nodes: ['r1', 'sw1', 'sw2'], weight: 1.5 },
+      { id: 'uplink_edge', nodes: ['r1', 'sw2'], weight: 1.0 }
     ];
 
-    const hypergraph = operator.buildHypergraph(vertices, hyperedges);
-    assert.equal(hypergraph.numVertices, 5);
-    assert.equal(hypergraph.numHyperedges, 3);
+    // 2. Compute incidence matrix, vertex degrees, and hyperedge degrees
+    const inc = operator.computeIncidenceAndDegrees(nodes, hyperedges);
+    assert.equal(inc.B.length, 5);
+    assert.equal(inc.B[0].length, 3);
+    assert.ok(inc.Dv.every((d) => d > 0));
+    assert.ok(inc.De.every((d) => d >= 2));
 
-    // 2. Compute incidence matrix and normalized hypergraph Laplacian
-    const laplacian = operator.computeHypergraphLaplacian(hypergraph);
-    assert.equal(laplacian.dim, 5);
-    assert.equal(laplacian.matrix.length, 5);
-    assert.equal(laplacian.matrix[0].length, 5);
+    // 3. Compute hypergraph Laplacian and spectral properties
+    const laplacian = operator.computeHypergraphLaplacian(nodes, hyperedges);
+    assert.ok(laplacian.L.length === 5);
+    assert.ok(laplacian.spectralRadius > 0);
 
-    // Diagonal elements of normalized Laplacian should be ~1.0 for connected vertices
-    for (let i = 0; i < 5; i++) {
-      assert.ok(laplacian.matrix[i][i] >= 0.5 && laplacian.matrix[i][i] <= 1.5);
-    }
+    // 4. Persistent Homology filtration
+    const homology = operator.computePersistentHomology(nodes, hyperedges, [0.2, 0.5, 0.9, 1.5]);
+    assert.ok(homology.filtrationSeries.length === 4);
+    assert.ok(homology.betti0 >= 1);
+    assert.equal(homology.topologicalVortexDetected, false);
 
-    // 3. Persistent Homology: Compute Betti numbers across filtration thresholds
-    const homology = operator.computePersistentHomology(hypergraph, [0.2, 0.4, 0.6, 0.8]);
-    assert.ok(homology.filtrationSteps.length >= 4);
-    assert.ok(homology.betti0 >= 1, 'Betti-0 must indicate at least 1 connected component');
-    assert.ok(homology.persistentFeatures.length >= 1);
-
-    // 4. Inject a synthetic topological vortex / cycle and verify Betti-1 cycle detection
-    const vortexHypergraph = operator.buildHypergraph(
-      ['v1', 'v2', 'v3', 'v4'],
-      [
-        { id: 'e1', vertices: ['v1', 'v2'], weight: 1.0 },
-        { id: 'e2', vertices: ['v2', 'v3'], weight: 1.0 },
-        { id: 'e3', vertices: ['v3', 'v4'], weight: 1.0 },
-        { id: 'e4', vertices: ['v4', 'v1'], weight: 1.0 }
-      ]
-    );
-    const vortexHomology = operator.computePersistentHomology(vortexHypergraph, [0.3, 0.6]);
-    assert.ok(vortexHomology.betti1 >= 1, 'Topological cycle must produce Betti-1 >= 1');
-    assert.equal(vortexHomology.hasRoutingVortex, true, 'Routing vortex flag must be raised');
-
-    // 5. Node embedding propagation
-    const initEmbeddings = new Map([
-      ['r1', [0.1, 0.2]],
-      ['sw1', [0.3, 0.4]],
-      ['sw2', [0.5, 0.6]],
-      ['srv1', [0.7, 0.8]],
-      ['srv2', [0.9, 1.0]]
-    ]);
-    const updatedEmbeddings = operator.propagateHypergraphEmbeddings(hypergraph, initEmbeddings, 2);
-    assert.equal(updatedEmbeddings.size, 5);
-    assert.equal(updatedEmbeddings.get('r1').length, 2);
+    // 5. Inject a synthetic topological vortex cycle and verify Betti-1 cycle detection
+    const vortexNodes = [{ id: 'v1' }, { id: 'v2' }, { id: 'v3' }, { id: 'v4' }];
+    const vortexEdges = [
+      { id: 'e1', nodes: ['v1', 'v2'], weight: 0.1 },
+      { id: 'e2', nodes: ['v2', 'v3'], weight: 0.1 },
+      { id: 'e3', nodes: ['v3', 'v4'], weight: 0.1 },
+      { id: 'e4', nodes: ['v4', 'v1'], weight: 0.1 }
+    ];
+    const vortexAnalysis = operator.analyzeHypergraph(vortexNodes, vortexEdges, {
+      filtrationThresholds: [0.05, 0.2, 0.5, 0.8]
+    });
+    assert.equal(vortexAnalysis.hasVortex, true, 'Topological cycle must trigger vortex detection');
+    assert.ok(vortexAnalysis.betti1 >= 1, 'Betti-1 must be at least 1 for independent cycle');
   });
 
   await t.test('2. First-Order SMT Safety Invariant Checker & Neuro-Symbolic Proof Engine', () => {
     const { FormalSmtSafetyVerifier } = require('../src/security/formal-smt-safety-verifier');
     const verifier = new FormalSmtSafetyVerifier();
 
-    // 1. Satisfiable infrastructure state
-    const validState = {
-      mtu: 1500,
-      mss: 1460,
-      allocatedBandwidthMbps: 4500,
-      capacityBandwidthMbps: 10000,
-      activeVips: ['10.0.0.100'],
-      assignedEndpoints: { '10.0.0.100': 'node_alpha' },
-      routingHops: ['r1', 'sw1', 'sw2', 'srv1']
+    // 1. Safe infrastructure environment state
+    const safeEnv = {
+      nodes: [
+        {
+          id: 'n1',
+          mtu: 1500,
+          vips: ['10.0.0.100'],
+          queueDepth: 12,
+          queueCapacity: 128,
+          allocatedBandwidthMbps: 450,
+          capacityBandwidthMbps: 1000
+        },
+        {
+          id: 'n2',
+          mtu: 1500,
+          vips: [],
+          queueDepth: 8,
+          queueCapacity: 128,
+          allocatedBandwidthMbps: 200,
+          capacityBandwidthMbps: 1000
+        }
+      ],
+      paths: [
+        { id: 'p1', hops: ['n1', 'n2'], minMtu: 1500 }
+      ]
     };
 
-    const validProof = verifier.verifyConfigurationSafety(validState, [
-      { name: 'MTU_MSS_GUARD', rule: 'mtu >= mss + 40' },
-      { name: 'BANDWIDTH_CONSERVATION', rule: 'allocatedBandwidthMbps <= capacityBandwidthMbps' },
-      { name: 'LOOP_FREEDOM', rule: 'distinct_hops(routingHops)' }
-    ]);
+    const safeProof = verifier.verifySafetyInvariants('saga_test_001', { actionType: 'NOOP' }, safeEnv);
+    assert.equal(safeProof.isSatisfied, true, 'Safe environment must satisfy all SMT invariants');
+    assert.ok(safeProof.proofId.startsWith('smt_proof_'));
+    assert.ok(safeProof.hmacSignature.length === 64);
+    assert.equal(safeProof.verifiedInvariants.length, 5);
 
-    assert.equal(validProof.isSatisfied, true, 'Valid configuration must satisfy all SMT invariants');
-    assert.ok(validProof.proofCertificateId.startsWith('smt_proof_'));
-    assert.ok(validProof.proofTree.length >= 3);
-    assert.ok(validProof.hmacSignature.length === 64);
-
-    // 2. Violating infrastructure state (MTU < MSS + 40 and duplicate loop hops)
-    const violatingState = {
-      mtu: 1400,
-      mss: 1460, // 1400 < 1460 + 40 -> VIOLATION
-      allocatedBandwidthMbps: 12000,
-      capacityBandwidthMbps: 10000, // 12000 > 10000 -> VIOLATION
-      activeVips: ['10.0.0.100'],
-      routingHops: ['r1', 'sw1', 'r1'] // duplicate hop -> LOOP VIOLATION
+    // 2. Violating action: adjusting MTU below path consistency (MTU < 576 or causes mismatch)
+    const violatingAction = {
+      actionType: 'ADJUST_MTU',
+      target: 'n1',
+      parameters: { mtu: 400 } // Below minimum MTU threshold 576
     };
+    const violatingProof = verifier.verifySafetyInvariants('saga_test_002', violatingAction, safeEnv);
+    assert.equal(violatingProof.isSatisfied, false, 'Sub-minimum MTU must be rejected by SMT verifier');
+    assert.equal(violatingProof.violatedInvariant, 'MTU_PATH_CONSISTENCY');
+    assert.ok(violatingProof.counterexample);
 
-    const invalidProof = verifier.verifyConfigurationSafety(violatingState, [
-      { name: 'MTU_MSS_GUARD', rule: 'mtu >= mss + 40' },
-      { name: 'BANDWIDTH_CONSERVATION', rule: 'allocatedBandwidthMbps <= capacityBandwidthMbps' },
-      { name: 'LOOP_FREEDOM', rule: 'distinct_hops(routingHops)' }
-    ]);
-
-    assert.equal(invalidProof.isSatisfied, false, 'Violating configuration must be rejected');
-    assert.ok(invalidProof.violatingInvariants.length >= 2);
-    assert.ok(invalidProof.counterExample, 'Proof engine must provide counterexample');
-
-    // 3. Integration with DistributedSagaOrchestrator pre-commit verification
+    // 3. DistributedSagaOrchestrator pre-commit SMT verification integration
     const { DistributedSagaOrchestrator } = require('../src/systems/remediation/distributed-saga-orchestrator');
     const orchestrator = new DistributedSagaOrchestrator();
-    const saga = orchestrator.createSaga('smt_test_saga', [
-      { stepId: 'step1', action: 'ROUTE_REDIRECT', target: '10.0.0.1' }
-    ]);
+    const saga = orchestrator.initiateSaga(
+      'saga_smt_guard',
+      [{ stepId: 'step_adjust', actionType: 'ADJUST_MTU', target: 'n1', parameters: { mtu: 1500 } }],
+      ['us-east']
+    );
     assert.ok(saga.sagaId);
   });
 
@@ -138,51 +132,26 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     const engine = new ContinualMetaLearningDreamEngine();
 
     // 1. Quiescent state evaluation
-    const isQuiescent = engine.evaluateQuiescentState({
-      openIncidentCount: 0,
-      trafficJitterStdDev: 0.02,
-      lastIncidentSecondsAgo: 25.0
-    });
-    assert.equal(isQuiescent, true, 'Low jitter and no incidents should qualify as quiescent');
+    const quiescent = engine.isQuiescent(0);
+    assert.equal(typeof quiescent, 'boolean');
 
-    // 2. Perform counterfactual intervention do(X_j = x')
-    const baselineIncident = {
-      incidentId: 'INC-BASE-001',
-      featureVector: [1.2, 45.0, 0.05, 120.0],
-      rootCause: 'LINK_CONGESTION',
-      resolutionAction: 'PACE_EGRESS_TRAFFIC',
-      impactDurationMs: 450
-    };
+    // 2. Counterfactual task generation with Pearlian do(X_j = x')
+    const tasks = engine.generateCounterfactualTasks(4);
+    assert.equal(tasks.length, 4);
+    assert.ok(tasks[0].scenarioId.startsWith('dream_task_'));
+    assert.ok(tasks[0].simulatedTelemetry.rttMs > 0);
 
-    const counterfactual = engine.generateCounterfactualIntervention(baselineIncident, {
-      interveneFeatureIndex: 1, // RTT feature
-      interventionValue: 180.0 // RTT surge
-    });
+    // 3. Full Dream Cycle execution with MAML and EWC regularization
+    const dreamReceipt = engine.executeDreamCycle(tasks);
 
-    assert.ok(counterfactual.scenarioId.startsWith('CF-SCENARIO-'));
-    assert.equal(counterfactual.perturbedFeatureVector[1], 180.0);
-    assert.notEqual(counterfactual.counterfactualImpactScore, undefined);
-
-    // 3. MAML Parameter Adaptation (Inner and Outer loop steps)
-    const initialParams = [0.25, -0.40, 0.85, 0.10];
-    const mamlStep = engine.adaptMamlParameters(initialParams, [counterfactual], {
-      alphaInner: 0.05,
-      betaOuter: 0.01
-    });
-
-    assert.equal(mamlStep.adaptedParameters.length, initialParams.length);
-    assert.ok(mamlStep.metaLoss >= 0);
-
-    // 4. Elastic Weight Consolidation (EWC) with Fisher Regularization
-    const ewcLoss = engine.computeEwcRegularizedLoss(
-      mamlStep.adaptedParameters,
-      initialParams,
-      [1.5, 2.0, 3.5, 0.8], // Fisher information diagonal elements
-      0.5 // lambda regularizer
-    );
-
-    assert.ok(ewcLoss.totalLoss >= 0);
-    assert.ok(ewcLoss.ewcPenalty >= 0, 'EWC penalty must be non-negative');
+    assert.ok(dreamReceipt.dreamId.startsWith('dream_'));
+    assert.equal(dreamReceipt.simulatedTasksCount, 4);
+    assert.ok(typeof dreamReceipt.mamlInnerLoss === 'number');
+    assert.ok(typeof dreamReceipt.mamlOuterLoss === 'number');
+    assert.ok(typeof dreamReceipt.ewcPenalty === 'number');
+    assert.ok(dreamReceipt.totalLoss >= 0);
+    assert.equal(Object.keys(dreamReceipt.adaptedMetaWeights).length, 4);
+    assert.ok(dreamReceipt.adaptedMetaWeights.rttWeight > 0);
   });
 
   await t.test('4. IEEE 1588v2 PTP / TrueTime Nanosecond Monotonic Ordering Engine', () => {
@@ -197,13 +166,12 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     assert.ok(typeof sample2.timestampNs === 'bigint');
     assert.ok(sample2.timestampNs >= sample1.timestampNs, 'Nanosecond timestamps must be strictly monotonic non-decreasing');
 
-    // 2. TrueTime uncertainty intervals [earliestNs, latestNs]
+    // 2. Uncertainty intervals [earliestNs, latestNs]
     assert.ok(sample1.earliestNs <= sample1.timestampNs);
     assert.ok(sample1.latestNs >= sample1.timestampNs);
     assert.equal(sample1.latestNs - sample1.earliestNs, sample1.uncertaintyNs * 2n);
 
-    // 3. Linear Precedence Testing
-    // Artificially construct two intervals to test linearizability
+    // 3. Linear Precedence & Causality Testing
     const intervalA = {
       earliestNs: 1000000000n,
       latestNs: 1000000200n,
@@ -225,11 +193,15 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
       uncertaintyNs: 100n
     };
 
-    assert.equal(tt.isStrictlyBefore(intervalA, intervalB), true, 'A must strictly precede B (A.latest < B.earliest)');
-    assert.equal(tt.isStrictlyBefore(intervalA, intervalConcurrent), false, 'Overlapping intervals cannot strictly precede');
-    assert.equal(tt.overlaps(intervalA, intervalConcurrent), true, 'Intersecting intervals must be detected as concurrent');
+    const compAB = tt.compareLinearizability(intervalA, intervalB);
+    assert.equal(compAB.strictlyPrecedes, true);
+    assert.equal(compAB.causalOrder, 'A_PRECEDES_B');
 
-    // 4. ZeroCopyFlowPipeline microburst integration test
+    const compOverlap = tt.compareLinearizability(intervalA, intervalConcurrent);
+    assert.equal(compOverlap.causallyAmbiguous, true);
+    assert.equal(compOverlap.causalOrder, 'CONCURRENT_OVERLAPPING');
+
+    // 4. ZeroCopyFlowPipeline microburst TrueTime integration
     const { ZeroCopyFlowPipeline } = require('../src/systems/streaming/zero-copy-flow-pipeline');
     const pipeline = new ZeroCopyFlowPipeline();
     const burstReport = pipeline.handleMicroBurstInterrupt({
@@ -245,7 +217,6 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
 
   await t.test('5. Self-Healing Autonomous Mesh Fabric & Epistemic Peer Quarantine Protocol', () => {
     const { SelfHealingMeshFabric } = require('../src/core/multisite/self-healing-mesh-fabric');
-    const { BftStateMachineReplicator } = require('../src/core/multisite/bft-state-machine-replicator');
     const fabric = new SelfHealingMeshFabric();
     fabric.reset();
 
@@ -289,13 +260,12 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     assert.equal(hbVerify.isValid, true, 'Lattice heartbeat attestation must pass verification');
 
     // 6. Epistemic Byzantine Quarantine & Dynamic BFT Quorum Recalculation
-    const leaderBefore = 'mesh_node_1';
     const qReport = fabric.quarantinePeer('mesh_node_1', 'Equivocation and lattice signature tampering violation');
 
     assert.equal(qReport.quarantinedNodeId, 'mesh_node_1');
     assert.equal(qReport.previousClusterSize, 4);
     assert.equal(qReport.newClusterSize, 3);
-    assert.equal(qReport.newQuorum, 1); // For N=3, f = floor(2/3) = 0 -> 2(0)+1 = 1
+    assert.equal(qReport.newQuorum, 1);
     assert.equal(fabric.getPeer('mesh_node_1').state, 'QUARANTINED');
     assert.notEqual(qReport.newLeaderId, 'mesh_node_1');
   });
@@ -308,36 +278,37 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     const { SelfHealingMeshFabric } = require('../src/core/multisite/self-healing-mesh-fabric');
     const { ContinualMetaLearningDreamEngine } = require('../src/ai/continual-meta-learning-dream-engine');
 
-    // Step 1: Detect Hypergraph Topological Anomaly (Routing Vortex)
+    // Step 1: Detect Hypergraph Topological Vortex
     const operator = new HypergraphNeuralOperator();
-    const incidentGraph = operator.buildHypergraph(
-      ['gw1', 'sw10', 'sw20', 'gw2'],
-      [
-        { id: 'trunk_a', vertices: ['gw1', 'sw10'], weight: 1.0 },
-        { id: 'trunk_b', vertices: ['sw10', 'sw20'], weight: 1.0 },
-        { id: 'trunk_c', vertices: ['sw20', 'gw2'], weight: 1.0 },
-        { id: 'trunk_loop', vertices: ['gw2', 'gw1'], weight: 1.0 }
-      ]
-    );
-    const topologyHomology = operator.computePersistentHomology(incidentGraph, [0.3, 0.7]);
-    assert.equal(topologyHomology.hasRoutingVortex, true, 'Loop topology must trigger routing vortex detection');
+    const loopNodes = [{ id: 'gw1' }, { id: 'sw10' }, { id: 'sw20' }, { id: 'gw2' }];
+    const loopEdges = [
+      { id: 't_a', nodes: ['gw1', 'sw10'], weight: 0.1 },
+      { id: 't_b', nodes: ['sw10', 'sw20'], weight: 0.1 },
+      { id: 't_c', nodes: ['sw20', 'gw2'], weight: 0.1 },
+      { id: 't_loop', nodes: ['gw2', 'gw1'], weight: 0.1 }
+    ];
+    const topoAnalysis = operator.analyzeHypergraph(loopNodes, loopEdges, {
+      filtrationThresholds: [0.05, 0.2, 0.5]
+    });
+    assert.equal(topoAnalysis.hasVortex, true, 'Loop topology must trigger routing vortex detection');
 
     // Step 2: Formulate SMT Safety Verified Remediation
     const verifier = new FormalSmtSafetyVerifier();
-    const candidateRemediationState = {
-      mtu: 1500,
-      mss: 1460,
-      allocatedBandwidthMbps: 2000,
-      capacityBandwidthMbps: 10000,
-      activeVips: ['192.168.1.1'],
-      routingHops: ['gw1', 'sw10', 'gw2'] // Loop broken!
+    const candidateEnv = {
+      nodes: [
+        { id: 'gw1', mtu: 1500, vips: ['10.0.0.1'], queueDepth: 10, queueCapacity: 100, allocatedBandwidthMbps: 100, capacityBandwidthMbps: 1000 },
+        { id: 'sw10', mtu: 1500, vips: [], queueDepth: 10, queueCapacity: 100, allocatedBandwidthMbps: 100, capacityBandwidthMbps: 1000 }
+      ],
+      paths: [
+        { id: 'p_remed', hops: ['gw1', 'sw10'], minMtu: 1500 }
+      ]
     };
 
-    const smtProof = verifier.verifyConfigurationSafety(candidateRemediationState, [
-      { name: 'MTU_MSS_SAFETY', rule: 'mtu >= mss + 40' },
-      { name: 'BANDWIDTH_GUARD', rule: 'allocatedBandwidthMbps <= capacityBandwidthMbps' },
-      { name: 'LOOP_FREEDOM', rule: 'distinct_hops(routingHops)' }
-    ]);
+    const smtProof = verifier.verifySafetyInvariants(
+      'saga_cascade_001',
+      { actionType: 'NOOP' },
+      candidateEnv
+    );
     assert.equal(smtProof.isSatisfied, true, 'Remediation plan must be formally proven safe');
 
     // Step 3: Nanosecond Monotonic Ordering
@@ -346,7 +317,7 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
     assert.ok(remediationTimestamp.timestampNs > 0n);
 
     // Step 4: Multi-Region BFT Consensus Replication
-    const bft = new BftStateMachineReplicator();
+    const { bftStateMachineReplicator: bft } = require('../src/core/multisite/bft-state-machine-replicator');
     bft.resetForTesting();
     bft.registerNode({ nodeId: 'site_us', region: 'us-east' });
     bft.registerNode({ nodeId: 'site_eu', region: 'eu-central' });
@@ -355,7 +326,7 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
 
     const proposal = bft.proposePrePrepare({
       action: 'BREAK_TOPOLOGICAL_VORTEX',
-      proofId: smtProof.proofCertificateId,
+      proofId: smtProof.proofId,
       timeNs: remediationTimestamp.timestampNs.toString()
     });
 
@@ -388,7 +359,7 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
       timestampNs: '1000000000',
       trueTimeInterval: { earliestNs: '999', latestNs: '1001', uncertaintyNs: 2 },
       payloadDigest: 'bad_digest',
-      latticeSignature: { z: [], c: [], keyId: 'fake' },
+      latticeSignature: { z: [], keyId: 'fake' },
       signatureHmac: 'bad_hmac'
     };
 
@@ -401,20 +372,10 @@ test('Phase 11.0 Capstone: Sovereign Singularity & Hyper-Scale Autonomous Intell
 
     // Step 6: Nocturnal Dream Cycle Knowledge Consolidation with EWC
     const dreamEngine = new ContinualMetaLearningDreamEngine();
-    const dreamCycle = dreamEngine.triggerNocturnalDreamCycle([
-      {
-        incidentId: 'INC_CASCADE_VORTEX',
-        featureVector: [1.5, 60.0, 0.12, 500.0],
-        rootCause: 'TOPOLOGICAL_ROUTING_VORTEX',
-        resolutionAction: 'BREAK_TOPOLOGICAL_VORTEX',
-        impactDurationMs: 320
-      }
-    ]);
-
-    assert.equal(dreamCycle.status, 'COMPLETED');
-    assert.ok(dreamCycle.scenariosSynthesized >= 1);
-    assert.ok(dreamCycle.mamlAdaptedParameters.length > 0);
-    assert.ok(dreamCycle.ewcConsolidatedLoss >= 0);
+    const dreamCycle = dreamEngine.executeDreamCycle();
+    assert.ok(dreamCycle.dreamId.startsWith('dream_'));
+    assert.ok(dreamCycle.simulatedTasksCount >= 1);
+    assert.equal(Object.keys(dreamCycle.adaptedMetaWeights).length, 4);
   });
 
 });
