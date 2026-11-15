@@ -2478,6 +2478,21 @@ async function runAgenticToolLoop({
     if (replay && replay.topExperiences && replay.topExperiences.length > 0) {
       epistemicClassification.experienceReplay = replay;
     }
+
+    // Phase 9.0 Track 3: Hierarchical Dual-Tier Memory Retrieval
+    try {
+      const { hierarchicalMemoryConsolidator } = require('../memory/hierarchical-memory-consolidator');
+      const isHistoricalRecallQuery = /\b(recall|history|previous|prior|past incident|learned|cluster)\b/i.test(promptText) || Boolean(sessionContext?.enableHierarchicalRecall);
+      if (isHistoricalRecallQuery) {
+        const hierRecall = hierarchicalMemoryConsolidator.queryHierarchicalMemory(promptText, {
+          topK: 3,
+          minSimilarity: 0.25
+        });
+        if (hierRecall && hierRecall.totalMatches > 0) {
+          epistemicClassification.hierarchicalMemoryRecall = hierRecall;
+        }
+      }
+    } catch (_) {}
   } catch (_) {}
 
   // Phase 4.0 Track 3: Multi-Tier Topological Target & Temporal Scope Disambiguation

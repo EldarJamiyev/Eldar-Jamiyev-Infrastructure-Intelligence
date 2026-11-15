@@ -750,6 +750,28 @@ class OperationalMemoryEngine extends EventEmitter {
     // Emit event on internal memory bus (Track 5)
     this.emit('INCIDENT_RESOLUTION_COMMITTED', record);
 
+    // Phase 9.0 Track 3: Feed into Hierarchical Dual-Tier Memory Consolidator
+    try {
+      const { hierarchicalMemoryConsolidator } = require('./hierarchical-memory-consolidator');
+      const domain = this._inferRootCauseDomain(record.rootCause, record.symptomSignature);
+      hierarchicalMemoryConsolidator.addWorkingMemoryEpisode({
+        episodeId: record.resolutionId,
+        targetDomain: domain,
+        targetEndpoint: record.targetKey,
+        timestampIso: record.createdAt,
+        symptomSignature: record.symptomSignature,
+        rootCause: record.rootCause,
+        remediationAction: record.resolutionSteps,
+        executionOutcome: record.verificationStatus === 'VERIFIED' ? 'SUCCESS' : 'FAILED',
+        durationMs: 250,
+        metricsSnapshot: {
+          rttMs: 25.0,
+          packetLossPct: 0.1,
+          hitCount: record.hitCount || 1
+        }
+      });
+    } catch (_) {}
+
     return record;
   }
 
