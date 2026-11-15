@@ -18,6 +18,8 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.waveletHurstLrdEngine = exports.WaveletHurstLrdEngine = exports.estimateTimeToFailureHorizon = exports.analyzeWaveletAndHurstLrd = exports.computeHurstExponent = exports.computeMorletWaveletTransform = void 0;
 
+const { stochasticDifferentialEngine } = require('./stochastic-differential-engine');
+
 const PI_POW_MINUS_QUARTER = 0.7511255444649425; // pi^(-1/4)
 const OMEGA_0 = 6.0;
 
@@ -413,6 +415,25 @@ function estimateTimeToFailureHorizon(usageSeries, options = {}) {
     return `${(sec / 3600).toFixed(1)}h`;
   };
 
+  let sdeFirstPassageTime = undefined;
+  if (options.enableSde !== false && clean.length >= 3) {
+    const sdeParams = stochasticDifferentialEngine.estimateParameters(clean, sampleIntervalSeconds);
+    const horizonSteps = Math.min(
+      500,
+      Math.max(50, Math.ceil(timeToFailureSeconds / sampleIntervalSeconds) || 100)
+    );
+    sdeFirstPassageTime = stochasticDifferentialEngine.calculateFirstPassageTime(
+      sdeParams,
+      capacityMax,
+      {
+        dt: sampleIntervalSeconds,
+        steps: horizonSteps,
+        numPaths: 50,
+        seed: 42
+      }
+    );
+  }
+
   return {
     capacityMax,
     usageCurrent: Number(usageCurrent.toFixed(2)),
@@ -424,7 +445,8 @@ function estimateTimeToFailureHorizon(usageSeries, options = {}) {
     timeToFailureSeconds,
     timeToFailureFormatted: formatTtf(timeToFailureSeconds),
     riskHorizonTier,
-    actionableAdvisory
+    actionableAdvisory,
+    sdeFirstPassageTime
   };
 }
 exports.estimateTimeToFailureHorizon = estimateTimeToFailureHorizon;

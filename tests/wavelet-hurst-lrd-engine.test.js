@@ -21,6 +21,13 @@ const {
   evaluateWaveletLrdHorizon
 } = require('../src/ai/predictive-horizon-engine');
 
+const {
+  estimateSdeParameters,
+  simulateEulerMaruyamaPath,
+  calculateFirstPassageTime,
+  stochasticDifferentialEngine
+} = require('../src/ai/stochastic-differential-engine');
+
 describe('Track 1: Multi-Scale Wavelet Changepoint Engine & Hurst Exponent LRD Forecaster', () => {
   it('Subtest 1: Computes Morlet Wavelet energy spectrum and isolates high-frequency microbursts', () => {
     // 1a. Baseline smooth macroscopic series (no microbursts)
@@ -143,5 +150,84 @@ describe('Track 1: Multi-Scale Wavelet Changepoint Engine & Hurst Exponent LRD F
     assert.strictEqual(ttfSat.headroomRemaining, 0);
     assert.strictEqual(ttfSat.timeToFailureSeconds, 0);
     assert.strictEqual(ttfSat.riskHorizonTier, 'CRITICAL_IMMINENT');
+    assert.ok(ttfSat.sdeFirstPassageTime);
+  });
+
+  it('Subtest 7: Euler-Maruyama SDE solver generates continuous trajectories with stochastic drift', () => {
+    // 7a. Parameter estimation from escalating series
+    const series = [20, 24, 29, 36, 44, 53, 64, 76];
+    const params = estimateSdeParameters(series, 1.0);
+    assert.ok(params.theta > 0, 'Theta must be positive');
+    assert.ok(params.mu >= 20, 'Long-term mean must be calibrated');
+    assert.ok(params.sigma > 0, 'Volatility must be positive');
+    assert.strictEqual(params.s0, 76, 'Starting state must match latest series point');
+
+    // 7b. Single path simulation
+    const trajectory = simulateEulerMaruyamaPath(
+      params,
+      { dt: 0.1, steps: 100, seed: 12345 }
+    );
+    assert.strictEqual(trajectory.timePoints.length, 101);
+    assert.strictEqual(trajectory.states.length, 101);
+    assert.strictEqual(trajectory.timePoints[0], 0);
+    assert.strictEqual(trajectory.states[0], 76);
+    // Trajectory must have non-negative states
+    for (const val of trajectory.states) {
+      assert.ok(val >= 0, 'SDE states must remain non-negative');
+    }
+
+    // 7c. Class instance parity
+    const engineTrajectory = stochasticDifferentialEngine.simulatePath(
+      params,
+      { dt: 0.2, steps: 50, seed: 12345 }
+    );
+    assert.strictEqual(engineTrajectory.states.length, 51);
+  });
+
+  it('Subtest 8: First-Passage Time (FPT) calculates monotonic survival curve and VaR horizons', () => {
+    // 8a. High drift trajectory approaching barrier B = 100
+    const highDriftParams = { theta: 0.05, mu: 120.0, sigma: 0.4, s0: 85.0 };
+    const fptHigh = calculateFirstPassageTime(highDriftParams, 100.0, {
+      dt: 0.5,
+      steps: 100,
+      numPaths: 100,
+      seed: 999
+    });
+
+    assert.strictEqual(fptHigh.thresholdB, 100.0);
+    assert.strictEqual(fptHigh.initialState, 85.0);
+    assert.ok(fptHigh.breachFraction > 0.50, `Expected high breach fraction (> 50%), got ${fptHigh.breachFraction}`);
+    assert.ok(fptHigh.survivalCurve.length >= 10);
+
+    // Monotonicity check on survival curve S(t_1) >= S(t_2)
+    for (let i = 1; i < fptHigh.survivalCurve.length; i++) {
+      assert.ok(
+        fptHigh.survivalCurve[i].survivalProb <= fptHigh.survivalCurve[i - 1].survivalProb + 1e-6,
+        `Survival probability must be monotonically non-increasing: index ${i}`
+      );
+    }
+    assert.ok(fptHigh.var95TimeToFailureSeconds !== null);
+    assert.ok(fptHigh.var95TimeToFailureSeconds <= 50.0);
+    assert.strictEqual(fptHigh.riskTier, 'CRITICAL_IMMINENT');
+
+    // 8b. Stable mean-reverting trajectory well below barrier B = 200
+    const stableParams = { theta: 0.5, mu: 25.0, sigma: 0.1, s0: 25.0 };
+    const fptStable = stochasticDifferentialEngine.calculateFirstPassageTime(stableParams, 200.0, {
+      dt: 0.5,
+      steps: 50,
+      numPaths: 50,
+      seed: 42
+    });
+    assert.strictEqual(fptStable.breachFraction, 0);
+    assert.strictEqual(fptStable.survivalProbabilityAtHorizon, 1.0);
+    assert.strictEqual(fptStable.riskTier, 'NOMINAL_STABLE');
+    assert.strictEqual(fptStable.var95TimeToFailureSeconds, null);
+
+    // 8c. Already breached starting condition (s0 >= B)
+    const fptBreached = calculateFirstPassageTime({ theta: 0.1, mu: 50, sigma: 0.2, s0: 105 }, 100);
+    assert.strictEqual(fptBreached.breachFraction, 1.0);
+    assert.strictEqual(fptBreached.expectedHittingTimeSeconds, 0);
+    assert.strictEqual(fptBreached.var95TimeToFailureSeconds, 0);
+    assert.strictEqual(fptBreached.riskTier, 'CRITICAL_IMMINENT');
   });
 });
