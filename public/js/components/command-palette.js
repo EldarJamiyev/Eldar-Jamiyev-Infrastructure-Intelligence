@@ -52,6 +52,20 @@
       }
     }},
 
+    // Slash Commands & Advanced Cognitive Capabilities
+    { id: 'cmd-slash-pomdp', category: 'Slash Commands', title: '/pomdp — Execute POMDP Active Information-Gain Probe', icon: '🎯', action: () => {
+      window.renderView('chat');
+      setTimeout(() => { if (typeof window.sendEjiiChatMessage === 'function') window.sendEjiiChatMessage('/pomdp 127.0.0.1:3000'); }, 120);
+    }},
+    { id: 'cmd-slash-debate', category: 'Slash Commands', title: '/debate — Socratic Dialectic Cross-Examination Debate', icon: '⚖️', action: () => {
+      window.renderView('chat');
+      setTimeout(() => { if (typeof window.sendEjiiChatMessage === 'function') window.sendEjiiChatMessage('/debate active incident'); }, 120);
+    }},
+    { id: 'cmd-slash-cacheline', category: 'Slash Commands', title: '/cacheline — Inspect Sniffer Ring Buffer & Cacheline Performance', icon: '⚡', action: () => {
+      window.renderView('chat');
+      setTimeout(() => { if (typeof window.sendEjiiChatMessage === 'function') window.sendEjiiChatMessage('/cacheline'); }, 120);
+    }},
+
     // Real Operational Actions
     { id: 'act-gitops-reconcile', category: 'Action', title: 'GitOps IaC Drift Detection & Autonomous Reconciliation', icon: '🔄', action: () => {
       if (typeof window.runGitopsDriftReconcileFromUi === 'function') window.runGitopsDriftReconcileFromUi();

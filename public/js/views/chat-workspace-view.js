@@ -22,18 +22,11 @@
   );
 
   const STARTER_PROMPTS = [
-    'Check whether port 443 is reachable.',
-    'Why is the website not responding?',
-    'Check DNS resolution for this hostname.',
-    'Compare the previous network result.',
-    'Explain the timeout in simple terms.',
-    'Check whether port 3000 is open on localhost',
-    'Start socratic dialectic debate on incident',
-    'Run POMDP active probe on localhost',
-    'Inspect sniffer cacheline perf and ring buffer'
+    { label: 'TCP Socket Probe', desc: 'Test connection to host:port', prompt: 'Check whether port 443 is reachable on example.com', tag: 'TCP' },
+    { label: 'DNS Resolution', desc: 'Resolve domain records and propagation', prompt: 'Check DNS resolution for example.com', tag: 'DNS' },
+    { label: 'HTTP Health', desc: 'Inspect response headers and SSL certificate', prompt: 'Inspect HTTPS health and response headers for https://example.com', tag: 'HTTP' },
+    { label: 'Local Subnet', desc: 'Scan active devices on local LAN', prompt: 'Scan active devices on local subnet', tag: 'Subnet' }
   ];
-
-  const STARTER_PROMPT_TAGS = ['TCP', 'HTTP', 'DNS', 'Compare', 'Explain', 'Local', 'Debate', 'POMDP', 'Cacheline'];
 
   const chatState = {
     sessionId: null,
@@ -652,7 +645,15 @@
       </div>
     ` : '';
 
-    const followUps = Array.isArray(meta.suggestedFollowUps) ? meta.suggestedFollowUps : [];
+    const rawFollowUps = Array.isArray(meta.suggestedFollowUps) ? meta.suggestedFollowUps : [];
+    const hasPriorProbeOutput = chatState.messages.some(m => m.role === 'assistant' && m.meta?.technicalEvidence);
+    const followUps = rawFollowUps.filter(f => {
+      const lowerText = (String(f.label || '') + ' ' + String(f.prompt || '')).toLowerCase();
+      if (!hasPriorProbeOutput && (lowerText.includes('compare') || lowerText.includes('explain the timeout'))) {
+        return false;
+      }
+      return true;
+    });
     const followUpsHtml = followUps.length > 0 ? `
       <div class="ejii-followup-strip" aria-label="Recommended next investigative steps">
         <span class="ejii-followup-label">Next steps:</span>
@@ -1027,6 +1028,31 @@
 
     if (!rawText) return;
 
+    let promptToSend = rawText;
+    if (promptToSend.startsWith('/')) {
+      const parts = promptToSend.slice(1).trim().split(/\s+/);
+      const cmd = (parts[0] || '').toLowerCase();
+      const arg = parts.slice(1).join(' ');
+
+      if (cmd === 'pomdp') {
+        promptToSend = `Run POMDP active probe on ${arg || 'localhost:3000'}`;
+      } else if (cmd === 'debate') {
+        promptToSend = `Start socratic dialectic debate on ${arg || 'active infrastructure incident'}`;
+      } else if (cmd === 'cacheline') {
+        promptToSend = 'Inspect sniffer cacheline perf and ring buffer';
+      } else if (cmd === 'tcp') {
+        promptToSend = `Check whether port is reachable on ${arg || 'localhost:3000'}`;
+      } else if (cmd === 'dns') {
+        promptToSend = `Check DNS resolution for ${arg || 'example.com'}`;
+      } else if (cmd === 'http' || cmd === 'https') {
+        promptToSend = `Inspect HTTPS health and response headers for ${arg || 'https://example.com'}`;
+      } else if (cmd === 'scan') {
+        promptToSend = `Scan active devices on ${arg || 'local subnet'}`;
+      } else if (cmd === 'help') {
+        promptToSend = 'List all available diagnostic capabilities, slash commands (/pomdp, /debate, /cacheline, /tcp, /dns, /http, /scan), and automated runbooks';
+      }
+    }
+
     if (inputEl && typeof overridePrompt !== 'string') {
       inputEl.value = '';
       inputEl.style.height = 'auto';
@@ -1045,7 +1071,7 @@
     chatState.inFlight = true;
     chatState.activeRequestId = requestId;
     chatState.abortController = new AbortController();
-    startProgressStepTicker(rawText);
+    startProgressStepTicker(promptToSend);
     updateThreadDom();
 
     try {
@@ -1061,7 +1087,7 @@
         body: JSON.stringify({
           sessionId,
           requestId,
-          message: rawText
+          message: promptToSend
         })
       });
 
@@ -1577,41 +1603,6 @@
             <button type="button" class="ejii-header-btn" id="btnChatNewConversation" onclick="window.resetEjiiChatSession()" title="Start a new diagnostic conversation">
               New chat
             </button>
-
-            <details class="ejii-tools-dropdown" id="ejiiAdvancedToolsDropdown">
-              <summary class="ejii-header-btn" title="Open specialist network and host views">
-                Workstations ▾
-              </summary>
-              <div class="ejii-tools-menu" role="menu">
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('overview')">
-                  <span>Workspace Overview</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ai-operator')">
-                  <span>AI Operator Console</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('topology')">
-                  <span>Network Overview</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('noc-dashboard')">
-                  <span>NOC Dual-Pane Center</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('packet-sniffer')">
-                  <span>Packet Analysis</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('ultra-ip-scanner')">
-                  <span>IP &amp; Asset Discovery</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('core-diagnostics')">
-                  <span>Diagnostics &amp; Recovery</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('pc-automation')">
-                  <span>Host Automation</span><span>→</span>
-                </button>
-                <button type="button" class="ejii-tools-menu-item" onclick="window.switchToAdvancedToolView('learning-center')">
-                  <span>Learning Center</span><span>→</span>
-                </button>
-              </div>
-            </details>
           </div>
         </header>
 
@@ -1652,23 +1643,21 @@
               <p class="ejii-empty-subtitle">
                 Ask in plain language to check DNS, ping a host, test TCP ports, verify HTTPS, or investigate why a service is unreachable.
               </p>
-              <div class="ejii-nl-guidance-banner" role="note" aria-label="Natural language input guidance">
-                <span class="ejii-nl-guidance-badge">Natural Language Ready</span>
-                <span>No strict command syntax required — everyday questions, shorthand (<code>check dns example.com</code>), raw error logs, and follow-ups (<code>that server</code>, <code>check port 443 on same host</code>) work naturally.</span>
-              </div>
               <div class="ejii-starter-prompts" id="ejiiStarterPrompts">
-                ${STARTER_PROMPTS.map((prompt, i) => `
+                ${STARTER_PROMPTS.map((item, i) => `
                   <button
                     type="button"
                     class="ejii-starter-prompt-btn"
                     id="ejiiStarterPrompt${i + 1}"
-                    onclick="window.sendEjiiChatMessage(${esc(JSON.stringify(prompt))})"
+                    onclick="window.sendEjiiChatMessage(${esc(JSON.stringify(item.prompt))})"
+                    style="display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 12px 14px; gap: 4px;"
                   >
-                    <span class="ejii-starter-prompt-left">
-                      <span class="ejii-starter-protocol-tag">${esc(STARTER_PROMPT_TAGS[i] || 'Probe')}</span>
-                      <span>${esc(prompt)}</span>
-                    </span>
-                    <span class="ejii-starter-arrow" aria-hidden="true">→</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                      <span class="ejii-starter-protocol-tag">${esc(item.tag)}</span>
+                      <span class="ejii-starter-arrow" aria-hidden="true" style="margin-left: auto;">→</span>
+                    </div>
+                    <div style="font-weight: 700; color: var(--text-primary); font-size: 13px; margin-top: 2px;">${esc(item.label)}</div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.35;">${esc(item.desc)}</div>
                   </button>
                 `).join('')}
               </div>
@@ -1691,7 +1680,7 @@
               id="ejiiChatInput"
               class="ejii-composer-textarea"
               rows="1"
-              placeholder="Ask in plain English — e.g. 'Check whether port 3000 is open on localhost', 'dns example.com', or paste an error log..."
+              placeholder="Ask about a host, port, DNS record, or paste an incident log..."
               aria-label="Ask EJII to diagnose a host, check DNS, test a port, or investigate a network problem"
             ></textarea>
             <div class="ejii-composer-actions">
