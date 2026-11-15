@@ -172,6 +172,7 @@ const COMPANION_TEST_MODULES = [
   './sovereign-intelligence-leap-phase7.test',
   './sovereign-intelligence-leap-phase8.test',
   './sovereign-intelligence-leap-phase9.test',
+  './sovereign-intelligence-leap-phase10.test',
   './structural-causal-counterfactual.test',
   './topological-conversational-disambiguation.test',
   './wavelet-hurst-lrd-engine.test',
