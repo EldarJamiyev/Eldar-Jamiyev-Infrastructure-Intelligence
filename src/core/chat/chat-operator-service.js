@@ -56,6 +56,7 @@ const { timelineReconstructor } = require('../../observability/timeline-reconstr
 const { superpowersSkillsEngine } = require('../skills/superpowers-skills-engine');
 const { claudeMemEngine } = require('../memory/claude-mem-engine');
 const { readOnlySkillCatalog } = require('../skills/read-only-skill-router');
+const { totWorkingMemory } = require('../../ai/tot-working-memory');
 const { projectAtlasEngine } = require('../../network/atlas/project-atlas-engine');
 const { rlofPreferenceAligner } = require('../../ai/rlof-preference-aligner');
 
@@ -2372,6 +2373,10 @@ class ChatOperatorService {
         label: `Selected workflow: ${plan.intent}${plan.target ? ` (${plan.target})` : ''}`,
         timestamp: new Date().toISOString()
       });
+
+      try {
+        totWorkingMemory.addThoughtNode(session.sessionId, null, 'HYPOTHESIS', `Operator intent: ${plan.intent}${plan.target ? ` on ${plan.target}` : ''}`, 0.75);
+      } catch (_) {}
 
       const userMsgRecord = {
         id: `MSG-U-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
@@ -8569,6 +8574,10 @@ class ChatOperatorService {
       }
     };
   }
+
+  getTotWorkingMemory() {
+    return totWorkingMemory;
+  }
 }
 
 const chatOperatorService = new ChatOperatorService();
@@ -8576,6 +8585,7 @@ const chatOperatorService = new ChatOperatorService();
 module.exports = {
   ChatOperatorService,
   chatOperatorService,
+  totWorkingMemory,
   detectDomainTypo,
   classifyDomainTypo,
   extractObservedTimingMs
