@@ -124,20 +124,55 @@
 
     if (tabName === 'uncertainty') {
       const u = d.uncertaintyPanel || {};
-      const liveList = (u.knownFromLiveEvidence || []).map((e) =>
+      const rawLive = u.knownFromLiveEvidence || [];
+      const hostWarnings = [];
+      if (window.__ejiiHostDiagnosticsData?.adapters) {
+        window.__ejiiHostDiagnosticsData.adapters.filter(a => a.status === 'DISABLED' || a.errorCode).forEach(a => {
+          hostWarnings.push({
+            evidenceId: `HOST-${a.name || 'ADAPTER'}`,
+            claim: `Adapter ${a.name || 'Virtual Interface'} is disabled / offline (Status: ${a.status || 'DISABLED'}, Notice: ErrorCode ${a.errorCode || 22})`,
+            qualityScore: 1.0,
+            isNotice: true
+          });
+        });
+      }
+      const combinedLive = [...rawLive, ...hostWarnings];
+      const liveList = combinedLive.map((e) =>
         `<li style="margin-bottom:6px;line-height:1.45;">
           <a href="#lineage" onclick="event.preventDefault();window.renderV6FabricTab('evidence');setTimeout(()=>window.inspectV6EvidenceLineage('${esc(e.evidenceId)}'),60);" style="font-family:var(--font-mono);font-weight:700;text-decoration:underline;">[${esc(e.evidenceId)}]</a>
-          ${esc(e.claim)} <span style="color:var(--status-nominal);font-family:var(--font-mono);font-weight:600;">· Q=${esc(e.qualityScore)} · LIVE</span>
+          ${esc(e.claim)} <span style="color:${e.isNotice ? 'var(--status-warning)' : 'var(--status-nominal)'};font-family:var(--font-mono);font-weight:600;">· Q=${esc(e.qualityScore)} · ${e.isNotice ? 'NOTICE' : 'LIVE'}</span>
         </li>`
       ).join('') || '<li>No live observations recorded in current window — execute the 10-step cross-layer diagnosis below.</li>';
 
-      const simList = (u.simulatedProjections || []).map((e) =>
-        `<li style="margin-bottom:6px;line-height:1.45;"><strong style="font-family:var(--font-mono);">[${esc(e.evidenceId)}]</strong> ${esc(e.claim)} <span style="color:var(--status-warning);font-weight:700;">· [SIMULATED PROJECTION — ISOLATED]</span></li>`
-      ).join('') || '<li>Zero simulated projections mixed into live state (Strict Epistemic Isolation active).</li>';
+      // Deduplicate simulated projections: group identical baseline runs and fold hex IDs into popover
+      const rawSim = u.simulatedProjections || [];
+      const simGroups = {};
+      rawSim.forEach((e) => {
+        const claim = e.claim || 'Baseline Topology Twin: 0 partitioned nodes, 0 congested links';
+        if (!simGroups[claim]) {
+          simGroups[claim] = { claim, count: 0, latestEvidenceId: e.evidenceId, lastRun: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+        }
+        simGroups[claim].count++;
+        simGroups[claim].latestEvidenceId = e.evidenceId;
+      });
 
+      const simList = Object.values(simGroups).map((g) => {
+        const repeatNotice = g.count > 1 ? ` · ×${g.count} runs · Last run ${g.lastRun}` : '';
+        return `
+          <li style="margin-bottom:6px;line-height:1.45;">
+            ${esc(g.claim)} <span style="color:var(--status-warning);font-weight:700;">(Simulated${repeatNotice})</span>
+            <details style="display:inline;margin-left:4px;">
+              <summary style="cursor:pointer;font-size:10px;color:var(--text-muted);display:inline;">[ID Details]</summary>
+              <code style="font-size:10px;font-family:var(--font-mono);background:var(--bg-surface-subtle);padding:1px 4px;border-radius:3px;">${esc(g.latestEvidenceId)}</code>
+            </details>
+          </li>
+        `;
+      }).join('') || '<li>Zero simulated projections mixed into live state (Strict Epistemic Isolation active).</li>';
+
+      const liveEvidenceCount = combinedLive.length;
       const unknowns = (u.unknownsAndMissingTelemetry || []).map((m) =>
         `<li style="margin-bottom:5px;line-height:1.45;">${esc(m)}</li>`
-      ).join('') || '<li>All primary protocol layers verified in current window.</li>';
+      ).join('') || (liveEvidenceCount > 0 ? '<li>All primary protocol layers verified in current window.</li>' : '<li>Awaiting initial L1–L7 probe execution (DNS, Route, ICMP, TCP, TLS, HTTP).</li>');
 
       const probe = u.highestInformationGainProbe || {};
 

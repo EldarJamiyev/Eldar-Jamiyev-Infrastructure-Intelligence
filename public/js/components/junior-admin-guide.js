@@ -82,15 +82,15 @@
     }
 
     modal.innerHTML = `
-      <div class="modal-dialog" style="max-width: 960px; max-height: 85vh; width: 90%; background: #FFFFFF; border-radius: 16px; padding: 28px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); border: 1px solid var(--border-default); display: flex; flex-direction: column; overflow: hidden;" onclick="event.stopPropagation()">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default); padding-bottom: 16px; margin-bottom: 16px;">
+      <div class="modal-dialog" style="max-width: 960px; max-height: 85vh; width: 90%; background: var(--bg-surface, #0f172a); color: var(--text-primary, #f8fafc); border-radius: 16px; padding: 28px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3); border: 1px solid var(--border-default, #334155); display: flex; flex-direction: column; overflow: hidden;" onclick="event.stopPropagation()">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-default, #334155); padding-bottom: 16px; margin-bottom: 16px;">
           <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: #EEF2FF; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56,189,248,0.12); color: var(--accent-primary, #38BDF8); display: flex; align-items: center; justify-content: center; font-size: 18px;">
               📘
             </div>
             <div>
-              <div style="font-size: 16px; font-weight: 800; color: var(--text-primary);">EJII Junior-Admin &amp; Rookie Operator Field Manual</div>
-              <div style="font-size: 11px; color: var(--text-secondary);">Plain-Language Technical Guidance, Port Maps, Subnet Math &amp; Incident Triage (Press Esc to close)</div>
+              <div style="font-size: 16px; font-weight: 800; color: var(--text-primary, #f8fafc);">EJII Junior-Admin &amp; Rookie Operator Field Manual</div>
+              <div style="font-size: 11px; color: var(--text-secondary, #94a3b8);">Plain-Language Technical Guidance, Port Maps, Subnet Math &amp; Incident Triage (Press Esc to close)</div>
             </div>
           </div>
           <button onclick="window.toggleJuniorAdminCheatSheet()" class="btn btn-secondary" style="font-size: 14px; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px;">✕</button>
@@ -98,15 +98,15 @@
 
         <div class="modal-body" style="overflow-y: auto; padding: 4px; font-size: 12px; line-height: 1.6;">
           <!-- Live Situational Memory & 7-Engine Plain-Language Translator for L1/L2 Operators -->
-          <div id="juniorAdminLiveContextBanner" style="margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; background: #F8FAFC; border: 1px solid #CBD5E1; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div id="juniorAdminLiveContextBanner" style="margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; background: var(--bg-surface-subtle, #1e293b); border: 1px solid var(--border-default, #334155); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
             <div>
-              <div style="font-size: 10.5px; font-weight: 800; color: #1D4ED8; letter-spacing: 0.04em; font-family: var(--font-mono);">
+              <div style="font-size: 10.5px; font-weight: 800; color: var(--accent-primary, #38bdf8); letter-spacing: 0.04em; font-family: var(--font-mono);">
                 LIVE 7-ENGINE AI TRANSLATOR FOR ROOKIE ADMINS · ACTIVE TARGET: <span id="jaActiveTargetIp">${(window.EJIISituationalMemory && window.EJIISituationalMemory.activeTargetIp) || '192.168.31.1'}</span>
               </div>
-              <div style="font-size: 11.5px; color: #0F172A; margin-top: 2px;">
+              <div style="font-size: 11.5px; color: var(--text-primary, #f8fafc); margin-top: 2px;">
                 <strong>What the AI sees right now:</strong> <span id="jaActiveHypothesis">${(window.EJIISituationalMemory && window.EJIISituationalMemory.activeHypothesis) || '7-Engine Cognitive Core Nominal — No active CUSUM drift or Holt-Winters exhaustion'}</span>
               </div>
-              <div style="font-size: 11px; color: #475569; margin-top: 2px;">
+              <div style="font-size: 11px; color: var(--text-secondary, #94a3b8); margin-top: 2px;">
                 <strong>Plain-English Meaning:</strong> CUSUM checks if latency jumped suddenly; Spectral FFT checks if traffic is robotic/periodic; Holt-Winters predicts how many minutes remain before an outage.
               </div>
             </div>
@@ -121,7 +121,7 @@
           </div>
 
           <!-- Section Tabs -->
-          <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
             <button class="btn btn-primary" id="tabBtnPorts" onclick="window.switchManualTab('ports')">🌐 Common Ports & Protocols</button>
             <button class="btn btn-secondary" id="tabBtnSubnets" onclick="window.switchManualTab('subnets')">🔢 Subnetting & CIDR Math</button>
             <button class="btn btn-secondary" id="tabBtnConcepts" onclick="window.switchManualTab('concepts')">💡 "Why Does This Matter?" Concepts</button>
@@ -141,7 +141,7 @@
                     <th style="width: 70px;">Protocol</th>
                     <th style="width: 110px;">Service</th>
                     <th>Plain-Language Purpose & How It Works</th>
-                    <th style="width: 140px;">Security Profile</th>
+                    <th style="min-width: 160px; width: 180px;">Security Profile</th>
                   </tr>
                 </thead>
                 <tbody id="manualPortsTableBody">
@@ -151,7 +151,7 @@
                       <td><span style="font-family: var(--font-mono);">${p.proto}</span></td>
                       <td style="font-weight: 600;">${p.name}</td>
                       <td>${p.desc}</td>
-                      <td><span style="font-size: 10px; color: ${p.sec.includes('Insecure') || p.sec.includes('HIGH RISK') ? 'var(--danger)' : 'var(--success)'}; font-weight: 600;">${p.sec}</span></td>
+                      <td style="white-space: normal; word-break: break-word;"><span style="font-size: 10px; color: ${p.sec.includes('Insecure') || p.sec.includes('HIGH RISK') ? 'var(--status-critical, #DC2626)' : 'var(--status-nominal, #059669)'}; font-weight: 600; line-height: 1.35;">${p.sec}</span></td>
                     </tr>
                   `).join('')}
                 </tbody>
