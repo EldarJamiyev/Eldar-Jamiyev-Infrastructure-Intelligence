@@ -55,9 +55,20 @@ class AfXdpUmemRingBuffer {
     };
   }
 
+  acquireFreeFrame() {
+    if (this.freeFrameStack.length === 0) return null;
+    return this.freeFrameStack.pop() ?? null;
+  }
+
   submitRxDescriptor(frameIndex, packetLength) {
     if (frameIndex < 0 || frameIndex >= this.totalFrames) return false;
     if (packetLength <= 0 || packetLength > this.frameSizeBytes) return false;
+
+    // Consume from free frames if present
+    const stackIdx = this.freeFrameStack.indexOf(frameIndex);
+    if (stackIdx !== -1) {
+      this.freeFrameStack.splice(stackIdx, 1);
+    }
 
     const desc = {
       frameIndex,
