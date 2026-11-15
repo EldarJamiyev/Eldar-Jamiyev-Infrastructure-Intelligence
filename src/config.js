@@ -10,6 +10,29 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// Load local .env if present (ignored by git for zero-leakage security)
+try {
+  const envPath = path.resolve(__dirname, '..', '.env');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+} catch (_) {}
+
 const PORT = parseInt(process.env.EJII_PORT || '8443', 10);
 // Secure default: Bind strictly to loopback 127.0.0.1 to avoid exposing NOC workstation on public networks
 const HOST = process.env.EJII_HOST || '127.0.0.1';
