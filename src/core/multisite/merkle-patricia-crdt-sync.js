@@ -152,16 +152,23 @@ class MerklePatriciaCrdtSync {
 
     // Query remote root node
     const remoteNode = await remoteFetcher('');
-    if (remoteNode && remoteNode.childrenHashes) {
-      for (let i = 0; i < 16; i++) {
-        const remoteChildHash = remoteNode.childrenHashes[i];
-        if (remoteChildHash) {
-          const remoteChild = await remoteFetcher(`child_${i}`);
-          if (remoteChild && remoteChild.type === 'LEAF' && remoteChild.value !== undefined) {
-            divergedBranches++;
-            const recoveredKey = `remote_key_${i}_${remoteChild.pathNibbles.slice(0, 8)}`;
-            this.insertOperation(recoveredKey, remoteChild.value, remoteChild.lamportClock || 1);
-            synced.push(recoveredKey);
+    if (remoteNode) {
+      if (remoteNode.type === 'LEAF' && remoteNode.value !== undefined) {
+        divergedBranches++;
+        const recoveredKey = `remote_key_${remoteNode.pathNibbles ? remoteNode.pathNibbles.slice(0, 8) : 'sync'}`;
+        this.insertOperation(recoveredKey, remoteNode.value, remoteNode.lamportClock || 1);
+        synced.push(recoveredKey);
+      } else if (remoteNode.childrenHashes) {
+        for (let i = 0; i < 16; i++) {
+          const remoteChildHash = remoteNode.childrenHashes[i];
+          if (remoteChildHash) {
+            const remoteChild = await remoteFetcher(`child_${i}`);
+            if (remoteChild && remoteChild.type === 'LEAF' && remoteChild.value !== undefined) {
+              divergedBranches++;
+              const recoveredKey = `remote_key_${i}_${remoteChild.pathNibbles ? remoteChild.pathNibbles.slice(0, 8) : 'sync'}`;
+              this.insertOperation(recoveredKey, remoteChild.value, remoteChild.lamportClock || 1);
+              synced.push(recoveredKey);
+            }
           }
         }
       }

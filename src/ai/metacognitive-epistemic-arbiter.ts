@@ -87,7 +87,22 @@ export class MetacognitiveEpistemicArbiter {
     }
 
     // Shafer-Shenoy junction-tree message passing across domain cliques
+    // Calculate cross-finding conflict K: pairwise contradiction across distinct hypotheses
     let conflictAccumulator = 0;
+    let pairsCount = 0;
+    for (let i = 0; i < findings.length; i++) {
+      for (let j = i + 1; j < findings.length; j++) {
+        pairsCount++;
+        if (findings[i].supportedHypothesis !== findings[j].supportedHypothesis) {
+          const confI = Math.max(0.01, Math.min(0.99, findings[i].confidence));
+          const confJ = Math.max(0.01, Math.min(0.99, findings[j].confidence));
+          conflictAccumulator += (confI * confJ);
+        }
+      }
+    }
+    const epistemicConflictK = pairsCount > 0
+      ? Math.min(1.0, Number((conflictAccumulator / pairsCount).toFixed(3)))
+      : 0;
 
     for (const finding of findings) {
       const targetHyp = finding.supportedHypothesis;
@@ -100,7 +115,6 @@ export class MetacognitiveEpistemicArbiter {
           fused[h] *= (1.0 + conf * weight);
         } else {
           fused[h] *= Math.max(0.01, 1.0 - (conf * 0.4 * weight));
-          conflictAccumulator += conf * (1.0 - conf) * 0.1;
         }
       }
     }
@@ -126,7 +140,6 @@ export class MetacognitiveEpistemicArbiter {
       }
     }
 
-    const epistemicConflictK = Math.min(1.0, Number(conflictAccumulator.toFixed(3)));
     const epistemicEntropyBits = this.computeEpistemicEntropy(fused);
 
     let engineConsensusStatus: EpistemicArbitrationReceipt['engineConsensusStatus'] = 'HIGH_CONFIDENCE';
