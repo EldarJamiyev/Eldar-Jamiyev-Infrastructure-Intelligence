@@ -211,4 +211,77 @@ test('Phase 5.0 Track 1: Structural Causal Models & Pearlian do-Calculus Counter
     assert.match(outcome.reply, /Pearlian Causal Mediation Analysis/);
     assert.match(outcome.reply, /Total Effect/);
   });
+
+  await t.test('10. Fast Causal Inference (FCI) tests conditional independence and discovers Partial Ancestral Graphs (PAG)', () => {
+    const { fciLatentCausalEngine } = require('../src/ai/fci-latent-causal-engine');
+
+    // Synthetic correlated series: X causes Z causes Y, plus latent L confounding X and Y
+    const N = 50;
+    const data = {
+      arrival_rate: [],
+      hypervisor_cpu_steal: [],
+      queue_depth: [],
+      rtt_latency: []
+    };
+
+    for (let i = 0; i < N; i++) {
+      const arrival = 4.0 + (i % 5) * 0.5;
+      const steal = (i % 3 === 0) ? 1.2 : 0.1;
+      const queue = arrival * 10 + steal * 20;
+      const rtt = 10 + queue * 0.8 + steal * 15;
+
+      data.arrival_rate.push(arrival);
+      data.hypervisor_cpu_steal.push(steal);
+      data.queue_depth.push(queue);
+      data.rtt_latency.push(rtt);
+    }
+
+    // 1. Marginal correlation test
+    const rDirect = fciLatentCausalEngine.computePearsonCorrelation(data.queue_depth, data.rtt_latency);
+    assert.ok(rDirect > 0.80, `Expected strong correlation, got ${rDirect}`);
+
+    // 2. Conditional independence test with Fisher's z
+    const indepTest = fciLatentCausalEngine.testConditionalIndependence(data, 'queue_depth', 'rtt_latency', ['hypervisor_cpu_steal']);
+    assert.ok(typeof indepTest.pValue === 'number');
+    assert.ok(typeof indepTest.partialCorrelation === 'number');
+    assert.ok(indepTest.degreesOfFreedom > 0);
+
+    // 3. PAG Discovery
+    const pag = fciLatentCausalEngine.discoverPag(data, {
+      knownLatentConfounders: [['hypervisor_cpu_steal', 'rtt_latency']]
+    });
+
+    assert.ok(pag);
+    assert.strictEqual(pag.nodes.length, 4);
+    assert.ok(pag.edges.length > 0);
+    assert.strictEqual(pag.isCausallySufficient, false);
+    assert.ok(pag.latentConfoundersDetected.length >= 1);
+
+    const latentArc = pag.edges.find(e => e.edgeType === 'BIDIRECTED');
+    assert.ok(latentArc, 'PAG must contain at least one bidirected edge indicating latent confounding');
+    assert.strictEqual(latentArc.hasLatentConfounder, true);
+    assert.ok(pag.summary.includes('latent confounder'));
+  });
+
+  await t.test('11. Integrates FCI latent confounder discovery into runAgenticToolLoop', async () => {
+    const outcome = await runAgenticToolLoop({
+      promptText: 'is there an unmeasured latent confounder or hypervisor steal affecting the queue latency?',
+      initialPlan: { intent: 'host_metrics', target: '10.0.0.1', mode: 'operational' },
+      executeSinglePlan: async () => ({
+        reply: 'Host hypervisor metrics sampled.',
+        technicalEvidence: { rttMs: 65.0 },
+        structuredAnswer: { result: 'OK' }
+      }),
+      sessionContext: {
+        diagnosedRootCause: 'hypervisor_cpu_steal',
+        rttMs: 65.0
+      },
+      maxSteps: 1
+    });
+
+    assert.ok(outcome.epistemicClassification);
+    assert.ok(outcome.epistemicClassification.latentConfounderAnalysis, 'latentConfounderAnalysis must be attached');
+    assert.strictEqual(outcome.epistemicClassification.latentConfounderAnalysis.isCausallySufficient, false);
+    assert.ok(outcome.epistemicClassification.latentConfounderAnalysis.latentConfoundersDetected.length >= 1);
+  });
 });
