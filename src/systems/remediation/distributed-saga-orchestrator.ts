@@ -53,8 +53,15 @@ export interface ParticipantNode {
   candidateAction: MicroRemediationAction;
   candidateInverse: CompensatingInverseAction;
   currentState: TelemetryStateVector;
+  covariance?: number[][];
   privateKeyPem?: string;
   publicKeyPem?: string;
+}
+
+export interface RobustLyapunovEnergyResult {
+  meanEnergy: number;
+  traceCovariancePenalty: number;
+  expectedEnergy: number;
 }
 
 export interface ParticipantVote {
@@ -134,6 +141,157 @@ export const CANONICAL_RIEMANNIAN_WEIGHTS: RiemannianLyapunovMatrix = Object.fre
 
 export const SAGA_PREPARE_TIMEOUT_MS = 1500;
 export const MIN_RIEMANNIAN_CONTRACTION = 0.05;
+
+export interface KalmanFilterOptions {
+  qRtt?: number;
+  qLoss?: number;
+  qQueue?: number;
+  rRtt?: number;
+  rLoss?: number;
+  rQueue?: number;
+  initialState?: TelemetryStateVector;
+}
+
+/**
+ * Phase 7.0 Track 3: Discrete Kalman-Lyapunov Filter
+ * Smooths observational noise across [rttMs, lossPct, queueDepthPackets]^T
+ * and maintains continuous 3x3 error covariance tracking.
+ */
+export class TelemetryKalmanFilter {
+  private state: [number, number, number];
+  private P: number[][];
+  private Q: number[][];
+  private R: number[][];
+
+  constructor(options: KalmanFilterOptions = {}) {
+    const s0 = options.initialState || { rttMs: 20, lossPct: 0.1, queueDepthPackets: 5 };
+    this.state = [
+      Math.max(0, Number(s0.rttMs) || 0),
+      Math.max(0, Number(s0.lossPct) || 0),
+      Math.max(0, Number(s0.queueDepthPackets) || 0)
+    ];
+    this.P = [
+      [1.0, 0.0, 0.0],
+      [0.0, 0.1, 0.0],
+      [0.0, 0.0, 1.0]
+    ];
+    this.Q = [
+      [options.qRtt ?? 0.5, 0.0, 0.0],
+      [0.0, options.qLoss ?? 0.05, 0.0],
+      [0.0, 0.0, options.qQueue ?? 0.5]
+    ];
+    this.R = [
+      [options.rRtt ?? 2.0, 0.0, 0.0],
+      [0.0, options.rLoss ?? 0.2, 0.0],
+      [0.0, 0.0, options.rQueue ?? 2.0]
+    ];
+  }
+
+  public predict(): { state: TelemetryStateVector; covariance: number[][] } {
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        this.P[i][j] += this.Q[i][j];
+      }
+    }
+    return { state: this.getState(), covariance: this.getCovariance() };
+  }
+
+  public update(measurement: TelemetryStateVector): { state: TelemetryStateVector; covariance: number[][] } {
+    this.predict();
+    const z = [
+      Math.max(0, Number(measurement.rttMs) || 0),
+      Math.max(0, Number(measurement.lossPct) || 0),
+      Math.max(0, Number(measurement.queueDepthPackets) || 0)
+    ];
+
+    const y = [z[0] - this.state[0], z[1] - this.state[1], z[2] - this.state[2]];
+
+    const S: number[][] = [
+      [this.P[0][0] + this.R[0][0], this.P[0][1], this.P[0][2]],
+      [this.P[1][0], this.P[1][1] + this.R[1][1], this.P[1][2]],
+      [this.P[2][0], this.P[2][1], this.P[2][2] + this.R[2][2]]
+    ];
+
+    const detS =
+      S[0][0] * (S[1][1] * S[2][2] - S[1][2] * S[2][1]) -
+      S[0][1] * (S[1][0] * S[2][2] - S[1][2] * S[2][0]) +
+      S[0][2] * (S[1][0] * S[2][1] - S[1][1] * S[2][0]);
+
+    const safeDetS = Math.abs(detS) < 1e-9 ? 1e-9 : detS;
+
+    const invS: number[][] = [
+      [
+        (S[1][1] * S[2][2] - S[1][2] * S[2][1]) / safeDetS,
+        (S[0][2] * S[2][1] - S[0][1] * S[2][2]) / safeDetS,
+        (S[0][1] * S[1][2] - S[0][2] * S[1][1]) / safeDetS
+      ],
+      [
+        (S[1][2] * S[2][0] - S[1][0] * S[2][2]) / safeDetS,
+        (S[0][0] * S[2][2] - S[0][2] * S[2][0]) / safeDetS,
+        (S[0][2] * S[1][0] - S[0][0] * S[1][2]) / safeDetS
+      ],
+      [
+        (S[1][0] * S[2][1] - S[1][1] * S[2][0]) / safeDetS,
+        (S[0][1] * S[2][0] - S[0][0] * S[2][1]) / safeDetS,
+        (S[0][0] * S[1][1] - S[0][1] * S[1][0]) / safeDetS
+      ]
+    ];
+
+    const K: number[][] = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0]
+    ];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        for (let k = 0; k < 3; k++) {
+          K[i][j] += this.P[i][k] * invS[k][j];
+        }
+      }
+    }
+
+    for (let i = 0; i < 3; i++) {
+      let ky = 0;
+      for (let j = 0; j < 3; j++) {
+        ky += K[i][j] * y[j];
+      }
+      this.state[i] = Math.max(0, this.state[i] + ky);
+    }
+
+    const I_minus_K: number[][] = [
+      [1 - K[0][0], -K[0][1], -K[0][2]],
+      [-K[1][0], 1 - K[1][1], -K[1][2]],
+      [-K[2][0], -K[2][1], 1 - K[2][2]]
+    ];
+    const newP: number[][] = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0]
+    ];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        for (let k = 0; k < 3; k++) {
+          newP[i][j] += I_minus_K[i][k] * this.P[k][j];
+        }
+      }
+    }
+    this.P = newP;
+
+    return { state: this.getState(), covariance: this.getCovariance() };
+  }
+
+  public getState(): TelemetryStateVector {
+    return {
+      rttMs: Math.round(this.state[0] * 100) / 100,
+      lossPct: Math.round(this.state[1] * 100) / 100,
+      queueDepthPackets: Math.round(this.state[2] * 100) / 100
+    };
+  }
+
+  public getCovariance(): number[][] {
+    return this.P.map(row => row.map(v => Math.round(v * 1000) / 1000));
+  }
+}
 
 export class DistributedSagaOrchestrator {
   private hmacSecret: Buffer;
@@ -223,6 +381,67 @@ export class DistributedSagaOrchestrator {
     }
 
     return Math.round(energy * 1000) / 1000;
+  }
+
+  /**
+   * Phase 7.0 Track 3: Covariance-Weighted Lyapunov Energy
+   * Evaluates expected energy under measurement uncertainty:
+   * E[V(s)] = s^T M(s) s + Tr(M(s) P)
+   */
+  public computeRobustLyapunovEnergy(
+    state: TelemetryStateVector,
+    covariance?: number[][],
+    weights: RiemannianLyapunovMatrix = CANONICAL_RIEMANNIAN_WEIGHTS
+  ): RobustLyapunovEnergyResult {
+    const s = [
+      Math.max(0, Number(state.rttMs) || 0),
+      Math.max(0, Number(state.lossPct) || 0),
+      Math.max(0, Number(state.queueDepthPackets) || 0)
+    ];
+
+    const sigma1 = 1 / (1 + Math.exp(-(s[2] - 50.0) / 10.0));
+    const sigma2 = 1 / (1 + Math.exp(-(s[1] - 5.0) / 1.5));
+    const sigma3 = 1 / (1 + Math.exp(-(s[0] - 80.0) / 20.0));
+
+    const M: number[][] = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0]
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        M[i][j] =
+          weights.W0[i][j] +
+          sigma1 * weights.W1[i][j] +
+          sigma2 * weights.W2[i][j] +
+          sigma3 * weights.W3[i][j];
+      }
+    }
+
+    let meanEnergy = 0;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        meanEnergy += s[i] * M[i][j] * s[j];
+      }
+    }
+
+    let tracePenalty = 0;
+    if (covariance && Array.isArray(covariance) && covariance.length === 3) {
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          tracePenalty += M[i][j] * (covariance[j]?.[i] || 0);
+        }
+      }
+    }
+
+    const expectedEnergy = meanEnergy + tracePenalty;
+
+    return {
+      meanEnergy: Math.round(meanEnergy * 1000) / 1000,
+      traceCovariancePenalty: Math.round(tracePenalty * 1000) / 1000,
+      expectedEnergy: Math.round(expectedEnergy * 1000) / 1000
+    };
   }
 
   /**
@@ -332,7 +551,9 @@ export class DistributedSagaOrchestrator {
 
     for (const participant of saga.participants) {
       const stateBefore = participant.currentState;
-      const energyBefore = this.computeRiemannianLyapunovEnergy(stateBefore);
+      const energyBefore = participant.covariance
+        ? this.computeRobustLyapunovEnergy(stateBefore, participant.covariance).expectedEnergy
+        : this.computeRiemannianLyapunovEnergy(stateBefore);
 
       // Compute projected next state
       const impact = participant.candidateAction.expectedImpact;
@@ -342,7 +563,9 @@ export class DistributedSagaOrchestrator {
         queueDepthPackets: Math.max(0, stateBefore.queueDepthPackets + impact.queueDeltaPackets)
       };
 
-      const energyAfter = this.computeRiemannianLyapunovEnergy(stateAfter);
+      const energyAfter = participant.covariance
+        ? this.computeRobustLyapunovEnergy(stateAfter, participant.covariance).expectedEnergy
+        : this.computeRiemannianLyapunovEnergy(stateAfter);
       const deltaV = Math.round((energyAfter - energyBefore) * 1000) / 1000;
 
       totalEnergyBefore += energyBefore;

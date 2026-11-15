@@ -7,7 +7,8 @@ const assert = require('node:assert/strict');
 const {
   DistributedSagaOrchestrator,
   CANONICAL_RIEMANNIAN_WEIGHTS,
-  MIN_RIEMANNIAN_CONTRACTION
+  MIN_RIEMANNIAN_CONTRACTION,
+  TelemetryKalmanFilter
 } = require('../src/systems/remediation/distributed-saga-orchestrator');
 const { zkEpistemicConsensusEngine, ZkEpistemicConsensusEngine } = require('../src/core/agent/zk-epistemic-consensus');
 const { formulateRemediationGate } = require('../src/core/chat/conversational-brain');
@@ -415,6 +416,49 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
     assert.equal(byzPrepared.phase, 'ABORTED_PRE');
     assert.equal(byzPrepared.votes['byzantine_node_01'].attestationStatus, 'ATTESTATION_FAILED');
     assert.equal(byzPrepared.votes['byzantine_node_01'].vote, 'VOTE_ABORT');
+  });
+
+  test('Phase 7.0 Track 3: TelemetryKalmanFilter smooths observational noise and computeRobustLyapunovEnergy evaluates covariance penalty', () => {
+    const filter = new TelemetryKalmanFilter({
+      qRtt: 0.2,
+      rRtt: 1.5,
+      initialState: { rttMs: 50.0, lossPct: 2.0, queueDepthPackets: 30 }
+    });
+
+    const trueRtt = 50.0;
+    // Simulate noisy measurements with 15% fluctuation around true value
+    const noisyMeasurements = [
+      { rttMs: 57.5, lossPct: 2.3, queueDepthPackets: 34 },
+      { rttMs: 43.1, lossPct: 1.7, queueDepthPackets: 26 },
+      { rttMs: 56.2, lossPct: 2.2, queueDepthPackets: 33 },
+      { rttMs: 44.8, lossPct: 1.8, queueDepthPackets: 27 },
+      { rttMs: 51.5, lossPct: 2.0, queueDepthPackets: 30 }
+    ];
+
+    let lastCovariance = null;
+    let filteredState = null;
+    for (const meas of noisyMeasurements) {
+      const res = filter.update(meas);
+      filteredState = res.state;
+      lastCovariance = res.covariance;
+    }
+
+    assert.ok(filteredState);
+    assert.ok(Math.abs(filteredState.rttMs - trueRtt) < 5.0, `Filtered RTT (${filteredState.rttMs}) should stay close to true RTT (${trueRtt})`);
+    assert.ok(lastCovariance);
+    assert.equal(lastCovariance.length, 3);
+    assert.ok(lastCovariance[0][0] > 0, 'Covariance diagonal element P[0][0] must be positive');
+
+    const orchestrator = new DistributedSagaOrchestrator();
+    const robustRes = orchestrator.computeRobustLyapunovEnergy(filteredState, lastCovariance);
+
+    assert.ok(robustRes.meanEnergy > 0, 'Mean Lyapunov energy must be positive');
+    assert.ok(robustRes.traceCovariancePenalty > 0, 'Trace covariance penalty must be positive');
+    assert.ok(robustRes.expectedEnergy > robustRes.meanEnergy, 'Expected energy must exceed mean energy due to covariance penalty');
+    assert.equal(
+      robustRes.expectedEnergy,
+      Math.round((robustRes.meanEnergy + robustRes.traceCovariancePenalty) * 1000) / 1000
+    );
   });
 
 });
