@@ -54,6 +54,54 @@ export interface PomdpProbePlanReceipt {
   timestampIso: string;
 }
 
+export const DEFAULT_DIAGNOSTIC_PROBES: DiagnosticProbe[] = [
+  {
+    probeId: 'probe-ptp-jitter',
+    name: 'PTP Hardware Nanosecond Clock Jitter Probe',
+    layer: 'HARDWARE_KERNEL',
+    executionCostMs: 12.0,
+    resourceOverheadScore: 0.1,
+    discriminationProfile: {
+      H_MTU_BLACKHOLE: { positiveLikelihood: 0.1, negativeLikelihood: 0.9 },
+      H_BGP_HIJACK: { positiveLikelihood: 0.2, negativeLikelihood: 0.8 },
+      H_TRANSIT_CONGESTION: { positiveLikelihood: 0.85, negativeLikelihood: 0.15 },
+      H_LOCAL_SWITCH_BUFFER: { positiveLikelihood: 0.8, negativeLikelihood: 0.2 },
+      H_WAN_FIBER_CUT: { positiveLikelihood: 0.9, negativeLikelihood: 0.1 },
+      H_BGP_MED_OSCILLATION: { positiveLikelihood: 0.3, negativeLikelihood: 0.7 }
+    }
+  },
+  {
+    probeId: 'probe-pmtu-sweep',
+    name: 'DF Path MTU Binary Sweep Probe',
+    layer: 'L3_NETWORK',
+    executionCostMs: 18.0,
+    resourceOverheadScore: 0.15,
+    discriminationProfile: {
+      H_MTU_BLACKHOLE: { positiveLikelihood: 0.95, negativeLikelihood: 0.05 },
+      H_BGP_HIJACK: { positiveLikelihood: 0.1, negativeLikelihood: 0.9 },
+      H_TRANSIT_CONGESTION: { positiveLikelihood: 0.2, negativeLikelihood: 0.8 },
+      H_LOCAL_SWITCH_BUFFER: { positiveLikelihood: 0.1, negativeLikelihood: 0.9 },
+      H_WAN_FIBER_CUT: { positiveLikelihood: 0.1, negativeLikelihood: 0.9 },
+      H_BGP_MED_OSCILLATION: { positiveLikelihood: 0.1, negativeLikelihood: 0.9 }
+    }
+  },
+  {
+    probeId: 'probe-bgp-aspath',
+    name: 'BGP AS-Path Valley-Free Routing Invariant Probe',
+    layer: 'L3_NETWORK',
+    executionCostMs: 15.0,
+    resourceOverheadScore: 0.12,
+    discriminationProfile: {
+      H_MTU_BLACKHOLE: { positiveLikelihood: 0.05, negativeLikelihood: 0.95 },
+      H_BGP_HIJACK: { positiveLikelihood: 0.9, negativeLikelihood: 0.1 },
+      H_TRANSIT_CONGESTION: { positiveLikelihood: 0.15, negativeLikelihood: 0.85 },
+      H_LOCAL_SWITCH_BUFFER: { positiveLikelihood: 0.05, negativeLikelihood: 0.95 },
+      H_WAN_FIBER_CUT: { positiveLikelihood: 0.2, negativeLikelihood: 0.8 },
+      H_BGP_MED_OSCILLATION: { positiveLikelihood: 0.85, negativeLikelihood: 0.15 }
+    }
+  }
+];
+
 export class AdaptivePomdpProbeOrchestrator {
   private dbInitialized = false;
 
@@ -147,18 +195,36 @@ export class AdaptivePomdpProbeOrchestrator {
    * under budget constraint (1 - 1/e approximation guarantee).
    */
   public selectOptimalProbeSet(
-    incidentId: string,
-    priorDistribution: Record<string, number>,
-    availableProbes: DiagnosticProbe[],
+    incidentOrPrior: string | Record<string, number>,
+    priorOrBudget?: Record<string, number> | number,
+    availableProbes?: DiagnosticProbe[],
     budgetMs = 150.0,
     costPenaltyLambda = 0.002
   ): PomdpProbePlanReceipt {
+    let incidentId = 'incident_auto';
+    let priorDistribution: Record<string, number> = {};
+    let effectiveBudget = budgetMs;
+
+    if (typeof incidentOrPrior === 'string') {
+      incidentId = incidentOrPrior;
+      priorDistribution = (typeof priorOrBudget === 'object' && priorOrBudget !== null) ? priorOrBudget : {};
+    } else if (typeof incidentOrPrior === 'object' && incidentOrPrior !== null) {
+      priorDistribution = incidentOrPrior;
+      if (typeof priorOrBudget === 'number') {
+        effectiveBudget = priorOrBudget;
+      }
+    }
+
     const planId = `plan_pomdp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const timestampIso = new Date().toISOString();
     const priorEntropy = this.calculateEntropy(priorDistribution);
 
+    const probesList = (availableProbes && Array.isArray(availableProbes) && availableProbes.length > 0)
+      ? availableProbes
+      : DEFAULT_DIAGNOSTIC_PROBES;
+
     const selectedProbes: DiagnosticProbe[] = [];
-    const remainingProbes = [...availableProbes];
+    const remainingProbes = [...probesList];
     let currentCost = 0.0;
     let currentMutualInfo = 0.0;
 
@@ -169,7 +235,7 @@ export class AdaptivePomdpProbeOrchestrator {
 
       for (let i = 0; i < remainingProbes.length; i++) {
         const candidate = remainingProbes[i];
-        if (currentCost + candidate.executionCostMs > budgetMs) {
+        if (currentCost + candidate.executionCostMs > effectiveBudget) {
           continue;
         }
 
@@ -204,7 +270,7 @@ export class AdaptivePomdpProbeOrchestrator {
       selectedProbes,
       expectedMutualInformation: currentMutualInfo,
       totalCostMs: Number(currentCost.toFixed(2)),
-      budgetMs,
+      budgetMs: effectiveBudget,
       submodularGain,
       priorEntropy,
       posteriorEntropyEstimate,
@@ -221,13 +287,14 @@ export class AdaptivePomdpProbeOrchestrator {
   public updateBeliefWithObservations(
     priorDistribution: Record<string, number>,
     observations: ProbeObservation[],
-    probesMap: Map<string, DiagnosticProbe>
+    probesMap?: Map<string, DiagnosticProbe>
   ): {
     updatedBelief: Record<string, number>;
     priorEntropy: number;
     posteriorEntropy: number;
     entropyDrop: number;
   } {
+    const map = probesMap || new Map(DEFAULT_DIAGNOSTIC_PROBES.map((p) => [p.probeId, p]));
     const priorEntropy = this.calculateEntropy(priorDistribution);
     const unnormalized: Record<string, number> = {};
     const faultKeys = Object.keys(priorDistribution);
@@ -235,7 +302,7 @@ export class AdaptivePomdpProbeOrchestrator {
     for (const f of faultKeys) {
       let pF = priorDistribution[f] || 0.0;
       for (const obs of observations) {
-        const probe = probesMap.get(obs.probeId);
+        const probe = map.get(obs.probeId);
         if (probe && probe.discriminationProfile[f]) {
           const likelihood = obs.outcomePositive
             ? probe.discriminationProfile[f].positiveLikelihood

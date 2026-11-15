@@ -274,7 +274,7 @@ class CompositionalProgramSynthesizer {
     for (const step of steps) {
       const proof = formalSmtSafetyVerifier.verifySafetyInvariants(
         programId,
-        { actionType: step.actionType, target: step.target, parameters: step.parameters },
+        { actionId: step.stepId, actionType: step.actionType, target: step.target, parameters: step.parameters },
         environment
       );
       smtProofId = proof.proofId;

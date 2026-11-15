@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Change to script directory
+cd "$(dirname "$0")"
+
 echo "========================================================================"
 echo "  EJII - Eldar Jamiyev's Infrastructure Intelligence"
 echo "  NOC Topology & Wire-Level Packet Dissection Workstation (POSIX/Linux)"
@@ -23,17 +26,23 @@ else
     echo "[OK] Node modules verified."
 fi
 
-# 3. Run Automated Verification Test Suite (Strictly Isolated Pre-Flight Environment)
-echo ""
-echo "[INFO] Running Zero-Simulation Automated Verification Test Suite..."
-PREFLIGHT_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'ejii_preflight')
-NODE_ENV=test EJII_DATA_DIR="$PREFLIGHT_DIR" node src/db/seed.js >/dev/null 2>&1
-TEST_EXIT_CODE=0
-NODE_ENV=test EJII_DATA_DIR="$PREFLIGHT_DIR" node tests/run-all-tests.js || TEST_EXIT_CODE=$?
-rm -rf "$PREFLIGHT_DIR"
-if [ "$TEST_EXIT_CODE" -ne 0 ]; then
-    echo "[ERROR] Test verification failed with exit code $TEST_EXIT_CODE. Halting startup."
-    exit "$TEST_EXIT_CODE"
+# 3. Verification Pre-Flight Check
+if [ "$1" = "--verify" ] || [ "$1" = "--test" ] || [ "$EJII_RUN_FULL_TESTS" = "1" ]; then
+    echo ""
+    echo "[INFO] Running Deep Zero-Simulation Verification Test Battery..."
+    PREFLIGHT_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'ejii_preflight')
+    NODE_ENV=test EJII_DATA_DIR="$PREFLIGHT_DIR" node src/db/seed.js >/dev/null 2>&1
+    TEST_EXIT_CODE=0
+    NODE_ENV=test EJII_DATA_DIR="$PREFLIGHT_DIR" node tests/run-all-tests.js || TEST_EXIT_CODE=$?
+    rm -rf "$PREFLIGHT_DIR"
+    if [ "$TEST_EXIT_CODE" -ne 0 ]; then
+        echo "[ERROR] Test verification failed with exit code $TEST_EXIT_CODE. Halting startup."
+        exit "$TEST_EXIT_CODE"
+    fi
+else
+    # High-Speed Pre-Flight (< 150ms) for Instant Launch
+    node scripts/verify-fast-preflight.js
+    echo "[TIP] To run the full 148-suite deep regression battery, use: ./setup-launcher.sh --verify"
 fi
 
 # 4. Start Server

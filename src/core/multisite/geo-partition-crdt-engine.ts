@@ -240,7 +240,7 @@ export class GeoPartitionCrdtEngine {
     const regState: LWWRegisterState<T> = {
       value,
       timestampMs: nowMs,
-      timestampNs: tt.timestampNs,
+      timestampNs: tt.timestampNs.toString(),
       siteId: this.localSiteId,
       seq
     };
@@ -381,7 +381,7 @@ export class GeoPartitionCrdtEngine {
         deltaPayload: pnc,
         vectorClock: { ...this.vectorClock },
         timestampIso: new Date().toISOString(),
-        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs
+        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs.toString()
       });
     }
 
@@ -393,7 +393,7 @@ export class GeoPartitionCrdtEngine {
         deltaPayload: reg,
         vectorClock: { ...this.vectorClock },
         timestampIso: new Date().toISOString(),
-        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs
+        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs.toString()
       });
     }
 
@@ -405,7 +405,7 @@ export class GeoPartitionCrdtEngine {
         deltaPayload: ors,
         vectorClock: { ...this.vectorClock },
         timestampIso: new Date().toISOString(),
-        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs
+        trueTimeNs: nanosecondTrueTimeEngine.now().timestampNs.toString()
       });
     }
 
@@ -457,7 +457,7 @@ export class GeoPartitionCrdtEngine {
           JSON.stringify({ deltasAppliedCount, conflictsResolvedCount }),
           JSON.stringify(this.vectorClock),
           new Date().toISOString(),
-          nanosecondTrueTimeEngine.now().timestampNs
+          nanosecondTrueTimeEngine.now().timestampNs.toString()
         );
       }
     } catch (_) {}
@@ -489,7 +489,7 @@ export class GeoPartitionCrdtEngine {
           JSON.stringify(payload),
           JSON.stringify(this.vectorClock),
           new Date().toISOString(),
-          nanosecondTrueTimeEngine.now().timestampNs
+          nanosecondTrueTimeEngine.now().timestampNs.toString()
         );
       }
     } catch (_) {}

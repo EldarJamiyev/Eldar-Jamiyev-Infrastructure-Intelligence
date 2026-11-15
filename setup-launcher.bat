@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 >nul
 title EJII -- Eldar Jamiyev's Infrastructure Intelligence
 setlocal enabledelayedexpansion
@@ -38,9 +39,24 @@ if not exist "node_modules\" (
     echo [OK] Node modules verified.
 )
 
-:: 3. Run Automated Verification Test Suite (Strictly Isolated Pre-Flight Environment)
+:: 3. Verification Pre-Flight Check
+if "%1"=="--verify" goto RUN_FULL_TESTS
+if "%1"=="--test" goto RUN_FULL_TESTS
+if "%EJII_RUN_FULL_TESTS%"=="1" goto RUN_FULL_TESTS
+
+:: High-Speed Pre-Flight (< 150ms) for Instant Seamless Desktop Launch
+node scripts/verify-fast-preflight.js
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Fast pre-flight verification failed.
+    pause
+    exit /b %ERRORLEVEL%
+)
+echo [TIP] To run the full 148-suite deep regression battery, use: setup-launcher.bat --verify
+goto LAUNCH_SERVER
+
+:RUN_FULL_TESTS
 echo.
-echo [INFO] Running Zero-Simulation Automated Verification Test Suite...
+echo [INFO] Running Deep Zero-Simulation Verification Test Battery...
 set PREFLIGHT_DIR=%TEMP%\ejii_preflight_%RANDOM%
 if not exist "%PREFLIGHT_DIR%" mkdir "%PREFLIGHT_DIR%" >nul 2>&1
 set EJII_DATA_DIR=%PREFLIGHT_DIR%
@@ -56,6 +72,7 @@ if %TEST_EXIT_CODE% neq 0 (
     exit /b %TEST_EXIT_CODE%
 )
 
+:LAUNCH_SERVER
 :: 4. Start EJII NOC Workstation
 echo.
 echo ========================================================================
