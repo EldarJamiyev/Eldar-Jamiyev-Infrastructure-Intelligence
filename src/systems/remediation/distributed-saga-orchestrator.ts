@@ -829,7 +829,11 @@ export class DistributedSagaOrchestrator extends EventEmitter {
   /**
    * Trigger coordinated compensating rollback across all staged/committed participants
    */
-  public triggerCoordinatedRollback(sagaId: string, reason: string): DistributedSagaRecord {
+  public triggerCoordinatedRollback(
+    sagaId: string,
+    reason: string,
+    options: { failingNodes?: string[] } = {}
+  ): DistributedSagaRecord {
     const saga = this.getSaga(sagaId);
     if (!saga) throw new Error(`Saga ${sagaId} not found`);
 
@@ -840,21 +844,240 @@ export class DistributedSagaOrchestrator extends EventEmitter {
     for (const participant of saga.participants) {
       // Execute inverse compensation
       const inverse = participant.candidateInverse;
+      const isFailed = Boolean(options.failingNodes && options.failingNodes.includes(participant.nodeId));
+
       const stepResult: RollbackStepResult = {
         nodeId: participant.nodeId,
         inverseActionId: inverse.actionId,
         inverseType: inverse.inverseType,
         executedAtIso: nowIso,
-        status: 'COMPENSATED_SUCCESS',
+        status: isFailed ? 'COMPENSATION_FAILED' : 'COMPENSATED_SUCCESS',
         reversesActionId: inverse.reversesActionId
       };
       saga.rollbackLog.push(stepResult);
+
+      if (isFailed) {
+        this.enqueuePendingCompensation(sagaId, participant.nodeId, inverse);
+      }
     }
 
     saga.phase = 'ROLLED_BACK';
     saga.updatedAtIso = new Date().toISOString();
     this.persistSaga(saga);
     return saga;
+  }
+
+  /**
+   * Enqueues an uncompensated inverse action for durable WAL re-drive.
+   */
+  public enqueuePendingCompensation(
+    sagaId: string,
+    nodeId: string,
+    inverseAction: CompensatingInverseAction,
+    options: { maxRetries?: number; initialDelayMs?: number } = {}
+  ): PendingCompensationRecord {
+    const compensationId = `COMP-${sagaId}-${nodeId}-${Date.now()}`;
+    const now = Date.now();
+    const delay = options.initialDelayMs ?? 1000;
+    const record: PendingCompensationRecord = {
+      compensationId,
+      sagaId,
+      nodeId,
+      inverseAction,
+      retryCount: 0,
+      maxRetries: options.maxRetries ?? 5,
+      nextRetryAtIso: new Date(now + delay).toISOString(),
+      status: 'PENDING_RETRY',
+      createdAtIso: new Date(now).toISOString(),
+      updatedAtIso: new Date(now).toISOString()
+    };
+    this.persistPendingCompensation(record);
+    return record;
+  }
+
+  public getPendingCompensation(compensationId: string): PendingCompensationRecord | null {
+    if (this.inMemoryPendingCompensations.has(compensationId)) {
+      return this.inMemoryPendingCompensations.get(compensationId)!;
+    }
+    if (!this.sqliteInitialized) return null;
+    try {
+      const db = getDb();
+      if (!db) return null;
+      const row = db
+        .prepare('SELECT * FROM ejii_saga_compensations_pending WHERE compensation_id = ?')
+        .get(compensationId) as any;
+      if (!row) return null;
+      const rec: PendingCompensationRecord = {
+        compensationId: row.compensation_id,
+        sagaId: row.saga_id,
+        nodeId: row.node_id,
+        inverseAction: JSON.parse(row.inverse_action_json),
+        retryCount: row.retry_count,
+        maxRetries: row.max_retries,
+        nextRetryAtIso: row.next_retry_at,
+        status: row.status as CompensationStatus,
+        createdAtIso: row.created_at,
+        updatedAtIso: row.updated_at
+      };
+      this.inMemoryPendingCompensations.set(rec.compensationId, rec);
+      return rec;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  public listPendingCompensations(statusFilter?: CompensationStatus): PendingCompensationRecord[] {
+    const list: PendingCompensationRecord[] = [];
+    if (this.sqliteInitialized) {
+      try {
+        const db = getDb();
+        if (db) {
+          const sql = statusFilter
+            ? 'SELECT * FROM ejii_saga_compensations_pending WHERE status = ? ORDER BY created_at ASC'
+            : 'SELECT * FROM ejii_saga_compensations_pending ORDER BY created_at ASC';
+          const rows = (statusFilter ? db.prepare(sql).all(statusFilter) : db.prepare(sql).all()) as any[];
+          for (const row of rows) {
+            const rec: PendingCompensationRecord = {
+              compensationId: row.compensation_id,
+              sagaId: row.saga_id,
+              nodeId: row.node_id,
+              inverseAction: JSON.parse(row.inverse_action_json),
+              retryCount: row.retry_count,
+              maxRetries: row.max_retries,
+              nextRetryAtIso: row.next_retry_at,
+              status: row.status as CompensationStatus,
+              createdAtIso: row.created_at,
+              updatedAtIso: row.updated_at
+            };
+            this.inMemoryPendingCompensations.set(rec.compensationId, rec);
+            list.push(rec);
+          }
+          return list;
+        }
+      } catch (_) {}
+    }
+
+    for (const rec of this.inMemoryPendingCompensations.values()) {
+      if (!statusFilter || rec.status === statusFilter) {
+        list.push(rec);
+      }
+    }
+    return list;
+  }
+
+  /**
+   * Reconciles pending compensations due for re-drive using truncated exponential backoff with full jitter.
+   * If retryCount exceeds maxRetries (default 5), escalates to DEAD_LETTER_ESCALATED and records HMAC audit token.
+   */
+  public async reconcilePendingCompensations(
+    executor?: (record: PendingCompensationRecord) => Promise<boolean> | boolean,
+    options: { nowMs?: number; randomFn?: () => number } = {}
+  ): Promise<ReconcileResult> {
+    const nowMs = typeof options.nowMs === 'number' ? options.nowMs : Date.now();
+    const pending = this.listPendingCompensations('PENDING_RETRY').filter((r) => {
+      const retryTime = new Date(r.nextRetryAtIso).getTime();
+      return retryTime <= nowMs;
+    });
+
+    let succeededCount = 0;
+    let retriedCount = 0;
+    let deadLetterCount = 0;
+    const reconciledRecords: PendingCompensationRecord[] = [];
+
+    for (const record of pending) {
+      let succeeded = false;
+      try {
+        if (executor) {
+          succeeded = Boolean(await executor(record));
+        } else {
+          succeeded = true;
+        }
+      } catch (err: any) {
+        record.lastError = err?.message || String(err);
+        succeeded = false;
+      }
+
+      if (succeeded) {
+        record.status = 'SUCCESS';
+        record.updatedAtIso = new Date(nowMs).toISOString();
+        succeededCount++;
+        this.persistPendingCompensation(record);
+        this.emit('SAGA_COMPENSATION_RECONCILED', { record });
+      } else {
+        record.retryCount++;
+        record.updatedAtIso = new Date(nowMs).toISOString();
+
+        if (record.retryCount >= record.maxRetries) {
+          record.status = 'DEAD_LETTER_ESCALATED';
+          const auditHmac = crypto
+            .createHmac('sha256', this.hmacSecret)
+            .update(
+              `${record.compensationId}:${record.sagaId}:${record.nodeId}:DEAD_LETTER_ESCALATED:${nowMs}`
+            )
+            .digest('hex');
+          record.auditHmac = auditHmac;
+          deadLetterCount++;
+          this.persistPendingCompensation(record);
+          this.emit('SAGA_COMPENSATION_DLQ_ESCALATED', {
+            record,
+            auditHmac,
+            timestamp: record.updatedAtIso
+          });
+        } else {
+          const backoffMs = calculateJitteredBackoffMs(record.retryCount, options.randomFn);
+          record.nextRetryAtIso = new Date(nowMs + backoffMs).toISOString();
+          retriedCount++;
+          this.persistPendingCompensation(record);
+          this.emit('SAGA_COMPENSATION_RETRY_SCHEDULED', {
+            record,
+            backoffMs,
+            nextRetryAtIso: record.nextRetryAtIso
+          });
+        }
+      }
+      reconciledRecords.push(record);
+    }
+
+    return {
+      processedCount: pending.length,
+      succeededCount,
+      retriedCount,
+      deadLetterCount,
+      reconciledRecords
+    };
+  }
+
+  private persistPendingCompensation(record: PendingCompensationRecord): void {
+    this.inMemoryPendingCompensations.set(record.compensationId, record);
+    if (!this.sqliteInitialized) return;
+    try {
+      const db = getDb();
+      if (!db) return;
+      db.prepare(`
+        INSERT INTO ejii_saga_compensations_pending (
+          compensation_id, saga_id, node_id, inverse_action_json,
+          retry_count, max_retries, next_retry_at, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(compensation_id) DO UPDATE SET
+          retry_count = excluded.retry_count,
+          next_retry_at = excluded.next_retry_at,
+          status = excluded.status,
+          updated_at = excluded.updated_at
+      `).run(
+        record.compensationId,
+        record.sagaId,
+        record.nodeId,
+        JSON.stringify(record.inverseAction),
+        record.retryCount,
+        record.maxRetries,
+        record.nextRetryAtIso,
+        record.status,
+        record.createdAtIso,
+        record.updatedAtIso
+      );
+    } catch (_) {
+      // In-memory fallback
+    }
   }
 
   public getSaga(sagaId: string): DistributedSagaRecord | null {
