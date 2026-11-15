@@ -299,4 +299,20 @@ export class HardwareKernelInspector {
       evidentiaryNote: 'Linux container/host interface and /proc/sys/net/ipv4 kernel parameters inspected; 802.11 radio fields marked unsupported on wired/virtual NIC.'
     };
   }
+
+  /**
+   * Synthesizes eBPF XDP line-rate network filter for kernel mitigation
+   */
+  public static synthesizeXdpLineRateMitigation(rules?: any[]): any {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ebpfXdpSynthesizer } = require('../sniffer/ebpf-xdp-synthesizer');
+      if (Array.isArray(rules)) {
+        for (const r of rules) ebpfXdpSynthesizer.addRule(r);
+      }
+      return ebpfXdpSynthesizer.synthesizeXdpCProgram();
+    } catch (_) {
+      return null;
+    }
+  }
 }

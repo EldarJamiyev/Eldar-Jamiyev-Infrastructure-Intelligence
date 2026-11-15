@@ -276,6 +276,17 @@ class HardwareKernelInspector {
             evidentiaryNote: 'Linux container/host interface and /proc/sys/net/ipv4 kernel parameters inspected; 802.11 radio fields marked unsupported on wired/virtual NIC.'
         };
     }
+    static synthesizeXdpLineRateMitigation(rules) {
+        try {
+            const { ebpfXdpSynthesizer } = require('../sniffer/ebpf-xdp-synthesizer');
+            if (Array.isArray(rules)) {
+                for (const r of rules) ebpfXdpSynthesizer.addRule(r);
+            }
+            return ebpfXdpSynthesizer.synthesizeXdpCProgram();
+        } catch (_) {
+            return null;
+        }
+    }
 }
 exports.HardwareKernelInspector = HardwareKernelInspector;
 //# sourceMappingURL=hardware-kernel-inspector.js.map

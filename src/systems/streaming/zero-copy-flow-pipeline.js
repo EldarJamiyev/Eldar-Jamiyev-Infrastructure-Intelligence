@@ -462,6 +462,13 @@ class ZeroCopyFlowPipeline {
       mitigationRecommendation
     };
 
+    if (ratio > 2.0 && topAttributedFlows.length > 0) {
+      try {
+        const { ebpfXdpSynthesizer } = require('../../sniffer/ebpf-xdp-synthesizer');
+        report.xdpSynthesizedRules = ebpfXdpSynthesizer.syncCulpritFlowsFromMicroBurst(report);
+      } catch (_) {}
+    }
+
     this.burstHistory.push(report);
     if (this.burstHistory.length > 50) {
       this.burstHistory.shift();

@@ -416,5 +416,112 @@ test('Track 4: High-Throughput Binary WebSocket Packet Frame Streaming', async (
     assert.ok(topFlow.attributionScore > 1000);
     assert.equal(topFlow.suspectedAnomaly, 'FAST_RETRANSMIT_STORM');
     assert.ok(report.mitigationRecommendation.includes('TCP pacing') || report.mitigationRecommendation.includes('initcwnd'));
+    assert.ok(Array.isArray(report.xdpSynthesizedRules), 'Microburst must trigger automated XDP rule synthesis');
+    assert.ok(report.xdpSynthesizedRules.length > 0);
+    assert.equal(report.xdpSynthesizedRules[0].action, 'XDP_DROP');
+  });
+
+  await t.test('8. verifies dynamic eBPF XDP C program synthesis with kernel bounds guards and BPF maps', () => {
+    const { ebpfXdpSynthesizer } = require('../src/sniffer/ebpf-xdp-synthesizer');
+    ebpfXdpSynthesizer.clearRules();
+
+    ebpfXdpSynthesizer.addRule({
+      ruleId: 'block_culprit_1',
+      srcIp: '198.51.100.42',
+      action: 'XDP_DROP',
+      comment: 'DDoS amplification culprit'
+    });
+
+    const bpfProg = ebpfXdpSynthesizer.synthesizeXdpCProgram('xdp_mitigate_ddos');
+    assert.ok(bpfProg);
+    assert.equal(bpfProg.programId, 'xdp_mitigate_ddos');
+    assert.equal(bpfProg.section, 'xdp');
+    assert.ok(bpfProg.cSourceCode.includes('SEC("xdp")'));
+    assert.ok(bpfProg.cSourceCode.includes('blocked_ips_map'));
+    assert.ok(bpfProg.cSourceCode.includes('(void *)(eth + 1) > data_end'));
+    assert.ok(bpfProg.cSourceCode.includes('(void *)(iph + 1) > data_end'));
+    assert.ok(bpfProg.cSourceCode.includes('bpf_map_lookup_elem'));
+    assert.ok(bpfProg.cSourceCode.includes('198.51.100.42'));
+    assert.equal(bpfProg.bpfMaps.length, 2);
+    assert.equal(bpfProg.bpfMaps[0].name, 'blocked_ips_map');
+  });
+
+  await t.test('9. verifies kernel verifier safety checker validation', () => {
+    const { ebpfXdpSynthesizer } = require('../src/sniffer/ebpf-xdp-synthesizer');
+
+    // Safe synthesized C code passes validation
+    const safeProgram = ebpfXdpSynthesizer.synthesizeXdpCProgram();
+    assert.equal(safeProgram.verifierValidation.passed, true);
+    assert.equal(safeProgram.verifierValidation.boundedMemoryGuardsChecked, true);
+    assert.equal(safeProgram.verifierValidation.loopBoundsChecked, true);
+    assert.equal(safeProgram.verifierValidation.stackWithinLimits, true);
+    assert.equal(safeProgram.verifierValidation.instructionDepthSafe, true);
+    assert.equal(safeProgram.verifierValidation.issues.length, 0);
+
+    // Unsafe C code without bounds checking fails validation
+    const unsafeC = 'SEC("xdp") int bad(struct xdp_md *ctx) { struct ethhdr *e = (void *)(long)ctx->data; while(1) {} return e->h_proto; }';
+    const report = ebpfXdpSynthesizer.validateBpfProgramSafety(unsafeC);
+    assert.equal(report.passed, false);
+    assert.equal(report.boundedMemoryGuardsChecked, false);
+    assert.equal(report.loopBoundsChecked, false);
+    assert.ok(report.issues.length >= 2);
+  });
+
+  await t.test('10. verifies live packet evaluation against synthesized rules and token bucket rate limiting', () => {
+    const { ebpfXdpSynthesizer } = require('../src/sniffer/ebpf-xdp-synthesizer');
+    ebpfXdpSynthesizer.clearRules();
+
+    // Add drop rule
+    ebpfXdpSynthesizer.addRule({
+      ruleId: 'drop_bad_actor',
+      srcIp: '192.0.2.1',
+      action: 'XDP_DROP'
+    });
+
+    // Add rate limited rule: 1000 bytes/sec, capacity 2000 bytes
+    ebpfXdpSynthesizer.addRule({
+      ruleId: 'rate_limit_actor',
+      srcIp: '192.0.2.2',
+      action: 'XDP_PASS',
+      rateLimitBytesPerSec: 1000,
+      burstCapacityBytes: 2000
+    });
+
+    // Test 1: Normal benign packet passes
+    const benignRes = ebpfXdpSynthesizer.evaluateRawPacket({
+      srcIp: '10.0.0.1',
+      dstIp: '10.0.0.2',
+      byteLength: 500
+    });
+    assert.equal(benignRes.action, 'XDP_PASS');
+    assert.equal(benignRes.rateLimited, false);
+
+    // Test 2: Dropped packet instantly dropped
+    const dropRes = ebpfXdpSynthesizer.evaluateRawPacket({
+      srcIp: '192.0.2.1',
+      dstIp: '10.0.0.2',
+      byteLength: 500
+    });
+    assert.equal(dropRes.action, 'XDP_DROP');
+    assert.equal(dropRes.matchedRuleId, 'drop_bad_actor');
+
+    // Test 3: Rate limited actor first burst fits, subsequent exceeding packet drops
+    const rateRes1 = ebpfXdpSynthesizer.evaluateRawPacket({
+      srcIp: '192.0.2.2',
+      dstIp: '10.0.0.2',
+      byteLength: 1500
+    });
+    assert.equal(rateRes1.action, 'XDP_PASS');
+    assert.equal(rateRes1.rateLimited, false);
+
+    // Immediate second packet of 1000 bytes exceeds remaining 500 tokens
+    const rateRes2 = ebpfXdpSynthesizer.evaluateRawPacket({
+      srcIp: '192.0.2.2',
+      dstIp: '10.0.0.2',
+      byteLength: 1000
+    });
+    assert.equal(rateRes2.action, 'XDP_DROP');
+    assert.equal(rateRes2.rateLimited, true);
+    assert.ok(rateRes2.reason.includes('token bucket exhausted'));
   });
 });

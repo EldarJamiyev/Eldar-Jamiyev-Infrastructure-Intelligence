@@ -92,6 +92,7 @@ export interface MicroBurstSnapshotReport {
   totalActiveFlows: number;
   topAttributedFlows: MicroBurstAttribution[];
   mitigationRecommendation: string;
+  xdpSynthesizedRules?: any[];
 }
 
 export interface RingBufferStats {
@@ -582,6 +583,14 @@ export class ZeroCopyFlowPipeline {
       topAttributedFlows,
       mitigationRecommendation
     };
+
+    if (ratio > 2.0 && topAttributedFlows.length > 0) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ebpfXdpSynthesizer } = require('../../sniffer/ebpf-xdp-synthesizer');
+        report.xdpSynthesizedRules = ebpfXdpSynthesizer.syncCulpritFlowsFromMicroBurst(report);
+      } catch (_) {}
+    }
 
     this.burstHistory.push(report);
     if (this.burstHistory.length > 50) {
