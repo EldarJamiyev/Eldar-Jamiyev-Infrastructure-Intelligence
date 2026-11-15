@@ -9,6 +9,7 @@
  */
 
 import * as crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import {
   zkEpistemicConsensusEngine,
   ZkEpistemicConsensusEngine,
@@ -87,6 +88,41 @@ export interface RollbackStepResult {
   executedAtIso: string;
   status: 'COMPENSATED_SUCCESS' | 'COMPENSATION_FAILED';
   reversesActionId: string;
+}
+
+export type CompensationStatus = 'PENDING_RETRY' | 'SUCCESS' | 'DEAD_LETTER_ESCALATED';
+
+export interface PendingCompensationRecord {
+  compensationId: string;
+  sagaId: string;
+  nodeId: string;
+  inverseAction: CompensatingInverseAction;
+  retryCount: number;
+  maxRetries: number;
+  nextRetryAtIso: string;
+  status: CompensationStatus;
+  createdAtIso: string;
+  updatedAtIso: string;
+  lastError?: string;
+  auditHmac?: string;
+}
+
+export interface ReconcileResult {
+  processedCount: number;
+  succeededCount: number;
+  retriedCount: number;
+  deadLetterCount: number;
+  reconciledRecords: PendingCompensationRecord[];
+}
+
+/**
+ * Calculates truncated exponential backoff with full jitter:
+ * t_backoff = min(60000, 1000 * 2^retryCount) * (0.5 + 0.5 * rand())
+ */
+export function calculateJitteredBackoffMs(retryCount: number, randomFn: () => number = Math.random): number {
+  const base = Math.min(60000, 1000 * Math.pow(2, retryCount));
+  const jitter = 0.5 + 0.5 * randomFn();
+  return Math.round(base * jitter);
 }
 
 export interface DistributedSagaRecord {
@@ -295,13 +331,15 @@ export class TelemetryKalmanFilter {
   }
 }
 
-export class DistributedSagaOrchestrator {
+export class DistributedSagaOrchestrator extends EventEmitter {
   private hmacSecret: Buffer;
   private inMemorySagas: Map<string, DistributedSagaRecord> = new Map();
+  private inMemoryPendingCompensations: Map<string, PendingCompensationRecord> = new Map();
   private processedSagaNonces: Set<string> = new Set();
   private sqliteInitialized = false;
 
   constructor(secretKey: string = process.env.EJII_HMAC_SECRET || 'EJII-ENTERPRISE-INTELLIGENCE-HMAC-SECURE-KEY-2026') {
+    super();
     this.hmacSecret = Buffer.from(secretKey, 'utf-8');
     this.ensureSqliteTable();
   }
@@ -329,6 +367,21 @@ export class DistributedSagaOrchestrator {
         );
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_phase ON ejii_remediation_sagas(phase);
         CREATE INDEX IF NOT EXISTS idx_remediation_sagas_created ON ejii_remediation_sagas(created_at);
+
+        CREATE TABLE IF NOT EXISTS ejii_saga_compensations_pending (
+          compensation_id TEXT PRIMARY KEY,
+          saga_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          inverse_action_json TEXT NOT NULL,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          max_retries INTEGER NOT NULL DEFAULT 5,
+          next_retry_at TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_saga_compensations_status ON ejii_saga_compensations_pending(status);
+        CREATE INDEX IF NOT EXISTS idx_saga_compensations_retry ON ejii_saga_compensations_pending(next_retry_at);
       `);
       try {
         db.exec('ALTER TABLE ejii_remediation_sagas ADD COLUMN batch_quorum_receipt_json TEXT');
