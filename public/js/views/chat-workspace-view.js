@@ -27,10 +27,13 @@
     'Check DNS resolution for this hostname.',
     'Compare the previous network result.',
     'Explain the timeout in simple terms.',
-    'Check whether port 3000 is open on localhost'
+    'Check whether port 3000 is open on localhost',
+    'Start socratic dialectic debate on incident',
+    'Run POMDP active probe on localhost',
+    'Inspect sniffer cacheline perf and ring buffer'
   ];
 
-  const STARTER_PROMPT_TAGS = ['TCP', 'HTTP', 'DNS', 'Compare', 'Explain', 'Local'];
+  const STARTER_PROMPT_TAGS = ['TCP', 'HTTP', 'DNS', 'Compare', 'Explain', 'Local', 'Debate', 'POMDP', 'Cacheline'];
 
   const chatState = {
     sessionId: null,

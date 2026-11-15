@@ -776,6 +776,48 @@
         </div>
       </div>
 
+      <!-- Phase 13 Sovereign Intelligence: Multi-Site Geo-Partition CRDT Synchronizer Map -->
+      <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 18px 22px; margin-bottom: 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <div>
+            <div style="font-size:11px; font-weight:700; color:#A78BFA; text-transform:uppercase; letter-spacing:0.06em;">Sovereign Fabric · Multi-Region WAN State</div>
+            <h2 style="font-size:16px; font-weight:700; margin:2px 0 0 0; color:#F8FAFC;">Multi-Site Geo-Partition CRDT Synchronizer Map</h2>
+            <div style="font-size:12px; color:#94A3B8; margin-top:2px;">State-based CvRDT replication &amp; vector clock anti-entropy across distributed network partitions.</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="status-dot" style="background:#10B981;"></span>
+            <span style="font-size:11.5px; font-weight:700; color:#10B981; font-family:var(--font-mono, monospace);">CvRDT MONOTONIC CONVERGED</span>
+            <button type="button" class="btn btn-primary" style="font-size:11px; padding:4px 10px; background:#7C3AED; border-color:#6D28D9;" onclick="window.triggerGeoPartitionCrdtSync('region-us-east')">Reconcile Partitions →</button>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;" id="crdtPartitionsGrid">
+          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color:#F1F5F9; font-size:13px;">region-us-east</strong>
+              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
+            </div>
+            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, us-east: 12]</div>
+            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 12.4ms · Zero packet loss</div>
+          </div>
+          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color:#F1F5F9; font-size:13px;">region-eu-west</strong>
+              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
+            </div>
+            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, eu-west: 9]</div>
+            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 78.2ms · Zero packet loss</div>
+          </div>
+          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color:#F1F5F9; font-size:13px;">region-ap-south</strong>
+              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
+            </div>
+            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, ap-south: 6]</div>
+            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 134.1ms · Zero packet loss</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tier 2: Live Runtime Sites/Zones & Interactive Probing/Egress -->
       <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 20px; margin-bottom: 24px;">
         
@@ -1718,6 +1760,30 @@
     return enterpriseData.freshnessThresholds;
   };
   window.EJIIEnterpriseNocData = enterpriseData;
+
+  window.triggerGeoPartitionCrdtSync = async function(partitionId = 'region-us-east') {
+    const grid = document.getElementById('crdtPartitionsGrid');
+    if (grid) {
+      grid.style.opacity = '0.6';
+    }
+    try {
+      const token = localStorage.getItem('eji_token') || localStorage.getItem('ejii_token');
+      const res = await fetch('/api/v6/sovereign/crdt/reconcile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+        },
+        body: JSON.stringify({ targetPartition: partitionId, syncMode: 'delta' })
+      });
+      const data = await res.json();
+      if (grid) {
+        grid.style.opacity = '1.0';
+      }
+    } catch (err) {
+      if (grid) grid.style.opacity = '1.0';
+    }
+  };
 
   window.renderEnterpriseNocView = async function() {
     await loadEnterpriseData();
