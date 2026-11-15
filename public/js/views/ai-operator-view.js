@@ -2168,7 +2168,18 @@
             slider.value = payload.cursorMs;
             slider.dispatchEvent(new Event('input'));
           }
+        } else if (type === 'B2PC_SAGA_UPDATE' && payload) {
+          window.__ejiiActiveSaga = payload;
+        } else if (type === 'QUARANTINE_LOCK' && payload) {
+          window.__ejiiQuarantinedDevices = window.__ejiiQuarantinedDevices || new Set();
+          if (payload.deviceId) {
+            window.__ejiiQuarantinedDevices.add(payload.deviceId);
+          }
         }
+      };
+
+      bus.postSagaUpdate = function (sagaData) {
+        bus.postMessage({ type: 'B2PC_SAGA_UPDATE', payload: sagaData });
       };
 
       bus.postIncidentFocus = function (incidentId) {

@@ -51,7 +51,7 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b %ERRORLEVEL%
 )
-echo [TIP] To run the full 152-suite deep regression battery, use: setup-launcher.bat --verify
+echo [TIP] To run the full 153-suite deep regression battery, use: setup-launcher.bat --verify
 goto LAUNCH_SERVER
 
 :RUN_FULL_TESTS

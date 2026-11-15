@@ -1862,6 +1862,96 @@
     };
   };
 
+  window.renderPoincareDiskTopology = function (canvas, nodes, edges) {
+    const nodeList = Array.isArray(nodes) ? nodes : [];
+    const edgeList = Array.isArray(edges) ? edges : [];
+
+    if (!canvas) {
+      return { renderedNodes: nodeList.length, renderedEdges: edgeList.length, projection: 'POINCARE_DISK_2D' };
+    }
+
+    const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+    if (!ctx) {
+      return { renderedNodes: nodeList.length, renderedEdges: edgeList.length, projection: 'POINCARE_DISK_2D' };
+    }
+
+    const width = canvas.width || 800;
+    const height = canvas.height || 600;
+    const cx = width / 2;
+    const cy = height / 2;
+    const diskRadius = Math.max(10, Math.min(width, height) / 2 - 20);
+
+    // Background & disk boundary
+    ctx.clearRect(0, 0, width, height);
+    ctx.beginPath();
+    ctx.arc(cx, cy, diskRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = '#050811';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1E293B';
+    ctx.stroke();
+
+    // Secondary geodesic guide rings
+    [0.25, 0.5, 0.75].forEach(function (rRatio) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, diskRadius * rRatio, 0, 2 * Math.PI);
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+
+    // Render nodes & edges
+    const coordMap = new Map();
+    nodeList.forEach(function (node, idx) {
+      let nx = 0;
+      let ny = 0;
+      if (node && Array.isArray(node.coordinates)) {
+        nx = node.coordinates[0];
+        ny = node.coordinates[1];
+      } else {
+        const angle = (2 * Math.PI * idx) / Math.max(1, nodeList.length);
+        const radius = idx === 0 ? 0 : 0.65;
+        nx = radius * Math.cos(angle);
+        ny = radius * Math.sin(angle);
+      }
+      const px = cx + nx * diskRadius;
+      const py = cy + ny * diskRadius;
+      const id = (node && node.id) || String(idx);
+      coordMap.set(id, { px, py });
+    });
+
+    // Draw edges
+    edgeList.forEach(function (edge) {
+      const p1 = coordMap.get(edge.source);
+      const p2 = coordMap.get(edge.target);
+      if (p1 && p2) {
+        ctx.beginPath();
+        ctx.moveTo(p1.px, p1.py);
+        ctx.lineTo(p2.px, p2.py);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    });
+
+    // Draw nodes
+    coordMap.forEach(function (pt) {
+      ctx.beginPath();
+      ctx.arc(pt.px, pt.py, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = '#38BDF8';
+      ctx.fill();
+      ctx.strokeStyle = '#0284C7';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    return {
+      renderedNodes: nodeList.length,
+      renderedEdges: edgeList.length,
+      projection: 'POINCARE_DISK_2D'
+    };
+  };
+
   window.initBroadcastChannelWorkspaceBus = window.initBroadcastChannelWorkspaceBus || function () {
     if (typeof BroadcastChannel === 'undefined') return null;
     if (window.__ejiiWorkspaceBus) return window.__ejiiWorkspaceBus;
@@ -1897,6 +1987,7 @@
       configureEnterpriseNocFreshnessThresholds: window.configureEnterpriseNocFreshnessThresholds,
       initBroadcastChannelWorkspaceBus: window.initBroadcastChannelWorkspaceBus,
       createWebGl2TopologyPipeline: window.createWebGl2TopologyPipeline,
+      renderPoincareDiskTopology: window.renderPoincareDiskTopology,
       EJIIEnterpriseNocData: enterpriseData
     };
   }
