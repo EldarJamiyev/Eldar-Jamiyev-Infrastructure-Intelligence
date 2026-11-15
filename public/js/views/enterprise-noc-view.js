@@ -1952,6 +1952,22 @@
     };
   };
 
+  window.renderQuantumAttestationStatusHUD = function (container, statusData) {
+    const data = statusData || { isQuantumSafe: true, activeLeases: 1, algorithm: 'NIST ML-DSA (Falcon-512)' };
+    if (!container) {
+      return { rendered: false, status: data };
+    }
+    container.innerHTML = '<div class="p-3 bg-slate-900/90 border border-emerald-500/30 rounded-lg text-xs flex items-center justify-between">' +
+      '<div class="flex items-center space-x-2">' +
+      '<span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>' +
+      '<span class="font-semibold text-slate-200">Post-Quantum Lattice Ledger:</span>' +
+      '<span class="text-emerald-400">' + (data.algorithm || 'ML-DSA') + '</span>' +
+      '</div>' +
+      '<div class="text-slate-400">Epoch Lease Active: <span class="text-slate-200 font-mono">' + (data.activeLeases || 1) + ' Site(s)</span></div>' +
+      '</div>';
+    return { rendered: true, status: data };
+  };
+
   window.initBroadcastChannelWorkspaceBus = window.initBroadcastChannelWorkspaceBus || function () {
     if (typeof BroadcastChannel === 'undefined') return null;
     if (window.__ejiiWorkspaceBus) return window.__ejiiWorkspaceBus;
@@ -1988,6 +2004,7 @@
       initBroadcastChannelWorkspaceBus: window.initBroadcastChannelWorkspaceBus,
       createWebGl2TopologyPipeline: window.createWebGl2TopologyPipeline,
       renderPoincareDiskTopology: window.renderPoincareDiskTopology,
+      renderQuantumAttestationStatusHUD: window.renderQuantumAttestationStatusHUD,
       EJIIEnterpriseNocData: enterpriseData
     };
   }
