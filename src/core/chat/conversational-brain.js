@@ -3703,9 +3703,14 @@ class StreamingEpistemicObserver extends EventEmitter {
 }
 
 const { rlofPreferenceAligner } = require('../../ai/rlof-preference-aligner');
+const { continualMetaLearningDreamEngine } = require('../../ai/continual-meta-learning-dream-engine');
 
 function alignOperatorRemediationPreference(params) {
   return rlofPreferenceAligner.recordPreferenceAndAlign(params);
+}
+
+function triggerAutonomousDreamCycle(customTasks) {
+  return continualMetaLearningDreamEngine.executeDreamCycle(customTasks);
 }
 
 module.exports = {
@@ -3742,5 +3747,7 @@ module.exports = {
   resolveTemporalScope,
   StreamingEpistemicObserver,
   rlofPreferenceAligner,
-  alignOperatorRemediationPreference
+  alignOperatorRemediationPreference,
+  continualMetaLearningDreamEngine,
+  triggerAutonomousDreamCycle
 };
