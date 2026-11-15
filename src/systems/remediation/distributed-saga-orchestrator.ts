@@ -141,6 +141,7 @@ export interface DistributedSagaRecord {
   commitTokens: Record<string, string>;
   batchQuorumReceipt?: BatchEpistemicQuorumReceipt;
   banditPolicySelection?: any;
+  chaosValidationReceipts?: Record<string, any>;
   rollbackExecuted: boolean;
   rollbackLog: RollbackStepResult[];
   createdAtIso: string;
@@ -588,6 +589,23 @@ export class DistributedSagaOrchestrator extends EventEmitter {
       banditPolicySelection = contextualBanditPolicy.selectAction(candidateArms, contextVec);
     } catch (_) {}
 
+    // Phase 10.0 Track 1: Autonomous Pre-Remediation Chaos Fault Injection Sandbox
+    const chaosValidationReceipts: Record<string, any> = {};
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { chaosFaultSandbox } = require('./chaos-fault-sandbox');
+      for (const p of participants) {
+        if (p.candidateAction && p.currentState) {
+          const receipt = chaosFaultSandbox.evaluateCandidateRemediation(
+            sagaId,
+            p.candidateAction,
+            p.currentState
+          );
+          chaosValidationReceipts[p.nodeId] = receipt;
+        }
+      }
+    } catch (_) {}
+
     const record: DistributedSagaRecord = {
       sagaId,
       hypothesisId,
@@ -603,6 +621,7 @@ export class DistributedSagaOrchestrator extends EventEmitter {
       },
       commitTokens: {},
       banditPolicySelection,
+      chaosValidationReceipts,
       rollbackExecuted: false,
       rollbackLog: [],
       createdAtIso: nowIso,
@@ -656,8 +675,10 @@ export class DistributedSagaOrchestrator extends EventEmitter {
       // Prove Lyapunov contraction
       const isContraction = deltaV <= -MIN_RIEMANNIAN_CONTRACTION;
       const isPositiveDefinite = this.isMetricPositiveDefinite(stateBefore);
+      const chaosReceipt = saga.chaosValidationReceipts?.[participant.nodeId];
+      const chaosPassed = chaosReceipt ? chaosReceipt.passed : true;
 
-      const voteCommit = isContraction && isPositiveDefinite;
+      const voteCommit = isContraction && isPositiveDefinite && chaosPassed;
       if (!voteCommit) {
         allVotedCommit = false;
       }
@@ -708,7 +729,9 @@ export class DistributedSagaOrchestrator extends EventEmitter {
           ? 'Riemannian contraction verified strictly negative'
           : (attestationStatus === 'ATTESTATION_FAILED'
               ? 'Ed25519 cryptographic attestation signature failed verification'
-              : 'Lyapunov contraction invariant violated or non-positive definite')
+              : (!chaosPassed
+                  ? `Chaos sandbox perturbation failed: ${chaosReceipt?.failureReason || 'DESTABILIZING'}`
+                  : 'Lyapunov contraction invariant violated or non-positive definite'))
       };
 
       saga.votes[participant.nodeId] = vote;

@@ -429,6 +429,22 @@ class DistributedSagaOrchestrator extends EventEmitter {
       banditPolicySelection = contextualBanditPolicy.selectAction(candidateArms, contextVec);
     } catch (_) {}
 
+    // Phase 10.0 Track 1: Autonomous Pre-Remediation Chaos Fault Injection Sandbox
+    const chaosValidationReceipts = {};
+    try {
+      const { chaosFaultSandbox } = require('./chaos-fault-sandbox');
+      for (const p of participants) {
+        if (p.candidateAction && p.currentState) {
+          const receipt = chaosFaultSandbox.evaluateCandidateRemediation(
+            sagaId,
+            p.candidateAction,
+            p.currentState
+          );
+          chaosValidationReceipts[p.nodeId] = receipt;
+        }
+      }
+    } catch (_) {}
+
     const record = {
       sagaId,
       hypothesisId,
@@ -444,6 +460,7 @@ class DistributedSagaOrchestrator extends EventEmitter {
       },
       commitTokens: {},
       banditPolicySelection,
+      chaosValidationReceipts,
       rollbackExecuted: false,
       rollbackLog: [],
       createdAtIso: nowIso,
@@ -497,8 +514,10 @@ class DistributedSagaOrchestrator extends EventEmitter {
       // Prove Lyapunov contraction
       const isContraction = deltaV <= -MIN_RIEMANNIAN_CONTRACTION;
       const isPositiveDefinite = this.isMetricPositiveDefinite(stateBefore);
+      const chaosReceipt = saga.chaosValidationReceipts?.[participant.nodeId];
+      const chaosPassed = chaosReceipt ? chaosReceipt.passed : true;
 
-      const voteCommit = isContraction && isPositiveDefinite;
+      const voteCommit = isContraction && isPositiveDefinite && chaosPassed;
       if (!voteCommit) {
         allVotedCommit = false;
       }
@@ -549,7 +568,9 @@ class DistributedSagaOrchestrator extends EventEmitter {
           ? 'Riemannian contraction verified strictly negative'
           : (attestationStatus === 'ATTESTATION_FAILED'
               ? 'Ed25519 cryptographic attestation signature failed verification'
-              : 'Lyapunov contraction invariant violated or non-positive definite')
+              : (!chaosPassed
+                  ? `Chaos sandbox perturbation failed: ${chaosReceipt?.failureReason || 'DESTABILIZING'}`
+                  : 'Lyapunov contraction invariant violated or non-positive definite'))
       };
 
       saga.votes[participant.nodeId] = vote;

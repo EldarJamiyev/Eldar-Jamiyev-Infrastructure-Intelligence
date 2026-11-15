@@ -777,4 +777,92 @@ describe('Phase 5.0 Track 2: Distributed Transactional Remediation Saga & 2PC Or
     assert.ok(armState, 'Arm state must be registered and updated');
     assert.ok(armState.failures >= 1, 'Arm must record failure upon rollback');
   });
+
+  test('Phase 10.0 Track 1: M/M/c/K finite-capacity queueing perturbation model calculates exact Erlang state probabilities and blocking', () => {
+    const { chaosFaultSandbox, ChaosFaultSandbox } = require('../src/systems/remediation/chaos-fault-sandbox');
+    const sandbox = new ChaosFaultSandbox();
+
+    // Normal traffic: lambda=800, mu=300, c=4 servers, K=32 capacity
+    // Traffic intensity a = 800/300 = 2.667, rho = 800/(4*300) = 0.667
+    const normalMetrics = sandbox.calculateQueueingMetrics(800, 300, 4, 32);
+    assert.ok(normalMetrics.utilization < 1.0, 'Utilization must be < 1 under normal load');
+    assert.ok(normalMetrics.p0 > 0 && normalMetrics.p0 < 1.0, 'P0 probability must be in (0, 1)');
+    assert.ok(normalMetrics.blockingProbability < 0.05, 'Normal traffic blocking probability must be < 5%');
+    assert.ok(normalMetrics.effectiveThroughput > 750, 'Effective throughput must match arrival rate minus drops');
+
+    // Saturated microburst surge: lambda=2400 (3x surge), mu=300, c=4, K=16 (tight buffer)
+    // rho = 2400/(1200) = 2.0 (overloaded!)
+    const surgeMetrics = sandbox.calculateQueueingMetrics(2400, 300, 4, 16);
+    assert.ok(surgeMetrics.utilization > 1.0, 'Utilization must exceed 1 during surge');
+    assert.ok(surgeMetrics.blockingProbability > 0.30, 'Blocking probability must surge to > 30% under 2x overload');
+    assert.ok(surgeMetrics.meanQueueLength > 5.0, 'Queue must back up under surge');
+  });
+
+  test('Phase 10.0 Track 1: Pre-remediation Chaos Fault Sandbox verifies robust actions and issues HMAC receipts', () => {
+    const { chaosFaultSandbox } = require('../src/systems/remediation/chaos-fault-sandbox');
+
+    const baseState = { rttMs: 40.0, lossPct: 1.0, queueDepthPackets: 20 };
+    const stabilizingAction = {
+      actionId: 'act_clamp_stable',
+      actionType: 'TCP_WINDOW_CLAMP',
+      target: '192.168.1.1',
+      parameters: { windowBytes: 32768 },
+      rationale: 'Relieve bufferbloat',
+      requiresElevation: false
+    };
+
+    const receipt = chaosFaultSandbox.evaluateCandidateRemediation(
+      'saga_chaos_test_01',
+      stabilizingAction,
+      baseState,
+      { arrivalSurgeMultiplier: 1.8, injectedLatencyMs: 20.0 }
+    );
+
+    assert.ok(receipt.receiptId.startsWith('chaos_rcpt_'));
+    assert.equal(receipt.actionId, 'act_clamp_stable');
+    assert.equal(receipt.passed, true, 'Stabilizing action must pass chaos verification');
+    assert.ok(receipt.lyapunovDriftDeltaV < 0, 'Action must achieve negative Lyapunov drift');
+    assert.ok(receipt.hmacSignature.length === 64, 'HMAC signature must be valid 64-char hex string');
+  });
+
+  test('Phase 10.0 Track 1: Distributed Saga Orchestrator integrates Chaos Validation Receipts and enforces pre-commit stress verification', () => {
+    const orchestrator = new DistributedSagaOrchestrator();
+
+    const participants = [
+      {
+        nodeId: 'node_edge_chaos',
+        role: 'EDGE_SWITCH',
+        targetEndpoint: '10.10.1.1',
+        currentState: { rttMs: 45.0, lossPct: 0.5, queueDepthPackets: 15 },
+        candidateAction: {
+          actionId: 'act_edge_clamp',
+          actionType: 'TCP_WINDOW_CLAMP',
+          target: '10.10.1.1',
+          parameters: { windowBytes: 16384 },
+          rationale: 'Bufferbloat relief under stress',
+          requiresElevation: false,
+          expectedImpact: { rttDeltaMs: -20, lossDeltaPct: -0.2, queueDeltaPackets: -10 }
+        },
+        candidateInverse: {
+          actionId: 'inv_edge_clamp',
+          inverseType: 'TCP_WINDOW_RESTORE',
+          reversesActionId: 'act_edge_clamp',
+          target: '10.10.1.1',
+          parameters: {},
+          rationale: 'Restore',
+          requiresElevation: false,
+          isCompensatingInverse: true
+        }
+      }
+    ];
+
+    const saga = orchestrator.initiateSaga('SAGA_CHAOS_INTEGRATION', 'tester_chaos', participants);
+    assert.ok(saga.chaosValidationReceipts, 'Saga must attach chaos validation receipts');
+    assert.ok(saga.chaosValidationReceipts['node_edge_chaos'], 'Receipt for node_edge_chaos must exist');
+    assert.equal(saga.chaosValidationReceipts['node_edge_chaos'].passed, true);
+
+    const preparedSaga = orchestrator.executePreparePhase(saga.sagaId);
+    assert.equal(preparedSaga.phase, 'COMMIT_VOTE_QUORUM');
+    assert.equal(preparedSaga.votes['node_edge_chaos'].vote, 'VOTE_COMMIT');
+  });
 });
