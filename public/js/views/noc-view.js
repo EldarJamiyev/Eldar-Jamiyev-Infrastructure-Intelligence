@@ -2925,6 +2925,7 @@ window.escapeAttr = escapeAttr;
   };
 
   window.refreshNocCounters = async function() {
+    window._uiDroppedCount = 0;
     try {
       const res = await window.api('/api/network/capture/counters');
       const c = res.counters || {};

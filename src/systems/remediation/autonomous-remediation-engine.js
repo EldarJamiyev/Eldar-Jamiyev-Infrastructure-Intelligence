@@ -324,7 +324,7 @@ class AutonomousRemediationEngine {
         description: 'Lowers process priority class from High/Normal to BelowNormal/Idle without terminating the process.',
         requiresElevation: true,
         riskLevel: 'LOW',
-        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system)$') { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } else { throw 'PROTECTED_PROCESS' }",
+        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system|memory compression|secure system|registry|idle)$') { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } else { throw 'PROTECTED_PROCESS' }",
         expectedOutcome: 'Stops runaway CPU monopolization while allowing application to complete in background.'
       },
       {
@@ -334,7 +334,7 @@ class AutonomousRemediationEngine {
         description: 'Terminates an unresponsive or runaway non-system process after strict PID identity validation.',
         requiresElevation: true,
         riskLevel: 'HIGH',
-        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system)$') { $p.Kill() } else { throw 'PROTECTED_PROCESS' }",
+        command: "$p = Get-Process -Id $TargetPid -ErrorAction Stop; if ($p.ProcessName -notmatch '^(csrss|lsass|smss|services|wininit|dwm|node|system|memory compression|secure system|registry|idle)$') { $p.Kill() } else { throw 'PROTECTED_PROCESS' }",
         expectedOutcome: 'Runaway process terminated safely; resources reclaimed.'
       },
       {

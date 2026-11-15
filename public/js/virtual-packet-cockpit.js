@@ -211,7 +211,29 @@
       const timeStr = frame.timeDelta || frame.time || (frame.timestamp ? (typeof window !== 'undefined' && window.formatLocalDateTime ? window.formatLocalDateTime(frame.timestamp) : frame.timestamp) : '+0.000s');
       const srcDisplay = `${frame.srcIp || frame.src || frame.source || '0.0.0.0'}${frame.srcPort || frame.sport ? ':' + (frame.srcPort || frame.sport) : ''}`;
       const dstDisplay = `${frame.dstIp || frame.dst || frame.destination || '0.0.0.0'}${frame.dstPort || frame.dport ? ':' + (frame.dstPort || frame.dport) : ''}`;
-      const hostDisplay = frame.sniHostName || frame.hostName || frame.host || frame.hostname || (frame.dnsApex ? frame.dnsApex.questions?.[0]?.name : null) || '—';
+      // Isolate local hostname: local machine name should ONLY decorate verified local/loopback IPs
+      const isLocalOrPrivate = (ip) => {
+        if (!ip) return false;
+        const clean = String(ip).split(':')[0].trim();
+        return clean === '127.0.0.1' || clean === '::1' || clean === 'localhost' ||
+          clean.startsWith('10.') || clean.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(clean);
+      };
+      const localHostName = typeof window !== 'undefined' && window.localHostName ? String(window.localHostName).toLowerCase() : '';
+      const destIp = frame.dstIp || frame.dst || frame.destination || '';
+      let rawHost = frame.sniHostName || (frame.dnsApex ? frame.dnsApex.questions?.[0]?.name : null);
+      if (!rawHost) {
+        const candidate = frame.hostName || frame.host || frame.hostname;
+        if (candidate) {
+          const isLocalCandidate = localHostName && String(candidate).toLowerCase().includes(localHostName);
+          // If candidate matches local hostname but destination is a public IP, do not leak local hostname
+          if (isLocalCandidate && !isLocalOrPrivate(destIp)) {
+            rawHost = null;
+          } else {
+            rawHost = candidate;
+          }
+        }
+      }
+      const hostDisplay = rawHost ? (frame.sniHostName ? `${frame.sniHostName} [SNI]` : rawHost) : '—';
       const lenVal = frame.wireLength || frame.frameLengthBytes || frame.length || frame.len || 60;
       let deltaStr = frame.timeDelta || '+0.000s';
       let deltaBadgeStyle = '';

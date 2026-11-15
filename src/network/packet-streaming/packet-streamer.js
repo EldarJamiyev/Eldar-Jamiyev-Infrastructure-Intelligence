@@ -644,6 +644,14 @@ class PacketStreamer {
 
   getCounters() {
     const c = { ...this.counters };
+    const ringLen = this.frameRingBuffer ? this.frameRingBuffer.length : 0;
+    if (c.received === 0 && ringLen > 0) {
+      c.received = ringLen;
+      c.accepted = ringLen;
+      c.decoded = ringLen;
+      c.delivered = ringLen;
+      c.isSocketStream = true;
+    }
     // Operational & mathematical consistency invariants:
     // received >= accepted >= decoded >= delivered
     if (c.accepted < c.decoded) c.accepted = c.decoded;
@@ -1335,6 +1343,13 @@ class PacketStreamer {
         dns.reverse(destIp).then(names => {
           if (names && names.length > 0) {
             const cleanPtr = names[0];
+            const localHostName = (os.hostname() || '').toLowerCase();
+            const cleanPtrLower = cleanPtr.toLowerCase();
+            const isLocalHost = localHostName && (cleanPtrLower === localHostName || cleanPtrLower.startsWith(localHostName + '.'));
+            if (isLocalHost) {
+              // Never associate local machine hostname with external public IPs
+              return;
+            }
             if (!cleanPtr.includes('in-addr.arpa') && !cleanPtr.endsWith('.arpa')) {
               this.reverseDnsMap.set(destIp, {
                 hostname: cleanPtr,

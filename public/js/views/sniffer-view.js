@@ -88,6 +88,7 @@ window.escapeAttr = escapeAttr;
   };
 
   async function renderPacketSnifferStandaloneView() {
+    window._uiDroppedCount = 0;
     const container = document.getElementById('mainContent');
     if (!container) return;
 

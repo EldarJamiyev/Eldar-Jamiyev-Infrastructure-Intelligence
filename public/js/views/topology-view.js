@@ -72,153 +72,62 @@
       container.innerHTML = `
         <div class="topology-standalone-workstation" style="display: flex; flex-direction: column; height: calc(100vh - 80px); gap: 12px;">
           <div class="card" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden; border: 1px solid var(--border-default); background: var(--bg-surface); box-shadow: var(--shadow-sm);">
-            <!-- Header Toolbar -->
-            <div class="card-header" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
-              <!-- Tier 1: Title, Subtitle, and Primary Actions -->
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <div style="width: 28px; height: 28px; border-radius: 6px; background: #F1F5F9; color: var(--accent-primary); display: flex; align-items: center; justify-content: center;">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                  </div>
-                  <div>
-                    <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;">
-                      NOC Network Topology &amp; Dependency Graph Map
-                    </div>
-                    <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-sans); margin-top: 1px;">
-                      Hierarchical Fabric: L1 WAN ➔ L2 Edge ➔ L3 Core ➔ L4 Enterprise ➔ L5 Access ➔ L6 Workstation
-                    </div>
-                  </div>
+            <!-- Header Toolbar: Compact 1-Row Layout -->
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-default); background: var(--bg-surface); flex-shrink: 0;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div class="card-title" style="margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;">
+                  NOC Network Topology &amp; Dependency Graph Map
                 </div>
-
-                <div style="display: flex; gap: 6px; align-items: center;">
-                  <button class="btn btn-secondary" onclick="if (typeof window.renderChatWorkspaceView === 'function') { window.renderChatWorkspaceView(); setTimeout(function(){ window.sendEjiiChatMessage && window.sendEjiiChatMessage('Give me an operational intelligence briefing on active regressions and learned playbooks'); }, 120); }" style="font-size: 11px; padding: 4px 10px; font-weight: 600; border-radius: 6px; white-space: nowrap;" title="Open AI Assistant with full Operational Intelligence &amp; Topology Briefing">
-                    AI Assistant Briefing →
-                  </button>
-                  <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 4px 12px; font-weight: 600; border-radius: 6px; white-space: nowrap;" title="Run SNMP &amp; ARP dynamic layer-2/3 discovery">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Discover L2/3
-                  </button>
-                  <button class="btn btn-secondary" onclick="window.clearBlastRadius()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Reset highlight overlays">↺</button>
-                  <button class="btn btn-secondary" onclick="window.renderTopologyStandaloneView()" style="font-size: 11px; padding: 4px 8px; border-radius: 6px;" title="Refresh topology from database">↻</button>
+                <!-- Spectral Graph Health Pill -->
+                <div id="topoSpectralHealthPill" style="white-space: nowrap !important; display: inline-flex !important; align-items: center !important; gap: 6px; background: var(--bg-surface-subtle); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px;">
+                  <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="spectralLambda2Val">${(topoRes?.algebraicConnectivityLambda2 !== undefined ? Number(topoRes.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
+                  <span style="color: var(--border-default);">|</span>
+                  <span id="spectralRiskLevelBadge" style="color: ${riskMeta.color}; font-weight: 700;">${riskMeta.label}</span>
+                </div>
+                <div class="segmented-control" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 2px 7px; font-weight: 600; border-radius: 4px;">Map View</button>
+                  <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 2px 7px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topoRes?.nodes?.length || 0})</button>
+                  <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 2px 7px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Services</button>
+                </div>
+                <!-- Multi-Layer Physical/Logical/App Toggles -->
+                <div class="segmented-control" id="topoLayerToggles" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button id="topoLayerAllBtn" class="btn btn-primary" onclick="window.filterTopologyLayer('ALL')" style="font-size: 10px; padding: 2px 6px; font-weight: 600; border-radius: 4px;">All L1-L6</button>
+                  <button id="topoLayerL2Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L2_PHYSICAL')" style="font-size: 10px; padding: 2px 6px; font-weight: 600; border: none; background: transparent;">L2</button>
+                  <button id="topoLayerL3Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L3_ROUTING')" style="font-size: 10px; padding: 2px 6px; font-weight: 600; border: none; background: transparent;">L3</button>
+                  <button id="topoLayerAppBtn" class="btn btn-secondary" onclick="window.filterTopologyLayer('APP_DEP')" style="font-size: 10px; padding: 2px 6px; font-weight: 600; border: none; background: transparent;">App</button>
                 </div>
               </div>
 
-              <!-- Tier 2: Controls Toolbar & Spectral Pill -->
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                  <!-- Spectral Graph Health Pill -->
-                  <div id="topoSpectralHealthPill" style="white-space: nowrap !important; display: inline-flex !important; align-items: center !important; gap: 6px; background: var(--bg-surface-subtle); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-default); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0;">
-                    <span style="color: var(--accent-primary); font-weight: 700;">λ₂: <span id="spectralLambda2Val">${(topoRes?.algebraicConnectivityLambda2 !== undefined ? Number(topoRes.algebraicConnectivityLambda2).toFixed(3) : '0.412')}</span></span>
-                    <span style="color: var(--border-default);">|</span>
-                    <span id="spectralRiskLevelBadge" style="color: ${riskMeta.color}; font-weight: 700;">${riskMeta.label}</span>
-                    <span style="color: var(--border-default);">|</span>
-                    <span style="color: var(--text-secondary);">Cut Edges: <strong id="spectralCutEdgesVal">${Array.isArray(topoRes?.criticalCutEdges) ? topoRes.criticalCutEdges.length : 0}</strong></span>
-                  </div>
-
-                  <div class="segmented-control" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                    <button id="topoModeMapBtn" class="btn btn-primary" onclick="window.switchNocTopologyMode('map')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px;">Map View</button>
-                    <button id="topoModeTableBtn" class="btn btn-secondary" onclick="window.switchNocTopologyMode('table')" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Fleet (${topoRes?.nodes?.length || 0})</button>
-                    <button id="topoModeServiceDepBtn" class="btn btn-secondary" onclick="window.openServiceDependenciesModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 4px; border: none; background: transparent;">Services</button>
-                  </div>
-
-                  <!-- Multi-Layer Physical/Logical/App Toggles -->
-                  <div class="segmented-control" id="topoLayerToggles" style="display: inline-flex; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                    <button id="topoLayerAllBtn" class="btn btn-primary" onclick="window.filterTopologyLayer('ALL')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border-radius: 4px;">All L1-L6</button>
-                    <button id="topoLayerL2Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L2_PHYSICAL')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">L2 Physical</button>
-                    <button id="topoLayerL3Btn" class="btn btn-secondary" onclick="window.filterTopologyLayer('L3_ROUTING')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">L3 Routing</button>
-                    <button id="topoLayerAppBtn" class="btn btn-secondary" onclick="window.filterTopologyLayer('APP_DEP')" style="font-size: 10.5px; padding: 2px 7px; font-weight: 600; border: none; background: transparent;">App Services</button>
-                  </div>
+              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="window.runDynamicDiscoveryModal()" style="font-size: 11px; padding: 3px 10px; font-weight: 600; border-radius: 6px; white-space: nowrap;">
+                  ⚡ Discover L2/3
+                </button>
+                <button class="btn btn-secondary" onclick="window.triggerBlastRadiusModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 6px;" title="Simulate failure blast radius">Blast Radius</button>
+                <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 6px;" title="Trace graphical hop-by-hop route">Path Trace</button>
+                <button class="btn btn-secondary" onclick="window.openWhatIfChaosSimulatorModal()" style="font-size: 11px; padding: 3px 8px; font-weight: 600; border-radius: 6px; color: #f59e0b;" title="Simulate node/link failure chaos">What-If</button>
+                <div style="display: inline-flex; gap: 1px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 2px 6px; border: none; background: transparent;">+</button>
+                  <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 2px 6px; border: none; background: transparent;">−</button>
+                  <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 2px 6px; border: none; background: transparent;">↺</button>
                 </div>
-
-                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                  <button id="topoFleetToggleBtn" class="btn btn-secondary" onclick="window.toggleTopologyFleetScope()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Toggle between Infrastructure Focus and Expanded Discovered Access Fleet">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Focus Infrastructure
-                  </button>
-                  <button id="btnLpmRadixAudit" class="btn btn-secondary exec-btn-secondary" onclick="window.openRoutingRadixModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Inspect 32-bit Binary Radix Trie & Routing Anomalies">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>LPM Trie
-                  </button>
-
-                  <div style="display: inline-flex; gap: 2px; background: var(--bg-surface-subtle); padding: 2px; border-radius: 6px; border: 1px solid var(--border-default);">
-                    <button class="btn btn-secondary" onclick="window.zoomTopology(1.2)" style="font-size: 11px; padding: 2px 7px; border: none; background: transparent;" title="Zoom In">+</button>
-                    <button class="btn btn-secondary" onclick="window.zoomTopology(0.8)" style="font-size: 11px; padding: 2px 7px; border: none; background: transparent;" title="Zoom Out">−</button>
-                    <button class="btn btn-secondary" onclick="window.resetTopologyView()" style="font-size: 11px; padding: 2px 8px; border: none; background: transparent;" title="Reset Pan &amp; Zoom">⟲ Reset</button>
-                  </div>
-
-                  <button class="btn btn-secondary" onclick="window.triggerBlastRadiusModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Simulate failure blast radius">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Blast Radius
-                  </button>
-                  <button class="btn btn-secondary" onclick="window.triggerPathTraceModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px;" title="Trace graphical hop-by-hop route">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Path Trace
-                  </button>
-                  <button class="btn btn-secondary" onclick="window.openWhatIfChaosSimulatorModal()" style="font-size: 11px; padding: 4px 9px; font-weight: 600; border-radius: 6px; color: #f59e0b;" title="Simulate node/link failure chaos and blast radius">
-                    ⚡ What-If Simulator
-                  </button>
-                </div>
+                <button type="button" class="btn btn-secondary" onclick="const b=document.getElementById('ejiiActiveTargetContextBar');if(b)b.style.display=b.style.display==='none'?'flex':'none';" style="font-size: 11px; padding: 3px 8px;" title="Toggle 7-Engine Causal & Drift Governance drawer">🧠 Causal</button>
               </div>
             </div>
 
-            <!-- View A: Dedicated Full-Height Visual Topology Canvas -->
-            <div id="nocTopologyMapView" style="display: block; flex: 1; padding: 12px 16px; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 10px;">
-              <!-- Active Target Context & Pivot Bar (Sovereign Apex + AI Cognition 4.0 + Desired-State Drift Governance) -->
-              <div id="ejiiActiveTargetContextBar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; background: var(--bg-surface-subtle, #F8FAFC); border: 1px solid var(--border-default, #E2E8F0); border-radius: 6px; font-size: 11px; font-family: var(--font-mono); flex-shrink: 0;">
+            <!-- View A: Dedicated Full-Height Visual Topology Canvas (Restored Above-the-Fold) -->
+            <div id="nocTopologyMapView" style="display: block; flex: 1; padding: 8px 12px; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px;">
+              <!-- Collapsible Target Context & Causal Governance Bar -->
+              <div id="ejiiActiveTargetContextBar" style="display: none; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; background: var(--bg-surface-subtle, #F8FAFC); border: 1px solid var(--border-default, #E2E8F0); border-radius: 6px; font-size: 11px; font-family: var(--font-mono); flex-shrink: 0;">
                 <div>
                   <strong style="color: var(--accent-primary);">7-ENGINE CAUSAL TOPOLOGY &amp; DRIFT GOVERNANCE:</strong>
-                  <span style="color: var(--text-secondary);">Active Focus: <code>${escapeHtml((window.EJIISituationalMemory && window.EJIISituationalMemory.activeTargetIp) || window.__ejiiSharedOperationalContext?.target || '192.168.31.1')}</code> &bull; Hypothesis: <strong>${escapeHtml((window.EJIISituationalMemory && window.EJIISituationalMemory.activeHypothesis) || 'Multi-Hop Causal Graph Nominal')}</strong> &bull; Policy: <strong>POL-01 / POL-02 ENFORCED</strong></span>
+                  <span style="color: var(--text-secondary);">Active Focus: <code>${escapeHtml((window.EJIISituationalMemory && window.EJIISituationalMemory.activeTargetIp) || window.__ejiiSharedOperationalContext?.target || '192.168.31.1')}</code> &bull; Hypothesis: <strong>${escapeHtml((window.EJIISituationalMemory && window.EJIISituationalMemory.activeHypothesis) || 'Multi-Hop Causal Graph Nominal')}</strong></span>
                 </div>
                 <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                  <button type="button" class="btn btn-primary" style="font-size: 10.5px; padding: 2px 8px; font-weight: 700;" onclick="window.reconcileTopologyDriftNow && window.reconcileTopologyDriftNow()">
-                    Verify &amp; Reconcile Desired-State Drift
-                  </button>
-                  <button type="button" class="btn btn-secondary" style="font-size: 10.5px; padding: 2px 8px;" onclick="window.launchRunbookWizardModal && window.launchRunbookWizardModal((window.EJIISituationalMemory && window.EJIISituationalMemory.activeRunbookId) || 'RB-01')">
-                    Execute Runbook (${escapeHtml((window.EJIISituationalMemory && window.EJIISituationalMemory.activeRunbookId) || 'RB-01')}) →
-                  </button>
-                  <button type="button" class="btn btn-secondary" style="font-size: 10.5px; padding: 2px 8px;" onclick="window.runEnterpriseComplexityAudit && window.runEnterpriseComplexityAudit()">
-                    Audit HA Quorum &amp; SCC Cycles
-                  </button>
-                  <button type="button" class="btn btn-secondary" style="font-size: 10.5px; padding: 2px 8px;" onclick="if (typeof window.renderView === 'function') { window.renderView('ai-operator'); }">
-                    AI Operator Command Center →
-                  </button>
+                  <button type="button" class="btn btn-primary" style="font-size: 10px; padding: 2px 6px; font-weight: 700;" onclick="window.reconcileTopologyDriftNow && window.reconcileTopologyDriftNow()">Reconcile Drift</button>
+                  <button type="button" class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="window.runEnterpriseComplexityAudit && window.runEnterpriseComplexityAudit()">HA Audit</button>
                 </div>
               </div>
               <div id="ejiiEnterpriseComplexityBanner" style="display:none;padding:8px 12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:11px;font-family:var(--font-mono);flex-shrink:0;"></div>
-
-              <!-- STEP 7: MULTI-LAYER PHYSICAL NIC + ROUTED SUBNET + HYPER-V VIRTUAL SWITCH DIGITAL TWIN STRIP -->
-              <div id="topoPhysicalVirtualSwitchStrip" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex-shrink: 0;">
-                <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-left: 3px solid #38BDF8; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); font-size: 10.5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="color:#38BDF8;">PHYSICAL NIC (L2/L3)</strong>
-                    <span class="badge" style="background:rgba(56,189,248,0.15); color:#38BDF8; font-size:9px;">Intel I219-LM</span>
-                  </div>
-                  <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">10.168.195.33 (10.168.195.0/24)</div>
-                  <div style="color:var(--text-secondary); font-size:9.5px; margin-top:2px;">Flows: <code>HTTPS 443</code>, <code>mDNS 5353</code>, <code>LLMNR 5355</code>, <code>UDP 3490/29810</code></div>
-                </div>
-
-                <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-left: 3px solid #F59E0B; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); font-size: 10.5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="color:#F59E0B;">ROUTED APP SUBNET</strong>
-                    <span class="badge" style="background:rgba(245,158,11,0.15); color:#F59E0B; font-size:9px;">Cleartext HTTP:80</span>
-                  </div>
-                  <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">10.22.10.153 (10.22.10.0/24)</div>
-                  <div style="color:var(--text-secondary); font-size:9.5px; margin-top:2px;">Socket: <code>10.168.195.33:50008 &rarr; 10.22.10.153:80</code> (1,179 B)</div>
-                </div>
-
-                <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-left: 3px solid #A855F7; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); font-size: 10.5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="color:#A855F7;">HYPER-V vSWITCH A</strong>
-                    <span class="badge" style="background:rgba(244,63,94,0.16); color:#F43F5E; font-size:9px;">135/139/445/623/Users</span>
-                  </div>
-                  <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">172.29.192.1/20 (00:15:5D:DF:E5:56)</div>
-                  <div style="color:var(--text-secondary); font-size:9.5px; margin-top:2px;">Daemons: <code>LMS.exe:623</code>, <code>vmms.exe:2179</code>, <code>System:139</code></div>
-                </div>
-
-                <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-left: 3px solid #EC4899; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); font-size: 10.5px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="color:#EC4899;">HYPER-V vSWITCH B</strong>
-                    <span class="badge" style="background:rgba(244,63,94,0.16); color:#F43F5E; font-size:9px;">135/139/445/623/Users</span>
-                  </div>
-                  <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">172.29.224.1/20 (00:15:5D:DF:E5:56)</div>
-                  <div style="color:var(--text-secondary); font-size:9.5px; margin-top:2px;">Counterfactual: <a href="javascript:void(0)" style="color:#38BDF8;font-weight:700;" onclick="window.openWhatIfChaosSimulatorModal()">⚡ Simulate Fix</a></div>
-                </div>
-              </div>
 
               <div id="nocTopologyCanvasWrap" class="topology-light-canvas" style="background: var(--bg-canvas, #F8F9FA); border-radius: 8px; border: 1px solid var(--border-default, #E5E7EB); position: relative; flex: 1; display: flex; flex-direction: column; overflow: hidden; user-select: none;">
                 <!-- Continuous Equipotential Laplacian Diffusion Overlay Shader (Track 4) -->
@@ -256,7 +165,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
                   <div style="display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px;">
                     <span style="font-weight: 800; color: var(--text-primary); letter-spacing: 0.03em;">L1–L6 ACTIVE INFRASTRUCTURE HOP MATRIX &amp; SOVEREIGN TELEMETRY</span>
-                    <span style="font-size: 10px; padding: 1px 7px; border-radius: 4px; background: rgba(5, 150, 105, 0.12); color: #059669; font-weight: 700;">LIVE PHYSICAL PATH VERIFIED</span>
+                    <span style="font-size: 10px; padding: 1px 7px; border-radius: 4px; background: rgba(56, 189, 248, 0.12); color: #0284c7; font-weight: 700;">PROBE-CALIBRATED MATRIX</span>
                   </div>
                   <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary);">
                     Active Nodes: <strong>${(topoRes?.nodes || []).length}</strong> &bull; Active Links: <strong>${(topoRes?.edges || []).length}</strong> &bull; Click any hop to simulate Blast Radius or launch Deep Diagnostics
@@ -277,12 +186,13 @@
                       name: layerDef.fallbackName,
                       hostname_or_ip: layerDef.fallbackIp,
                       status: 'healthy',
-                      last_latency_ms: 1
+                      last_latency_ms: null
                     };
                     const cleanName = String(primary.name || layerDef.fallbackName).replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?(?::\d+)?\s*\)\s*$/, '').trim();
                     const ipStr = primary.hostname_or_ip || layerDef.fallbackIp;
-                    const rttStr = primary.last_latency_ms !== null && primary.last_latency_ms !== undefined ? `${primary.last_latency_ms} ms` : '<1 ms';
-                    const isHealthy = primary.status === 'healthy' || !primary.status;
+                    const hasLatency = primary.last_latency_ms !== null && primary.last_latency_ms !== undefined;
+                    const rttStr = hasLatency ? `${primary.last_latency_ms} ms` : 'Unprobed';
+                    const isHealthy = hasLatency && (primary.status === 'healthy' || !primary.status);
                     return `
                       <div onclick="if(window.onNodeClick) window.onNodeClick('${escapeAttr(primary.id)}')" style="cursor: pointer; background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E2E8F0); border-left: 3px solid ${isHealthy ? '#10B981' : '#EF4444'}; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); transition: box-shadow 0.15s;" title="Click to inspect ${escapeAttr(cleanName)} (${escapeAttr(ipStr)})">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">

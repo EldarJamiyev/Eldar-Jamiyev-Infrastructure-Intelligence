@@ -499,9 +499,7 @@ class HostDiagnosticsEngine {
         recipes.push('renew_dhcp');
       }
 
-      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
-        status = 'DEGRADED';
-      }
+      // Resource pillar status determined purely by active resource anomalies, not unobserved optional counters
 
       const summary = anomalies.length > 0
         ? `${anomalies.length} network issue(s) detected. Default gateway: ${gatewayIp || 'UNKNOWN'}.`
@@ -712,9 +710,7 @@ class HostDiagnosticsEngine {
         }
       }
 
-      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
-        status = 'DEGRADED';
-      }
+      // Resource pillar status determined purely by active resource anomalies, not unobserved optional counters
 
       const summary = anomalies.length > 0
         ? `${anomalies.length} storage issue(s) detected. SMART Status: ${smartStatus}.`
@@ -948,9 +944,7 @@ class HostDiagnosticsEngine {
         });
       }
 
-      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
-        status = 'DEGRADED';
-      }
+      // Resource pillar status determined purely by active resource anomalies, not unobserved optional counters
 
       const summary = anomalies.length > 0
         ? `${anomalies.length} performance issue(s) identified. CPU: ${cpuLoadPct !== null ? cpuLoadPct + '%' : 'UNKNOWN'}, RAM: ${memPct}%.`
@@ -1094,25 +1088,30 @@ class HostDiagnosticsEngine {
         recipes.push('repair_print_spooler');
       }
 
-      // Degraded PnP devices check
-      if (pnpRes.success && degradedList.length > 0) {
+      // Filter out intentionally disabled virtual adapters (e.g. VMnet1 Code 22) from physical hardware alerts
+      const physicalFaults = degradedList.filter(d => {
+        const errCode = Number(d?.ConfigManagerErrorCode);
+        const name = String(d?.Name || '');
+        if (errCode === 22) return false; // Intentionally disabled by operator
+        if (/VMnet|VirtualBox|Hyper-V|TAP/i.test(name)) return false;
+        return true;
+      });
+
+      // Degraded physical PnP devices check
+      if (pnpRes.success && physicalFaults.length > 0) {
         status = 'DEGRADED';
         anomalies.push({
           severity: 'WARNING',
-          title: `${degradedList.length} Degraded Hardware Device(s) Detected`,
-          plainEnglish: `Windows Device Manager reports ${degradedList.length} hardware peripheral(s) in degraded error states (e.g. Code 10, Code 43).`,
-          rawProof: `First degraded: ${degradedList[0]?.Name} (ErrorCode: ${degradedList[0]?.ConfigManagerErrorCode})`,
+          title: `${physicalFaults.length} Degraded Hardware Device(s) Detected`,
+          plainEnglish: `Windows Device Manager reports ${physicalFaults.length} hardware peripheral(s) in degraded error states (e.g. Code 10, Code 43).`,
+          rawProof: `First degraded: ${physicalFaults[0]?.Name} (ErrorCode: ${physicalFaults[0]?.ConfigManagerErrorCode})`,
           recipeId: 'rescan_pnp_devices'
         });
         recipes.push('rescan_pnp_devices');
       }
 
-      if (outcome === 'PARTIAL' && status === 'HEALTHY') {
-        status = 'DEGRADED';
-      }
-
       const summary = anomalies.length > 0
-        ? `${anomalies.length} peripheral issue(s) detected. Spooler: ${spoolerStatus}, Degraded PnP: ${degradedList.length}.`
+        ? `${anomalies.length} peripheral issue(s) detected. Spooler: ${spoolerStatus}, Degraded PnP: ${physicalFaults.length}.`
         : `All hardware devices and print subsystems functioning normally.`;
 
       return {

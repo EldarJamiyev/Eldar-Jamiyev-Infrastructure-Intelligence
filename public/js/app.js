@@ -2019,7 +2019,7 @@ window.addEventListener('DOMContentLoaded', async () => {
               <div>λ₂: <span style="color:#38BDF8;">${f.lambda2}</span></div>
               <div>Nodes: <span style="color:#F59E0B;">${f.topologyNodeCount}</span></div>
               <div>CPU: <span>${f.cpuPct}%</span></div>
-              <div>STL ρ̃: <span>+${f.stlRobustness}</span></div>
+              <div>STL ρ̃: <span>${f.stlRobustness !== undefined && f.stlRobustness !== null ? (Number(f.stlRobustness) >= 0 ? `+${f.stlRobustness}` : `${f.stlRobustness}`) : '+0.00'}</span></div>
             </div>
           </div>
         `;
