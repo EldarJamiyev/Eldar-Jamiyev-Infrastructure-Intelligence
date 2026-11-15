@@ -246,13 +246,13 @@ export class ChaosFaultSandbox {
    */
   public simulateActionMitigation(
     perturbedState: TelemetryStateVector,
-    action: MicroRemediationAction
+    action: { actionId: string; actionType: string; target: string; [key: string]: any }
   ): TelemetryStateVector {
     let rtt = perturbedState.rttMs;
     let loss = perturbedState.lossPct;
     let queue = perturbedState.queueDepthPackets;
 
-    switch (action.actionType) {
+    switch (action.actionType as string) {
       case 'TCP_WINDOW_CLAMP': {
         // Clamping window reduces bufferbloat queue and RTT dramatically
         queue = Math.max(2, Math.round(queue * 0.35));
@@ -260,6 +260,14 @@ export class ChaosFaultSandbox {
         loss = Math.max(0.01, Math.round(loss * 0.70 * 100) / 100);
         break;
       }
+      case 'DSCP_TRAFFIC_SHAPE':
+      case 'DSCP_TRAFFIC_CLASS': {
+        // Prioritization relieves latency on target path
+        rtt = Math.max(8, Math.round(rtt * 0.40 * 100) / 100);
+        queue = Math.max(3, Math.round(queue * 0.50));
+        break;
+      }
+      case 'SOCKET_BUFFER_EXPEDITE':
       case 'BPF_RATE_LIMIT': {
         // Rate-limiting drops ingress burst, stabilizing queue
         queue = Math.max(5, Math.round(queue * 0.45));
@@ -267,12 +275,7 @@ export class ChaosFaultSandbox {
         loss = Math.max(0.05, Math.round(loss * 0.80 * 100) / 100);
         break;
       }
-      case 'DSCP_TRAFFIC_CLASS': {
-        // Prioritization relieves latency on target path
-        rtt = Math.max(8, Math.round(rtt * 0.40 * 100) / 100);
-        queue = Math.max(3, Math.round(queue * 0.50));
-        break;
-      }
+      case 'DNS_UPSTREAM_PIVOT':
       case 'ROUTE_FAILOVER': {
         // Reroute clears congested queue and drops
         rtt = Math.max(15, Math.round(rtt * 0.50 * 100) / 100);
@@ -306,7 +309,7 @@ export class ChaosFaultSandbox {
    */
   public evaluateCandidateRemediation(
     sagaId: string,
-    action: MicroRemediationAction,
+    action: { actionId: string; actionType: string; target: string; [key: string]: any },
     baseState: TelemetryStateVector,
     customPerturbation?: Partial<ChaosPerturbationConfig>
   ): ChaosValidationReceipt {
