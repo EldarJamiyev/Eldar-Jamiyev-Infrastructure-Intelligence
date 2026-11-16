@@ -163,7 +163,7 @@ function validateStructuredInterpretation(candidate, context = {}) {
       mode: isConversational ? 'conversational' : (isInformational ? 'informational' : 'operational'),
       target: isInformational ? null : (rawTarget || rawExplicit || sessionTarget || null),
       explicitTarget: isInformational ? null : (rawExplicit || rawTarget || null),
-      recordType: candidate.recordType || 'A',
+      recordType: candidate.recordType || (context.rawText ? extractDnsRecordType(context.rawText) : null) || 'A',
       ports: validatedPorts,
       clarificationPrompt: candidate.clarificationPrompt || null,
       naturalReply: candidate.naturalReply || null,
@@ -671,38 +671,11 @@ async function semanticAiInterpreter(promptText, context = {}) {
             };
           }
 
-          if (parsed && typeof parsed === 'object' && VALID_INTENTS.has(parsed.intent)) {
-            const validatedPorts = Array.isArray(parsed.ports)
-              ? parsed.ports.map(Number).filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535)
-              : [];
-            const rawTarget = parsed.target && typeof parsed.target === 'string' && parsed.target !== 'null'
-              ? parsed.target.trim()
-              : null;
-
-            // Safety check: if operational intent requires a remote target and neither rawTarget nor context.lastTarget exists, require clarification
-            const remoteIntents = new Set(['ping', 'port_check', 'dns', 'website_check', 'traceroute', 'snmp_probe', 'snmp_walk', 'office_device_resolve', 'tls_posture_audit']);
-            if (remoteIntents.has(parsed.intent) && !rawTarget && !context.lastTarget) {
-              modelInvocationsSucceeded++;
-              if (modelRes.isMock || isCustomProviderHook) mockModelInvocationsCount++;
-              else realModelInvocationsSucceeded++;
-              successfulInterpretations++;
-              lastModelStatus = modelRes.isMock || isCustomProviderHook ? 'MOCK_SUCCESS' : 'LIVE_SUCCESS';
-              return {
-                intent: 'clarification_needed',
-                mode: 'conversational',
-                clarificationReason: 'MISSING_TARGET_CONTEXT',
-                clarificationPrompt:
-                  parsed.clarificationPrompt || 'Which hostname, IP address, or URL would you like me to check?',
-                target: null,
-                explicitTarget: null,
-                ports: validatedPorts,
-                preserveContextOnly: true,
-                modelInterpreted: true,
-                modelProvider: modelRes.provider || provider,
-                isMockModel: Boolean(modelRes.isMock || isCustomProviderHook)
-              };
-            }
-
+          const validation = validateStructuredInterpretation(parsed, {
+            ...context,
+            rawText: raw
+          });
+          if (validation.valid && validation.plan) {
             modelInvocationsSucceeded++;
             if (modelRes.isMock || isCustomProviderHook) {
               mockModelInvocationsCount++;
@@ -714,19 +687,8 @@ async function semanticAiInterpreter(promptText, context = {}) {
             successfulInterpretations++;
             lastModelProvider = modelRes.provider || provider;
 
-            const isConversational = parsed.intent === 'greeting' || parsed.intent === 'casual_conversation' || parsed.intent === 'clarification_needed' || parsed.intent === 'mail_troubleshooting_intake';
-            const isInformational = parsed.intent === 'informational_question' || parsed.intent === 'general_knowledge' || parsed.intent === 'epistemic_fabric_query';
-
             return {
-              intent: parsed.intent,
-              mode: isConversational ? 'conversational' : (isInformational ? 'informational' : 'operational'),
-              target: isInformational ? null : (rawTarget || context.lastTarget || null),
-              explicitTarget: isInformational ? null : (rawTarget || null),
-              recordType: parsed.recordType || extractDnsRecordType(raw) || 'A',
-              ports: validatedPorts,
-              clarificationPrompt: parsed.clarificationPrompt || null,
-              naturalReply: parsed.naturalReply || null,
-              preserveContextOnly: isConversational || isInformational,
+              ...validation.plan,
               modelInterpreted: true,
               modelProvider: modelRes.provider || provider,
               isMockModel: Boolean(modelRes.isMock || isCustomProviderHook)

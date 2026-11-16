@@ -29,9 +29,9 @@ const MIGRATIONS = [
         hostname_or_ip TEXT NOT NULL,
         mac_address TEXT,
         vendor TEXT,
-        status TEXT DEFAULT 'unknown',
+        status TEXT DEFAULT 'unprobed',
         latency_ms REAL,
-        packet_loss REAL DEFAULT 0,
+        packet_loss REAL DEFAULT NULL,
         last_checked TEXT
       );
       CREATE TABLE IF NOT EXISTS topology_edges (
@@ -40,10 +40,10 @@ const MIGRATIONS = [
         target_id TEXT NOT NULL,
         protocol TEXT DEFAULT 'TCP/IP',
         port INTEGER DEFAULT 443,
-        bandwidth_mbps INTEGER DEFAULT 1000,
-        status TEXT DEFAULT 'healthy',
-        latency_ms REAL DEFAULT 1.0,
-        utilization_pct REAL DEFAULT 5.0
+        bandwidth_mbps INTEGER DEFAULT NULL,
+        status TEXT DEFAULT 'unprobed',
+        latency_ms REAL DEFAULT NULL,
+        utilization_pct REAL DEFAULT NULL
       );
       CREATE TABLE IF NOT EXISTS consumed_action_tokens (
         token_hash TEXT PRIMARY KEY,

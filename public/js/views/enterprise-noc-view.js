@@ -54,7 +54,8 @@
     timeline: null,
     superpowersSkills: [],
     drift: null,
-    episodicMemory: []
+    episodicMemory: [],
+    crdtState: null
   };
 
   function escHtml(val) {
@@ -490,7 +491,8 @@
         timelineRes,
         skillsRes,
         driftRes,
-        epRes
+        epRes,
+        crdtRes
       ] = await Promise.allSettled([
         window.api('/api/enterprise/status?includeSimulated=false'),
         window.api('/api/enterprise/sites?includeSimulated=false'),
@@ -502,7 +504,8 @@
         window.api(`/api/enterprise/memory/timeline/${encodeURIComponent(activeTarget)}?windowMinutes=60`),
         window.api('/api/enterprise/superpowers/skills'),
         window.api('/api/enterprise/desired-state-drift'),
-        window.api('/api/enterprise/ai/episodic-memory?includeSimulated=false')
+        window.api('/api/enterprise/ai/episodic-memory?includeSimulated=false'),
+        window.api('/api/v6/sovereign/crdt/state')
       ]);
 
       if (mySeq !== _nocLoadSeqId) return;
@@ -627,6 +630,9 @@
       }
       if (epRes.status === 'fulfilled' && epRes.value?.success) {
         enterpriseData.episodicMemory = epRes.value.episodes || [];
+      }
+      if (crdtRes.status === 'fulfilled' && crdtRes.value?.success) {
+        enterpriseData.crdtState = crdtRes.value.data || null;
       }
       if (typeof window.syncSituationalMemoryFromBackend === 'function') {
         window.syncSituationalMemoryFromBackend();
@@ -786,35 +792,52 @@
           </div>
           <div style="display:flex; gap:8px; align-items:center;">
             <span class="status-dot" style="background:#10B981;"></span>
-            <span style="font-size:11.5px; font-weight:700; color:#10B981; font-family:var(--font-mono, monospace);">CvRDT MONOTONIC CONVERGED</span>
-            <button type="button" class="btn btn-primary" style="font-size:11px; padding:4px 10px; background:#7C3AED; border-color:#6D28D9;" onclick="window.triggerGeoPartitionCrdtSync('region-us-east')">Reconcile Partitions →</button>
+            <span id="crdtStatusLabel" style="font-size:11.5px; font-weight:700; color:#10B981; font-family:var(--font-mono, monospace);">CvRDT ${escHtml(enterpriseData.crdtState?.partitionStatus || 'NORMAL')}</span>
+            <button type="button" class="btn btn-primary" style="font-size:11px; padding:4px 10px; background:#7C3AED; border-color:#6D28D9;" onclick="window.triggerGeoPartitionCrdtSync()">Reconcile Partitions →</button>
           </div>
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;" id="crdtPartitionsGrid">
-          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <strong style="color:#F1F5F9; font-size:13px;">region-us-east</strong>
-              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
-            </div>
-            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, us-east: 12]</div>
-            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 12.4ms · Zero packet loss</div>
-          </div>
-          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <strong style="color:#F1F5F9; font-size:13px;">region-eu-west</strong>
-              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
-            </div>
-            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, eu-west: 9]</div>
-            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 78.2ms · Zero packet loss</div>
-          </div>
-          <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <strong style="color:#F1F5F9; font-size:13px;">region-ap-south</strong>
-              <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">ACTIVE</span>
-            </div>
-            <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [core: 14, ap-south: 6]</div>
-            <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: 134.1ms · Zero packet loss</div>
-          </div>
+          ${(() => {
+            const crdt = enterpriseData.crdtState || {};
+            const localId = crdt.localSiteId || 'site-primary';
+            const vcEntries = Object.entries(crdt.vectorClock || { [localId]: 0 });
+            const vcStr = vcEntries.map(([k, v]) => `${k}: ${v}`).join(', ');
+            const peers = Array.isArray(crdt.knownPartitions) ? crdt.knownPartitions : [];
+            const localCard = `
+              <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <strong style="color:#F1F5F9; font-size:13px;">${escHtml(localId)} (local)</strong>
+                  <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">${escHtml(crdt.partitionStatus || 'NORMAL')}</span>
+                </div>
+                <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Vector Clock: [${escHtml(vcStr)}]</div>
+                <div style="font-size:10.5px; color:#64748B; margin-top:4px;">Counters: ${Number(crdt.localStateSummary?.pnCounterCount || 0)} · Registers: ${Number(crdt.localStateSummary?.lwwRegisterCount || 0)} · OR-Sets: ${Number(crdt.localStateSummary?.orSetCount || 0)}</div>
+              </div>
+            `;
+            if (peers.length === 0) {
+              return localCard + `
+                <div style="background:rgba(30, 41, 59, 0.45); border:1px dashed rgba(148, 163, 184, 0.25); border-radius:6px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+                  <div style="color:#E2E8F0; font-size:12px; font-weight:600;">No remote WAN partitions enrolled or observed</div>
+                  <div style="font-size:10.5px; color:#94A3B8; margin-top:4px;">WAN Latency: Unmeasured · Peer vector clocks synchronize as remote sites replicate deltas.</div>
+                </div>
+              `;
+            }
+            return localCard + peers.map((p) => {
+              const siteName = typeof p === 'string' ? p : (p.siteId || 'unknown-peer');
+              const peerStatus = typeof p === 'object' && p.status ? p.status : 'DISCOVERED';
+              const latLabel = typeof p === 'object' && Number.isFinite(Number(p.observedLatencyMs)) ? `${p.observedLatencyMs}ms` : 'Unmeasured';
+              const deltaCount = typeof p === 'object' ? Number(p.deltaCount || 0) : 0;
+              return `
+                <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong style="color:#F1F5F9; font-size:13px;">${escHtml(siteName)}</strong>
+                    <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(6,78,59,0.7); color:#6EE7B7;">${escHtml(peerStatus)}</span>
+                  </div>
+                  <div style="font-size:11px; color:#94A3B8; margin-top:6px; font-family:var(--font-mono, monospace);">Synced Deltas: ${deltaCount}</div>
+                  <div style="font-size:10.5px; color:#64748B; margin-top:4px;">WAN Latency: ${escHtml(latLabel)}</div>
+                </div>
+              `;
+            }).join('');
+          })()}
         </div>
       </div>
 
@@ -925,7 +948,7 @@
                     <span style="color: #10b981; font-weight: 600; font-size: 11px;">${escHtml(l.status)}</span>
                   </div>
                   <div style="color: #94a3b8; font-size: 11px;">
-                    Path: ${escHtml(l.provider)} · RTT: <span style="color: #38bdf8; font-family: var(--font-mono, monospace);">${escHtml(l.latency_ms ?? l.latencyMs ?? 1.2)} ms</span> · Loss: <span style="font-family: var(--font-mono, monospace);">${escHtml(l.packet_loss_pct ?? l.packetLossPct ?? 0)}%</span>
+                    Path: ${escHtml(l.provider)} · RTT: <span style="color: #38bdf8; font-family: var(--font-mono, monospace);">${(l.latency_ms ?? l.latencyMs) != null ? `${escHtml(l.latency_ms ?? l.latencyMs)} ms` : 'Unmeasured'}</span> · Loss: <span style="font-family: var(--font-mono, monospace);">${(l.packet_loss_pct ?? l.packetLossPct) != null ? `${escHtml(l.packet_loss_pct ?? l.packetLossPct)}%` : 'Unmeasured'}</span>
                   </div>
                 </div>
               `).join('')}
@@ -958,7 +981,7 @@
                   Platform: <span style="color: #e2e8f0;">${escHtml(a.platform)}</span> · IP: <span style="color: #38bdf8;">${escHtml(a.ipAddress)}</span> · Version: <span style="color: #cbd5e1;">${escHtml(a.version || '6.0.0-live')}</span>
                 </div>
                 <div style="font-size: 11px; color: #94a3b8; margin-top: 6px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
-                  <span>Observed Subnets: <code style="color:#cbd5e1;">${escHtml((a.observedSubnets || []).join(', ') || '127.0.0.0/8')}</code> · Auth: <strong style="color: #10b981;">${escHtml(a.enrollmentState || 'ACTIVE')} (HMAC-SHA256)</strong></span>
+                  <span>Observed Subnets: <code style="color:#cbd5e1;">${escHtml((a.observedSubnets || []).join(', ') || 'None observed')}</code> · Auth: <strong style="color: #10b981;">${escHtml(a.enrollmentState || 'ACTIVE')} (HMAC-SHA256)</strong></span>
                   <span style="color: #94a3b8;">Lease Epoch <strong style="color: #a78bfa;">#${escHtml(a.latestLeaseEpoch || 1)}</strong> · ${escHtml(a.completedTaskCount || 0)} verified probes</span>
                 </div>
               </div>
@@ -1102,7 +1125,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
               <strong style="font-size: 13px; color: #f8fafc;">3. Patient Zero Chronological Timeline (MAD + CUSUM)</strong>
               <span style="font-size: 10.5px; font-family: var(--font-mono, monospace); color: #a78bfa;">
-                Origin: ${escHtml(enterpriseData.timeline?.patientZero?.target || '127.0.0.1')} (${escHtml(enterpriseData.timeline?.patientZero?.causalRole || 'BASELINE_CHECKPOINT')})
+                Origin: ${escHtml(enterpriseData.timeline?.patientZero?.target || 'Unattributed')} (${escHtml(enterpriseData.timeline?.patientZero?.causalRole || 'BASELINE_CHECKPOINT')})
               </span>
             </div>
             <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; line-height: 1.45;">
@@ -1185,15 +1208,18 @@
               <span style="font-size: 10px; color: #93c5fd; background: rgba(30, 58, 138, 0.55); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 7px; border-radius: 4px; font-weight: 700;">${(enterpriseData.episodicMemory || []).length} LIVE EPISODE${(enterpriseData.episodicMemory || []).length === 1 ? '' : 'S'}</span>
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px; max-height: 155px; overflow-y: auto; font-size: 11px;">
-              ${(enterpriseData.episodicMemory || []).slice(0, 5).map(ep => `
+              ${(enterpriseData.episodicMemory || []).slice(0, 5).map(ep => {
+                const hasDelta = ep.lyapunovDelta !== null && ep.lyapunovDelta !== undefined && String(ep.lyapunovDelta).trim() !== '';
+                return `
                 <div style="background:#0f172a; border:1px solid rgba(148, 163, 184, 0.14); border-radius:5px; padding:7px 10px;">
                   <div style="display:flex; justify-content:space-between; font-family:var(--font-mono, monospace); font-size:10.5px; color:#38bdf8;">
                     <span>[${escHtml(ep.rootCauseDomain)}] ${escHtml(ep.target)}</span>
-                    <span style="color:#34d399;">${escHtml(ep.executedRunbookId)} (ΔV=${escHtml(ep.lyapunovDelta)})</span>
+                    <span style="color:#34d399;">${escHtml(ep.executedRunbookId || 'Observation')}${hasDelta ? ` (ΔV=${escHtml(ep.lyapunovDelta)})` : ''}</span>
                   </div>
                   <div style="color:#cbd5e1; font-size:10.5px; margin-top:3px; line-height:1.4;">${escHtml(ep.lessonsLearned)}</div>
                 </div>
-              `).join('') || '<div style="color:#94a3b8;">No live episodes recorded yet. Click Execute Closed-Loop Unified Synthesis to record a live diagnostic episode.</div>'}
+              `;
+              }).join('') || '<div style="color:#94a3b8;">No live episodes recorded yet. Click Execute Closed-Loop Unified Synthesis to record a live diagnostic episode.</div>'}
             </div>
           </div>
         </div>
@@ -1761,25 +1787,20 @@
   };
   window.EJIIEnterpriseNocData = enterpriseData;
 
-  window.triggerGeoPartitionCrdtSync = async function(partitionId = 'region-us-east') {
+  window.triggerGeoPartitionCrdtSync = async function(partitionId) {
     const grid = document.getElementById('crdtPartitionsGrid');
     if (grid) {
       grid.style.opacity = '0.6';
     }
     try {
-      const token = localStorage.getItem('eji_token') || localStorage.getItem('ejii_token');
-      const res = await fetch('/api/v6/sovereign/crdt/reconcile', {
+      const firstPeer = Array.isArray(enterpriseData.crdtState?.knownPartitions) && enterpriseData.crdtState.knownPartitions[0];
+      const targetPartition = partitionId || (typeof firstPeer === 'object' ? firstPeer?.siteId : firstPeer) || enterpriseData.crdtState?.localSiteId || 'site-primary';
+      await window.api('/api/v6/sovereign/crdt/reconcile', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': 'Bearer ' + token } : {})
-        },
-        body: JSON.stringify({ targetPartition: partitionId, syncMode: 'delta' })
+        body: JSON.stringify({ targetPartition, syncMode: 'delta' })
       });
-      const data = await res.json();
-      if (grid) {
-        grid.style.opacity = '1.0';
-      }
+      await loadEnterpriseData();
+      renderEnterpriseNocView();
     } catch (err) {
       if (grid) grid.style.opacity = '1.0';
     }

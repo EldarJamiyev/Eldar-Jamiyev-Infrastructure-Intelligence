@@ -137,45 +137,30 @@ class PreIncidentTimelineReconstructor {
     if (events.length === 0) {
       const os = require('os');
       const now = Date.now();
-      const cleanTarget = String(target || '127.0.0.1');
-      const load1m = Number(((os.loadavg && os.loadavg()[0]) || 0.35).toFixed(2));
-      const freeMemMb = Math.round((os.freemem ? os.freemem() : 1024 * 1024 * 512) / (1024 * 1024));
+      const cleanTarget = target ? String(target) : 'UNSPECIFIED_TARGET';
+      const load1m = Number(((os.loadavg && os.loadavg()[0]) ?? 0).toFixed(2));
+      const totalMem = typeof os.totalmem === 'function' ? os.totalmem() : 0;
+      const freeMem = typeof os.freemem === 'function' ? os.freemem() : 0;
+      const memUsedPct = totalMem > 0 ? Number((((totalMem - freeMem) / totalMem) * 100).toFixed(1)) : 0;
+      const freeMemMb = Math.round(freeMem / (1024 * 1024));
       return [
         {
-          timestamp: now - 180000,
-          target: cleanTarget,
-          layer: 'L3_NETWORK',
-          metric: 'rtt_ms',
-          value: 1.2,
-          severity: 'NOMINAL',
-          summary: `Baseline L3/L4 transport reachability verified nominal on ${cleanTarget} (1.2ms RTT, 0% packet loss)`
-        },
-        {
-          timestamp: now - 120000,
+          timestamp: now - 60000,
           target: cleanTarget,
           layer: 'HOST_KERNEL_SOCKET',
           metric: 'cpu_load_1m',
           value: load1m,
-          severity: 'NOMINAL',
-          summary: `Host kernel run-queue & memory telemetry nominal on ${os.hostname()} (1m load=${load1m}, freeMem=${freeMemMb}MB)`
+          severity: 'OBSERVED',
+          summary: `Live OS kernel run-queue snapshot on ${os.hostname()} (1m load=${load1m}, freeMem=${freeMemMb}MB) [real host metric]`
         },
         {
-          timestamp: now - 60000,
+          timestamp: now - 30000,
           target: cleanTarget,
-          layer: 'L4_TRANSPORT',
-          metric: 'tcp_handshake_ms',
-          value: 1.1,
-          severity: 'NOMINAL',
-          summary: `L4 TCP 3-way handshake & listen queue verified healthy on ${cleanTarget} (1.1ms, 0 SYN drops)`
-        },
-        {
-          timestamp: now - 15000,
-          target: cleanTarget,
-          layer: 'L7_APPLICATION',
-          metric: 'http_ttfb_ms',
-          value: 1.4,
-          severity: 'NOMINAL',
-          summary: `L7 HTTP/WS control-plane readiness nominal on ${cleanTarget} (TTFB 1.4ms, CUSUM within ±1.0 MAD)`
+          layer: 'HOST_KERNEL_SOCKET',
+          metric: 'memory_used_pct',
+          value: memUsedPct,
+          severity: 'OBSERVED',
+          summary: `Live OS memory utilization on ${os.hostname()}: ${memUsedPct}% used; no prior L3/L4 rows in probe_history for ${cleanTarget}`
         }
       ];
     }
@@ -185,7 +170,7 @@ class PreIncidentTimelineReconstructor {
 
   reconstructPreIncidentTimeline(options = {}) {
     const startedAt = Date.now();
-    const target = String(options.target || '127.0.0.1').trim() || '127.0.0.1';
+    const target = options.target ? String(options.target).trim() : 'UNSPECIFIED_TARGET';
     const lookbackMinutes = Number(options.lookbackMinutes || options.windowMinutes || 60);
 
     const rawEvents = this._loadHistoricalEvents(target, lookbackMinutes, options.injectedEvents || null);

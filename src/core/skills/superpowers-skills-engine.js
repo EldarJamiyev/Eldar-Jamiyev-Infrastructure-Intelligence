@@ -1223,7 +1223,7 @@ class SuperpowersSkillsEngine {
    * and pre-changepoint baseline events) and computes byte-length and estimated token footprints.
    */
   compileTelemetryContextWindow(options = {}) {
-    const target = String(options.target || '127.0.0.1').trim();
+    const target = String(options.target || 'UNSPECIFIED_TARGET').trim();
     const port = Number(options.port || 3000);
     const timeline = options.timeline || {};
     const arbitration = options.arbitration || {};
@@ -1333,17 +1333,17 @@ class SuperpowersSkillsEngine {
     const verifiedFacts = [
       {
         source: 'PreIncidentTimelineReconstructor (MAD + Page CUSUM)',
-        artifact: `medianBaseline=${timeline.changepointAnalysis?.medianBaseline ?? 1.2}ms, madSigma=${timeline.changepointAnalysis?.madSigma ?? 1.0}, peakCusum=${timeline.changepointAnalysis?.peakCusumScore ?? 0}`,
+        artifact: `medianBaseline=${timeline.changepointAnalysis?.medianBaseline ?? 'UNMEASURED'}ms, madSigma=${timeline.changepointAnalysis?.madSigma ?? 'UNMEASURED'}, peakCusum=${timeline.changepointAnalysis?.peakCusumScore ?? 0}`,
         freshness: 'LIVE_EPOCH'
       },
       {
         source: 'MultiDomainHypothesisArbiter (6-Domain Closed-Loop)',
-        artifact: `winner=${winning.domainId || 'TRANSPORT_L4'} (${winning.probabilityPct ?? 25}%), ΔH=${arbitration.totalInformationGainBits ?? 0} bits across ${arbitration.closedLoopStepsExecuted ?? 0} live probes`,
+        artifact: `winner=${winning.domainId || 'UNASSESSED'} (${winning.probabilityPct ?? 0}%), ΔH=${arbitration.totalInformationGainBits ?? 0} bits across ${arbitration.closedLoopStepsExecuted ?? 0} live probes`,
         freshness: 'LIVE_PROBE_VERIFIED'
       },
       {
         source: 'PredictiveHorizonEngine (M/G/1 Pollaczek-Khinchine + Tarjan)',
-        artifact: `risk=${horizon.overallRiskScore ?? 10}/100 (${horizon.overallRiskTier || 'LOW'}), ρ=${primaryPred.utilizationPct ?? 12}%, Φ_MM1=${primaryPred.mm1QueueingAmplification ?? 0.14}, Φ_MG1=${primaryPred.mg1PollaczekKhinchineFactor ?? primaryPred.mm1QueueingAmplification ?? 0.14}`,
+        artifact: `risk=${horizon.overallRiskScore ?? 'UNMEASURED'}/100 (${horizon.overallRiskTier || 'UNASSESSED'}), ρ=${primaryPred.utilizationPct ?? 'UNMEASURED'}%, Φ_MM1=${primaryPred.mm1QueueingAmplification ?? 'UNMEASURED'}, Φ_MG1=${primaryPred.mg1PollaczekKhinchineFactor ?? primaryPred.mm1QueueingAmplification ?? 'UNMEASURED'}`,
         freshness: 'LIVE_KERNEL_AND_HISTORY'
       }
     ];
@@ -1565,7 +1565,8 @@ class SuperpowersSkillsEngine {
     const patientZero = timeline.patientZero || {};
     const timelineEvents = Array.isArray(timeline.timelineEvents) ? timeline.timelineEvents : [];
 
-    const initialClaim = `Primary anomaly isolated in ${winning.domainId || 'TRANSPORT_L4'} (${winning.probabilityPct ?? 25}% posterior) on ${arbitration.target || '127.0.0.1'}:${arbitration.port || 3000}.`;
+    const reviewTarget = String(arbitration.target || horizon.target || 'UNSPECIFIED_TARGET').trim();
+    const initialClaim = `Primary anomaly isolated in ${winning.domainId || 'TRANSPORT_L4'} (${winning.probabilityPct ?? 25}% posterior) on ${reviewTarget}:${arbitration.port || 3000}.`;
     const crossLayerArtifacts = trace.map((t) => `${t.probeType}: ${t.finding}`);
 
     // Dynamically evaluate Contract 1: OSI Physical Necessity
@@ -1631,7 +1632,7 @@ class SuperpowersSkillsEngine {
         name: 'Zero-Trust Security & Constraint Floor Contract (POL-01 & POL-02)',
         status: contract4Status,
         proof: constraintCheck.passed
-          ? `Target ${arbitration.target || '127.0.0.1'} validated via security.isSafeNetworkTarget, POL-01 Privacy Shield verified, and POL-02 OS kernel PIDs protected.`
+          ? `Target ${reviewTarget} validated via security.isSafeNetworkTarget, POL-01 Privacy Shield verified, and POL-02 OS kernel PIDs protected.`
           : `Constraint violation detected: ${constraintCheck.invariantsChecked.filter((i) => i.status !== 'PASSED').map((i) => i.detail).join('; ')}`
       }
     ];
@@ -1646,7 +1647,7 @@ class SuperpowersSkillsEngine {
       },
       {
         challengerSkillId: 'gravitas-highstakes',
-        challenge: `Does raw ICMP echo behaviour contradict higher-layer L4 TCP / L7 HTTP transport reachability on ${arbitration.target || '127.0.0.1'}?`,
+        challenge: `Does raw ICMP echo behaviour contradict higher-layer L4 TCP / L7 HTTP transport reachability on ${reviewTarget}?`,
         empiricalRefutation: contractsVerified[0].proof
       },
       {
@@ -1691,18 +1692,21 @@ class SuperpowersSkillsEngine {
    * protected OS kernel process policies, Tarjan cut-vertex SPOFs, and boot-time skill SHA-256 hashes.
    */
   enforceConstraintFloor(arbitration = {}, horizon = {}, options = {}) {
-    const rawTarget = String(arbitration.target || options.target || '127.0.0.1').trim();
-    const hostOnlyTarget = rawTarget.replace(/^https?:\/\//i, '').split('/')[0].replace(/:\d+$/, '');
+    const rawTarget = String(arbitration.target || options.target || '').trim();
+    const hasExplicitTarget = Boolean(rawTarget && rawTarget !== 'UNSPECIFIED_TARGET');
+    const hostOnlyTarget = hasExplicitTarget
+      ? rawTarget.replace(/^https?:\/\//i, '').split('/')[0].replace(/:\d+$/, '')
+      : '';
     const cutVertices = Array.isArray(horizon.cutVertices) ? horizon.cutVertices : [];
     const cutVerticesCount = Number(horizon.cutVerticesCount ?? cutVertices.length);
 
     // 1. Real SSRF & Target Safety Check via security.isSafeNetworkTarget
-    const ssrfSafe = isSafeNetworkTarget(hostOnlyTarget);
+    const ssrfSafe = hasExplicitTarget ? isSafeNetworkTarget(hostOnlyTarget) : false;
 
     // 2. Real POL-01 Privacy Shield Readiness Check
     let privacyShieldReady = false;
     try {
-      const sampleSanitized = privacyShield.sanitizeForCloudLlm(`Target=${hostOnlyTarget} Bearer secret_test`, 'constraint-check');
+      const sampleSanitized = privacyShield.sanitizeForCloudLlm(`Target=${hostOnlyTarget || 'UNSPECIFIED_TARGET'} Bearer secret_test`, 'constraint-check');
       privacyShieldReady = Boolean(sampleSanitized && !sampleSanitized.sanitizedText.includes('secret_test'));
     } catch (_e) {
       privacyShieldReady = false;
@@ -1718,7 +1722,7 @@ class SuperpowersSkillsEngine {
       (proposedProc && protectedProcessNames.has(proposedProc));
 
     // 4. Real SPOF Blast-Radius Guard Check
-    const isTargetCutVertex = cutVertices.some((cv) => cv.label === hostOnlyTarget || cv.nodeId === hostOnlyTarget);
+    const isTargetCutVertex = Boolean(hostOnlyTarget) && cutVertices.some((cv) => cv.label === hostOnlyTarget || cv.nodeId === hostOnlyTarget);
     const spofViolated = isTargetCutVertex && options.destructiveWithoutCheckpoint === true;
 
     // 5. Real Read-Only Skill Manifest Integrity Check against Boot SHA-256 Snapshot
@@ -1728,9 +1732,11 @@ class SuperpowersSkillsEngine {
       {
         id: 'INV_SSRF_SAFE_TARGET',
         status: ssrfSafe ? 'PASSED' : 'FAILED',
-        detail: ssrfSafe
-          ? `Target ${hostOnlyTarget} validated by security.isSafeNetworkTarget against cloud-metadata and SSRF blocklists.`
-          : `SECURITY_VIOLATION: Target ${hostOnlyTarget} rejected by security.isSafeNetworkTarget (SSRF / forbidden range / injection blocked).`
+        detail: !hasExplicitTarget
+          ? 'MISSING_TARGET: No explicit network target specified (refusing silent 127.0.0.1 fallback).'
+          : (ssrfSafe
+            ? `Target ${hostOnlyTarget} validated by security.isSafeNetworkTarget against cloud-metadata and SSRF blocklists.`
+            : `SECURITY_VIOLATION: Target ${hostOnlyTarget} rejected by security.isSafeNetworkTarget (SSRF / forbidden range / injection blocked).`)
       },
       {
         id: 'INV_POL01_PRIVACY_SHIELD',
@@ -1904,7 +1910,7 @@ class SuperpowersSkillsEngine {
    */
   grillOperationalIntent(options = {}) {
     const query = String(options.query || options.objective || options.message || 'Investigate infrastructure degradation').trim();
-    const target = String(options.target || '127.0.0.1').trim();
+    const target = String(options.target || 'UNSPECIFIED_TARGET').trim();
     const matchedSkills = this.findSkills(query, { includeAllInstalled: true });
     const selectivelyActivated = matchedSkills.slice(0, 12).map((s) => s.skillId);
     for (const skId of selectivelyActivated) {
@@ -1946,7 +1952,7 @@ class SuperpowersSkillsEngine {
         inferredLayers: ['PHYSICAL_L2_L3', 'TRANSPORT_L4', 'APPLICATION_L7', 'DNS_NAMING', 'HOST_KERNEL_SOCKET', 'SECURITY_TLS_POLICY'],
         safetyConstraints: [
           'Zero-simulation empirical probe execution only',
-          'Strictly read-only access to all 159 skill manifests (.agents/skills, agent/skills, skills-lock.json)',
+          `Strictly read-only access to skill manifests (${this._discoveredSkillCount} verified on disk; ${this._totalManifestsCount} catalog entries across .agents/skills, agent/skills, skills-lock.json)`,
           'Non-destructive read/probe operations enforced during Phase 1-3',
           'Mandatory Shannon entropy reduction check and Doubt-Driven Adversarial Review before root-cause signoff'
         ],
@@ -1959,7 +1965,7 @@ class SuperpowersSkillsEngine {
    * Strategic Workflow Control: Deterministic Multi-Step Execution Plan Generator.
    */
   generateExecutionPlan(options = {}) {
-    const target = String(options.target || '127.0.0.1').trim();
+    const target = String(options.target || 'UNSPECIFIED_TARGET').trim();
     const objective = String(options.objective || options.query || `Full-stack root-cause & horizon synthesis for ${target}`);
 
     return {

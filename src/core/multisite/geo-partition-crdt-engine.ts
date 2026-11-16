@@ -474,6 +474,75 @@ export class GeoPartitionCrdtEngine {
     };
   }
 
+  public getStateSummary(): {
+    localSiteId: string;
+    status: PartitionState;
+    vectorClock: VectorClockMap;
+    pnCounterCount: number;
+    lwwRegisterCount: number;
+    orSetCount: number;
+    trackedPeers: string[];
+  } {
+    const trackedPeers = Object.keys(this.vectorClock).filter((k) => k !== this.localSiteId);
+    return {
+      localSiteId: this.localSiteId,
+      status: this.partitionStatus,
+      vectorClock: { ...this.vectorClock },
+      pnCounterCount: this.pnCounters.size,
+      lwwRegisterCount: this.lwwRegisters.size,
+      orSetCount: this.orSets.size,
+      trackedPeers
+    };
+  }
+
+  public reconcileWithRemotePartition(
+    targetPartition: string,
+    remoteClock: VectorClockMap = {},
+    remoteDeltas: CrdtDeltaRecord[] = []
+  ): ReconciliationReport {
+    const partitionId = String(targetPartition || '').trim() || 'remote-partition';
+    const loadedDeltas: CrdtDeltaRecord[] = Array.isArray(remoteDeltas) ? [...remoteDeltas] : [];
+    const mergedRemoteClock: VectorClockMap = { ...(remoteClock || {}) };
+
+    if (loadedDeltas.length === 0 && this.db) {
+      try {
+        const rows = this.db.prepare(
+          `SELECT site_id, crdt_type, key, delta_payload, vector_clock, timestamp_iso, truetime_ns
+           FROM ejii_crdt_delta_records
+           WHERE site_id = ? AND reconciled = 0 AND crdt_type IN ('PN_COUNTER', 'LWW_REGISTER', 'OR_SET')
+           ORDER BY id ASC LIMIT 200`
+        ).all(partitionId);
+        for (const r of rows) {
+          try {
+            const payload = JSON.parse(r.delta_payload);
+            const vc = JSON.parse(r.vector_clock);
+            for (const [k, v] of Object.entries(vc || {})) {
+              mergedRemoteClock[k] = Math.max(mergedRemoteClock[k] || 0, Number(v) || 0);
+            }
+            loadedDeltas.push({
+              siteId: r.site_id,
+              crdtType: r.crdt_type,
+              key: r.key,
+              deltaPayload: payload,
+              vectorClock: vc,
+              timestampIso: r.timestamp_iso,
+              trueTimeNs: r.truetime_ns || '0'
+            });
+          } catch (_) {}
+        }
+        if (rows.length > 0) {
+          this.db.prepare(`UPDATE ejii_crdt_delta_records SET reconciled = 1 WHERE site_id = ? AND reconciled = 0`).run(partitionId);
+        }
+      } catch (_) {}
+    }
+
+    if (mergedRemoteClock[partitionId] === undefined) {
+      mergedRemoteClock[partitionId] = this.vectorClock[partitionId] || 0;
+    }
+    this.tickLocalClock();
+    return this.reconcileWithRemote(partitionId, mergedRemoteClock, loadedDeltas);
+  }
+
   private persistDelta(crdtType: CrdtType, key: string, payload: any): void {
     try {
       if (this.db) {

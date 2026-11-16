@@ -448,34 +448,7 @@ export class RoutingRadixIntelligenceEngine {
         }
       }
     } catch (_) {
-      // Fallback synthetic-free minimal default routes if OS command is restricted
-    }
-
-    if (routes.length === 0) {
-      routes.push({
-        cidr: '0.0.0.0/0',
-        destination: '0.0.0.0',
-        netmask: '0.0.0.0',
-        gateway: '192.168.31.1',
-        interfaceName: '192.168.31.89',
-        metric: 25,
-      });
-      routes.push({
-        cidr: '192.168.31.0/24',
-        destination: '192.168.31.0',
-        netmask: '255.255.255.0',
-        gateway: '192.168.31.89',
-        interfaceName: '192.168.31.89',
-        metric: 281,
-      });
-      routes.push({
-        cidr: '127.0.0.1/32',
-        destination: '127.0.0.1',
-        netmask: '255.255.255.255',
-        gateway: '127.0.0.1',
-        interfaceName: '127.0.0.1',
-        metric: 331,
-      });
+      // Do not fabricate synthetic workstation routes when OS route inspection is unavailable
     }
 
     return routes;
@@ -499,9 +472,11 @@ export class RoutingRadixIntelligenceEngine {
     const sampleTargets = [
       '8.8.8.8',
       '1.1.1.1',
-      defaultGateways[0]?.gateway || '192.168.31.1',
-      '127.0.0.1',
     ];
+    if (defaultGateways[0]?.gateway && !sampleTargets.includes(defaultGateways[0].gateway)) {
+      sampleTargets.push(defaultGateways[0].gateway);
+    }
+    sampleTargets.push('127.0.0.1');
     if (probeTargetIp && !sampleTargets.includes(probeTargetIp)) {
       sampleTargets.push(probeTargetIp);
     }

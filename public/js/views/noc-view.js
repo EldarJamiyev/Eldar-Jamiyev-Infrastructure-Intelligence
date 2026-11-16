@@ -667,8 +667,11 @@ window.escapeAttr = escapeAttr;
     for (const item of renderedNodes) {
       const n = item.node;
       const isHealthy = n.status === 'healthy';
+      const isUnprobed = n.status === 'unprobed' || (!n.status && (n.last_latency_ms === null || n.last_latency_ms === undefined));
       const badge = getNodeEvidenceBadge(n);
       const isCluster = n.id === 'NODE-FLEET-CLUSTER';
+      const statusAccent = isHealthy ? '#10B981' : (isUnprobed ? '#64748B' : '#E11D48');
+      const cardStroke = isCluster ? '#0D7A5F' : (isHealthy ? '#E2E8F0' : (isUnprobed ? '#CBD5E1' : '#E11D48'));
 
       // Clean titleName: strip redundant parenthetical IP to prevent card boundary clipping
       let titleName = (n.name || 'Device').replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?(?::\d+)?\s*\)\s*$/, '').trim();
@@ -702,9 +705,9 @@ window.escapeAttr = escapeAttr;
 
       nodesSvg += `
         <g id="svgNode-${n.id}" class="topology-svg-node" transform="translate(${item.x}, ${item.y})" style="cursor: pointer;" onclick="${clickHandler}" oncontextmenu="window.handleNodeContextMenu(event, '${n.id}', '${n.hostname_or_ip}')" onmouseenter="window.showTopologyTooltip(event, '${n.id}')" onmouseleave="window.hideTopologyTooltip()">
-          <rect width="${item.width}" height="${item.height}" rx="6" fill="#FFFFFF" stroke="${isCluster ? '#0D7A5F' : (n.status === 'healthy' ? '#E2E8F0' : '#E11D48')}" stroke-width="${isCluster ? '1.75' : '1.25'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
-          <rect x="0" y="0" width="3.5" height="${item.height}" rx="2" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
-          <circle cx="16" cy="18" r="4" fill="${isHealthy ? '#10B981' : '#E11D48'}"/>
+          <rect width="${item.width}" height="${item.height}" rx="6" fill="#FFFFFF" stroke="${cardStroke}" stroke-width="${isCluster ? '1.75' : '1.25'}" stroke-dasharray="${isCluster ? '5,3' : 'none'}" filter="url(#nodeCardShadow)"/>
+          <rect x="0" y="0" width="3.5" height="${item.height}" rx="2" fill="${statusAccent}"/>
+          <circle cx="16" cy="18" r="4" fill="${statusAccent}"/>
           <clipPath id="titleClip-${n.id}"><rect x="24" y="6" width="${Math.max(80, item.width - roleBadgeW - 36)}" height="20"/></clipPath>
           <text x="26" y="21" clip-path="url(#titleClip-${n.id})" font-size="11" font-family="system-ui, -apple-system, sans-serif" font-weight="700" fill="#0F172A" style="filter: none; text-shadow: none;">${escapeHtml(cleanTitle)}</text>
           

@@ -85,12 +85,29 @@ class RlofPreferenceAligner {
     return this.weights.get(action);
   }
 
+  normalizeContextVector(contextVector) {
+    if (contextVector === undefined || contextVector === null) {
+      return [0.5, 0.5, 0.5, 0.2];
+    }
+    if (!Array.isArray(contextVector) || contextVector.length !== FEATURE_DIMENSION) {
+      throw new RangeError(`contextVector must be a ${FEATURE_DIMENSION}-element numeric array`);
+    }
+    for (let i = 0; i < contextVector.length; i++) {
+      const v = contextVector[i];
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new RangeError(`contextVector[${i}] contains non-finite value`);
+      }
+    }
+    return [...contextVector];
+  }
+
   /**
    * Calculates linear scalar reward r_\theta(x, y) = \theta_y^T x + b_y
    */
   computeReward(contextVector, action) {
+    const safeCtx = this.normalizeContextVector(contextVector);
     const w = this.getActionWeight(action);
-    const dot = contextVector.reduce((sum, xi, i) => sum + xi * (w.theta[i] || 0.0), 0.0);
+    const dot = safeCtx.reduce((sum, xi, i) => sum + xi * (w.theta[i] || 0.0), 0.0);
     return dot + w.bias;
   }
 
@@ -109,9 +126,14 @@ class RlofPreferenceAligner {
    * Computes DPO loss and explicit analytic gradients with respect to weights
    */
   computeDpoLossAndGradients(contextVector, winningAction, losingAction, betaDpo = DEFAULT_BETA_DPO) {
-    const rW = this.computeReward(contextVector, winningAction);
-    const rL = this.computeReward(contextVector, losingAction);
-    const margin = betaDpo * (rW - rL);
+    const safeCtx = this.normalizeContextVector(contextVector);
+    if (typeof betaDpo !== 'number' || !Number.isFinite(betaDpo) || betaDpo <= 0) {
+      throw new RangeError('betaDpo must be a positive finite number');
+    }
+    const safeBeta = betaDpo;
+    const rW = this.computeReward(safeCtx, winningAction);
+    const rL = this.computeReward(safeCtx, losingAction);
+    const margin = safeBeta * (rW - rL);
 
     // DPO loss: -log(sigma(margin)) = log(1 + exp(-margin))
     let dpoLoss;
@@ -125,12 +147,12 @@ class RlofPreferenceAligner {
 
     // Gradient factor: -beta * (1 - sigma(margin))
     const sigM = this.sigmoid(margin);
-    const factor = betaDpo * (1.0 - sigM);
+    const factor = safeBeta * (1.0 - sigM);
 
     // Negative gradient direction for winning: gradW = -factor * x
-    const gradW = contextVector.map((xi) => -factor * xi);
+    const gradW = safeCtx.map((xi) => -factor * xi);
     // Positive gradient direction for losing: gradL = factor * x
-    const gradL = contextVector.map((xi) => factor * xi);
+    const gradL = safeCtx.map((xi) => factor * xi);
 
     return {
       dpoLoss: Number(dpoLoss.toFixed(6)),
@@ -241,16 +263,20 @@ class RlofPreferenceAligner {
    * Records preference triplet, updates Bradley-Terry / DPO weights, and aligns Contextual Bandit arm priors
    */
   recordPreferenceAndAlign(params) {
-    const winningAction = params.winningAction.toUpperCase();
-    const losingAction = params.losingAction.toUpperCase();
-    const contextVector = params.contextVector && params.contextVector.length === FEATURE_DIMENSION
-      ? params.contextVector
-      : [0.5, 0.5, 0.5, 0.2];
-    const operatorId = params.operatorId || 'operator-sre-1';
-    const sessionId = params.sessionId || 'session-global';
-    const feedbackType = params.feedbackType || 'EXPLICIT_OVERRIDE';
-    const lr = params.learningRate ?? DEFAULT_LEARNING_RATE;
-    const betaDpo = params.betaDpo ?? DEFAULT_BETA_DPO;
+    const winningAction = String(params?.winningAction || '').toUpperCase();
+    const losingAction = String(params?.losingAction || '').toUpperCase();
+    const contextVector = this.normalizeContextVector(params?.contextVector);
+    const operatorId = params?.operatorId || 'operator-sre-1';
+    const sessionId = params?.sessionId || 'session-global';
+    const feedbackType = params?.feedbackType || 'EXPLICIT_OVERRIDE';
+    if (params?.learningRate !== undefined && (typeof params.learningRate !== 'number' || !Number.isFinite(params.learningRate) || params.learningRate <= 0)) {
+      throw new RangeError('learningRate must be a positive finite number');
+    }
+    if (params?.betaDpo !== undefined && (typeof params.betaDpo !== 'number' || !Number.isFinite(params.betaDpo) || params.betaDpo <= 0)) {
+      throw new RangeError('betaDpo must be a positive finite number');
+    }
+    const lr = params?.learningRate ?? DEFAULT_LEARNING_RATE;
+    const betaDpo = params?.betaDpo ?? DEFAULT_BETA_DPO;
 
     // 1. Calculate Bradley-Terry Probability and DPO gradients
     const btProb = this.computeBradleyTerryProbability(contextVector, winningAction, losingAction);

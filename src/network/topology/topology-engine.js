@@ -27,9 +27,9 @@ class TopologyEngine {
    */
   syncTopologyToPhysicalNetwork() {
     const netInfo = getPhysicalNetworkInfo();
-    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '127.0.0.1';
-    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
-    const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
+    const gatewayIp = (netInfo.gatewayVerified && (netInfo.defaultGateway || netInfo.gatewayIp)) || 'NO_DEFAULT_ROUTE_OBSERVED';
+    const hostIp = netInfo.localIp || netInfo.hostIp || 'UNOBSERVED_HOST_IP';
+    const subnetCidr = netInfo.subnetCidr || 'UNOBSERVED_SUBNET';
     const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || null;
     const now = new Date().toISOString();
 
@@ -125,9 +125,9 @@ class TopologyEngine {
     }
 
     const netInfo = getPhysicalNetworkInfo();
-    const activeSubnet = netInfo.subnetCidr;
-    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
-    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '127.0.0.1';
+    const activeSubnet = netInfo.subnetCidr || 'UNOBSERVED_SUBNET';
+    const hostIp = netInfo.localIp || netInfo.hostIp || 'UNOBSERVED_HOST_IP';
+    const gatewayIp = (netInfo.gatewayVerified && (netInfo.defaultGateway || netInfo.gatewayIp)) || 'NO_DEFAULT_ROUTE_OBSERVED';
 
     const rawDbNodes = db.prepare('SELECT * FROM topology_nodes ORDER BY layer_level ASC, id ASC').all();
     const rawDbEdges = db.prepare('SELECT * FROM topology_edges').all();
@@ -262,14 +262,28 @@ class TopologyEngine {
       };
     });
 
-    const parsedEdges = filteredEdges.map(e => ({
-      ...e,
-      evidenceSource: 'Observed',
-      evidence_source: 'Observed',
-      last_seen: new Date().toISOString(),
-      lastSeen: new Date().toISOString(),
-      metadata: e.metadata ? (typeof e.metadata === 'string' ? JSON.parse(e.metadata) : e.metadata) : {}
-    }));
+    const parsedEdges = filteredEdges.map(e => {
+      const meta = e.metadata ? (typeof e.metadata === 'string' ? JSON.parse(e.metadata) : e.metadata) : {};
+      let evSource = meta.evidenceSource;
+      if (!evSource) {
+        if (meta.autoSynthesized) {
+          evSource = 'Inferred';
+        } else if (meta.evidenceClassification === 'Architectural_Template' || meta.evidenceClassification === 'Architectural_Template_Link') {
+          evSource = 'Configured';
+        } else {
+          evSource = 'Observed';
+        }
+      }
+      const lastSeen = e.last_checked || meta.observedAt || null;
+      return {
+        ...e,
+        evidenceSource: evSource,
+        evidence_source: evSource,
+        last_seen: lastSeen,
+        lastSeen,
+        metadata: meta
+      };
+    });
 
     const layers = [
       { level: 1, id: 'wan', name: 'Layer 1: Upstream WAN & Transit', description: 'External transit gateways & Anycast DNS' },
@@ -338,10 +352,25 @@ class TopologyEngine {
         rttMs: Number(edge.rtt_ms ?? edge.rttMs ?? edge.latencyMs ?? 1)
       }));
 
+      const unmeasuredNodesCount = parsedNodes.filter(node =>
+        (node.last_latency_ms ?? node.latencyMs ?? node.rttMs ?? node.latency ?? null) === null
+      ).length;
+      const unmeasuredEdgesCount = parsedEdges.filter(edge =>
+        (edge.rtt_ms ?? edge.rttMs ?? edge.latencyMs ?? null) === null ||
+        (edge.bandwidth_mbps ?? edge.bandwidthMbps ?? null) === null
+      ).length;
+
       const rootWorkstationId = parsedNodes.find(n => n.id === 'NODE-HOST-01' || n.layer === 'endpoint')?.id || mappedNodes[0]?.id || 'NODE-HOST-01';
       const spectralReport = this.spectralGNNEngine.analyzeTopology(mappedNodes, mappedEdges, rootWorkstationId);
 
-      result.spectralApex = spectralReport;
+      result.spectralApex = {
+        ...spectralReport,
+        telemetryCompleteness: {
+          unmeasuredNodesCount,
+          unmeasuredEdgesCount,
+          baselinePriorAssumedForUnmeasured: unmeasuredNodesCount > 0 || unmeasuredEdgesCount > 0
+        }
+      };
       result.algebraicConnectivityLambda2 = spectralReport.algebraicConnectivityLambda2;
       result.partitionRiskLevel = spectralReport.partitionRiskLevel;
       result.criticalCutEdges = spectralReport.criticalCutEdges;
@@ -374,8 +403,8 @@ class TopologyEngine {
 
     const netInfo = getPhysicalNetworkInfo();
     const defaultGatewayIp = netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || null) : null;
-    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
-    const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
+    const hostIp = netInfo.localIp || netInfo.hostIp || 'UNOBSERVED_HOST_IP';
+    const subnetCidr = netInfo.subnetCidr || 'UNOBSERVED_SUBNET';
     const now = new Date().toISOString();
 
     const arpEntries = await getArpTable();
@@ -416,15 +445,14 @@ class TopologyEngine {
         db.prepare(`
           INSERT INTO topology_nodes (
             id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata
-          ) VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-GW-01', 'healthy', ?, NULL, ?, 'eth0', 880, 140, ?)
+          ) VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-GW-01', 'unprobed', NULL, NULL, ?, 'eth0', 880, 140, ?)
         `).run(
           id,
           nodeName,
           ip,
           entry.mac,
-          now,
           entry.vendor || 'Discovered Host',
-          JSON.stringify({ discovery: 'arp_inspection', mac: entry.mac })
+          JSON.stringify({ discovery: 'arp_inspection', mac: entry.mac, discoveredAt: now })
         );
 
         // Add edge from gateway/access LAN to discovered host
@@ -720,9 +748,9 @@ class TopologyEngine {
     `).run(
       id,
       snapName,
-      netInfo.subnetCidr || '127.0.0.0/8',
+      netInfo.subnetCidr || 'UNOBSERVED_SUBNET',
       netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || 'NO_DEFAULT_ROUTE_OBSERVED') : 'NO_DEFAULT_ROUTE_OBSERVED',
-      netInfo.hostIp || netInfo.localIp || '127.0.0.1',
+      netInfo.hostIp || netInfo.localIp || 'UNOBSERVED_HOST_IP',
       netInfo.interfaceAlias || 'lo',
       triggerReason,
       nodes.length,
@@ -735,7 +763,7 @@ class TopologyEngine {
       success: true,
       snapshotId: id,
       snapshotName: snapName,
-      environmentCidr: netInfo.subnetCidr || '127.0.0.0/8',
+      environmentCidr: netInfo.subnetCidr || 'UNOBSERVED_SUBNET',
       gatewayIp: netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || null) : null,
       nodesCount: nodes.length,
       edgesCount: edges.length,
@@ -948,9 +976,9 @@ class TopologyEngine {
       id: n.id,
       role: n.type || 'ENDPOINT',
       metrics: {
-        rttMs: n.metrics?.rtt || 10,
-        lossPct: n.metrics?.loss || 0,
-        queueDepthPackets: n.metrics?.queue || 5
+        rttMs: n.metrics?.rtt ?? n.last_latency_ms ?? null,
+        lossPct: n.metrics?.loss ?? null,
+        queueDepthPackets: n.metrics?.queue ?? null
       }
     }));
     return hypergraphNeuralOperator.analyzeHypergraph(hNodes, hyperedges, options);

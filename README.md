@@ -8,9 +8,9 @@
 
 **AI-Native Conversational Infrastructure Assistant · L1–L7 Protocol & Wire Dissector · Epistemic Evidence Fabric · Governed Self-Healing Workbench**
 
-[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-6%2F6_Suites_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
+[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-7%2F7_Suites_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
 [![GitHub Actions CI](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml)
-[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-68%2F68_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-81%2F81_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
 [![TS/JS Parity](https://img.shields.io/badge/TS%2FJS_Module_Parity-102%2F102_Synced-0D9488?style=for-the-badge)](scripts/verify-ts-js-parity.js)
 [![Design System](https://img.shields.io/badge/UI_Architecture-Project_Aurora_v7.0-0F172A?style=for-the-badge)](public/css/ejii-meridian.css)
 [![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini_3.8_Flash-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
@@ -363,22 +363,22 @@ Open **`http://localhost:3000`** in your browser.
 
 ### 7.4 Running the Automated Verification Suites
 
-EJII includes **6 isolated SQLite verification suites (68 tests)** covering conversational diagnostics, autonomous operator self-healing, Sovereign Fabric v6 evidence lineage, Superpowers closed-loop agency, canonical skill ecosystem invariants, and zero-simulation telemetry integrity, alongside a **294-file AST linter and 102/102 TypeScript/JavaScript parity verifier**:
+EJII includes **7 isolated SQLite verification suites (81 tests)** covering conversational diagnostics, autonomous operator self-healing, Sovereign Fabric v6 evidence lineage, Superpowers closed-loop agency, canonical skill ecosystem invariants, symlink-safe isolation, and zero-simulation telemetry integrity, alongside a **295-file AST linter and 102/102 TypeScript/JavaScript parity verifier**:
 
 ```bash
-# Run the complete isolated per-suite SQLite verification harness (6 suites, 68 tests)
+# Run the complete isolated per-suite SQLite verification harness (7 suites, 81 tests)
 npm test
 # or directly:
 node tests/run-all-tests.js
 
-# Run a single verification suite directly
-node --test src/core/__tests__/sovereign-integrity-and-falcon.test.js
+# Run a single verification suite via the isolated harness (filter by filename)
+npm test -- p0-p1-truthfulness-and-isolation.test.js
 
-# Run V8 AST syntax audit (294 JS files), TypeScript typecheck (tsc --noEmit), 102/102 TS/JS parity check, and HTML/CSS verification
+# Run V8 AST syntax audit (295 JS files), TypeScript typecheck (tsc --noEmit), 102/102 TS/JS parity check, and HTML/CSS verification
 npm run lint
 
-# Verify 100% export and method parity across all 102 paired TypeScript/JavaScript modules
-node scripts/verify-ts-js-parity.js
+# Verify 100% export, method, and behavioral parity across all 102 paired TypeScript/JavaScript modules
+npm run verify:parity
 
 # Re-capture live application screenshots via Playwright
 node scripts/capture-aurora-screenshots.js

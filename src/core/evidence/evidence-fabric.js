@@ -49,6 +49,7 @@ const COLLECTION_FIDELITY_WEIGHTS = Object.freeze({
   derived_formula: 0.88,
   bayesian_inference: 0.84,
   simulation_mm1k: 0.72,
+  unspecified_method: 0.40,
   unavailable_probe: 0.25
 });
 
@@ -107,8 +108,8 @@ function ensureEvidenceTables(targetDb = db) {
         subject TEXT NOT NULL,
         label TEXT NOT NULL,
         payload_json TEXT NOT NULL DEFAULT '{}',
-        quality_score REAL NOT NULL DEFAULT 1.0,
-        freshness_state TEXT NOT NULL DEFAULT 'live',
+        quality_score REAL NOT NULL DEFAULT 0.0,
+        freshness_state TEXT NOT NULL DEFAULT 'stale',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -163,7 +164,7 @@ function classifyFreshness(observedAt, expiresAt, opts = {}) {
  */
 function computeDeterministicQualityScore({
   type = 'observation',
-  collectionMethod = 'icmp_echo',
+  collectionMethod = 'unspecified_method',
   freshnessState = 'live',
   corroborates = [],
   contradicts = [],
@@ -173,7 +174,7 @@ function computeDeterministicQualityScore({
   if (type === 'missing_evidence') return 0;
 
   const baseFidelity = COLLECTION_FIDELITY_WEIGHTS[collectionMethod] ||
-    (type === 'simulated_result' ? 0.70 : type === 'hypothesis' ? 0.65 : 0.85);
+    (type === 'simulated_result' ? 0.70 : type === 'hypothesis' ? 0.65 : 0.75);
 
   const freshnessMultipliers = {
     live: 1.0,
@@ -478,13 +479,17 @@ class EvidenceFabric {
     ensureEvidenceTables(this.dbHandle);
     const id = input.id || `EVD-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const type = EVIDENCE_CLASSES.includes(input.type) ? input.type : 'observation';
-    const subject = String(input.subject || 'host:local');
+    const hasExplicitSubject = typeof input.subject === 'string' && input.subject.trim().length > 0;
+    const hasExplicitSource = typeof input.sourceCapabilityId === 'string' && input.sourceCapabilityId.trim().length > 0;
+    const hasExplicitMethod = typeof input.collectionMethod === 'string' && input.collectionMethod.trim().length > 0;
+    const subject = hasExplicitSubject ? input.subject.trim() : 'unspecified_subject';
     const claim = String(input.claim || 'Infrastructure telemetry record');
     const rawValue = input.rawValue !== undefined ? input.rawValue : null;
     const normalizedValue = input.normalizedValue !== undefined ? input.normalizedValue : rawValue;
     const unit = input.unit !== undefined ? String(input.unit) : null;
-    const sourceCapabilityId = String(input.sourceCapabilityId || 'ejii.core.telemetry');
-    const collectionMethod = String(input.collectionMethod || 'direct_probe');
+    const sourceCapabilityId = hasExplicitSource ? input.sourceCapabilityId.trim() : 'unspecified_source';
+    const collectionMethod = hasExplicitMethod ? input.collectionMethod.trim() : 'unspecified_method';
+    const provenanceComplete = hasExplicitSubject && hasExplicitSource && hasExplicitMethod;
 
     const nowMs = Date.now();
     const observedAt = input.observedAt ? new Date(input.observedAt).toISOString() : new Date(nowMs).toISOString();
@@ -560,6 +565,7 @@ class EvidenceFabric {
       derivedFrom: safeDerivedFrom,
       prevHash,
       integrityHash,
+      provenanceComplete,
       persistedToSqlite: false,
       persistenceStatus: 'MEMORY_ONLY',
       persistenceError: null
@@ -567,9 +573,14 @@ class EvidenceFabric {
 
     const savepointName = `sp_evd_${crypto.randomBytes(4).toString('hex')}`;
     const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
+    const hadPriorMemoryRecord = this.memoryRecords.has(id);
+    const priorMemoryRecord = hadPriorMemoryRecord ? { ...this.memoryRecords.get(id) } : null;
     const hadPriorDagNode = this.dagNodes.has(id);
-    const priorDagNode = hadPriorDagNode ? this.dagNodes.get(id) : null;
-    const priorDagEdgesSnapshot = [...this.dagEdges];
+    const existingDagNode = hadPriorDagNode ? this.dagNodes.get(id) : null;
+    const priorDagNode = existingDagNode
+      ? { ...existingDagNode, payload: existingDagNode.payload ? { ...existingDagNode.payload } : {} }
+      : null;
+    const priorDagEdgesSnapshot = this.dagEdges.map((e) => ({ ...e, metadata: e.metadata ? { ...e.metadata } : {} }));
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
@@ -626,7 +637,11 @@ class EvidenceFabric {
         this.dagNodes.delete(id);
       }
       this.dagEdges = priorDagEdgesSnapshot;
-      this.memoryRecords.delete(id);
+      if (hadPriorMemoryRecord && priorMemoryRecord) {
+        this.memoryRecords.set(id, priorMemoryRecord);
+      } else {
+        this.memoryRecords.delete(id);
+      }
       this.lastChainHash = prevHash;
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
@@ -734,7 +749,9 @@ class EvidenceFabric {
     ensureEvidenceTables(this.dbHandle);
     const findingId = input.findingId || input.id || `FND-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const title = String(input.title || 'Infrastructure Diagnostic Finding');
-    const subject = String(input.subject || 'host:local');
+    const subject = (typeof input.subject === 'string' && input.subject.trim().length > 0)
+      ? input.subject.trim()
+      : 'unspecified_subject';
     const ruleId = String(input.ruleId || 'RULE-CAUSAL-01');
     const inferenceStep = String(input.inferenceStep || 'Cross-layer evidentiary deduction');
     const supportingEvidenceIds = Array.isArray(input.supportingEvidenceIds) ? input.supportingEvidenceIds.map(String) : [];
@@ -808,9 +825,14 @@ class EvidenceFabric {
 
     const savepointName = `sp_fnd_${crypto.randomBytes(4).toString('hex')}`;
     const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
+    const hadPriorMemoryFinding = this.memoryFindings.has(findingId);
+    const priorMemoryFinding = hadPriorMemoryFinding ? { ...this.memoryFindings.get(findingId) } : null;
     const hadPriorDagNode = this.dagNodes.has(findingId);
-    const priorDagNode = hadPriorDagNode ? this.dagNodes.get(findingId) : null;
-    const priorDagEdgesSnapshot = [...this.dagEdges];
+    const existingDagNode = hadPriorDagNode ? this.dagNodes.get(findingId) : null;
+    const priorDagNode = existingDagNode
+      ? { ...existingDagNode, payload: existingDagNode.payload ? { ...existingDagNode.payload } : {} }
+      : null;
+    const priorDagEdgesSnapshot = this.dagEdges.map((e) => ({ ...e, metadata: e.metadata ? { ...e.metadata } : {} }));
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
@@ -861,7 +883,11 @@ class EvidenceFabric {
         this.dagNodes.delete(findingId);
       }
       this.dagEdges = priorDagEdgesSnapshot;
-      this.memoryFindings.delete(findingId);
+      if (hadPriorMemoryFinding && priorMemoryFinding) {
+        this.memoryFindings.set(findingId, priorMemoryFinding);
+      } else {
+        this.memoryFindings.delete(findingId);
+      }
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
       persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);

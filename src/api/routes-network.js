@@ -253,8 +253,8 @@ router.post('/topology/node', requireRole('ADMIN', 'NETWORK_ADMIN'), (req, res) 
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, type, layer, parent_id, status, last_checked)
-    VALUES (?, ?, ?, ?, ?, ?, 'healthy', ?)
-  `).run(id, name.trim(), hostname_or_ip.trim(), type, layer, parent_id, now);
+    VALUES (?, ?, ?, ?, ?, ?, 'unprobed', NULL)
+  `).run(id, name.trim(), hostname_or_ip.trim(), type, layer, parent_id);
 
   res.json({ success: true, nodeId: id });
 });
@@ -1240,8 +1240,8 @@ router.post('/scanner/add-to-topology', (req, res) => {
     const existing = db.prepare('SELECT id FROM topology_nodes WHERE id = ? OR hostname_or_ip = ?').get(nodeId, ip);
     if (!existing) {
       db.prepare(`
-        INSERT INTO topology_nodes (id, name, type, layer, layer_level, hostname_or_ip, mac_address, vendor, status, evidence_classification, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO topology_nodes (id, name, type, layer, layer_level, hostname_or_ip, mac_address, vendor, status, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         nodeId,
         name,
@@ -1249,23 +1249,22 @@ router.post('/scanner/add-to-topology', (req, res) => {
         'access',
         5,
         ip,
-        mac || 'Unknown',
+        mac || null,
         vendor || 'Discovered Host',
-        'healthy',
-        'ARP Discovered',
-        JSON.stringify({ discovery: 'ultra_ip_scanner', addedAt: new Date().toISOString() })
+        'unprobed',
+        JSON.stringify({ discovery: 'ultra_ip_scanner', evidenceClassification: 'Observed_ARP', addedAt: new Date().toISOString() })
       );
 
-      // Connect to default gateway or subnet
-      const gwNode = db.prepare('SELECT id FROM topology_nodes WHERE layer = "edge" OR hostname_or_ip = "10.168.195.1" LIMIT 1').get();
+      // Connect to default gateway or edge node
+      const gwNode = db.prepare("SELECT id FROM topology_nodes WHERE id = 'NODE-GW-01' OR layer = 'edge' LIMIT 1").get();
       if (gwNode) {
         const edgeId = `EDGE-${gwNode.id}-${nodeId}`;
         const edgeExists = db.prepare('SELECT id FROM topology_edges WHERE id = ?').get(edgeId);
         if (!edgeExists) {
           db.prepare(`
-            INSERT INTO topology_edges (id, source_id, target_id, link_type, bandwidth_mbps, utilization_pct, status, evidence_source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(edgeId, gwNode.id, nodeId, 'physical', 1000, 15, 'operational', 'ARP Discovered');
+            INSERT INTO topology_edges (id, source_id, target_id, link_type, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, status, metadata)
+            VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+          `).run(edgeId, gwNode.id, nodeId, 'ethernet', 'unprobed', JSON.stringify({ discovery: 'ultra_ip_scanner', evidenceSource: 'Observed' }));
         }
       }
     }

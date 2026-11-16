@@ -132,6 +132,44 @@ for (const tsFile of allTsFiles) {
   console.log(`  ✓ ${relativeTs} <-> ${relativeJs} (synced)`);
 }
 
+console.log('------------------------------------------------------------------------');
+console.log('[TS/JS Parity] Running runtime behavioral smoke checks...');
+try {
+  const { RlofPreferenceAligner } = require(path.join(ROOT_DIR, 'src', 'ai', 'rlof-preference-aligner.js'));
+  const aligner = new RlofPreferenceAligner();
+  const rOk = aligner.computeReward([0.5, 0.2, 0.1, 0.9], 'ACTION_A');
+  if (!Number.isFinite(rOk)) {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: RlofPreferenceAligner.computeReward returned non-finite value');
+  }
+  let threwNaN = false;
+  try {
+    aligner.computeReward([NaN, 0.2, 0.1, 0.9], 'ACTION_A');
+  } catch (_) {
+    threwNaN = true;
+  }
+  if (!threwNaN) {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: RlofPreferenceAligner.computeReward did not reject non-finite contextVector');
+  }
+
+  const { RoutingRadixIntelligenceEngine } = require(path.join(ROOT_DIR, 'src', 'topology', 'routing-radix-intelligence.js'));
+  const radix = new RoutingRadixIntelligenceEngine();
+  if (typeof radix.clearRoutes === 'function') {
+    radix.clearRoutes();
+  }
+  if (typeof radix.findLongestPrefixMatch === 'function' && radix.findLongestPrefixMatch('192.168.31.1') !== null) {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: RoutingRadixIntelligenceEngine pre-seeded synthetic 192.168.31.1 route');
+  }
+  if (failures === 0) {
+    console.log('  ✓ Behavioral smoke checks passed (RlofPreferenceAligner finite guards, RoutingRadixIntelligenceEngine clean state)');
+  }
+} catch (behErr) {
+  failures++;
+  divergences.push(`BEHAVIOR_ERROR: ${behErr.message}`);
+}
+
 console.log('========================================================================');
 if (failures === 0) {
   console.log(`[TS/JS Parity] PASS: All ${checkedModules}/${totalTsModules} TypeScript modules maintain 100% parity with JavaScript counterparts.`);

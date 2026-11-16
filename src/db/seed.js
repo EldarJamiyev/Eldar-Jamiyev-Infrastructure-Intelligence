@@ -60,9 +60,9 @@ function seedDatabase(targetDb = defaultDb) {
   // Detect live physical network environment (without guessing .1 gateway)
   const netInfo = getPhysicalNetworkInfo() || {};
   const verifiedGatewayIp = netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp) : getSystemDefaultGateway();
-  const gatewayNodeAddress = verifiedGatewayIp || '127.0.0.1';
-  const localHostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
-  const localSubnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
+  const gatewayNodeAddress = verifiedGatewayIp || 'NO_DEFAULT_ROUTE_OBSERVED';
+  const localHostIp = netInfo.localIp || netInfo.hostIp || 'UNOBSERVED_HOST_IP';
+  const localSubnetCidr = netInfo.subnetCidr || 'UNOBSERVED_SUBNET';
   const primaryDns = (netInfo.dnsServers && netInfo.dnsServers[0]) || null;
   const hostMac = netInfo.macAddress || null;
   const gwMac = (netInfo.gatewayMac && netInfo.gatewayMac !== 'Unknown') ? netInfo.gatewayMac : null;

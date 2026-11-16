@@ -38,9 +38,31 @@ const PORT = parseInt(process.env.EJII_PORT || '8443', 10);
 const HOST = process.env.EJII_HOST || '127.0.0.1';
 const DEFAULT_REPO_DATA_DIR = path.resolve(__dirname, '..', 'data');
 
+function resolveCanonicalPath(targetPath) {
+  const resolved = path.resolve(String(targetPath || ''));
+  const trailingSegments = [];
+  let cursor = resolved;
+  while (cursor && !fs.existsSync(cursor)) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    trailingSegments.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+  try {
+    const realBase = fs.existsSync(cursor)
+      ? (typeof fs.realpathSync.native === 'function' ? fs.realpathSync.native(cursor) : fs.realpathSync(cursor))
+      : cursor;
+    return trailingSegments.length > 0 ? path.join(realBase, ...trailingSegments) : realBase;
+  } catch (_) {
+    return resolved;
+  }
+}
+
 function isPathInsideDir(targetPath, parentDir) {
   if (!targetPath || !parentDir) return false;
-  const rel = path.relative(path.resolve(parentDir), path.resolve(targetPath));
+  const canonicalParent = resolveCanonicalPath(parentDir);
+  const canonicalTarget = resolveCanonicalPath(targetPath);
+  const rel = path.relative(canonicalParent, canonicalTarget);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
@@ -733,6 +755,8 @@ module.exports = {
   IS_TEST_RUNTIME: RUNTIME_STORAGE.isTest,
   detectTestRuntime,
   resolveRuntimeStoragePaths,
+  resolveCanonicalPath,
+  isPathInsideDir,
   HMAC_SECRET,
   JWT_SECRET,
   KNOWN_INSECURE_SECRETS,

@@ -111,7 +111,7 @@ function initSchema(targetDb = db, options = {}) {
       layer TEXT NOT NULL DEFAULT 'access',
       layer_level INTEGER DEFAULT 5,
       parent_id TEXT,
-      status TEXT DEFAULT 'healthy',
+      status TEXT DEFAULT 'unprobed',
       last_checked TEXT,
       last_latency_ms REAL,
       vendor TEXT,
@@ -163,11 +163,11 @@ function initSchema(targetDb = db, options = {}) {
       edge_id TEXT,
       node_id TEXT,
       latency_ms REAL,
-      loss_pct REAL DEFAULT 0,
-      bandwidth_utilization_pct REAL DEFAULT 0,
-      packet_rate REAL DEFAULT 0,
-      if_in_octets INTEGER DEFAULT 0,
-      if_out_octets INTEGER DEFAULT 0,
+      loss_pct REAL DEFAULT NULL,
+      bandwidth_utilization_pct REAL DEFAULT NULL,
+      packet_rate REAL DEFAULT NULL,
+      if_in_octets INTEGER DEFAULT NULL,
+      if_out_octets INTEGER DEFAULT NULL,
       timestamp TEXT NOT NULL
     );
 
@@ -213,7 +213,7 @@ function initSchema(targetDb = db, options = {}) {
       mac_address TEXT,
       type TEXT NOT NULL DEFAULT 'host',
       parent_id TEXT,
-      status TEXT DEFAULT 'healthy',
+      status TEXT DEFAULT 'unprobed',
       last_checked TEXT,
       last_latency_ms REAL,
       vendor TEXT,
@@ -227,7 +227,7 @@ function initSchema(targetDb = db, options = {}) {
       metric_name TEXT NOT NULL DEFAULT 'latency_ms',
       value REAL,
       unit TEXT DEFAULT 'ms',
-      status TEXT DEFAULT 'healthy',
+      status TEXT DEFAULT 'unprobed',
       raw_payload TEXT,
       timestamp TEXT NOT NULL
     );
@@ -380,8 +380,8 @@ function initSchema(targetDb = db, options = {}) {
       subject TEXT NOT NULL,
       label TEXT NOT NULL,
       payload_json TEXT NOT NULL DEFAULT '{}',
-      quality_score REAL NOT NULL DEFAULT 1.0,
-      freshness_state TEXT NOT NULL DEFAULT 'live',
+      quality_score REAL NOT NULL DEFAULT 0.0,
+      freshness_state TEXT NOT NULL DEFAULT 'stale',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

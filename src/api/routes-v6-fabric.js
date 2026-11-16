@@ -2393,14 +2393,45 @@ router.post('/sovereign/remediation/synthesize', authenticate, (req, res) => {
 
 router.get('/sovereign/crdt/state', authenticate, (req, res) => {
   const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
+  const snapshot = geoPartitionCrdtEngine.getFullStateSnapshot();
+  const stateSummary = geoPartitionCrdtEngine.getStateSummary();
+  const discoveredPartitions = [];
+
+  try {
+    const db = geoPartitionCrdtEngine.db;
+    if (db) {
+      const siteRows = db.prepare(`
+        SELECT site_id, COUNT(*) AS delta_count, MAX(timestamp_iso) AS last_seen_iso,
+               MAX(CASE WHEN reconciled = 1 THEN timestamp_iso ELSE NULL END) AS last_reconciled_iso
+        FROM ejii_crdt_delta_records
+        GROUP BY site_id
+        ORDER BY last_seen_iso DESC
+        LIMIT 25
+      `).all();
+      for (const r of siteRows) {
+        if (!r.site_id || r.site_id === snapshot.siteId) continue;
+        discoveredPartitions.push({
+          siteId: r.site_id,
+          status: r.last_reconciled_iso ? 'RECONCILED' : 'PENDING_SYNC',
+          deltaCount: Number(r.delta_count || 0),
+          lastSeenIso: r.last_seen_iso || null,
+          lastReconciledIso: r.last_reconciled_iso || null,
+          observedLatencyMs: null
+        });
+      }
+    }
+  } catch (_) {}
+
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.v6.sovereign.crdt_state',
     status: 'ok',
     data: {
-      vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || { 'cluster-core': 1 },
-      knownPartitions: ['region-us-east', 'region-eu-west', 'region-ap-south'],
-      localStateSummary: geoPartitionCrdtEngine.getStateSummary?.() || { status: 'ONLINE', nodes: 3 }
+      localSiteId: snapshot.siteId,
+      partitionStatus: snapshot.partitionStatus,
+      vectorClock: snapshot.vectorClock,
+      knownPartitions: discoveredPartitions,
+      localStateSummary: stateSummary
     }
   }));
 });
@@ -2416,7 +2447,7 @@ router.post('/sovereign/crdt/reconcile', authenticate, (req, res) => {
     }));
   }
   const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
-  const targetPartition = req.body?.targetPartition || 'region-us-east';
+  const targetPartition = String(req.body?.targetPartition || '').trim() || geoPartitionCrdtEngine.getLocalSiteId();
   const result = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition);
   res.json(createEjiiResult({
     success: true,

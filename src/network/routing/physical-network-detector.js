@@ -287,7 +287,10 @@ const ARP_CACHE_TTL_MS = 30000;
  * Parse OS ARP table (arp -a on Windows, /proc/net/arp on Linux)
  * Returns a list of reachable unicast peers on the active subnet.
  */
-function parseLiveArpNeighbors(subnetCidr = '127.0.0.0/8') {
+function parseLiveArpNeighbors(subnetCidr = null) {
+  if (!subnetCidr || subnetCidr === 'UNOBSERVED_SUBNET') {
+    return [];
+  }
   const now = Date.now();
   if (cachedArpNeighbors && (now - lastArpCacheTime < ARP_CACHE_TTL_MS)) {
     return cachedArpNeighbors;
@@ -772,10 +775,10 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   const now = new Date().toISOString();
 
   const isTestEnv = process.env.NODE_ENV === 'test';
-  const localSubnet = netInfo.subnetCidr || '127.0.0.0/8';
-  const gwIp = netInfo.defaultGateway || null;
-  const gwDisplayIp = gwIp || '127.0.0.1';
-  const hostIp = netInfo.localIp || '127.0.0.1';
+  const localSubnet = netInfo.subnetCidr || 'UNOBSERVED_SUBNET';
+  const gwIp = (netInfo.gatewayVerified && netInfo.defaultGateway) ? netInfo.defaultGateway : null;
+  const gwDisplayIp = gwIp || 'NO_DEFAULT_ROUTE_OBSERVED';
+  const hostIp = netInfo.localIp || netInfo.hostIp || 'UNOBSERVED_HOST_IP';
   const gwMac = netInfo.gatewayMac !== 'Unknown' ? netInfo.gatewayMac : null;
   const gwVendor = netInfo.gatewayVendor || (gwIp ? 'Observed Default Gateway' : 'Unverified / No Default Route Observed');
 
@@ -980,7 +983,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       const peerNodeId = `NODE-PEER-0${idx + 1}`;
       db.prepare(`
         INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES (?, ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'healthy', ?, NULL, ?, 'eth0', 680, 180, ?)
+        VALUES (?, ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'unprobed', ?, NULL, ?, 'eth0', 680, 180, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           hostname_or_ip = excluded.hostname_or_ip,
@@ -998,8 +1001,8 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       db.prepare(`
         INSERT OR IGNORE INTO topology_edges (
           id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-        ) VALUES (?, 'NODE-CORE-01', ?, 'ethernet', 'up', 1000, NULL, NULL, NULL, ?)
-      `).run(`EDGE-CORE-${peerNodeId}`, peerNodeId, JSON.stringify({ role: 'Service Flow Link', autoDiscovered: true }));
+        ) VALUES (?, 'NODE-CORE-01', ?, 'ethernet', 'unprobed', NULL, NULL, NULL, NULL, ?)
+      `).run(`EDGE-CORE-${peerNodeId}`, peerNodeId, JSON.stringify({ role: 'Service Flow Link', autoDiscovered: true, telemetryState: 'UNMEASURED' }));
     });
   }
 
@@ -1046,9 +1049,8 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   if (Array.isArray(netInfo.arpNeighbors) && netInfo.arpNeighbors.length > 0) {
     const insertDisc = db.prepare(`
       INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-      VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-LAN-01', 'healthy', ?, NULL, ?, 'eth0', 880, 260, ?)
+      VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-LAN-01', 'unprobed', NULL, NULL, ?, 'eth0', 880, 260, ?)
       ON CONFLICT(id) DO UPDATE SET
-        last_checked = excluded.last_checked,
         vendor = excluded.vendor,
         mac_address = excluded.mac_address
     `);
@@ -1056,7 +1058,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     const insertEdge = db.prepare(`
       INSERT OR IGNORE INTO topology_edges (
         id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-      ) VALUES (?, 'NODE-LAN-01', ?, 'ethernet', 'up', 1000, NULL, NULL, NULL, ?)
+      ) VALUES (?, 'NODE-LAN-01', ?, 'ethernet', 'unprobed', NULL, NULL, NULL, NULL, ?)
     `);
 
     netInfo.arpNeighbors

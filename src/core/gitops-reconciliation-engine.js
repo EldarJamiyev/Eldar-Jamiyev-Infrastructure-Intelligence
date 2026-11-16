@@ -13,6 +13,8 @@ const { getPhysicalNetworkInfo, syncTopologyWithCurrentLocation } = require('../
 class GitopsReconciliationEngine {
   constructor(options = {}) {
     this.manifestPath = options.manifestPath || path.resolve(__dirname, '../../policies/desired-infrastructure-state.json');
+    this.db = options.dbHandle || db;
+    this.physicalDetector = typeof options.physicalDetector === 'function' ? options.physicalDetector : getPhysicalNetworkInfo;
     this.cachedManifest = null;
     this.lastReconciliationTime = null;
   }
@@ -31,6 +33,17 @@ class GitopsReconciliationEngine {
       }
       const raw = fs.readFileSync(this.manifestPath, 'utf8');
       const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !parsed.spec || typeof parsed.spec !== 'object') {
+        this.cachedManifest = {
+          manifestPresent: false,
+          manifestPath: this.manifestPath,
+          status: 'MANIFEST_INVALID',
+          error: 'Desired infrastructure state manifest JSON is missing required "spec" object.',
+          desiredStateHash: null,
+          spec: null
+        };
+        return this.cachedManifest;
+      }
       const hash = crypto.createHash('sha256').update(raw).digest('hex');
       this.cachedManifest = {
         ...parsed,
@@ -41,10 +54,11 @@ class GitopsReconciliationEngine {
       };
       return this.cachedManifest;
     } catch (err) {
+      const isSyntaxOrSchema = err instanceof SyntaxError || (err && /JSON/i.test(String(err.message || '')));
       this.cachedManifest = {
         manifestPresent: false,
         manifestPath: this.manifestPath || null,
-        status: 'MANIFEST_INVALID_OR_UNREADABLE',
+        status: isSyntaxOrSchema ? 'MANIFEST_INVALID' : 'MANIFEST_UNREADABLE',
         error: err && err.message ? err.message : String(err),
         desiredStateHash: null,
         spec: null
@@ -55,13 +69,13 @@ class GitopsReconciliationEngine {
 
   detectInfrastructureDrift() {
     const manifest = this.loadDesiredStateManifest();
-    const netInfo = getPhysicalNetworkInfo({ forceRefresh: false });
+    const netInfo = this.physicalDetector({ forceRefresh: false });
 
     if (!manifest.manifestPresent || !manifest.spec) {
       const observedPayload = JSON.stringify({ drifts: [], localIp: netInfo.localIp, subnet: netInfo.subnetCidr });
       const observedStateHash = crypto.createHash('sha256').update(observedPayload).digest('hex');
       return {
-        status: manifest.status || 'MANIFEST_MISSING',
+        status: manifest.status && manifest.status !== 'MANIFEST_LOADED' ? manifest.status : 'MANIFEST_MISSING',
         manifestPresent: false,
         manifestPath: manifest.manifestPath,
         error: manifest.error || 'Desired infrastructure state manifest file not found on disk.',
@@ -76,10 +90,11 @@ class GitopsReconciliationEngine {
     const spec = manifest.spec || {};
     const topoInvariants = spec.topologyInvariants || {};
     const drifts = [];
+    const liveStateErrors = [];
 
     // 1. Topology Node Alignment Check
     try {
-      const appNode = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-APP-01'").get();
+      const appNode = this.db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-APP-01'").get();
       if (appNode) {
         if (topoInvariants.forbidHardcodedAlienAppIp) {
           const forbiddenList = topoInvariants.forbiddenStaticAppIps || ['10.22.12.204'];
@@ -97,8 +112,10 @@ class GitopsReconciliationEngine {
         }
       }
 
-      const gwNode = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
-      const expectedGw = netInfo.defaultGateway || '127.0.0.1';
+      const gwNode = this.db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
+      const expectedGw = (netInfo.gatewayVerified && netInfo.defaultGateway)
+        ? netInfo.defaultGateway
+        : 'NO_DEFAULT_ROUTE_OBSERVED';
       if (gwNode && gwNode.hostname_or_ip !== expectedGw) {
         drifts.push({
           driftType: 'DRIFT_TOPOLOGY_SUBNET_MISMATCH',
@@ -110,11 +127,13 @@ class GitopsReconciliationEngine {
           autoReconcilable: true
         });
       }
-    } catch (_) {}
+    } catch (err) {
+      liveStateErrors.push({ check: 'topology_nodes', error: err && err.message ? err.message : String(err) });
+    }
 
     // 2. Office Equipment & APIPA Check
     try {
-      const apipaRows = db.prepare("SELECT id, name, ip_address FROM office_equipment_inventory WHERE ip_address LIKE '169.254.%'").all();
+      const apipaRows = this.db.prepare("SELECT device_id, device_name, current_ip FROM office_equipment_inventory WHERE current_ip LIKE '169.254.%' OR is_apipa_fault = 1").all();
       const maxApipa = (spec.officeLanCompliance && spec.officeLanCompliance.maxApipaDevicesAllowed) || 0;
       if (apipaRows.length > maxApipa) {
         drifts.push({
@@ -122,18 +141,20 @@ class GitopsReconciliationEngine {
           severity: 'HIGH',
           target: 'office_equipment_inventory',
           expected: `<= ${maxApipa} APIPA devices`,
-          actual: `${apipaRows.length} APIPA devices (${apipaRows.map(r => r.ip_address).join(', ')})`,
+          actual: `${apipaRows.length} APIPA devices (${apipaRows.map(r => r.current_ip).join(', ')})`,
           remediation: 'Release and renew DHCP lease or re-assign static IP to equipment',
           autoReconcilable: false
         });
       }
-    } catch (_) {}
+    } catch (err) {
+      liveStateErrors.push({ check: 'office_equipment_inventory', error: err && err.message ? err.message : String(err) });
+    }
 
     // 3. Explicit Custom Invariant Drifts (e.g. requiredNodesPresent in desired-state spec)
     if (Array.isArray(topoInvariants.requiredNodeIds)) {
       for (const reqNodeId of topoInvariants.requiredNodeIds) {
         try {
-          const found = db.prepare('SELECT id FROM topology_nodes WHERE id = ?').get(String(reqNodeId));
+          const found = this.db.prepare('SELECT id FROM topology_nodes WHERE id = ?').get(String(reqNodeId));
           if (!found) {
             drifts.push({
               driftType: 'DRIFT_MISSING_REQUIRED_TOPOLOGY_NODE',
@@ -145,15 +166,24 @@ class GitopsReconciliationEngine {
               autoReconcilable: false
             });
           }
-        } catch (_) {}
+        } catch (err) {
+          liveStateErrors.push({ check: `required_node:${reqNodeId}`, error: err && err.message ? err.message : String(err) });
+        }
       }
     }
 
-    const observedPayload = JSON.stringify({ drifts, localIp: netInfo.localIp, subnet: netInfo.subnetCidr });
+    const liveStateAvailable = liveStateErrors.length === 0;
+    const status = !liveStateAvailable
+      ? 'LIVE_STATE_UNAVAILABLE'
+      : (drifts.length > 0 ? 'DRIFT_DETECTED' : 'IN_SYNC');
+
+    const observedPayload = JSON.stringify({ drifts, liveStateAvailable, localIp: netInfo.localIp, subnet: netInfo.subnetCidr });
     const observedStateHash = crypto.createHash('sha256').update(observedPayload).digest('hex');
 
     return {
-      status: drifts.length > 0 ? 'DRIFT_DETECTED' : 'IN_SYNC',
+      status,
+      liveStateAvailable,
+      ...(liveStateErrors.length > 0 ? { liveStateErrors } : {}),
       manifestPresent: true,
       manifestPath: manifest.manifestPath,
       desiredStateHash: manifest.desiredStateHash,
@@ -168,15 +198,30 @@ class GitopsReconciliationEngine {
     const driftReport = this.detectInfrastructureDrift();
     const actionsExecuted = [];
 
-    if (!driftReport.manifestPresent || driftReport.status === 'MANIFEST_MISSING' || driftReport.status === 'MANIFEST_INVALID_OR_UNREADABLE') {
+    if (!driftReport.manifestPresent || ['MANIFEST_MISSING', 'MANIFEST_INVALID', 'MANIFEST_UNREADABLE'].includes(driftReport.status)) {
+      this.lastReconciliationTime = new Date().toISOString();
+      const lifecycleState = driftReport.status || 'MANIFEST_MISSING';
+      return {
+        reconciled: false,
+        reconciliationLifecycleState: lifecycleState,
+        manifestPresent: false,
+        error: driftReport.error || null,
+        actionsExecuted,
+        postReconciliationStatus: lifecycleState,
+        remainingDrifts: []
+      };
+    }
+
+    if (driftReport.status === 'LIVE_STATE_UNAVAILABLE') {
       this.lastReconciliationTime = new Date().toISOString();
       return {
         reconciled: false,
-        reconciliationLifecycleState: 'MANIFEST_MISSING',
-        manifestPresent: false,
+        reconciliationLifecycleState: 'LIVE_STATE_UNAVAILABLE',
+        manifestPresent: true,
+        liveStateErrors: driftReport.liveStateErrors || [],
         actionsExecuted,
-        postReconciliationStatus: driftReport.status,
-        remainingDrifts: []
+        postReconciliationStatus: 'LIVE_STATE_UNAVAILABLE',
+        remainingDrifts: driftReport.drifts || []
       };
     }
 
@@ -199,7 +244,7 @@ class GitopsReconciliationEngine {
 
     if (hasTopoDrift && autoHealSafeTopologyDrift) {
       try {
-        syncTopologyWithCurrentLocation(db);
+        syncTopologyWithCurrentLocation(this.db);
         actionsExecuted.push({
           action: 'SYNC_TOPOLOGY_WITH_CURRENT_LOCATION',
           timestamp: new Date().toISOString(),

@@ -770,7 +770,7 @@ class ChatOperatorService {
     // (e.g. SYNTRA one-click local startup: readiness timeout on http://127.0.0.1:3000/ while backend listens on :3001 with {"error":"Route not found."})
     const logAnalysis = operationalMemoryEngine.parseTerminalStartupLog(raw);
     if (logAnalysis && logAnalysis.isStartupOrTerminalLog) {
-      const primaryHost = logAnalysis.extractedEndpoints[0]?.host || '127.0.0.1';
+      const primaryHost = logAnalysis.extractedEndpoints[0]?.host || null;
       const extractedLogPorts = Array.from(new Set(logAnalysis.extractedEndpoints.map((e) => e.port)));
       return {
         intent: 'log_and_startup_triage',
@@ -915,7 +915,8 @@ class ChatOperatorService {
       } else if (/\blocalhost\b/i.test(raw)) {
         explicitScenarioTarget = 'localhost';
       } else if (/\bgateway\b/i.test(raw)) {
-        explicitScenarioTarget = session?.lastGatewayIp || '127.0.0.1';
+        const verifiedGw = !session?.lastGatewayIp ? getVerifiedDefaultGateway() : null;
+        explicitScenarioTarget = session?.lastGatewayIp || (verifiedGw?.verified ? verifiedGw.gatewayIp : null);
       } else {
         explicitScenarioTarget = extractValidHostnameCandidate(raw);
       }
@@ -936,7 +937,7 @@ class ChatOperatorService {
       const scenarioPorts = portMatch
         ? [Number(portMatch[1])]
         : (isSameTargetAsPrior && session?.lastPorts?.length ? session.lastPorts : [443]);
-      const resolvedScenarioTarget = explicitScenarioTarget || priorTarget || '127.0.0.1';
+      const resolvedScenarioTarget = explicitScenarioTarget || priorTarget || null;
       return {
         intent: 'scenario_planning_what_if',
         mode: 'operational',
@@ -3007,7 +3008,7 @@ class ChatOperatorService {
         })
       : null;
 
-    const effectiveCogTarget = isRealTargetForJourney ? plan.target : (session.lastValidTarget || '127.0.0.1');
+    const effectiveCogTarget = isRealTargetForJourney ? plan.target : (session.lastValidTarget || null);
     const effectiveCogPort = (Array.isArray(plan.ports) && plan.ports[0]) || 3000;
 
     const epistemicReasoning = plan.mode === 'operational'
@@ -3506,7 +3507,21 @@ class ChatOperatorService {
    */
   async _executeSnmpProbeScenario(plan, session, signal) {
     this._checkAborted(signal);
-    const target = plan.target || '127.0.0.1';
+    const target = plan.target || null;
+    if (!target) {
+      return {
+        promptClarification: true,
+        target: null,
+        steps: [],
+        findings: [],
+        reply: '**Result:** Which host or IP address would you like me to probe via SNMP?\n\n**Meaning:** No target host or IP address was provided or resolved from session context.\n\n**Next Step:** Specify a hostname or IP address (for example, `snmp probe 10.0.0.1`).',
+        structuredAnswer: {
+          result: 'Which host or IP address would you like me to probe via SNMP?',
+          meaning: 'No target host or IP address was provided or resolved from session context.',
+          nextStep: 'Specify a hostname or IP address to run an SNMP UDP/161 and multi-signal probe.'
+        }
+      };
+    }
     const { agentlessCollector } = require('../agent/agentless-collector');
     const profile = await agentlessCollector.profileDeviceMultiSignal(target, {
       timeoutMs: 800,
@@ -6749,7 +6764,7 @@ class ChatOperatorService {
     const effectiveTarget =
       plan.target && plan.target !== 'operational_intelligence_fabric'
         ? plan.target
-        : (session?.lastValidTarget || '127.0.0.1');
+        : (session?.lastValidTarget || null);
     const briefing = operationalMemoryEngine.getIntelligenceBriefing();
     const fleetMatrix = operationalMemoryEngine.getFleetIntelligenceMatrix();
     const overview = operationalMemoryEngine.getOperationalMemoryOverview(25);
@@ -6915,14 +6930,16 @@ class ChatOperatorService {
             role: session?.role || 'ADMIN'
           })
         : Promise.resolve(null),
-      superpowersSkillsEngine.executeUnifiedSuperpowersSynthesis({
-        objective: promptText,
-        target: synthesisTarget,
-        port: effectivePort,
-        windowMinutes: 60,
-        executeClosedLoop: true,
-        initiatedBy: session?.username || 'operator'
-      })
+      (synthesisTarget && synthesisTarget !== 'operational_intelligence_fabric')
+        ? superpowersSkillsEngine.executeUnifiedSuperpowersSynthesis({
+            objective: promptText,
+            target: synthesisTarget,
+            port: effectivePort,
+            windowMinutes: 60,
+            executeClosedLoop: true,
+            initiatedBy: session?.username || 'operator'
+          })
+        : Promise.resolve(null)
     ]);
 
     const autonomousGoalResult = directAutonomousGoalResult || dynamicCapabilityInvestigation?.autonomousGoalInvestigation || null;
@@ -7214,7 +7231,7 @@ class ChatOperatorService {
    */
   async _executeScenarioPlanningWhatIf(plan, session, promptText) {
     const t0 = performance.now();
-    const target = plan.target || session?.lastValidTarget || '127.0.0.1';
+    const target = plan.target || session?.lastValidTarget || 'UNSPECIFIED_INFRASTRUCTURE_SCOPE';
     const port = (Array.isArray(plan.ports) && plan.ports[0]) || 443;
     const scenarioType = plan.scenarioType || 'GATEWAY_OR_DEPENDENCY_UNAVAILABLE';
 
@@ -7847,20 +7864,27 @@ class ChatOperatorService {
       }
     } else if (isSameServerQuery) {
       queryCategory = 'ATLAS_SAME_SERVER_TUNNEL_INSPECTION';
-      const host = session.lastAtlasTargetHost || session.lastTarget || '127.0.0.1';
-      const matchedProxies = snap.proxies.filter((p) => p.localIp === host || p.bindAddr === host);
-      if (matchedProxies.length > 0) {
-        const topP = matchedProxies[0];
-        session.lastAtlasProxyId = topP.proxyId;
-        headlineResult = `Inspected tunnel(s) to target server "${host}": found ${matchedProxies.length} proxy tunnel(s) (${matchedProxies.map((p) => `${p.proxyName} [:${p.remotePort}->${p.localIp}:${p.localPort}, ${p.healthStatus}]`).join('; ')}).`;
-        meaning = `Tunnel ${topP.proxyName} is actively bound to ${host}:${topP.localPort} with health ${topP.healthStatus}.`;
-        nextStep = `Run a health check on proxy ${topP.proxyId}.`;
+      const host = session.lastAtlasTargetHost || session.lastTarget || null;
+      if (!host) {
+        headlineResult = 'No target server host is in conversation memory to inspect matching Project Atlas tunnels.';
+        meaning = 'Specify a target server host or list active Project Atlas agents first so tunnel bindings can be matched accurately.';
+        nextStep = 'Ask "Show me the remote agents" or provide a target IP/hostname.';
+        extraEvidence = { targetHost: null, matchedProxies: [] };
       } else {
-        headlineResult = `No active Project Atlas tunnels are configured for target server "${host}".`;
-        meaning = `Searched ${snap.proxies.length} registered proxy tunnel(s) against host "${host}".`;
-        nextStep = 'Register a new proxy tunnel pointing to this host.';
+        const matchedProxies = snap.proxies.filter((p) => p.localIp === host || p.bindAddr === host);
+        if (matchedProxies.length > 0) {
+          const topP = matchedProxies[0];
+          session.lastAtlasProxyId = topP.proxyId;
+          headlineResult = `Inspected tunnel(s) to target server "${host}": found ${matchedProxies.length} proxy tunnel(s) (${matchedProxies.map((p) => `${p.proxyName} [:${p.remotePort}->${p.localIp}:${p.localPort}, ${p.healthStatus}]`).join('; ')}).`;
+          meaning = `Tunnel ${topP.proxyName} is actively bound to ${host}:${topP.localPort} with health ${topP.healthStatus}.`;
+          nextStep = `Run a health check on proxy ${topP.proxyId}.`;
+        } else {
+          headlineResult = `No active Project Atlas tunnels are configured for target server "${host}".`;
+          meaning = `Searched ${snap.proxies.length} registered proxy tunnel(s) against host "${host}".`;
+          nextStep = 'Register a new proxy tunnel pointing to this host.';
+        }
+        extraEvidence = { targetHost: host, matchedProxies };
       }
-      extraEvidence = { targetHost: host, matchedProxies };
     } else if (/\b(recommend|safest|lowest[- ]latency|optimal|best)\s+relay\b/i.test(lower)) {
       queryCategory = 'RELAY_RECOMMENDATION';
       const best = relayRec.recommendedRelay;

@@ -173,19 +173,19 @@
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px;">
                   ${[
-                    { level: 1, tag: 'L1 WAN', fallbackName: 'Public Internet Transit', fallbackIp: '8.8.8.8' },
-                    { level: 2, tag: 'L2 EDGE', fallbackName: 'Default Gateway', fallbackIp: '192.168.31.1' },
-                    { level: 3, tag: 'L3 CORE', fallbackName: 'DNS Resolver Core', fallbackIp: '192.168.31.1' },
-                    { level: 4, tag: 'L4 APP', fallbackName: 'Enterprise Service', fallbackIp: '127.0.0.1' },
-                    { level: 5, tag: 'L5 LAN', fallbackName: 'Access Subnet Switch', fallbackIp: '192.168.31.0/24' },
-                    { level: 6, tag: 'L6 HOST', fallbackName: 'Local Workstation', fallbackIp: '127.0.0.1' }
+                    { level: 1, tag: 'L1 WAN', fallbackName: 'Public Internet Transit', fallbackIp: 'UNOBSERVED' },
+                    { level: 2, tag: 'L2 EDGE', fallbackName: 'Default Gateway', fallbackIp: 'UNOBSERVED' },
+                    { level: 3, tag: 'L3 CORE', fallbackName: 'DNS Resolver Core', fallbackIp: 'UNOBSERVED' },
+                    { level: 4, tag: 'L4 APP', fallbackName: 'Enterprise Service', fallbackIp: 'UNOBSERVED' },
+                    { level: 5, tag: 'L5 LAN', fallbackName: 'Access Subnet Switch', fallbackIp: 'UNOBSERVED' },
+                    { level: 6, tag: 'L6 HOST', fallbackName: 'Local Workstation', fallbackIp: 'UNOBSERVED' }
                   ].map(layerDef => {
                     const layerNodes = (topoRes?.nodes || []).filter(n => Number(n.layer_level) === layerDef.level);
                     const primary = layerNodes[0] || {
                       id: `NODE-L${layerDef.level}`,
                       name: layerDef.fallbackName,
                       hostname_or_ip: layerDef.fallbackIp,
-                      status: 'healthy',
+                      status: 'unprobed',
                       last_latency_ms: null
                     };
                     const cleanName = String(primary.name || layerDef.fallbackName).replace(/\s*\(\s*\d+\.\d+\.\d+\.\d+(?:\/\d+)?(?::\d+)?\s*\)\s*$/, '').trim();
@@ -193,16 +193,19 @@
                     const hasLatency = primary.last_latency_ms !== null && primary.last_latency_ms !== undefined;
                     const rttStr = hasLatency ? `${primary.last_latency_ms} ms` : 'Unprobed';
                     const isHealthy = hasLatency && (primary.status === 'healthy' || !primary.status);
+                    const isUnprobed = !hasLatency || primary.status === 'unprobed';
+                    const borderAccent = isHealthy ? '#10B981' : (isUnprobed ? '#64748B' : '#EF4444');
+                    const statusColor = isHealthy ? '#059669' : (isUnprobed ? '#475569' : '#DC2626');
                     return `
-                      <div onclick="if(window.onNodeClick) window.onNodeClick('${escapeAttr(primary.id)}')" style="cursor: pointer; background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E2E8F0); border-left: 3px solid ${isHealthy ? '#10B981' : '#EF4444'}; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); transition: box-shadow 0.15s;" title="Click to inspect ${escapeAttr(cleanName)} (${escapeAttr(ipStr)})">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-                          <span style="font-size: 9.5px; font-weight: 800; color: #475569;">${layerDef.tag}</span>
-                          <span style="font-size: 9.5px; font-weight: 700; color: #059669;">${escapeHtml(rttStr)}</span>
+                      <div onclick="if(window.onNodeClick) window.onNodeClick('${escapeAttr(primary.id)}')" style="cursor: pointer; background: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-default, #E2E8F0); border-left: 3px solid ${borderAccent}; border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); transition: box-shadow 0.15s;" title="Click to inspect ${escapeAttr(cleanName)} (${escapeAttr(ipStr)})">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 3px;">
+                          <span style="font-size: 9.5px; font-weight: 800; color: #475569; white-space: nowrap;">${layerDef.tag}</span>
+                          <span style="font-size: 9.5px; font-weight: 700; color: ${statusColor}; white-space: nowrap;">${escapeHtml(rttStr)}</span>
                         </div>
                         <div style="font-size: 11px; font-weight: 700; color: var(--text-primary, #0F172A); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(cleanName)}</div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
-                          <span style="font-size: 10px; color: var(--accent-primary, #0D7A5F); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ipStr)}</span>
-                          <span style="font-size: 9px; color: #64748B;">${layerNodes.length} node${layerNodes.length === 1 ? '' : 's'}</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 3px;">
+                          <span style="font-size: 10px; color: var(--accent-primary, #0D7A5F); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${escapeHtml(ipStr)}</span>
+                          <span style="font-size: 9px; color: #64748B; white-space: nowrap; flex-shrink: 0;">${layerNodes.length} node${layerNodes.length === 1 ? '' : 's'}</span>
                         </div>
                       </div>
                     `;
