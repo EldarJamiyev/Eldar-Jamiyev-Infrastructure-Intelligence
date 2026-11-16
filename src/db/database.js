@@ -40,7 +40,10 @@ let lastMigrationResult = null;
 /**
  * Initialize NOC schema non-destructively (preserving all existing tables and records)
  */
-function initSchema(targetDb = db) {
+function initSchema(targetDb = db, options = {}) {
+  if (targetDb && targetDb._ejiiSchemaInitialized && !options.force) {
+    return;
+  }
   targetDb.exec('PRAGMA foreign_keys = OFF;');
 
   // Non-destructive schema initialization: existing tables and records are strictly preserved.
@@ -437,6 +440,7 @@ function initSchema(targetDb = db) {
   }
 
   targetDb.exec('PRAGMA foreign_keys = ON;');
+  targetDb._ejiiSchemaInitialized = true;
 }
 
 function getDatabaseHealth(targetDb = db) {

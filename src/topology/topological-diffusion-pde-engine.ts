@@ -138,7 +138,7 @@ export class TopologicalDiffusionPdeEngine {
     const stateSnapshots: Array<number[]> = [Array.from(initialU)];
     const lyapunovDrift: number[] = [this.computeLyapunovEnergy(initialU, laplacian, nodeCount)];
 
-    let currentU = new Float64Array(initialU);
+    let currentU: Float64Array = new Float64Array(initialU);
     let currentTime = 0.0;
     const steps = Math.floor(totalTimeSec / dt);
 

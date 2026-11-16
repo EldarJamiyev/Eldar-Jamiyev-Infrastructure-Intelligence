@@ -52,9 +52,11 @@ const COLLECTION_FIDELITY_WEIGHTS = Object.freeze({
   unavailable_probe: 0.25
 });
 
-function ensureEvidenceTables() {
+function ensureEvidenceTables(targetDb = db) {
   try {
-    db.exec(`
+    const handle = targetDb || db;
+    if (!handle || typeof handle.exec !== 'function') return;
+    handle.exec(`
       CREATE TABLE IF NOT EXISTS evidence_records (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
@@ -128,7 +130,7 @@ function ensureEvidenceTables() {
   } catch (_) {}
 }
 
-ensureEvidenceTables();
+ensureEvidenceTables(db);
 
 /**
  * Compute freshness state from observation timestamp and TTL.
@@ -214,7 +216,7 @@ class EvidenceFabric {
       writeFailuresCount: 0,
       lastWriteError: null
     };
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     this._hydrateChainTail();
     this.restoreEvidenceGraph();
   }
@@ -231,7 +233,7 @@ class EvidenceFabric {
   }
 
   restoreEvidenceGraph() {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     let nodeCount = 0;
     let edgeCount = 0;
     try {
@@ -279,10 +281,9 @@ class EvidenceFabric {
     };
   }
 
-  _persistDagNode(node) {
-    this.dagNodes.set(node.nodeId, node);
+  _persistDagNode(node, options = {}) {
     try {
-      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function' && options.skipDb !== true) {
         this.dbHandle.prepare(`
           INSERT INTO evidence_fabric_nodes (
             node_id, node_type, subject, label, payload_json, quality_score, freshness_state, created_at, updated_at
@@ -305,15 +306,15 @@ class EvidenceFabric {
           node.updatedAt
         );
       }
-    } catch (_) {}
+    } catch (err) {
+      if (options.throwOnDbError) throw err;
+    }
+    this.dagNodes.set(node.nodeId, node);
   }
 
-  _persistDagEdge(edge) {
-    if (!this.dagEdges.some((e) => e.edgeId === edge.edgeId)) {
-      this.dagEdges.push(edge);
-    }
+  _persistDagEdge(edge, options = {}) {
     try {
-      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function' && options.skipDb !== true) {
         this.dbHandle.prepare(`
           INSERT OR REPLACE INTO evidence_fabric_edges (
             edge_id, source_node_id, target_node_id, relation_type, weight, metadata_json, created_at
@@ -328,10 +329,15 @@ class EvidenceFabric {
           edge.createdAt
         );
       }
-    } catch (_) {}
+    } catch (err) {
+      if (options.throwOnDbError) throw err;
+    }
+    if (!this.dagEdges.some((e) => e.edgeId === edge.edgeId)) {
+      this.dagEdges.push(edge);
+    }
   }
 
-  _syncEvidenceToDag(record) {
+  _syncEvidenceToDag(record, options = {}) {
     const nowIso = new Date().toISOString();
     this._persistDagNode({
       nodeId: record.id,
@@ -343,7 +349,7 @@ class EvidenceFabric {
       freshnessState: record.freshnessState,
       createdAt: record.observedAt,
       updatedAt: record.ingestedAt
-    });
+    }, options);
 
     for (const parentId of (record.derivedFrom || [])) {
       this._persistDagEdge({
@@ -354,7 +360,7 @@ class EvidenceFabric {
         weight: 1.0,
         metadata: { sourceCapabilityId: record.sourceCapabilityId },
         createdAt: nowIso
-      });
+      }, options);
     }
 
     for (const corId of (record.corroborates || [])) {
@@ -366,7 +372,7 @@ class EvidenceFabric {
         weight: 0.8,
         metadata: {},
         createdAt: nowIso
-      });
+      }, options);
     }
 
     for (const conId of (record.contradicts || [])) {
@@ -378,11 +384,11 @@ class EvidenceFabric {
         weight: 1.0,
         metadata: {},
         createdAt: nowIso
-      });
+      }, options);
     }
   }
 
-  _syncFindingToDag(finding) {
+  _syncFindingToDag(finding, options = {}) {
     const nowIso = new Date().toISOString();
     this._persistDagNode({
       nodeId: finding.findingId,
@@ -394,7 +400,7 @@ class EvidenceFabric {
       freshnessState: 'live',
       createdAt: finding.createdAt,
       updatedAt: finding.updatedAt
-    });
+    }, options);
 
     for (const sId of (finding.supportingEvidenceIds || [])) {
       this._persistDagEdge({
@@ -405,7 +411,7 @@ class EvidenceFabric {
         weight: 1.0,
         metadata: { ruleId: finding.ruleId },
         createdAt: nowIso
-      });
+      }, options);
     }
 
     for (const cId of (finding.counterEvidenceIds || [])) {
@@ -417,12 +423,12 @@ class EvidenceFabric {
         weight: 1.0,
         metadata: { ruleId: finding.ruleId },
         createdAt: nowIso
-      });
+      }, options);
     }
   }
 
   queryCausalDag(filter = {}) {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     let nodes = Array.from(this.dagNodes.values());
     let edges = [...this.dagEdges];
 
@@ -446,7 +452,7 @@ class EvidenceFabric {
 
   _hydrateChainTail() {
     try {
-      if (!this.dbHandle) return;
+      if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') return;
       const row = this.dbHandle.prepare('SELECT integrity_hash FROM evidence_records ORDER BY ingested_at DESC, rowid DESC LIMIT 1').get();
       if (row && row.integrity_hash) {
         this.lastChainHash = row.integrity_hash;
@@ -463,12 +469,13 @@ class EvidenceFabric {
 
   /**
    * Record a typed EvidenceRecord in the Evidence Fabric and SQLite ledger.
-   * Does not advance lastChainHash if the SQLite insert fails.
+   * Uses an atomic SQLite SAVEPOINT across evidence_records and DAG tables so partial writes cannot occur,
+   * and does not advance lastChainHash if the SQLite transaction fails.
    * @param {Object} input
    * @returns {Object} EvidenceRecord
    */
   recordEvidence(input = {}) {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     const id = input.id || `EVD-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const type = EVIDENCE_CLASSES.includes(input.type) ? input.type : 'observation';
     const subject = String(input.subject || 'host:local');
@@ -533,9 +540,39 @@ class EvidenceFabric {
     let persistenceStatus = 'MEMORY_ONLY';
     let persistenceError = null;
 
+    const record = {
+      id,
+      type,
+      subject,
+      claim,
+      rawValue,
+      normalizedValue,
+      unit,
+      sourceCapabilityId,
+      collectionMethod,
+      observedAt,
+      ingestedAt,
+      expiresAt,
+      freshnessState,
+      qualityScore,
+      corroborates,
+      contradicts,
+      derivedFrom: safeDerivedFrom,
+      prevHash,
+      integrityHash,
+      persistedToSqlite: false,
+      persistenceStatus: 'MEMORY_ONLY',
+      persistenceError: null
+    };
+
+    const savepointName = `sp_evd_${crypto.randomBytes(4).toString('hex')}`;
+    const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
+      }
+      if (canExecSavepoint) {
+        this.dbHandle.exec(`SAVEPOINT ${savepointName}`);
       }
       this.dbHandle.prepare(`
         INSERT OR REPLACE INTO evidence_records (
@@ -565,46 +602,34 @@ class EvidenceFabric {
         prevHash,
         integrityHash
       );
+      this._syncEvidenceToDag(record, { throwOnDbError: true });
+      if (canExecSavepoint) {
+        this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
+      }
       this.lastChainHash = integrityHash;
       persistedToSqlite = true;
       persistenceStatus = 'PERSISTED_SQLITE';
       this.storageDiagnostics.writeSuccessCount += 1;
     } catch (dbErr) {
+      if (canExecSavepoint) {
+        try {
+          this.dbHandle.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+          this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
+        } catch (_) {}
+      }
       this.lastChainHash = prevHash;
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
       persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
       this.storageDiagnostics.writeFailuresCount += 1;
       this.storageDiagnostics.lastWriteError = persistenceError;
+      this._syncEvidenceToDag(record, { skipDb: true });
     }
 
-    const record = {
-      id,
-      type,
-      subject,
-      claim,
-      rawValue,
-      normalizedValue,
-      unit,
-      sourceCapabilityId,
-      collectionMethod,
-      observedAt,
-      ingestedAt,
-      expiresAt,
-      freshnessState,
-      qualityScore,
-      corroborates,
-      contradicts,
-      derivedFrom: safeDerivedFrom,
-      prevHash,
-      integrityHash,
-      persistedToSqlite,
-      persistenceStatus,
-      persistenceError
-    };
-
+    record.persistedToSqlite = persistedToSqlite;
+    record.persistenceStatus = persistenceStatus;
+    record.persistenceError = persistenceError;
     this.memoryRecords.set(id, record);
-    this._syncEvidenceToDag(record);
 
     return record;
   }
@@ -631,10 +656,12 @@ class EvidenceFabric {
     let record = this.memoryRecords.get(id) || null;
     if (!record) {
       try {
-        const row = db.prepare('SELECT * FROM evidence_records WHERE id = ?').get(id);
-        if (row) {
-          record = this._deserializeRow(row);
-          this.memoryRecords.set(id, record);
+        if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+          const row = this.dbHandle.prepare('SELECT * FROM evidence_records WHERE id = ?').get(id);
+          if (row) {
+            record = this._deserializeRow(row);
+            this.memoryRecords.set(id, record);
+          }
         }
       } catch (_) {}
     }
@@ -693,7 +720,7 @@ class EvidenceFabric {
    * evidence is stale, expired, or purely simulated without live corroboration.
    */
   recordFinding(input = {}) {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     const findingId = input.findingId || input.id || `FND-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const title = String(input.title || 'Infrastructure Diagnostic Finding');
     const subject = String(input.subject || 'host:local');
@@ -746,9 +773,36 @@ class EvidenceFabric {
     let persistenceStatus = 'MEMORY_ONLY';
     let persistenceError = null;
 
+    const finding = {
+      findingId,
+      title,
+      subject,
+      ruleId,
+      inferenceStep,
+      status,
+      confidence: calibratedConfidence,
+      supportingEvidenceIds,
+      counterEvidenceIds,
+      missingEvidenceIds,
+      assumptions,
+      disconfirmingConditions,
+      downgradeWarnings,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      integrityHash,
+      persistedToSqlite: false,
+      persistenceStatus: 'MEMORY_ONLY',
+      persistenceError: null
+    };
+
+    const savepointName = `sp_fnd_${crypto.randomBytes(4).toString('hex')}`;
+    const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
+      }
+      if (canExecSavepoint) {
+        this.dbHandle.exec(`SAVEPOINT ${savepointName}`);
       }
       this.dbHandle.prepare(`
         INSERT OR REPLACE INTO evidence_findings (
@@ -773,41 +827,32 @@ class EvidenceFabric {
         nowIso,
         integrityHash
       );
+      this._syncFindingToDag(finding, { throwOnDbError: true });
+      if (canExecSavepoint) {
+        this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
+      }
       persistedToSqlite = true;
       persistenceStatus = 'PERSISTED_SQLITE';
       this.storageDiagnostics.writeSuccessCount += 1;
     } catch (dbErr) {
+      if (canExecSavepoint) {
+        try {
+          this.dbHandle.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+          this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
+        } catch (_) {}
+      }
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
       persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
       this.storageDiagnostics.writeFailuresCount += 1;
       this.storageDiagnostics.lastWriteError = persistenceError;
+      this._syncFindingToDag(finding, { skipDb: true });
     }
 
-    const finding = {
-      findingId,
-      title,
-      subject,
-      ruleId,
-      inferenceStep,
-      status,
-      confidence: calibratedConfidence,
-      supportingEvidenceIds,
-      counterEvidenceIds,
-      missingEvidenceIds,
-      assumptions,
-      disconfirmingConditions,
-      downgradeWarnings,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      integrityHash,
-      persistedToSqlite,
-      persistenceStatus,
-      persistenceError
-    };
-
+    finding.persistedToSqlite = persistedToSqlite;
+    finding.persistenceStatus = persistenceStatus;
+    finding.persistenceError = persistenceError;
     this.memoryFindings.set(findingId, finding);
-    this._syncFindingToDag(finding);
 
     return finding;
   }
@@ -906,51 +951,55 @@ class EvidenceFabric {
       return this.memoryFindings.get(findingId);
     }
     try {
-      const row = db.prepare('SELECT * FROM evidence_findings WHERE finding_id = ?').get(findingId);
-      if (row) {
-        const safeParse = (s) => { try { return JSON.parse(s || '[]'); } catch (_) { return []; } };
-        const f = {
-          findingId: row.finding_id,
-          title: row.title,
-          subject: row.subject,
-          ruleId: row.rule_id,
-          inferenceStep: row.inference_step,
-          status: row.status,
-          confidence: Number(row.confidence),
-          supportingEvidenceIds: safeParse(row.supporting_evidence_json),
-          counterEvidenceIds: safeParse(row.counter_evidence_json),
-          missingEvidenceIds: safeParse(row.missing_evidence_json),
-          assumptions: safeParse(row.assumptions_json),
-          disconfirmingConditions: safeParse(row.disconfirming_conditions_json),
-          downgradeWarnings: [],
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          integrityHash: row.integrity_hash
-        };
-        this.memoryFindings.set(findingId, f);
-        return f;
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        const row = this.dbHandle.prepare('SELECT * FROM evidence_findings WHERE finding_id = ?').get(findingId);
+        if (row) {
+          const safeParse = (s) => { try { return JSON.parse(s || '[]'); } catch (_) { return []; } };
+          const f = {
+            findingId: row.finding_id,
+            title: row.title,
+            subject: row.subject,
+            ruleId: row.rule_id,
+            inferenceStep: row.inference_step,
+            status: row.status,
+            confidence: Number(row.confidence),
+            supportingEvidenceIds: safeParse(row.supporting_evidence_json),
+            counterEvidenceIds: safeParse(row.counter_evidence_json),
+            missingEvidenceIds: safeParse(row.missing_evidence_json),
+            assumptions: safeParse(row.assumptions_json),
+            disconfirmingConditions: safeParse(row.disconfirming_conditions_json),
+            downgradeWarnings: [],
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            integrityHash: row.integrity_hash
+          };
+          this.memoryFindings.set(findingId, f);
+          return f;
+        }
       }
     } catch (_) {}
     return null;
   }
 
   queryEvidence(filters = {}) {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     const limit = Math.min(200, Math.max(1, Number(filters.limit) || 50));
     let rows = [];
     try {
-      if (filters.subject && filters.type) {
-        rows = db.prepare('SELECT * FROM evidence_records WHERE subject = ? AND type = ? ORDER BY observed_at DESC LIMIT ?')
-          .all(filters.subject, filters.type, limit);
-      } else if (filters.subject) {
-        rows = db.prepare('SELECT * FROM evidence_records WHERE subject = ? ORDER BY observed_at DESC LIMIT ?')
-          .all(filters.subject, limit);
-      } else if (filters.type) {
-        rows = db.prepare('SELECT * FROM evidence_records WHERE type = ? ORDER BY observed_at DESC LIMIT ?')
-          .all(filters.type, limit);
-      } else {
-        rows = db.prepare('SELECT * FROM evidence_records ORDER BY observed_at DESC LIMIT ?')
-          .all(limit);
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        if (filters.subject && filters.type) {
+          rows = this.dbHandle.prepare('SELECT * FROM evidence_records WHERE subject = ? AND type = ? ORDER BY observed_at DESC LIMIT ?')
+            .all(filters.subject, filters.type, limit);
+        } else if (filters.subject) {
+          rows = this.dbHandle.prepare('SELECT * FROM evidence_records WHERE subject = ? ORDER BY observed_at DESC LIMIT ?')
+            .all(filters.subject, limit);
+        } else if (filters.type) {
+          rows = this.dbHandle.prepare('SELECT * FROM evidence_records WHERE type = ? ORDER BY observed_at DESC LIMIT ?')
+            .all(filters.type, limit);
+        } else {
+          rows = this.dbHandle.prepare('SELECT * FROM evidence_records ORDER BY observed_at DESC LIMIT ?')
+            .all(limit);
+        }
       }
     } catch (_) {}
 
@@ -962,13 +1011,14 @@ class EvidenceFabric {
   }
 
   listFindings(limit = 50) {
-    ensureEvidenceTables();
+    ensureEvidenceTables(this.dbHandle);
     try {
-      const rows = db.prepare('SELECT finding_id FROM evidence_findings ORDER BY updated_at DESC LIMIT ?').all(limit);
-      return rows.map((r) => this.getFindingById(r.finding_id)).filter(Boolean);
-    } catch (_) {
-      return Array.from(this.memoryFindings.values()).slice(-limit).reverse();
-    }
+      if (this.dbHandle && typeof this.dbHandle.prepare === 'function') {
+        const rows = this.dbHandle.prepare('SELECT finding_id FROM evidence_findings ORDER BY updated_at DESC LIMIT ?').all(limit);
+        return rows.map((r) => this.getFindingById(r.finding_id)).filter(Boolean);
+      }
+    } catch (_) {}
+    return Array.from(this.memoryFindings.values()).slice(-limit).reverse();
   }
 }
 

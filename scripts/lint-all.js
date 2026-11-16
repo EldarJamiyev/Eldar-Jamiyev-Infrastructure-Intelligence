@@ -55,6 +55,13 @@ if (jsFailures === 0) {
   console.error(`  ✗ ${jsFailures} JavaScript files failed syntax verification.`);
 }
 
+function formatExecErrorOutput(err) {
+  const stdout = err && err.stdout ? err.stdout.toString().trim() : '';
+  const stderr = err && err.stderr ? err.stderr.toString().trim() : '';
+  const combined = [stdout, stderr].filter(Boolean).join('\n');
+  return combined || (err && err.message ? err.message : String(err));
+}
+
 // 2. TypeScript Compilation Check
 console.log('[EJII Linter] 2. Checking TypeScript type contracts (tsc --noEmit)...');
 let tsPassed = true;
@@ -62,7 +69,7 @@ try {
   execSync('npx tsc --noEmit', { stdio: 'pipe' });
   console.log('  ✓ TypeScript typecheck passed cleanly with zero diagnostics.');
 } catch (err) {
-  console.error('  ✗ TypeScript verification failed:', err.stderr ? err.stderr.toString() : err.message);
+  console.error('  ✗ TypeScript verification failed:\n' + formatExecErrorOutput(err));
   tsPassed = false;
 }
 
@@ -73,7 +80,7 @@ try {
   execSync('node scripts/verify-ts-js-parity.js', { stdio: 'pipe' });
   console.log('  ✓ All TypeScript flagship modules match JavaScript counterparts with 100% parity.');
 } catch (err) {
-  console.error('  ✗ TS/JS parity check failed:', err.stderr ? err.stderr.toString() : err.message);
+  console.error('  ✗ TS/JS parity check failed:\n' + formatExecErrorOutput(err));
   parityPassed = false;
 }
 

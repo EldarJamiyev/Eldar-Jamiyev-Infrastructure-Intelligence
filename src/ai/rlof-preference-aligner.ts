@@ -200,9 +200,23 @@ export class RlofPreferenceAligner {
     const clean = String(prompt || '').trim();
     if (!clean) return { matched: false, rawText: clean };
 
+    // Never treat questions or negative-constraint explanation requests as operator action overrides
+    if (
+      clean.includes('?') ||
+      /^(?:why|what|how|when|where|who|which|can|could|would|should|is|are|does|do|did|explain|tell\s+me|don't\s+run|do\s+not\s+run)\b/i.test(clean)
+    ) {
+      return { matched: false, rawText: clean };
+    }
+
+    const NON_ACTION_NOUNS = new Set([
+      'PORT', 'PORTS', 'PACKET', 'PACKETS', 'CONNECTION', 'CONNECTIONS', 'REQUEST', 'REQUESTS',
+      'TRAFFIC', 'FRAME', 'FRAMES', 'PING', 'ICMP', 'TCP', 'UDP', 'DNS', 'HTTP', 'HTTPS', 'TLS',
+      'SSL', 'SERVER', 'CLIENT', 'HOST', 'IT', 'THAT', 'THIS', 'THEM', 'ALL', 'ANYTHING'
+    ]);
+
     // 1. "prefer <ActionA> over <ActionB>"
     const preferMatch = clean.match(/\bprefer\s+([A-Za-z0-9_\-]+)\s+over\s+([A-Za-z0-9_\-]+)\b/i);
-    if (preferMatch) {
+    if (preferMatch && !NON_ACTION_NOUNS.has(preferMatch[1].toUpperCase())) {
       return {
         matched: true,
         feedbackType: 'PREFERENCE_RANKING',
@@ -214,7 +228,7 @@ export class RlofPreferenceAligner {
 
     // 2. "reject <ActionA>, use <ActionB>" / "reject <ActionA> prefer <ActionB>"
     const rejectUseMatch = clean.match(/\breject\s+([A-Za-z0-9_\-]+)[,\s]+(?:use|prefer|switch to)\s+([A-Za-z0-9_\-]+)\b/i);
-    if (rejectUseMatch) {
+    if (rejectUseMatch && !NON_ACTION_NOUNS.has(rejectUseMatch[1].toUpperCase())) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_OVERRIDE',
@@ -226,7 +240,7 @@ export class RlofPreferenceAligner {
 
     // 3. "override <ActionA> with <ActionB>"
     const overrideMatch = clean.match(/\boverride\s+([A-Za-z0-9_\-]+)\s+with\s+([A-Za-z0-9_\-]+)\b/i);
-    if (overrideMatch) {
+    if (overrideMatch && !NON_ACTION_NOUNS.has(overrideMatch[1].toUpperCase())) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_OVERRIDE',
@@ -237,8 +251,8 @@ export class RlofPreferenceAligner {
     }
 
     // 4. "approve <ActionA> [instead of <ActionB>]"
-    const approveMatch = clean.match(/\bapprove\s+([A-Za-z0-9_\-]+)(?:\s+(?:instead of|rather than)\s+([A-Za-z0-9_\-]+))?\b/i);
-    if (approveMatch) {
+    const approveMatch = clean.match(/^(?:please\s+|i\s+|operator\s+)?approve\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)(?:\s+(?:instead of|rather than)\s+([A-Za-z0-9_\-]+))?\b/i);
+    if (approveMatch && !NON_ACTION_NOUNS.has(approveMatch[1].toUpperCase())) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_APPROVAL',
@@ -249,8 +263,8 @@ export class RlofPreferenceAligner {
     }
 
     // 5. "reject <ActionA>"
-    const rejectOnlyMatch = clean.match(/\breject\s+([A-Za-z0-9_\-]+)\b/i);
-    if (rejectOnlyMatch) {
+    const rejectOnlyMatch = clean.match(/^(?:please\s+|i\s+|operator\s+)?reject\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\b/i);
+    if (rejectOnlyMatch && !NON_ACTION_NOUNS.has(rejectOnlyMatch[1].toUpperCase())) {
       return {
         matched: true,
         feedbackType: 'MANUAL_REJECTION',

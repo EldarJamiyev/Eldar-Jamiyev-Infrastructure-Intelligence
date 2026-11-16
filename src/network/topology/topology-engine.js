@@ -27,10 +27,10 @@ class TopologyEngine {
    */
   syncTopologyToPhysicalNetwork() {
     const netInfo = getPhysicalNetworkInfo();
-    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '192.168.31.1';
-    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
-    const subnetCidr = netInfo.subnetCidr || '192.168.31.0/24';
-    const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '10.22.10.11';
+    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '127.0.0.1';
+    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
+    const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
+    const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '1.1.1.1';
     const now = new Date().toISOString();
 
     const storedGw = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
@@ -44,8 +44,8 @@ class TopologyEngine {
       syncTopologyWithCurrentLocation(db);
     }
 
-    const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Intel(R) Wi-Fi 6E AX211 160MHz';
-    const vendorString = `${adapterHardware} / Windows Workstation`;
+    const adapterHardware = netInfo.hardwareDescription || netInfo.adapterName || 'Local Host Interface';
+    const vendorString = `${adapterHardware} / Local Workstation`;
 
     const subnetChanged = !storedLan || storedLan.hostname_or_ip !== subnetCidr;
     const gatewayChanged = !storedGw || storedGw.hostname_or_ip !== gatewayIp;
@@ -92,13 +92,13 @@ class TopologyEngine {
       // 2. Synchronize all L1-L6 topology nodes with active physical location
       syncTopologyWithCurrentLocation(db);
 
-      // 9. Ensure foundational edges are established
+      // 9. Ensure foundational edges are established with null unmeasured metrics
       const defaultEdges = [
-        ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, 24.5, 0.8, 1200],
-        ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, 18.2, 0.4, 450],
-        ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, 12.0, 1.2, 280],
-        ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, 35.0, 0.5, 620],
-        ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, 8.5, 0.1, 150]
+        ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, null, null, null],
+        ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, null, null, null],
+        ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, null, null, null],
+        ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, null, null, null],
+        ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, null, null, null]
       ];
 
       for (const [id, src, tgt, type, status, bw, util, lat, pr] of defaultEdges) {
@@ -106,7 +106,7 @@ class TopologyEngine {
           INSERT INTO topology_edges (id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET status = excluded.status
-        `).run(id, src, tgt, type, status, bw, util, lat, pr, JSON.stringify({ role: 'Core Link' }));
+        `).run(id, src, tgt, type, status, bw, util, lat, pr, JSON.stringify({ role: 'Core Link', evidenceClassification: 'Architectural_Template_Link' }));
       }
 
       this.cachedTopology = null;
@@ -126,8 +126,8 @@ class TopologyEngine {
 
     const netInfo = getPhysicalNetworkInfo();
     const activeSubnet = netInfo.subnetCidr;
-    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
-    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '192.168.31.1';
+    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
+    const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '127.0.0.1';
 
     const rawDbNodes = db.prepare('SELECT * FROM topology_nodes ORDER BY layer_level ASC, id ASC').all();
     const rawDbEdges = db.prepare('SELECT * FROM topology_edges').all();

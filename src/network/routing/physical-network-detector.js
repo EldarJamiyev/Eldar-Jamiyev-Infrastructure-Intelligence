@@ -208,7 +208,7 @@ function isIpInSubnet(ip, subnetCidr) {
  */
 function calculateSubnet(ip, prefixLength = 24) {
   const prefix = Math.min(Math.max(0, parseInt(prefixLength, 10) || 24), 32);
-  const ipParts = (ip || '192.168.31.89').split('.').map(Number);
+  const ipParts = (ip || '127.0.0.1').split('.').map(Number);
   const ipNum = ((ipParts[0] << 24) >>> 0) + ((ipParts[1] << 16) >>> 0) + ((ipParts[2] << 8) >>> 0) + (ipParts[3] >>> 0);
   
   const maskNum = prefix === 0 ? 0 : ((0xFFFFFFFF << (32 - prefix)) >>> 0);
@@ -274,9 +274,9 @@ function resolveNativeUtf8AdapterName(hostIp, fallbackName = 'Ethernet') {
   } catch (_) {}
 
   if (typeof fallbackName === 'string' && /\?{3,}/.test(fallbackName)) {
-    return 'Wi-Fi / Primary Physical NIC';
+    return 'Primary Network Interface';
   }
-  return fallbackName || 'Wi-Fi / Primary Physical NIC';
+  return fallbackName || 'Primary Network Interface';
 }
 
 let cachedArpNeighbors = null;
@@ -287,7 +287,7 @@ const ARP_CACHE_TTL_MS = 30000;
  * Parse OS ARP table (arp -a on Windows, /proc/net/arp on Linux)
  * Returns a list of reachable unicast peers on the active subnet.
  */
-function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
+function parseLiveArpNeighbors(subnetCidr = '127.0.0.0/8') {
   const now = Date.now();
   if (cachedArpNeighbors && (now - lastArpCacheTime < ARP_CACHE_TTL_MS)) {
     return cachedArpNeighbors;
@@ -348,7 +348,8 @@ function parseLiveArpNeighbors(subnetCidr = '192.168.31.0/24') {
 }
 
 /**
- * Resolve true physical network adapter configuration and location fingerprint
+ * Resolve true physical network adapter configuration and location fingerprint.
+ * Never fabricates alien workstation IPs, MACs, adapter names, or guessed .1/.254 gateways.
  */
 function getPhysicalNetworkInfo(options = {}) {
   const forceRefresh = options && options.forceRefresh === true;
@@ -366,26 +367,28 @@ function getPhysicalNetworkInfo(options = {}) {
   }
 
   let info = {
-    hostIp: '192.168.31.89',
-    localIp: '192.168.31.89',
-    gatewayIp: '192.168.31.1',
-    defaultGateway: '192.168.31.1',
-    subnetCidr: '192.168.31.0/24',
-    subnetMask: '255.255.255.0',
-    subnetPrefix: '192.168.31',
-    interfaceAlias: 'Wi-Fi',
-    adapterName: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    adapter: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    hardwareDescription: 'Intel(R) Wi-Fi 6E AX211 160MHz',
-    mac: '70:15:FB:6B:F3:46',
-    macAddress: '70:15:FB:6B:F3:46',
-    interfaceIndex: 7,
-    dnsServers: ['192.168.31.1', '1.1.1.1'],
-    primaryDnsIp: '192.168.31.1',
-    secondaryDnsIp: '1.1.1.1',
-    dhcpServer: '192.168.31.1',
+    hostIp: '127.0.0.1',
+    localIp: '127.0.0.1',
+    gatewayIp: null,
+    defaultGateway: null,
+    gatewayVerified: false,
+    gatewayDiscoveryStatus: 'NO_DEFAULT_ROUTE_OBSERVED',
+    subnetCidr: '127.0.0.0/8',
+    subnetMask: '255.0.0.0',
+    subnetPrefix: '127.0.0',
+    interfaceAlias: 'lo',
+    adapterName: 'Local Host Interface',
+    adapter: 'Local Host Interface',
+    hardwareDescription: 'Local Host Interface',
+    mac: null,
+    macAddress: null,
+    interfaceIndex: null,
+    dnsServers: ['1.1.1.1'],
+    primaryDnsIp: '1.1.1.1',
+    secondaryDnsIp: '8.8.8.8',
+    dhcpServer: null,
     gatewayMac: 'Unknown',
-    gatewayVendor: 'Observed Default Gateway',
+    gatewayVendor: 'Unverified / No Default Route Observed',
     arpNeighbors: [],
     arpNeighborsCount: 0,
     activeArpNeighbors: [],
@@ -443,12 +446,15 @@ function getPhysicalNetworkInfo(options = {}) {
           const sub = calculateSubnet(parsed.HostIp, prefix);
           const resolvedAlias = resolveNativeUtf8AdapterName(parsed.HostIp, parsed.IfAlias);
           const resolvedDns = Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : info.dnsServers);
-          const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : info.mac;
+          const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : null;
+          const hasValidGateway = Boolean(parsed.Gateway && parsed.Gateway !== '0.0.0.0');
 
           info.hostIp = parsed.HostIp;
           info.localIp = parsed.HostIp;
-          info.gatewayIp = parsed.Gateway;
-          info.defaultGateway = parsed.Gateway;
+          info.gatewayIp = hasValidGateway ? parsed.Gateway : null;
+          info.defaultGateway = info.gatewayIp;
+          info.gatewayVerified = hasValidGateway;
+          info.gatewayDiscoveryStatus = hasValidGateway ? 'VERIFIED_OS_ROUTE_TABLE' : 'NO_DEFAULT_ROUTE_OBSERVED';
           info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
           info.subnetMask = sub.subnetMask;
           info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
@@ -458,10 +464,10 @@ function getPhysicalNetworkInfo(options = {}) {
           info.hardwareDescription = parsed.Description || resolvedAlias;
           info.mac = hostMac;
           info.macAddress = hostMac;
-          info.interfaceIndex = parsed.IfIndex || 7;
+          info.interfaceIndex = parsed.IfIndex || null;
           info.dnsServers = resolvedDns;
-          info.primaryDnsIp = resolvedDns[0] || parsed.Gateway;
-          info.secondaryDnsIp = resolvedDns[1] || resolvedDns[0] || parsed.Gateway;
+          info.primaryDnsIp = resolvedDns[0] || info.primaryDnsIp;
+          info.secondaryDnsIp = resolvedDns[1] || resolvedDns[0] || info.secondaryDnsIp;
           info.dhcpServer = parsed.Dhcp || null;
           info.isDetected = true;
         }
@@ -469,28 +475,30 @@ function getPhysicalNetworkInfo(options = {}) {
     } catch (_) {}
 
     if (!info.isDetected) {
-      // Fallback: inspect os.networkInterfaces()
+      // Fallback: inspect os.networkInterfaces() without guessing a .1 gateway
       try {
         const ifaces = os.networkInterfaces();
         for (const name of Object.keys(ifaces)) {
           if (/vEthernet|WSL|VirtualBox|VMware/i.test(name)) continue;
           for (const addr of ifaces[name]) {
             if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
-              const sub = calculateSubnet(addr.address, 24);
+              const prefix = addr.cidr && addr.cidr.includes('/') ? (parseInt(addr.cidr.split('/')[1], 10) || 24) : 24;
+              const sub = calculateSubnet(addr.address, prefix);
               const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
               info.hostIp = addr.address;
               info.localIp = addr.address;
-              const ipParts = addr.address.split('.');
-              ipParts[3] = '1';
-              info.gatewayIp = ipParts.join('.');
-              info.defaultGateway = info.gatewayIp;
-              info.subnetCidr = `${sub.networkAddress}/24`;
+              info.gatewayIp = null;
+              info.defaultGateway = null;
+              info.gatewayVerified = false;
+              info.gatewayDiscoveryStatus = 'NO_DEFAULT_ROUTE_OBSERVED';
+              info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
               info.subnetMask = sub.subnetMask;
               info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
               info.interfaceAlias = resolvedAlias;
               info.adapterName = resolvedAlias;
               info.adapter = resolvedAlias;
-              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : info.mac;
+              info.hardwareDescription = resolvedAlias;
+              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : null;
               info.macAddress = info.mac;
               info.isDetected = true;
               break;
@@ -501,7 +509,7 @@ function getPhysicalNetworkInfo(options = {}) {
       } catch (_) {}
     }
   } else {
-    // POSIX routing resolution
+    // POSIX routing resolution: only record gateway when OS route table explicitly reports `via <ip>`
     try {
       const routeOut = execSync('ip route show default 2>/dev/null', { encoding: 'utf8', timeout: 3000 }).trim();
       const viaMatch = routeOut.match(/via\s+(\d+\.\d+\.\d+\.\d+)/);
@@ -509,13 +517,16 @@ function getPhysicalNetworkInfo(options = {}) {
       const gw = viaMatch ? viaMatch[1] : null;
       const iface = (devMatch && devMatch[1] !== 'unspec') ? devMatch[1] : null;
       if (iface) {
-        if (gw) {
+        if (gw && gw !== '0.0.0.0') {
           info.gatewayIp = gw;
           info.defaultGateway = gw;
+          info.gatewayVerified = true;
+          info.gatewayDiscoveryStatus = 'VERIFIED_OS_ROUTE_TABLE';
         }
         info.interfaceAlias = iface;
         info.adapterName = iface;
         info.adapter = iface;
+        info.hardwareDescription = iface;
         const ipOut = execSync(`ip -4 addr show dev ${iface} 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim();
         const inetMatch = ipOut.match(/inet\s+(\d+\.\d+\.\d+\.\d+)\/(\d+)/);
         if (inetMatch) {
@@ -528,14 +539,16 @@ function getPhysicalNetworkInfo(options = {}) {
           info.isLinkLocalApipa = isApipa;
           info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
 
-          if (!gw || gw === ip) {
-            const p = ip.split('.');
-            p[3] = p[3] === '1' ? '254' : '1';
-            info.gatewayIp = p.join('.');
-            info.defaultGateway = info.gatewayIp;
+          if (!gw || gw === ip || gw === '0.0.0.0') {
+            info.gatewayIp = null;
+            info.defaultGateway = null;
+            info.gatewayVerified = false;
+            info.gatewayDiscoveryStatus = 'NO_DEFAULT_ROUTE_OBSERVED';
           }
           if (isApipa) {
-            info.gatewayVendor = 'Container Runtime Virtual Interface (Cloud Sandbox)';
+            info.gatewayVendor = info.gatewayVerified
+              ? 'Container Runtime Virtual Interface (Cloud Sandbox)'
+              : 'Container Runtime Scope-Link Interface (No Default Gateway Route)';
           }
           info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
           info.subnetMask = sub.subnetMask;
@@ -551,21 +564,26 @@ function getPhysicalNetworkInfo(options = {}) {
         for (const [name, addrs] of Object.entries(ifaces)) {
           if (!Array.isArray(addrs)) continue;
           for (const addr of addrs) {
-            if (!addr.internal && addr.family === 'IPv4' && !addr.address.startsWith('169.254.')) {
-              const sub = calculateSubnet(addr.address, 24);
-              const p = addr.address.split('.');
-              p[3] = p[3] === '1' ? '254' : '1';
+            if (!addr.internal && addr.family === 'IPv4') {
+              const prefix = addr.cidr && addr.cidr.includes('/') ? (parseInt(addr.cidr.split('/')[1], 10) || 24) : 24;
+              const sub = calculateSubnet(addr.address, prefix);
+              const isApipa = addr.address.startsWith('169.254.');
               info.hostIp = addr.address;
               info.localIp = addr.address;
-              info.gatewayIp = p.join('.');
-              info.defaultGateway = info.gatewayIp;
-              info.subnetCidr = `${sub.networkAddress}/24`;
+              info.gatewayIp = null;
+              info.defaultGateway = null;
+              info.gatewayVerified = false;
+              info.gatewayDiscoveryStatus = 'NO_DEFAULT_ROUTE_OBSERVED';
+              info.isLinkLocalApipa = isApipa;
+              info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
+              info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
               info.subnetMask = sub.subnetMask;
               info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
               info.interfaceAlias = name;
               info.adapterName = name;
               info.adapter = name;
-              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : info.mac;
+              info.hardwareDescription = name;
+              info.mac = (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : null;
               info.macAddress = info.mac;
               info.isDetected = true;
               break;
@@ -584,26 +602,27 @@ function getPhysicalNetworkInfo(options = {}) {
     info.activeArpNeighbors = liveArp;
     info.arpNeighborsCount = liveArp.length;
 
-    const gwArp = liveArp.find((e) => e.ip === info.defaultGateway);
+    const gwArp = info.defaultGateway ? liveArp.find((e) => e.ip === info.defaultGateway) : null;
     if (gwArp && gwArp.mac) {
       info.gatewayMac = gwArp.mac;
       info.gatewayVendor = resolveGatewayOuiVendor(gwArp.mac);
     } else {
       info.gatewayMac = 'Unknown';
-      info.gatewayVendor = 'Observed Default Gateway';
+      if (info.gatewayVerified) {
+        info.gatewayVendor = 'Observed Default Gateway';
+      }
     }
   } catch (_) {}
 
   // Compute location signature hash
-  const sigRaw = `${info.adapterName}|${info.localIp}|${info.subnetCidr}|${info.defaultGateway}|${info.gatewayMac}|${info.primaryDnsIp}`;
+  const sigRaw = `${info.adapterName}|${info.localIp}|${info.subnetCidr}|${info.defaultGateway || 'no-gw'}|${info.gatewayMac}|${info.primaryDnsIp}`;
   info.locationSignature = sigRaw;
   info.networkSignatureHash = crypto.createHash('sha256').update(sigRaw).digest('hex');
 
-    const isEnterprise = (info.defaultGateway && info.defaultGateway.startsWith('10.')) ||
+  const isEnterprise = (info.defaultGateway && info.defaultGateway.startsWith('10.')) ||
     (info.subnetCidr && info.subnetCidr.startsWith('10.')) ||
     /MikroTik|Cisco|Aruba|Meraki|Enterprise/i.test(info.gatewayVendor || '');
   info.environmentProfile = isEnterprise ? 'ENTERPRISE_CORPORATE_INTRANET' : 'STANDARD_LAN_OR_WIFI';
-
 
   // Multi-Interface Enumeration across Physical, Wi-Fi, VPN, and Virtual
   const allActiveIfaces = [];
@@ -624,7 +643,7 @@ function getPhysicalNetworkInfo(options = {}) {
             name: ifName,
             address: addr.address,
             netmask: addr.netmask,
-            mac: addr.mac ? addr.mac.toUpperCase() : null,
+            mac: (addr.mac && addr.mac !== '00:00:00:00:00:00') ? addr.mac.toUpperCase() : null,
             cidr: addr.cidr || `${addr.address}/24`,
             type,
             isDefault: addr.address === info.localIp,
@@ -642,13 +661,13 @@ function getPhysicalNetworkInfo(options = {}) {
   return info;
 }
 
-let cachedWanHops = [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }];
-let lastWanHopsTime = Date.now();
+let cachedWanHops = [];
+let lastWanHopsTime = 0;
 const WAN_HOPS_TTL_MS = 120000;
 
 function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
   const now = Date.now();
-  if (cachedWanHops && (now - lastWanHopsTime < WAN_HOPS_TTL_MS)) {
+  if (cachedWanHops.length > 0 && (now - lastWanHopsTime < WAN_HOPS_TTL_MS)) {
     return cachedWanHops;
   }
   const hops = [];
@@ -661,14 +680,16 @@ function getUpstreamWanTransitHops(defaultGateway, maxHops = 3) {
         if (m) {
           const hopNum = parseInt(m[1], 10);
           const ip = m[3];
+          const rttMatch = m[2].match(/(\d+)\s*ms/i);
+          const rttMs = rttMatch ? Number(rttMatch[1]) : null;
           if (ip !== defaultGateway && ip !== '8.8.8.8') {
-            hops.push({ hop: hopNum, ip, rttMs: 9.5 });
+            hops.push({ hop: hopNum, ip, rttMs });
           }
         }
       }
     }
   } catch (_) {}
-  cachedWanHops = hops.length > 0 ? hops : (cachedWanHops || [{ hop: 2, ip: '100.64.0.1', rttMs: 9.5 }]);
+  cachedWanHops = hops;
   lastWanHopsTime = now;
   return cachedWanHops;
 }
@@ -740,8 +761,8 @@ async function detectPhysicalNetwork() {
 }
 
 /**
- * Synchronize SQLite topology_nodes with the user's current location & active subnet
- * Ensures L1-L6 nodes strictly reflect the real physical environment.
+ * Synchronize SQLite topology_nodes with the user's current location & active subnet.
+ * Ensures L1-L6 nodes strictly reflect observed local state vs configured reference targets without fabricated latency/utilization.
  */
 function syncTopologyWithCurrentLocation(dbInstance) {
   const db = dbInstance || require('../../db/database').db;
@@ -749,40 +770,39 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   const now = new Date().toISOString();
 
   const isTestEnv = process.env.NODE_ENV === 'test';
-  const localSubnet = netInfo.subnetCidr;
-  const gwIp = netInfo.defaultGateway;
-  const hostIp = netInfo.localIp;
+  const localSubnet = netInfo.subnetCidr || '127.0.0.0/8';
+  const gwIp = netInfo.defaultGateway || null;
+  const gwDisplayIp = gwIp || '127.0.0.1';
+  const hostIp = netInfo.localIp || '127.0.0.1';
   const gwMac = netInfo.gatewayMac !== 'Unknown' ? netInfo.gatewayMac : null;
-  const gwVendor = netInfo.gatewayVendor || 'Observed Default Gateway';
+  const gwVendor = netInfo.gatewayVendor || (gwIp ? 'Observed Default Gateway' : 'Unverified / No Default Route Observed');
 
   // 1. Clean up legacy / duplicate nodes & edges (Zero Duplicate Subnet or Self-Mirrored Nodes)
   try {
     db.prepare("DELETE FROM topology_edges WHERE source_id = 'NODE-SUBNET-01' OR target_id = 'NODE-SUBNET-01'").run();
     db.prepare("DELETE FROM topology_nodes WHERE id = 'NODE-SUBNET-01'").run();
-    db.prepare("DELETE FROM topology_nodes WHERE id LIKE 'NODE-DISC-%' AND (hostname_or_ip = ? OR hostname_or_ip = ?)").run(gwIp, hostIp);
+    db.prepare("DELETE FROM topology_nodes WHERE id LIKE 'NODE-DISC-%' AND (hostname_or_ip = ? OR hostname_or_ip = ?)").run(gwDisplayIp, hostIp);
   } catch (_) {}
 
-  // L1: Upstream WAN & Transit
+  // L1: Upstream WAN Reference Target (Configured Reference, unprobed until actively checked)
   const wanIp = '8.8.8.8';
-  const wanVendor = 'Google Anycast Transit';
+  const wanVendor = 'Google Public DNS Reference (Configured Target)';
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-WAN-01', ?, ?, NULL, 'wan', 'wan', 1, NULL, 'healthy', ?, 12.4, ?, 'WAN0', 80, 140, ?)
+    VALUES ('NODE-WAN-01', ?, ?, NULL, 'wan', 'wan', 1, NULL, 'unprobed', NULL, NULL, ?, 'WAN0', 80, 140, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
-      vendor = excluded.vendor,
-      last_checked = excluded.last_checked
+      vendor = excluded.vendor
   `).run(
-    `Upstream Internet Transit (${wanIp})`,
+    `Upstream Internet Reference (${wanIp})`,
     wanIp,
-    now,
     wanVendor,
-    JSON.stringify({ role: 'WAN Transit', provider: wanVendor, evidenceClassification: 'Configured' })
+    JSON.stringify({ role: 'WAN Transit Reference Target', provider: wanVendor, evidenceClassification: 'Configured_Reference_Target', probed: false })
   );
 
-  // Discover real Upstream WAN Transit Next-Hop Routers (Hop 2, Hop 3)
+  // Discover real Upstream WAN Transit Next-Hop Routers (Hop 2, Hop 3) if observed via traceroute
   const upstreamHops = isTestEnv ? [] : getUpstreamWanTransitHops(gwIp, 2);
   upstreamHops.forEach((hop, idx) => {
     const hopNodeId = `NODE-WAN-HOP${hop.hop || (idx + 2)}`;
@@ -801,54 +821,60 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       `ISP Transit Hop ${hop.hop} (${hop.ip})`,
       hop.ip,
       now,
-      hop.rttMs || 10.2,
+      typeof hop.rttMs === 'number' ? hop.rttMs : null,
       hopVendor,
       JSON.stringify({ role: 'WAN Next-Hop Transit', hop: hop.hop, provider: hopVendor, evidenceClassification: 'Observed' })
     );
 
-    // Connect upstream hop to default gateway
     db.prepare(`
       INSERT OR IGNORE INTO topology_edges (
         id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-      ) VALUES (?, ?, 'NODE-GW-01', 'fiber', 'up', 10000, 28.0, ?, 850, ?)
-    `).run(`EDGE-${hopNodeId}-GW`, hopNodeId, hop.rttMs || 10.2, JSON.stringify({ role: 'WAN Next-Hop Link', autoDiscovered: true }));
+      ) VALUES (?, ?, 'NODE-GW-01', 'fiber', 'up', 10000, NULL, ?, NULL, ?)
+    `).run(`EDGE-${hopNodeId}-GW`, hopNodeId, typeof hop.rttMs === 'number' ? hop.rttMs : null, JSON.stringify({ role: 'WAN Next-Hop Link', autoDiscovered: true }));
   });
 
-  // L2: Gateway (Perimeter Router on LAN or Virtual vNIC Gateway in Container Sandbox)
+  // L2: Gateway (Verified OS Route or Unobserved Route State)
   const isSandbox = Boolean(netInfo.isSandboxRuntime || netInfo.isLinkLocalApipa || (hostIp && hostIp.startsWith('169.254.')));
-  const gwNodeName = isSandbox
-    ? `Virtual Container Gateway (${gwIp})`
-    : `Edge Perimeter Router (${gwIp})`;
+  const gwNodeName = gwIp
+    ? (isSandbox ? `Virtual Container Gateway (${gwIp})` : `Edge Perimeter Router (${gwIp})`)
+    : 'Default Gateway (No Default Route Observed)';
   const gwRole = isSandbox ? 'Container Virtual Gateway' : 'Border Router';
-  const gwEvidenceClass = isSandbox ? 'Runtime-Environment' : 'Observed';
+  const gwEvidenceClass = gwIp ? (isSandbox ? 'Runtime-Environment' : 'Observed') : 'Unobserved_No_Default_Route';
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-GW-01', ?, ?, ?, 'router', 'edge', 2, 'NODE-WAN-01', 'healthy', ?, 0.8, ?, 'ether1', 280, 140, ?)
+    VALUES ('NODE-GW-01', ?, ?, ?, 'router', 'edge', 2, 'NODE-WAN-01', 'unprobed', NULL, NULL, ?, 'ether1', 280, 140, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
       mac_address = COALESCE(excluded.mac_address, topology_nodes.mac_address),
       vendor = excluded.vendor,
-      last_checked = excluded.last_checked
+      metadata = excluded.metadata
   `).run(
     gwNodeName,
-    gwIp,
+    gwDisplayIp,
     gwMac,
-    now,
     gwVendor,
-    JSON.stringify({ role: gwRole, vendor: gwVendor, discovery: 'dynamic_route', isSandboxRuntime: isSandbox, isLinkLocalApipa: isSandbox, physicalHardwareUnverified: isSandbox, evidenceClassification: gwEvidenceClass })
+    JSON.stringify({
+      role: gwRole,
+      vendor: gwVendor,
+      discovery: gwIp ? 'os_route_table' : 'no_default_route_observed',
+      gatewayVerified: Boolean(netInfo.gatewayVerified),
+      isSandboxRuntime: isSandbox,
+      isLinkLocalApipa: isSandbox,
+      physicalHardwareUnverified: isSandbox || !gwIp,
+      evidenceClassification: gwEvidenceClass
+    })
   );
 
   // L3: Core Switch & Services (Internal / Primary DNS)
-  // Ensure coreDnsIp is distinct from gwIp to prevent duplicate IP boxes
-  let coreDnsIp = (netInfo.primaryDnsIp && netInfo.primaryDnsIp !== gwIp) ? netInfo.primaryDnsIp : null;
-  if (!coreDnsIp && netInfo.secondaryDnsIp && netInfo.secondaryDnsIp !== gwIp) {
+  let coreDnsIp = (netInfo.primaryDnsIp && netInfo.primaryDnsIp !== gwDisplayIp) ? netInfo.primaryDnsIp : null;
+  if (!coreDnsIp && netInfo.secondaryDnsIp && netInfo.secondaryDnsIp !== gwDisplayIp) {
     coreDnsIp = netInfo.secondaryDnsIp;
   }
   let isFallbackResolver = false;
   if (!coreDnsIp) {
-    const vIface = (netInfo.allActiveInterfaces || []).find(i => i.isVirtual && i.address !== gwIp);
+    const vIface = (netInfo.allActiveInterfaces || []).find(i => i.isVirtual && i.address !== gwDisplayIp);
     if (vIface) {
       coreDnsIp = vIface.address;
     } else {
@@ -857,12 +883,12 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     }
   }
   const coreNodeType = isSandbox ? 'dns_resolver' : 'switch';
-  const coreNodeMac = isSandbox ? null : '64:12:25:E4:68:F0';
+  const coreNodeMac = null;
   const coreNodeIfName = isSandbox ? null : 'tengig0/1';
   const coreVendor = isFallbackResolver
     ? 'Illustrative Anycast Resolver (Unobserved Fallback)'
     : (coreDnsIp === '1.1.1.1'
-      ? 'Cloudflare Anycast Resolver'
+      ? 'Cloudflare Anycast Resolver (Configured)'
       : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver (Service Endpoint)' : 'Core Backbone Switch & Services')));
   const coreNodeName = isSandbox
     ? (isFallbackResolver ? 'Proposed Default Resolver (1.1.1.1 - Unobserved)' : `Configured DNS Resolver (${coreDnsIp})`)
@@ -870,7 +896,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-CORE-01', ?, ?, ?, ?, 'core', 3, 'NODE-GW-01', 'healthy', ?, 0.9, ?, ?, 480, 80, ?)
+    VALUES ('NODE-CORE-01', ?, ?, ?, ?, 'core', 3, 'NODE-GW-01', 'unprobed', NULL, NULL, ?, ?, 480, 80, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
@@ -878,14 +904,12 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       type = excluded.type,
       if_name = excluded.if_name,
       vendor = excluded.vendor,
-      last_checked = excluded.last_checked,
       metadata = excluded.metadata
   `).run(
     coreNodeName,
     coreDnsIp,
     coreNodeMac,
     coreNodeType,
-    now,
     coreVendor,
     coreNodeIfName,
     JSON.stringify({
@@ -895,20 +919,20 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       isFallbackResolver,
       hardwareFidelity: isSandbox
         ? (isFallbackResolver ? 'UNOBSERVED_ILLUSTRATIVE_RESOLVER' : 'UNOBSERVED_SANDBOX_SERVICE')
-        : 'PHYSICAL_MANAGED_SWITCH',
-      macObserved: !isSandbox && !isFallbackResolver,
-      interfaceObserved: !isSandbox && !isFallbackResolver,
-      evidenceClassification: isFallbackResolver ? 'Proposed_Fallback' : 'Observed'
+        : 'CONFIGURED_DNS_OR_CORE_NODE',
+      macObserved: false,
+      interfaceObserved: false,
+      evidenceClassification: isFallbackResolver ? 'Proposed_Fallback' : 'Configured_DNS_Resolver'
     })
   );
 
   // L4: Enterprise Applications & Active Service Endpoints
-  // NEVER duplicate hostIp in L4! Use real established remote TCP sockets or LAN services
   const liveSocketPeers = isTestEnv ? [] : getLiveActiveServicePeers(hostIp, 5);
   let appNodeIp = '1.1.1.1';
-  let appNodeName = 'Enterprise Cloud Service (1.1.1.1)';
-  let appNodeVendor = 'Cloudflare Core Infrastructure';
+  let appNodeName = 'Enterprise Cloud Reference (1.1.1.1)';
+  let appNodeVendor = 'Cloudflare Reference Endpoint (Configured)';
   let appNodePort = 443;
+  let appEvidenceClass = 'Configured_Reference_Target';
 
   if (liveSocketPeers.length > 0) {
     const primary = liveSocketPeers[0];
@@ -916,17 +940,18 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     appNodeName = `Active Service Endpoint (${primary.ip}:${primary.port})`;
     appNodeVendor = primary.serviceDescription;
     appNodePort = parseInt(primary.port, 10) || 443;
+    appEvidenceClass = 'Observed';
   } else if (Array.isArray(netInfo.arpNeighbors) && netInfo.arpNeighbors.length > 0) {
-    const peer = netInfo.arpNeighbors.find((p) => p.ip !== gwIp && p.ip !== hostIp);
+    const peer = netInfo.arpNeighbors.find((p) => p.ip !== gwDisplayIp && p.ip !== hostIp);
     if (peer) {
       appNodeIp = peer.ip;
       appNodeName = `Discovered Subnet Service (${peer.ip})`;
       appNodeVendor = peer.vendor || 'Active LAN Equipment';
       appNodePort = 80;
+      appEvidenceClass = 'Observed';
     }
   }
 
-  // If explicit legacy test override is present
   if (process.env.EJII_LEGACY_APP_NODE_IP) {
     appNodeIp = process.env.EJII_LEGACY_APP_NODE_IP;
     appNodeName = `Legacy Service (${appNodeIp})`;
@@ -934,18 +959,17 @@ function syncTopologyWithCurrentLocation(dbInstance) {
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-APP-01', ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'healthy', ?, 1.8, ?, 'eth0', 680, 80, ?)
+    VALUES ('NODE-APP-01', ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'unprobed', NULL, NULL, ?, 'eth0', 680, 80, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
       vendor = excluded.vendor,
-      last_checked = excluded.last_checked
+      metadata = excluded.metadata
   `).run(
     appNodeName,
     appNodeIp,
-    now,
     appNodeVendor,
-    JSON.stringify({ role: 'Enterprise Gateway & Service Fabric', port: appNodePort, evidenceClassification: 'Observed' })
+    JSON.stringify({ role: 'Enterprise Gateway & Service Fabric', port: appNodePort, evidenceClassification: appEvidenceClass })
   );
 
   // If additional live established socket peers exist, render up to 3 more in L4
@@ -954,7 +978,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       const peerNodeId = `NODE-PEER-0${idx + 1}`;
       db.prepare(`
         INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-        VALUES (?, ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'healthy', ?, 2.4, ?, 'eth0', 680, 180, ?)
+        VALUES (?, ?, ?, NULL, 'service', 'service', 4, 'NODE-CORE-01', 'healthy', ?, NULL, ?, 'eth0', 680, 180, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           hostname_or_ip = excluded.hostname_or_ip,
@@ -969,11 +993,10 @@ function syncTopologyWithCurrentLocation(dbInstance) {
         JSON.stringify({ role: 'Active Remote Flow', port: peer.port, pid: peer.pid, evidenceClassification: 'Observed' })
       );
 
-      // Connect L4 peer to Core Switch
       db.prepare(`
         INSERT OR IGNORE INTO topology_edges (
           id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-        ) VALUES (?, 'NODE-CORE-01', ?, 'ethernet', 'up', 1000, 12.0, 2.4, 180, ?)
+        ) VALUES (?, 'NODE-CORE-01', ?, 'ethernet', 'up', 1000, NULL, NULL, NULL, ?)
       `).run(`EDGE-CORE-${peerNodeId}`, peerNodeId, JSON.stringify({ role: 'Service Flow Link', autoDiscovered: true }));
     });
   }
@@ -981,7 +1004,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   // L5: Distribution & Access LAN Subnet (Strict Single Card: NODE-LAN-01)
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-LAN-01', ?, ?, NULL, 'subnet', 'access', 5, 'NODE-GW-01', 'healthy', ?, 0.4, 'Access LAN Switched Fabric', 'gig0/1-24', 880, 200, ?)
+    VALUES ('NODE-LAN-01', ?, ?, NULL, 'subnet', 'access', 5, 'NODE-GW-01', 'healthy', ?, NULL, 'Access LAN Switched Fabric', 'gig0/1-24', 880, 200, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
@@ -990,16 +1013,16 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     `Distribution & Access LAN (${localSubnet})`,
     localSubnet,
     now,
-    JSON.stringify({ role: 'Access LAN Subnet', hostsCount: netInfo.arpNeighborsCount || 1, evidenceClassification: 'Observed' })
+    JSON.stringify({ role: 'Access LAN Subnet', hostsCount: netInfo.arpNeighborsCount || 1, evidenceClassification: 'Observed_Local_Interface' })
   );
 
   // L6: Operator Workstation Host
-  const hostVendor = `${netInfo.adapterName || 'Intel(R) Wi-Fi'} / Windows Workstation`;
+  const hostVendor = `${netInfo.adapterName || 'Local Host Interface'} / Local Workstation`;
   const hostIfType = (netInfo.adapterName || '').toLowerCase().includes('wi-fi') ? 'Wi-Fi' : 'Ethernet';
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, 0.1, ?, ?, 1080, 140, ?)
+    VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, NULL, ?, ?, 1080, 140, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
@@ -1014,14 +1037,14 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     now,
     hostVendor,
     hostIfType,
-    JSON.stringify({ role: 'NOC Analyst Workstation', os: os.platform(), evidenceClassification: 'Observed' })
+    JSON.stringify({ role: 'NOC Analyst Workstation', os: os.platform(), evidenceClassification: 'Observed_Local_Interface' })
   );
 
-  // Auto-populate L5 Access Fleet nodes from live ARP table (strictly excluding gwIp and hostIp)
+  // Auto-populate L5 Access Fleet nodes from live ARP table (strictly excluding gwDisplayIp and hostIp)
   if (Array.isArray(netInfo.arpNeighbors) && netInfo.arpNeighbors.length > 0) {
     const insertDisc = db.prepare(`
       INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-      VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-LAN-01', 'healthy', ?, 1.2, ?, 'eth0', 880, 260, ?)
+      VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-LAN-01', 'healthy', ?, NULL, ?, 'eth0', 880, 260, ?)
       ON CONFLICT(id) DO UPDATE SET
         last_checked = excluded.last_checked,
         vendor = excluded.vendor,
@@ -1031,11 +1054,11 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     const insertEdge = db.prepare(`
       INSERT OR IGNORE INTO topology_edges (
         id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-      ) VALUES (?, 'NODE-LAN-01', ?, 'ethernet', 'up', 1000, 15.0, 1.2, 50, ?)
+      ) VALUES (?, 'NODE-LAN-01', ?, 'ethernet', 'up', 1000, NULL, NULL, NULL, ?)
     `);
 
     netInfo.arpNeighbors
-      .filter((peer) => peer.ip !== gwIp && peer.ip !== hostIp)
+      .filter((peer) => peer.ip !== gwDisplayIp && peer.ip !== hostIp)
       .slice(0, 15)
       .forEach((peer, idx) => {
         const discId = `NODE-DISC-${peer.ip.replace(/\./g, '-')}`;
@@ -1052,13 +1075,13 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       });
   }
 
-  // Ensure foundational edges exist in DB
+  // Ensure foundational edges exist in DB with unmeasured metrics set to NULL until live telemetry is collected
   const defaultEdges = [
-    ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, 24.5, 0.8, 1200],
-    ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, 18.2, 0.4, 450],
-    ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, 12.0, 1.2, 280],
-    ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, 35.0, 0.5, 620],
-    ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, 8.5, 0.1, 150]
+    ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, null, null, null],
+    ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, null, null, null],
+    ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, null, null, null],
+    ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, null, null, null],
+    ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, null, null, null]
   ];
 
   for (const [id, src, tgt, type, status, bw, util, lat, pr] of defaultEdges) {
@@ -1066,7 +1089,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
       INSERT INTO topology_edges (id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET status = excluded.status
-    `).run(id, src, tgt, type, status, bw, util, lat, pr, JSON.stringify({ role: 'Core Link' }));
+    `).run(id, src, tgt, type, status, bw, util, lat, pr, JSON.stringify({ role: 'Core Link', evidenceClassification: 'Architectural_Template_Link' }));
   }
 
   return {

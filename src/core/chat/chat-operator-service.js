@@ -1493,8 +1493,8 @@ class ChatOperatorService {
 
     const isExplanationOrComparisonFollowUp =
       isDnsHypothesisFollowUp ||
-      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (that's|thats|that is) the problem\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done)( so far)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found)( so far)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
-      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|why do you think that's the problem|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare it with the previous result|compare with the previous result|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
+      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (that's|thats|that is) the problem\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done)( so far)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found)( so far)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior)).*|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier|yesterday)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
+      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|why do you think that's the problem|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:the )?(?:current|latest) result with yesterday|compare it with the previous result|compare with the previous result|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
         !/\b(ping |check port|test port|resolve |traceroute )\b/i.test(lower));
 
     if (isExplanationOrComparisonFollowUp) {
@@ -1649,7 +1649,10 @@ class ChatOperatorService {
       }
     }
 
+    const isForgetTargetRequest =
+      /\b(forget (?:that|this|the) (?:target|host|server|ip|domain)|never\s*mind (?:that|this) (?:target|host|server))\b/i.test(lower);
     const isMidTurnCorrection =
+      isForgetTargetRequest ||
       /^(?:no,?\s*)?(?:i\s+meant|actually|sorry,?\s*i\s+meant|wait,?\s*i\s+meant|use)\b|\binstead\s*[.!?]?$/i.test(raw.trim());
 
     const refersToOtherPort = /\b(the other port|other port|alternate port)\b/i.test(lower);
@@ -1729,10 +1732,30 @@ class ChatOperatorService {
     // 6. Check contextual target references ("same host", "first host", "the other host / the other server / the other one")
     const refersToFirstTarget = /\b(first host|first domain|first server|initial host|original host)\b/i.test(lower);
     const refersToOtherTarget = /\b(other host|other server|other domain|other endpoint|the other one)\b/i.test(lower);
+
+    if (isForgetTargetRequest && !refersToOtherTarget && !explicitTarget) {
+      if (session) {
+        session.lastTarget = null;
+        session.lastValidTarget = null;
+      }
+      return {
+        intent: 'clarification_needed',
+        mode: 'conversational',
+        clarificationReason: 'TARGET_CLEARED',
+        clarificationPrompt:
+          'Cleared the previous target from active session context. Which hostname, IP address, or service would you like me to check instead?',
+        target: null,
+        explicitTarget: null,
+        ports: extractedPorts,
+        preserveContextOnly: true,
+        contextPivotDetected: true
+      };
+    }
+
     const refersToPreviousTarget =
       refersToOtherPort ||
-      (isMidTurnCorrection && extractedPorts.length > 0 && !explicitTarget) ||
-      /\b(same host|same server|same target|same domain|same machine|same box|same ip|same node|that host|that server|that domain|that endpoint|that machine|that box|that ip|that node|this endpoint|the site|the website|the server|on it|for it|test it|check it|ping it|try (\d{2,5}) too|now check (\d{2,5})|also check (?:port )?(\d{2,5})|what about port (\d{2,5})|how about port (\d{2,5})|and port (\d{2,5})|repeat the (?:same )?check|(?:test|check|probe|scan|ping) the same (?:host|machine|server|target|box|node|ip|domain|endpoint|site) again|run that again|retry that|try again|check it again|test it again)\b/i.test(lower);
+      (isMidTurnCorrection && extractedPorts.length > 0 && !explicitTarget && !isForgetTargetRequest) ||
+      /\b(same host|same server|same target|same domain|same machine|same box|same ip|same node|that host|that server|that domain|that endpoint|that machine|that box|that ip|that node|this endpoint|the site|the website|on it|for it|test it|check it|ping it|try (\d{2,5}) too|now check (\d{2,5})|also check (?:port )?(\d{2,5})|what about port (\d{2,5})|how about port (\d{2,5})|and port (\d{2,5})|repeat the (?:same )?check|(?:test|check|probe|scan|ping) the same (?:host|machine|server|target|box|node|ip|domain|endpoint|site) again|run that again|retry that|try again|check it again|test it again)\b/i.test(lower);
 
     const isRemediation =
       /\b(flush dns|refresh dns resolver|apply (?:the )?(?:fix|remediation)|execute remediation|heal|self-heal|fix it now|repair dns)\b/i.test(lower);
@@ -1745,9 +1768,9 @@ class ChatOperatorService {
       /\b(what(?:'s| is) (?:the )?ip(?: address)? (?:of|for)|ip (?:address )?(?:of|for)|what address does .+ resolve to|can you find (?:the )?(?:ip|address) (?:for|of)|find .+ ip address|show me the ips? for|resolve .+ for me|resolve )\b/i.test(lower) ||
       (isGenericDnsHealthPrompt || /\b(check dns|dns check|test dns|dns lookup|dns (?:for|of|on)|query dns|nslookup|dig|a records?|aaaa records?|mx records?|txt records?|ns records?|cname records?|soa records?|ptr records?|srv records?|spf(?:\s+records?)?|dmarc(?:\s+records?)?|dkim(?:\s+records?)?|reverse dns|rdns|mail exchange|nameservers? (?:for|of))\b/i.test(lower));
 
-    // 8. Problem Descriptions & Symptom Reports without an explicit target ("The site won't open", "I'm getting connection errors", "The internet is not working", "It works on my laptop but not on the other computer", "The application has become really slow", "Could you check whether this endpoint responds?")
+    // 8. Problem Descriptions & Symptom Reports without an explicit target ("I cannot access the server", "The site won't open", "I'm getting connection errors", "The internet is not working")
     const isProblemDescription =
-      /\b(internet is not working|internet isn't working|no internet|can't open the (?:website|site)|cannot open the (?:website|site)|(?:site|website|page) won't open|(?:site|website) is down|something is wrong with the connection|server is not responding|server isn't responding|getting connection errors|connection errors|works on my laptop but not|application has become (?:really )?slow|is really slow|check whether this endpoint responds|endpoint is not responding|having network issues|trouble connecting)\b/i.test(lower);
+      /\b(internet is not working|internet isn't working|no internet|can't open the (?:website|site)|cannot open the (?:website|site)|(?:site|website|page) won't open|(?:site|website) is down|cannot access (?:the |my |our )?(?:server|host|system|service)|can't access (?:the |my |our )?(?:server|host|system|service)|unable to access (?:the |my |our )?(?:server|host|system|service)|something is wrong with the connection|server is not responding|server isn't responding|getting connection errors|connection errors|works on my laptop but not|application has become (?:really )?slow|is really slow|check whether this endpoint responds|endpoint is not responding|having network issues|trouble connecting)\b/i.test(lower);
 
     if (!explicitTarget && isProblemDescription) {
       const referencesCurrentTarget = /\b(this endpoint|that endpoint|the same site|the same server|that server|that host)\b/i.test(lower);
@@ -1755,7 +1778,10 @@ class ChatOperatorService {
         explicitTarget = priorTarget;
       } else {
         let clarificationPrompt = 'I can help investigate that. Which website, hostname, or IP address is affected?';
-        if (/\b(internet is not working|internet isn't working|no internet)\b/i.test(lower)) {
+        if (/\b(cannot access (?:the |my |our )?(?:server|host|system|service)|can't access (?:the |my |our )?(?:server|host|system|service)|unable to access (?:the |my |our )?(?:server|host|system|service)|server is not responding|server isn't responding)\b/i.test(lower)) {
+          clarificationPrompt =
+            'I can help diagnose why the server is unreachable. Which server hostname or IP address are you trying to access, and which service or TCP port (e.g., HTTPS 443, SSH 22, RDP 3389) is failing?';
+        } else if (/\b(internet is not working|internet isn't working|no internet)\b/i.test(lower)) {
           clarificationPrompt =
             'I can help narrow down whether the issue is local routing, DNS resolution, or external reachability. Is every website failing to load, or is a specific site or service affected? (You can also ask me to "Check DNS connectivity" or "Check my default gateway" to test your local connection.)';
         } else if (/\b(works on my laptop but not on the other computer)\b/i.test(lower)) {
@@ -1785,11 +1811,15 @@ class ChatOperatorService {
       }
     }
 
-    // 9. Handle "Try the same thing against the other host" / "Do the same thing for the other server"
+    // 9. Handle "Try the same thing against the other host" / "Forget that target. I meant the other server."
     if (!explicitTarget && refersToOtherTarget) {
       const history = Array.isArray(session?.targetHistory) ? session.targetHistory : [];
       const current = (priorTarget || '').toLowerCase();
       const otherCandidates = history.filter((h) => h.toLowerCase() !== current);
+      if (isForgetTargetRequest && session) {
+        session.lastTarget = otherCandidates.length === 1 ? otherCandidates[0] : null;
+        session.lastValidTarget = session.lastTarget;
+      }
       if (otherCandidates.length === 1) {
         explicitTarget = otherCandidates[0];
       } else if (otherCandidates.length > 1) {

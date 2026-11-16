@@ -469,10 +469,10 @@ async function semanticAiInterpreter(promptText, context = {}) {
       };
     }
 
-    // 9B. Multi-turn State Differential & Implicit Follow-Up Comparison ("what changed since the last check?", "compare it with the previous result", "what does that timeout mean?", "could DNS be the problem?")
+    // 9B. Multi-turn State Differential & Implicit Follow-Up Comparison ("what changed since the last check?", "compare it with the previous result", "compare the current result with yesterday", "what does that timeout mean?", "could DNS be the problem?")
     if (
       context.lastTarget &&
-      /\b(what changed|has anything changed|compare (?:the )?(?:latest|current)|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior)|compare with (?:the )?(?:earlier|previous|last|before)|did (?:it|the port|the service) (?:come back|recover)|diff since last|what does (?:that|this|the) (?:timeout|time out|error|refusal|failure|result) mean|why (?:is|isn't|isnt) (?:it|that|the server|the host) (?:not responding|timing out)|could dns be (?:the |a )?(?:problem|issue|cause))\b/i.test(lower)
+      /\b(what changed|has anything changed|compare (?:the )?(?:latest|current)|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior))|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)|compare with (?:the )?(?:earlier|previous|last|before|yesterday)|did (?:it|the port|the service) (?:come back|recover)|diff since last|what does (?:that|this|the) (?:timeout|time out|error|refusal|failure|result) mean|why (?:is|isn't|isnt) (?:it|that|the server|the host) (?:not responding|timing out)|could dns be (?:the |a )?(?:problem|issue|cause))\b/i.test(lower)
     ) {
       deterministicFastPathCount++;
       successfulInterpretations++;

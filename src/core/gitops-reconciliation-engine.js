@@ -84,12 +84,13 @@ class GitopsReconciliationEngine {
       }
 
       const gwNode = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
-      if (gwNode && gwNode.hostname_or_ip !== netInfo.defaultGateway) {
+      const expectedGw = netInfo.defaultGateway || '127.0.0.1';
+      if (gwNode && gwNode.hostname_or_ip !== expectedGw) {
         drifts.push({
           driftType: 'DRIFT_TOPOLOGY_SUBNET_MISMATCH',
           severity: 'HIGH',
           target: 'NODE-GW-01',
-          expected: netInfo.defaultGateway,
+          expected: expectedGw,
           actual: gwNode.hostname_or_ip,
           remediation: 'Update L2 Edge Router to match current physical default gateway',
           autoReconcilable: true

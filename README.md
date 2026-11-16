@@ -8,9 +8,10 @@
 
 **AI-Native Conversational Infrastructure Assistant · L1–L7 Protocol & Wire Dissector · Epistemic Evidence Fabric · Governed Self-Healing Workbench**
 
-[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-100%2F100_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
+[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-6%2F6_Suites_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
 [![GitHub Actions CI](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml)
-[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-60%2F60_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-68%2F68_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![TS/JS Parity](https://img.shields.io/badge/TS%2FJS_Module_Parity-102%2F102_Synced-0D9488?style=for-the-badge)](scripts/verify-ts-js-parity.js)
 [![Design System](https://img.shields.io/badge/UI_Architecture-Project_Aurora_v7.0-0F172A?style=for-the-badge)](public/css/ejii-meridian.css)
 [![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini_3.8_Flash-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
 [![Storage](https://img.shields.io/badge/Persistence-SQLite_WAL_%2B_RBAC-334155?style=for-the-badge)](src/db/database.js)
@@ -264,7 +265,7 @@ EJII enforces strict engineering guardrails across every backend collector and f
 | **Native Gemini Function Calling & Iterative Reflection Loop** | `src/core/chat/conversational-brain.js`, `src/core/chat/semantic-ai-interpreter.js` | Passes all 15 `EJII_FUNCTION_DECLARATIONS` (including `snmp_walk`, `office_device_resolve`, and `tls_posture_audit`) to `@google/genai`, maps every tool call deterministically via `mapFunctionCallToExecutionPlan()`, and runs a bounded 3-step `Plan -> Execute -> Observe -> Reflect` loop (`runAgenticToolLoop`). |
 | **Mathematical Shannon Information Gain & 12-Probe Bayesian Matrix** | `src/core/chat/conversational-brain.js`, `src/core/evidence/evidence-fabric.js` | Computes exact expected Shannon Information Gain $IG(X; Y) = H(X) - \sum_{y \in \{\text{pass},\text{fail}\}} P(Y=y) H(X \mid Y=y)$ across a 12-probe candidate matrix spanning all 6 fault domains (DNS Wire, TCP Connect, HTTPS L7, ARP Neighbor, ICMP Gateway Ping, Traceroute WAN, TLS Posture, DNS MX, SSH, Database Port, Kernel Sockets, Host Resources). Performs dynamic in-loop Bayesian posterior updates $P(X=x_i \mid Y=y) = \frac{P(Y=y \mid X=x_i) P(X=x_i)}{P(Y=y)}$ upon probe execution, and links directly to `evidenceFabric` DAG lineage hashes. Never labels unobserved posteriors as `OBSERVED_CONCLUSIVE`. |
 | **Standardized EJIIResult<T> Error Contract & Protocol Envelopes** | `src/core/contracts/ejii-result.js` | Guarantees every capability, probe outcome, and diagnostic error conforms to the standardized `EJIIResult<T>` envelope (`ok`, `success`, `capabilityId`, `status`, provenance metadata `source: { module, method, privilege, platform, fidelity }`, `observedAt`, `data`, and standardized `error: { code, message, category, recoverable }`). Enables seamless error handling across all 9 protocol engines. |
-| **Automated TypeScript/JavaScript Module Parity Guard** | `scripts/verify-ts-js-parity.js`, `scripts/lint-all.js` | Enforces continuous 100% AST, export, and prototype method parity across all 22 TypeScript flagship modules and their runtime JavaScript counterparts with zero build drift, executed as Step 2b of the comprehensive project linter. |
+| **Automated TypeScript/JavaScript Module Parity Guard** | `scripts/verify-ts-js-parity.js`, `scripts/lint-all.js` | Enforces continuous 100% AST, export, and prototype method parity across all 102 TypeScript flagship modules and their runtime JavaScript counterparts with zero build drift, executed as Step 2b of the comprehensive project linter. |
 | **Autonomous War Room Automated Key Rotation & Receipt Replay TTL** | `src/ai/autonomous-war-room.ts`, `src/ai/autonomous-war-room.js` | Automates cryptographic HMAC key rotation via configurable age policy (`maxAgeMs: 4h`) and volume threshold (`maxReceiptsBeforeRotation: 10,000`), enforces strict 1-hour expiration TTL and future clock skew rejection on `CollectorExecutionReceipts`, and blocks cross-session receipt replay. |
 | **Comprehensive Sliding-Window Rate Limiting & DoS Protection** | `src/api/rate-limiter.js`, `src/server.js` | Mounts sliding-window in-memory rate limiting across `/api/chat/*`, `/api/v6/chat/*`, `/api/enterprise/*`, `/api/v6/*`, `/api/atlas/*`, and `/api/diagnostics/*` with standard `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` headers. |
 | **Genuine Live UDP SNMP Interrogation, Subtree SSRF Guards & Multi-Signal Provenance** | `src/protocols/snmp-engine.js`, `src/core/agent/edge-agent-service.js`, `src/api/routes-enterprise.js` | Polls live network switches, routers, and daemons using `net-snmp` on UDP port 161 (`telemetryProvenance: 'LIVE_SNMP_HARDWARE'`, `isAuthoritativeSnmp: true`) and enforces `resolveAndValidateTarget` (SSRF + DNS-rebinding IP pinning) and ASN.1 OID syntax validation (`isValidOidSubtree`) across both scalar probes and OID subtree walks (`walkOid`, `walkInterfaces`). Strictly marks TCP/ICMP fallback profiles with `applicationHealthProven: false` and `telemetryProvenance: 'INFERRED_MULTI_SIGNAL'`. |
@@ -362,25 +363,24 @@ Open **`http://localhost:3000`** in your browser.
 
 ### 7.4 Running the Automated Verification Suites
 
-EJII includes **100 end-to-end NOC verification suites**, **25 sovereign intelligence leap test suites**, and **46+ core conversational, epistemic, & protocol unit tests**:
+EJII includes **6 isolated SQLite verification suites (68 tests)** covering conversational diagnostics, autonomous operator self-healing, Sovereign Fabric v6 evidence lineage, Superpowers closed-loop agency, canonical skill ecosystem invariants, and zero-simulation telemetry integrity, alongside a **294-file AST linter and 102/102 TypeScript/JavaScript parity verifier**:
 
 ```bash
-# Run all Project Falcon & Phase 6 core unit tests (DNS, DHCP, 5-layer ISP, Conversational Brain, Eval Suite)
-node --test src/core/__tests__/*.test.js
-
-# Run the 25-suite EJII Sovereign Intelligence Leap verification harness (Bayesian IG, 2-WL DAG, QUIC/SNMPv3, CSRF/Trace, S-STL, Heat Diffusion, AST Buffer)
-node --test tests/sovereign-intelligence-leap.test.js
-
-# Run the Phase 2.0 Sovereign Intelligence Leap verification harness (Remediation Gate, Laplacian Heat Diffusion, Gradient Shannon IG, Binary Streaming, Episodic Memory Bus)
-node --test tests/sovereign-intelligence-leap-phase2.test.js
-
-# Run the complete 100-suite EJII NOC architectural, security, protocol, and UI verification harness
+# Run the complete isolated per-suite SQLite verification harness (6 suites, 68 tests)
+npm test
+# or directly:
 node tests/run-all-tests.js
 
-# Run live production smoke verification
-node tests/live-production-smoke.test.js
+# Run a single verification suite directly
+node --test src/core/__tests__/sovereign-integrity-and-falcon.test.js
 
-# Re-capture all 12 live application screenshots via Playwright
+# Run V8 AST syntax audit (294 JS files), TypeScript typecheck (tsc --noEmit), 102/102 TS/JS parity check, and HTML/CSS verification
+npm run lint
+
+# Verify 100% export and method parity across all 102 paired TypeScript/JavaScript modules
+node scripts/verify-ts-js-parity.js
+
+# Re-capture live application screenshots via Playwright
 node scripts/capture-aurora-screenshots.js
 ```
 

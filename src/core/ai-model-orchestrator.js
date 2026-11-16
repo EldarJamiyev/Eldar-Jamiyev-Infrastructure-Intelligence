@@ -33,12 +33,29 @@ class FlowStateCompressor {
    * @returns {Object} { shouldEmit: boolean, reason: string, flowState: Object, compressionRatio: number }
    */
   ingestPacket(pkt = {}) {
+    const hasValidSrc = Boolean(pkt && typeof pkt.srcIp === 'string' && pkt.srcIp.trim().length > 0);
+    const hasValidDst = Boolean(pkt && typeof pkt.dstIp === 'string' && pkt.dstIp.trim().length > 0);
+    if (!pkt?.allowIncomplete && (!hasValidSrc || !hasValidDst)) {
+      const currentRatio = this.totalPacketsIngested > 0
+        ? (1 - (this.totalEventsEmitted / this.totalPacketsIngested))
+        : 1.0;
+      return {
+        shouldEmit: false,
+        rejected: true,
+        reason: 'INVALID_INCOMPLETE_PACKET_TUPLE',
+        flowState: null,
+        totalPacketsIngested: this.totalPacketsIngested,
+        totalEventsEmitted: this.totalEventsEmitted,
+        compressionRatio: Number((currentRatio * 100).toFixed(2))
+      };
+    }
+
     this.totalPacketsIngested++;
 
-    const src = pkt.srcIp || '0.0.0.0';
-    const sport = pkt.srcPort || 0;
-    const dst = pkt.dstIp || '0.0.0.0';
-    const dport = pkt.dstPort || 0;
+    const src = hasValidSrc ? pkt.srcIp.trim() : '0.0.0.0';
+    const sport = Number.isInteger(Number(pkt.srcPort)) && Number(pkt.srcPort) >= 0 ? Number(pkt.srcPort) : 0;
+    const dst = hasValidDst ? pkt.dstIp.trim() : '0.0.0.0';
+    const dport = Number.isInteger(Number(pkt.dstPort)) && Number(pkt.dstPort) >= 0 ? Number(pkt.dstPort) : 0;
     const proto = (pkt.protocol || 'TCP').toUpperCase();
     const flags = (pkt.flags || '').toUpperCase();
     const bytes = pkt.length || pkt.bytes || 0;
@@ -128,6 +145,7 @@ class FlowStateCompressor {
 
     return {
       shouldEmit,
+      rejected: false,
       reason,
       flowState: { ...record },
       totalPacketsIngested: this.totalPacketsIngested,
@@ -347,6 +365,7 @@ class AIModelOrchestrator {
         providerId: 'OLLAMA',
         isLocal: true,
         status: 'UNPROBED', // 'OPERATIONAL' | 'OFFLINE' | 'DEGRADED' | 'UNPROBED'
+        verificationState: 'UNPROBED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -360,6 +379,7 @@ class AIModelOrchestrator {
         providerId: 'GOOGLE_GEMINI',
         isLocal: false,
         status: process.env.GEMINI_API_KEY ? 'READY' : 'UNCONFIGURED',
+        verificationState: process.env.GEMINI_API_KEY ? 'CONFIGURED_UNPROBED' : 'UNCONFIGURED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -373,6 +393,7 @@ class AIModelOrchestrator {
         providerId: 'OPENAI',
         isLocal: false,
         status: 'UNCONFIGURED',
+        verificationState: 'UNCONFIGURED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -386,6 +407,7 @@ class AIModelOrchestrator {
         providerId: 'ANTHROPIC',
         isLocal: false,
         status: 'UNCONFIGURED',
+        verificationState: 'UNCONFIGURED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -654,9 +676,10 @@ class AIModelOrchestrator {
               { prompt: String(promptText || '') },
               { piiRedaction: options.piiRedaction !== false, anonymizeInfrastructure: Boolean(options.anonymizeInfrastructure) }
             ).prompt;
-        const generationConfig = {
-          temperature: typeof options.temperature === 'number' ? options.temperature : 0.1
-        };
+        const generationConfig = {};
+        if (!/^gemini-4-/i.test(requestedModel)) {
+          generationConfig.temperature = typeof options.temperature === 'number' ? options.temperature : 0.1;
+        }
         if (options.systemInstruction) {
           generationConfig.systemInstruction = options.systemInstruction;
         }
@@ -708,6 +731,7 @@ class AIModelOrchestrator {
             this.providerTelemetry.GOOGLE_GEMINI.callsCount = (this.providerTelemetry.GOOGLE_GEMINI.callsCount || 0) + 1;
             this.providerTelemetry.GOOGLE_GEMINI.successCount = (this.providerTelemetry.GOOGLE_GEMINI.successCount || 0) + 1;
             this.providerTelemetry.GOOGLE_GEMINI.status = 'OPERATIONAL';
+            this.providerTelemetry.GOOGLE_GEMINI.verificationState = 'VERIFIED_HEALTHY';
             this.providerTelemetry.GOOGLE_GEMINI.lastLatencyMs = latencyMs;
             this.providerTelemetry.GOOGLE_GEMINI.lastHttpStatus = 200;
             this.providerTelemetry.GOOGLE_GEMINI.lastModel = executedModel;
@@ -727,11 +751,21 @@ class AIModelOrchestrator {
           };
         }
       } catch (err) {
+        const errMsg = String(err?.message || 'GEMINI_API_ERROR');
+        let failureState = 'DEGRADED';
+        if (/401|403|API_KEY_INVALID|UNAUTHENTICATED|PERMISSION_DENIED/i.test(errMsg)) {
+          failureState = 'AUTH_FAILED';
+        } else if (/429|RESOURCE_EXHAUSTED|quota|rate limit/i.test(errMsg)) {
+          failureState = 'RATE_LIMITED';
+        } else if (/timeout|DEADLINE_EXCEEDED|ETIMEDOUT/i.test(errMsg)) {
+          failureState = 'TIMEOUT';
+        }
         if (this.providerTelemetry.GOOGLE_GEMINI) {
           this.providerTelemetry.GOOGLE_GEMINI.callsCount = (this.providerTelemetry.GOOGLE_GEMINI.callsCount || 0) + 1;
           this.providerTelemetry.GOOGLE_GEMINI.failureCount = (this.providerTelemetry.GOOGLE_GEMINI.failureCount || 0) + 1;
           this.providerTelemetry.GOOGLE_GEMINI.status = 'DEGRADED';
-          this.providerTelemetry.GOOGLE_GEMINI.lastError = err.message || 'GEMINI_API_ERROR';
+          this.providerTelemetry.GOOGLE_GEMINI.verificationState = failureState;
+          this.providerTelemetry.GOOGLE_GEMINI.lastError = errMsg;
           this.providerTelemetry.GOOGLE_GEMINI.lastModel = executedModel;
           this.providerTelemetry.GOOGLE_GEMINI.requestedModel = requestedModel;
           this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
@@ -740,7 +774,8 @@ class AIModelOrchestrator {
           liveResponse: false,
           provider: 'GOOGLE_GEMINI',
           status: 'OFFLINE',
-          reason: err.message || 'GEMINI_API_ERROR'
+          verificationState: failureState,
+          reason: errMsg
         };
       }
     }
