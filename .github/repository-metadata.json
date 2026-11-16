@@ -1,6 +1,6 @@
 {
   "name": "Eldar-Jamiyev-Infrastructure-Intelligence",
-  "description": "Evidence-grounded conversational infrastructure intelligence & autonomous NOC operator with real wire packet dissection, cross-layer causal diagnostics, and verified remediation.",
+  "description": "EJII is a conversational infrastructure diagnostics and NOC operations platform combining live OS and network probes, packet analysis, topology visibility, and evidence-based troubleshooting.",
   "homepage": "https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence",
   "topics": [
     "network-intelligence",
