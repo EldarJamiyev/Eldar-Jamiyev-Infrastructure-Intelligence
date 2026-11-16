@@ -22,6 +22,7 @@ const { hasPermission } = require('../../core/security');
 const { logAction } = require('../../core/audit-logger');
 const executionEngine = require('../../automation/execution-engine');
 const { DSRLLyapunovSafetyVault } = require('../../security/dsrl-lyapunov-vault');
+const { smtRemediationVerifier } = require('../../security/smt-remediation-verifier');
 
 const DANGEROUS_SHELL_CHARS = /[;&|`$><\n\r\0\x00\\!]/;
 
@@ -380,6 +381,14 @@ class AutonomousRemediationEngine {
    */
   _validateParams(recipeId, params = {}) {
     const validated = {};
+
+    // Phase 20.0 Formal SMT Safety Invariant Pre-flight Verification
+    if (smtRemediationVerifier && typeof smtRemediationVerifier.proveSafety === 'function') {
+      const smtProof = smtRemediationVerifier.proveSafety(recipeId, params);
+      if (!smtProof.safe) {
+        throw new Error(`SECURITY VIOLATION: ${smtProof.counterexample}`);
+      }
+    }
 
     if (params.processName) {
       const pName = String(params.processName).trim().toLowerCase();

@@ -2316,3 +2316,23 @@ body:not([data-active-view="ai-operator"]):not([data-active-view="noc-dashboard"
   }
 }
 
+/* Phase 20.0 Sovereign Cognitive Singularity & Human Calm Styles */
+body.ejii-human-calm-mode .card,
+body.ejii-human-calm-mode .table,
+body.ejii-human-calm-mode .ql-overview-shell {
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif) !important;
+  letter-spacing: -0.01em;
+}
+
+body.ejii-human-calm-mode .ejii-academic-formula {
+  display: none !important;
+}
+
+body.ejii-human-calm-mode .ejii-plain-english-summary {
+  display: block !important;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+

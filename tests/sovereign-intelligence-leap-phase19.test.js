@@ -212,10 +212,10 @@ async function runSovereignIntelligenceLeapPhase19Tests() {
     cwd: rootDir
   });
   assert.ok(
-    parityOutput.includes('PASS: All 85/85 TypeScript modules maintain 100% parity'),
-    'Parity Guard must pass with all 85/85 modules synced'
+    parityOutput.includes('PASS: All') && parityOutput.includes('TypeScript modules maintain 100% parity'),
+    'Parity Guard must pass with all modules synced'
   );
-  console.log('  ✓ 85/85 TypeScript and JavaScript flagship modules maintain 100% parity');
+  console.log('  ✓ TypeScript and JavaScript flagship modules maintain 100% parity');
 
   // ---------------------------------------------------------------------------
   // Track 6: Fast Desktop Preflight Execution (< 50ms)

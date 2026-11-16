@@ -20,6 +20,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const SEARCH_DIRS = [
   path.join(ROOT_DIR, 'src', 'ai'),
   path.join(ROOT_DIR, 'src', 'core', 'multisite'),
+  path.join(ROOT_DIR, 'src', 'core', 'skills'),
   path.join(ROOT_DIR, 'src', 'diagnostics'),
   path.join(ROOT_DIR, 'src', 'observability'),
   path.join(ROOT_DIR, 'src', 'scanner'),

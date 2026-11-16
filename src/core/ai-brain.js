@@ -3000,6 +3000,17 @@ class AIBrain {
   getDispatchedNotifications(limit = 50) {
     return (this.dispatchedNotifications || []).slice(-limit).reverse();
   }
+
+  routeSkillsForContext(taskOrIncident, options = {}) {
+    const { universalSkillRouter } = require('./skills/universal-skill-router');
+    if (typeof taskOrIncident === 'string') {
+      return universalSkillRouter.routeSkillSelection({
+        taskDescription: taskOrIncident,
+        ...options
+      });
+    }
+    return universalSkillRouter.recommendSkillsForAnomaly(taskOrIncident || {});
+  }
 }
 
 const defaultAIBrain = new AIBrain();

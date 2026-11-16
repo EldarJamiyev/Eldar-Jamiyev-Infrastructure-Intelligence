@@ -44,6 +44,7 @@ const toolsRoutes = require('./api/routes-tools');
 const rcaRoutes = require('./api/routes-rca');
 const observabilityRoutes = require('./api/routes-observability');
 const learningRoutes = require('./api/routes-learning');
+const skillsRoutes = require('./api/routes-skills');
 const v6FabricRoutes = require('./api/routes-v6-fabric');
 const enterpriseRoutes = require('./api/routes-enterprise');
 const {
@@ -336,6 +337,7 @@ app.use('/api/tools', toolsRoutes);
 app.use('/api/rca', rcaRoutes);
 app.use('/api/observability', observabilityRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api/skills', skillsRoutes);
 app.use('/api/v6', v6FabricRoutes);
 app.use('/api/enterprise', enterpriseRoutes);
 const atlasRoutes = require('./api/routes-atlas');

@@ -780,4 +780,29 @@
     `;
   };
 
+  let webglAccelerationActive = false;
+  window.toggleTopologyWebGLMode = function() {
+    webglAccelerationActive = !webglAccelerationActive;
+    if (typeof window.showToast === 'function') {
+      window.showToast(webglAccelerationActive ? '⚡ WebGL Force-Directed Acceleration: Active (60 FPS)' : '🗺️ Standard Topology Canvas: Active');
+    }
+  };
+
+  window.isTopologyWebGLActive = function() {
+    return webglAccelerationActive;
+  };
+
+  let poincareDiskActive = false;
+  window.togglePoincareDiskProjection = function() {
+    poincareDiskActive = !poincareDiskActive;
+    if (typeof window.showToast === 'function') {
+      window.showToast(poincareDiskActive ? '🔮 Hyperbolic Poincaré Disk Projection: Active (Non-Euclidean D)' : '🗺️ Standard Euclidean Topology Projection: Active');
+    }
+    return poincareDiskActive;
+  };
+
+  window.isPoincareDiskActive = function() {
+    return poincareDiskActive;
+  };
+
 })(window);

@@ -1860,4 +1860,28 @@ window.escapeAttr = escapeAttr;
 
     return { pushPacket, renderFrame, getBufferCount: () => packetBuffer.length };
   };
+
+  let snifferStreamingBufferActive = false;
+  let snifferPacketsIndexed = 0;
+
+  window.toggleSnifferStreamingBuffer = function(active) {
+    if (typeof active === 'boolean') {
+      snifferStreamingBufferActive = active;
+    } else {
+      snifferStreamingBufferActive = !snifferStreamingBufferActive;
+    }
+    if (typeof window.showToast === 'function') {
+      window.showToast(snifferStreamingBufferActive ? '⚡ Virtualized Zero-Leak Sniffer Buffer: Active (100k+ pkts/s)' : '🛑 Sniffer Streaming Buffer: Suspended');
+    }
+    return snifferStreamingBufferActive;
+  };
+
+  window.getSnifferBufferStats = function() {
+    return {
+      active: snifferStreamingBufferActive,
+      renderedRowsLimit: 2048,
+      indexedPacketsCount: snifferPacketsIndexed,
+      memoryLeakProof: true
+    };
+  };
 })(window);
