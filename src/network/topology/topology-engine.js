@@ -30,7 +30,7 @@ class TopologyEngine {
     const gatewayIp = netInfo.defaultGateway || netInfo.gatewayIp || '127.0.0.1';
     const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
     const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
-    const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || '1.1.1.1';
+    const dnsIp = (netInfo.dnsServers && netInfo.dnsServers[0]) || null;
     const now = new Date().toISOString();
 
     const storedGw = db.prepare("SELECT * FROM topology_nodes WHERE id = 'NODE-GW-01'").get();
@@ -94,11 +94,11 @@ class TopologyEngine {
 
       // 9. Ensure foundational edges are established with null unmeasured metrics
       const defaultEdges = [
-        ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, null, null, null],
-        ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, null, null, null],
-        ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, null, null, null],
-        ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, null, null, null],
-        ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, null, null, null]
+        ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'unprobed', null, null, null, null],
+        ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'unprobed', null, null, null, null],
+        ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'unprobed', null, null, null, null],
+        ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', netInfo.gatewayVerified ? 'up' : 'unprobed', null, null, null, null],
+        ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', null, null, null, null]
       ];
 
       for (const [id, src, tgt, type, status, bw, util, lat, pr] of defaultEdges) {
@@ -197,12 +197,12 @@ class TopologyEngine {
           source_id: src,
           target_id: tgt,
           link_type: 'ethernet',
-          status: 'up',
-          bandwidth_mbps: 1000,
-          utilization_pct: 15.0,
-          latency_ms: 1.0,
-          packet_rate: 100,
-          metadata: JSON.stringify({ autoSynthesized: true, role: 'Auto-Connected Link' })
+          status: 'unprobed',
+          bandwidth_mbps: null,
+          utilization_pct: null,
+          latency_ms: null,
+          packet_rate: null,
+          metadata: JSON.stringify({ autoSynthesized: true, role: 'Auto-Connected Link', telemetryState: 'UNMEASURED' })
         });
         connectedNodeIds.add(n.id);
       }
@@ -373,9 +373,9 @@ class TopologyEngine {
     this.syncTopologyToPhysicalNetwork();
 
     const netInfo = getPhysicalNetworkInfo();
-    const defaultGatewayIp = netInfo.gatewayIp || '192.168.31.1';
-    const hostIp = netInfo.localIp || netInfo.hostIp || '192.168.31.89';
-    const subnetCidr = netInfo.subnetCidr || '192.168.31.0/24';
+    const defaultGatewayIp = netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || null) : null;
+    const hostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
+    const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
     const now = new Date().toISOString();
 
     const arpEntries = await getArpTable();
@@ -416,7 +416,7 @@ class TopologyEngine {
         db.prepare(`
           INSERT INTO topology_nodes (
             id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata
-          ) VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-GW-01', 'healthy', ?, 1.2, ?, 'eth0', 880, 140, ?)
+          ) VALUES (?, ?, ?, ?, 'host', 'access', 5, 'NODE-GW-01', 'healthy', ?, NULL, ?, 'eth0', 880, 140, ?)
         `).run(
           id,
           nodeName,
@@ -432,8 +432,8 @@ class TopologyEngine {
         db.prepare(`
           INSERT OR IGNORE INTO topology_edges (
             id, source_id, target_id, link_type, status, bandwidth_mbps, utilization_pct, latency_ms, packet_rate, metadata
-          ) VALUES (?, 'NODE-GW-01', ?, 'ethernet', 'up', 1000, 15.0, 1.2, 50, ?)
-        `).run(edgeId, id, JSON.stringify({ autoDiscovered: true }));
+          ) VALUES (?, 'NODE-GW-01', ?, 'ethernet', 'unprobed', NULL, NULL, NULL, NULL, ?)
+        `).run(edgeId, id, JSON.stringify({ autoDiscovered: true, telemetryState: 'UNMEASURED' }));
 
         discovered.push({ id, ip, mac: entry.mac, vendor: entry.vendor });
       }
@@ -590,14 +590,17 @@ class TopologyEngine {
         .filter((id, i, arr) => nodeMap.has(id) && arr.indexOf(id) === i);
     }
 
-    // Build hop-by-hop telemetry
+    // Build hop-by-hop telemetry using only measured node latency (null when unmeasured)
     let cumulativeRtt = 0;
+    let hasMeasuredHop = false;
     const hops = foundPathIds.map((id, index) => {
       const node = nodeMap.get(id);
-      const hopLatency = node.last_latency_ms !== null && node.last_latency_ms !== undefined 
-        ? node.last_latency_ms 
-        : (index * 1.5 + 0.4);
-      cumulativeRtt += hopLatency;
+      const hasHopLatency = typeof node.last_latency_ms === 'number' && Number.isFinite(node.last_latency_ms);
+      const hopLatency = hasHopLatency ? Number(node.last_latency_ms.toFixed(2)) : null;
+      if (hasHopLatency) {
+        cumulativeRtt += hopLatency;
+        hasMeasuredHop = true;
+      }
 
       return {
         hopNumber: index + 1,
@@ -605,9 +608,10 @@ class TopologyEngine {
         nodeName: node.name,
         ip: node.hostname_or_ip,
         layer: node.layer,
-        rttMs: Number(hopLatency.toFixed(2)),
-        cumulativeRttMs: Number(cumulativeRtt.toFixed(2)),
-        status: node.status || 'healthy'
+        rttMs: hopLatency,
+        cumulativeRttMs: hasMeasuredHop ? Number(cumulativeRtt.toFixed(2)) : null,
+        telemetryState: hasHopLatency ? 'MEASURED_NODE_LATENCY' : 'UNPROBED_HOP',
+        status: node.status || 'unprobed'
       };
     });
 
@@ -616,7 +620,7 @@ class TopologyEngine {
       source: srcNode,
       target: tgtNode,
       totalHops: hops.length,
-      totalLatencyMs: Number(cumulativeRtt.toFixed(2)),
+      totalLatencyMs: hasMeasuredHop ? Number(cumulativeRtt.toFixed(2)) : null,
       hops,
       pathNodeIds: foundPathIds
     };
@@ -630,16 +634,17 @@ class TopologyEngine {
   getLinkCongestionHeatmap() {
     const edges = db.prepare('SELECT * FROM topology_edges').all();
     const heatmap = edges.map(edge => {
-      const util = edge.utilization_pct || 10;
-      let statusColor = 'green';
-      let statusClass = 'link-smooth-green';
-      let pulseSpeed = 'normal';
+      const hasUtil = typeof edge.utilization_pct === 'number' && Number.isFinite(edge.utilization_pct);
+      const util = hasUtil ? edge.utilization_pct : null;
+      let statusColor = hasUtil ? 'green' : 'unmeasured';
+      let statusClass = hasUtil ? 'link-smooth-green' : 'link-unmeasured';
+      let pulseSpeed = hasUtil ? 'normal' : 'none';
 
-      if (util >= 85 || edge.status === 'degraded' || edge.status === 'down') {
+      if ((hasUtil && util >= 85) || edge.status === 'degraded' || edge.status === 'down') {
         statusColor = 'red';
         statusClass = 'link-flashing-red';
         pulseSpeed = 'fast';
-      } else if (util >= 50) {
+      } else if (hasUtil && util >= 50) {
         statusColor = 'amber';
         statusClass = 'link-amber';
         pulseSpeed = 'medium';
@@ -715,10 +720,10 @@ class TopologyEngine {
     `).run(
       id,
       snapName,
-      netInfo.subnetCidr || '192.168.31.0/24',
-      netInfo.gatewayIp || '192.168.31.1',
-      netInfo.hostIp || '192.168.31.89',
-      netInfo.interfaceAlias || 'Wi-Fi',
+      netInfo.subnetCidr || '127.0.0.0/8',
+      netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || 'NO_DEFAULT_ROUTE_OBSERVED') : 'NO_DEFAULT_ROUTE_OBSERVED',
+      netInfo.hostIp || netInfo.localIp || '127.0.0.1',
+      netInfo.interfaceAlias || 'lo',
       triggerReason,
       nodes.length,
       edges.length,
@@ -730,8 +735,8 @@ class TopologyEngine {
       success: true,
       snapshotId: id,
       snapshotName: snapName,
-      environmentCidr: netInfo.subnetCidr || '192.168.31.0/24',
-      gatewayIp: netInfo.gatewayIp || '192.168.31.1',
+      environmentCidr: netInfo.subnetCidr || '127.0.0.0/8',
+      gatewayIp: netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || null) : null,
       nodesCount: nodes.length,
       edgesCount: edges.length,
       createdAt: now
@@ -926,7 +931,11 @@ class TopologyEngine {
     const { processSocketCorrelator } = require('../process-socket-correlator');
     const netInfo = getPhysicalNetworkInfo();
     const arpTable = await getArpTable();
-    const routingTable = (netInfo && netInfo.routes) ? netInfo.routes : [{ destination: '0.0.0.0', gateway: netInfo.defaultGateway || '192.168.31.1' }];
+    const routingTable = (netInfo && netInfo.routes)
+      ? netInfo.routes
+      : (netInfo && netInfo.gatewayVerified && netInfo.defaultGateway
+        ? [{ destination: '0.0.0.0', gateway: netInfo.defaultGateway }]
+        : []);
     return processSocketCorrelator.buildProcessServiceDependencyGraph(options.activeSockets, arpTable, routingTable, options.dnsCache);
   }
 

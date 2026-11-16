@@ -20,39 +20,103 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 function discoverTestFiles() {
   const searchDirs = [
-    path.join(ROOT_DIR, 'src', 'core', '__tests__'),
+    path.join(ROOT_DIR, 'src'),
     path.join(ROOT_DIR, 'tests')
   ];
-  const files = [];
-  for (const dir of searchDirs) {
-    if (!fs.existsSync(dir)) continue;
+  const ignoredDirs = new Set(['node_modules', '.git', 'dist', 'build', '.agents']);
+  const discovered = new Set();
+
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.test.js')) {
-        files.push(path.join(dir, entry.name));
+      if (ignoredDirs.has(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith('.test.js')) {
+        discovered.add(fullPath);
       }
     }
   }
-  return files.sort();
+
+  for (const dir of searchDirs) {
+    walk(dir);
+  }
+  return Array.from(discovered).sort();
 }
 
 function parseTapSummary(output) {
-  const testsMatch = output.match(/# tests\s+(\d+)/);
-  const passMatch = output.match(/# pass\s+(\d+)/);
-  const failMatch = output.match(/# fail\s+(\d+)/);
+  const text = String(output || '');
+  const testsMatch = text.match(/^(?:# |ℹ )tests\s+(\d+)/m);
+  const passMatch = text.match(/^(?:# |ℹ )pass\s+(\d+)/m);
+  const failMatch = text.match(/^(?:# |ℹ )fail\s+(\d+)/m);
+  const hasSummary = Boolean(testsMatch && passMatch && failMatch);
   return {
+    hasSummary,
     tests: testsMatch ? Number(testsMatch[1]) : 0,
     pass: passMatch ? Number(passMatch[1]) : 0,
     fail: failMatch ? Number(failMatch[1]) : 0
   };
 }
 
-function cleanupDbFiles(dbPath) {
-  for (const suffix of ['', '-wal', '-shm']) {
-    try {
-      const target = `${dbPath}${suffix}`;
-      if (fs.existsSync(target)) fs.unlinkSync(target);
-    } catch (_) {}
+function cleanupIsolatedDir(dirPath) {
+  if (!dirPath) return;
+  try {
+    fs.rmSync(dirPath, { recursive: true, force: true });
+  } catch (_) {}
+}
+
+function runSuiteChildProcess(file, extraEnv = {}) {
+  const suiteTmpDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), `ejii-suite-${process.pid}-${Date.now()}-`)
+  );
+  const tmpDbPath = path.join(suiteTmpDir, 'ejii-test.sqlite');
+
+  let res;
+  try {
+    res = spawnSync(process.execPath, ['--test', file], {
+      cwd: ROOT_DIR,
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        EJII_DATA_DIR: suiteTmpDir,
+        EJII_DB_PATH: tmpDbPath,
+        DB_PATH: tmpDbPath,
+        EJII_REQUIRE_EXPLICIT_TEST_ISOLATION: 'true',
+        ...extraEnv
+      },
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024
+    });
+  } finally {
+    cleanupIsolatedDir(suiteTmpDir);
   }
+
+  const combinedOutput = `${res.stdout || ''}\n${res.stderr || ''}`;
+  const summary = parseTapSummary(combinedOutput);
+  const hasProcessFailure =
+    Boolean(res.error) ||
+    Boolean(res.signal) ||
+    res.status !== 0 ||
+    !summary.hasSummary ||
+    summary.tests <= 0 ||
+    summary.fail > 0;
+
+  return {
+    status: res.status,
+    signal: res.signal || null,
+    error: res.error || null,
+    stdout: res.stdout || '',
+    stderr: res.stderr || '',
+    combinedOutput,
+    summary,
+    passed: !hasProcessFailure,
+    suiteTests: summary.hasSummary ? summary.tests : 0,
+    suitePass: summary.hasSummary ? summary.pass : 0,
+    suiteFail: summary.hasSummary && summary.tests > 0
+      ? summary.fail + (res.status !== 0 && summary.fail === 0 ? 1 : 0)
+      : 1
+  };
 }
 
 function main() {
@@ -80,42 +144,28 @@ function main() {
   for (const file of testFiles) {
     const relPath = path.relative(ROOT_DIR, file);
     const suiteStart = Date.now();
-    const tmpDbPath = path.join(
-      os.tmpdir(),
-      `ejii-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`
-    );
-
-    const res = spawnSync(process.execPath, ['--test', file], {
-      cwd: ROOT_DIR,
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        DB_PATH: tmpDbPath
-      },
-      encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024
-    });
-
-    cleanupDbFiles(tmpDbPath);
-
-    const combinedOutput = `${res.stdout || ''}\n${res.stderr || ''}`;
-    const summary = parseTapSummary(combinedOutput);
+    const outcome = runSuiteChildProcess(file);
     const suiteDurationMs = Date.now() - suiteStart;
 
-    const suiteTests = summary.tests || (res.status === 0 ? 1 : 1);
-    const suitePass = summary.tests ? summary.pass : (res.status === 0 ? 1 : 0);
-    const suiteFail = summary.tests ? summary.fail : (res.status === 0 ? 0 : 1);
+    totalTests += outcome.suiteTests;
+    totalPass += outcome.suitePass;
+    totalFail += outcome.suiteFail;
 
-    totalTests += suiteTests;
-    totalPass += suitePass;
-    totalFail += suiteFail;
-
-    if (res.status === 0 && suiteFail === 0) {
-      console.log(`  [PASS] ${relPath} (${suitePass}/${suiteTests} passed in ${suiteDurationMs}ms)`);
+    if (outcome.passed) {
+      console.log(`  [PASS] ${relPath} (${outcome.suitePass}/${outcome.suiteTests} passed in ${suiteDurationMs}ms)`);
     } else {
       failedSuites++;
-      console.error(`  [FAIL] ${relPath} (${suitePass} passed, ${suiteFail} failed in ${suiteDurationMs}ms)`);
-      console.error(combinedOutput);
+      const failureReason = outcome.error
+        ? `spawn error: ${outcome.error.message}`
+        : outcome.signal
+          ? `terminated by signal ${outcome.signal}`
+          : !outcome.summary.hasSummary || outcome.suiteTests === 0
+            ? 'missing TAP summary or 0 tests executed'
+            : `exit status ${outcome.status}`;
+      console.error(
+        `  [FAIL] ${relPath} (${outcome.suitePass} passed, ${outcome.suiteFail} failed in ${suiteDurationMs}ms — ${failureReason})`
+      );
+      console.error(outcome.combinedOutput);
     }
   }
 
@@ -127,9 +177,17 @@ function main() {
   );
   console.log('========================================================================');
 
-  if (failedSuites > 0 || totalFail > 0) {
+  if (failedSuites > 0 || totalFail > 0 || totalTests === 0) {
     process.exit(1);
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  discoverTestFiles,
+  parseTapSummary,
+  runSuiteChildProcess
+};

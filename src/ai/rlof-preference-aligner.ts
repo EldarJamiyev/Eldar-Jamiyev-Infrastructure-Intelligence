@@ -200,10 +200,15 @@ export class RlofPreferenceAligner {
     const clean = String(prompt || '').trim();
     if (!clean) return { matched: false, rawText: clean };
 
-    // Never treat questions or negative-constraint explanation requests as operator action overrides
+    // 1. Reject questions, negated commands, conditionals, quoted strings, and declarative protocol explanations
     if (
       clean.includes('?') ||
-      /^(?:why|what|how|when|where|who|which|can|could|would|should|is|are|does|do|did|explain|tell\s+me|don't\s+run|do\s+not\s+run)\b/i.test(clean)
+      /^["'`].*["'`]$/.test(clean) ||
+      /^(?:why|what|how|when|where|who|which|can|could|would|should|is|are|does|do|did|explain|tell\s+me|don't|do\s+not|never|avoid|refuse|if|unless|whenever|suppose|assuming|in\s+case)\b/i.test(clean) ||
+      /\b(?:do\s+not|don't|dont|never|avoid|refuse\s+to|must\s+not|should\s+not|shouldn't|cannot|can't|not\s+to)\s+(?:ever\s+|please\s+|automatically\s+)?(?:approve|reject|prefer|override|use|run|execute)\b/i.test(clean) ||
+      /\b(?:if|when|whenever|unless)\s+[^,.;]+,\s*(?:please\s+|do\s+not\s+|don't\s+)?(?:approve|reject|prefer|override)\b/i.test(clean) ||
+      /^(?:a|an|the|this|that|these|those|firewalls?|routers?|switches?|servers?|clients?|hosts?|kernels?|daemons?|policies|rules?|packets?|connections?)\b[^,.;]*\b(?:can|may|will|might|could|should|would|often|typically|usually|automatically)?\s*(?:approve|reject|prefer|override)s?\b/i.test(clean) ||
+      /["'`][^"'`]*\b(?:approve|reject|prefer|override)\b[^"'`]*["'`]/i.test(clean)
     ) {
       return { matched: false, rawText: clean };
     }
@@ -211,12 +216,20 @@ export class RlofPreferenceAligner {
     const NON_ACTION_NOUNS = new Set([
       'PORT', 'PORTS', 'PACKET', 'PACKETS', 'CONNECTION', 'CONNECTIONS', 'REQUEST', 'REQUESTS',
       'TRAFFIC', 'FRAME', 'FRAMES', 'PING', 'ICMP', 'TCP', 'UDP', 'DNS', 'HTTP', 'HTTPS', 'TLS',
-      'SSL', 'SERVER', 'CLIENT', 'HOST', 'IT', 'THAT', 'THIS', 'THEM', 'ALL', 'ANYTHING'
+      'SSL', 'SERVER', 'CLIENT', 'HOST', 'IT', 'THAT', 'THIS', 'THEM', 'ALL', 'ANYTHING',
+      'A', 'AN', 'THE', 'SYN', 'RST', 'ACK', 'RULE', 'RULES', 'POLICY', 'FIREWALL', 'ROUTER'
     ]);
 
+    const isValidActionToken = (token?: string): boolean => {
+      if (!token) return false;
+      const upper = String(token).toUpperCase();
+      if (NON_ACTION_NOUNS.has(upper) || upper.length < 2) return false;
+      return true;
+    };
+
     // 1. "prefer <ActionA> over <ActionB>"
-    const preferMatch = clean.match(/\bprefer\s+([A-Za-z0-9_\-]+)\s+over\s+([A-Za-z0-9_\-]+)\b/i);
-    if (preferMatch && !NON_ACTION_NOUNS.has(preferMatch[1].toUpperCase())) {
+    const preferMatch = clean.match(/^(?:please\s+|i\s+|we\s+|operator\s+|always\s+)?prefer\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\s+over\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\s*[.!]*$/i);
+    if (preferMatch && isValidActionToken(preferMatch[1]) && isValidActionToken(preferMatch[2])) {
       return {
         matched: true,
         feedbackType: 'PREFERENCE_RANKING',
@@ -227,8 +240,8 @@ export class RlofPreferenceAligner {
     }
 
     // 2. "reject <ActionA>, use <ActionB>" / "reject <ActionA> prefer <ActionB>"
-    const rejectUseMatch = clean.match(/\breject\s+([A-Za-z0-9_\-]+)[,\s]+(?:use|prefer|switch to)\s+([A-Za-z0-9_\-]+)\b/i);
-    if (rejectUseMatch && !NON_ACTION_NOUNS.has(rejectUseMatch[1].toUpperCase())) {
+    const rejectUseMatch = clean.match(/^(?:please\s+|i\s+|we\s+|operator\s+)?reject\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)[,\s]+(?:and\s+)?(?:use|prefer|switch to)\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\s*[.!]*$/i);
+    if (rejectUseMatch && isValidActionToken(rejectUseMatch[1]) && isValidActionToken(rejectUseMatch[2])) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_OVERRIDE',
@@ -239,8 +252,8 @@ export class RlofPreferenceAligner {
     }
 
     // 3. "override <ActionA> with <ActionB>"
-    const overrideMatch = clean.match(/\boverride\s+([A-Za-z0-9_\-]+)\s+with\s+([A-Za-z0-9_\-]+)\b/i);
-    if (overrideMatch && !NON_ACTION_NOUNS.has(overrideMatch[1].toUpperCase())) {
+    const overrideMatch = clean.match(/^(?:please\s+|i\s+|we\s+|operator\s+)?override\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\s+with\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\s*[.!]*$/i);
+    if (overrideMatch && isValidActionToken(overrideMatch[1]) && isValidActionToken(overrideMatch[2])) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_OVERRIDE',
@@ -250,9 +263,9 @@ export class RlofPreferenceAligner {
       };
     }
 
-    // 4. "approve <ActionA> [instead of <ActionB>]"
-    const approveMatch = clean.match(/^(?:please\s+|i\s+|operator\s+)?approve\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)(?:\s+(?:instead of|rather than)\s+([A-Za-z0-9_\-]+))?\b/i);
-    if (approveMatch && !NON_ACTION_NOUNS.has(approveMatch[1].toUpperCase())) {
+    // 4. "approve <ActionA> [instead of <ActionB>] [because ...]"
+    const approveMatch = clean.match(/^(?:please\s+|i\s+|we\s+|operator\s+)?approve\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)(?:\s+(?:instead of|rather than|over)\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+))?(?:\s+(?:because|since|due to|for|on)\b.*)?\s*[.!]*$/i);
+    if (approveMatch && isValidActionToken(approveMatch[1]) && (!approveMatch[2] || isValidActionToken(approveMatch[2]))) {
       return {
         matched: true,
         feedbackType: 'EXPLICIT_APPROVAL',
@@ -262,9 +275,9 @@ export class RlofPreferenceAligner {
       };
     }
 
-    // 5. "reject <ActionA>"
-    const rejectOnlyMatch = clean.match(/^(?:please\s+|i\s+|operator\s+)?reject\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)\b/i);
-    if (rejectOnlyMatch && !NON_ACTION_NOUNS.has(rejectOnlyMatch[1].toUpperCase())) {
+    // 5. "reject <ActionA> [because ...]"
+    const rejectOnlyMatch = clean.match(/^(?:please\s+|i\s+|we\s+|operator\s+)?reject\s+(?:action\s+|remediation\s+)?([A-Za-z0-9_\-]+)(?:\s+[A-Za-z0-9_\-]+)?(?:\s+(?:because|since|due to|for|on)\b.*)?\s*[.!]*$/i);
+    if (rejectOnlyMatch && isValidActionToken(rejectOnlyMatch[1])) {
       return {
         matched: true,
         feedbackType: 'MANUAL_REJECTION',

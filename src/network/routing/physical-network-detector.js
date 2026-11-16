@@ -383,9 +383,10 @@ function getPhysicalNetworkInfo(options = {}) {
     mac: null,
     macAddress: null,
     interfaceIndex: null,
-    dnsServers: ['1.1.1.1'],
-    primaryDnsIp: '1.1.1.1',
-    secondaryDnsIp: '8.8.8.8',
+    dnsServers: [],
+    primaryDnsIp: null,
+    secondaryDnsIp: null,
+    dnsConfigState: 'UNKNOWN_UNOBSERVED',
     dhcpServer: null,
     gatewayMac: 'Unknown',
     gatewayVendor: 'Unverified / No Default Route Observed',
@@ -403,7 +404,8 @@ function getPhysicalNetworkInfo(options = {}) {
       if (nonLoopback.length > 0) {
         info.dnsServers = nonLoopback;
         info.primaryDnsIp = nonLoopback[0];
-        info.secondaryDnsIp = nonLoopback[1] || nonLoopback[0];
+        info.secondaryDnsIp = nonLoopback[1] || null;
+        info.dnsConfigState = 'CONFIGURED_OS_RESOLVER';
       }
     }
   } catch (_) {}
@@ -878,7 +880,7 @@ function syncTopologyWithCurrentLocation(dbInstance) {
     if (vIface) {
       coreDnsIp = vIface.address;
     } else {
-      coreDnsIp = '1.1.1.1';
+      coreDnsIp = 'UNCONFIGURED_DNS_RESOLVER';
       isFallbackResolver = true;
     }
   }
@@ -886,12 +888,12 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   const coreNodeMac = null;
   const coreNodeIfName = isSandbox ? null : 'tengig0/1';
   const coreVendor = isFallbackResolver
-    ? 'Illustrative Anycast Resolver (Unobserved Fallback)'
+    ? 'Unconfigured System DNS Resolver (No OS Resolver Detected)'
     : (coreDnsIp === '1.1.1.1'
       ? 'Cloudflare Anycast Resolver (Configured)'
       : (coreDnsIp.startsWith('172.') ? 'Virtual Switch Core Backbone' : (isSandbox ? 'Configured DNS Resolver (Service Endpoint)' : 'Core Backbone Switch & Services')));
   const coreNodeName = isSandbox
-    ? (isFallbackResolver ? 'Proposed Default Resolver (1.1.1.1 - Unobserved)' : `Configured DNS Resolver (${coreDnsIp})`)
+    ? (isFallbackResolver ? 'System DNS Resolver (UNCONFIGURED_DNS_RESOLVER)' : `Configured DNS Resolver (${coreDnsIp})`)
     : `Core Switch & DNS (${coreDnsIp})`;
 
   db.prepare(`
@@ -1077,11 +1079,11 @@ function syncTopologyWithCurrentLocation(dbInstance) {
 
   // Ensure foundational edges exist in DB with unmeasured metrics set to NULL until live telemetry is collected
   const defaultEdges = [
-    ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'up', 10000, null, null, null],
-    ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'up', 1000, null, null, null],
-    ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'up', 1000, null, null, null],
-    ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', 'up', 1000, null, null, null],
-    ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', 1000, null, null, null]
+    ['EDGE-WAN-GW', 'NODE-WAN-01', 'NODE-GW-01', 'fiber', 'unprobed', null, null, null, null],
+    ['EDGE-GW-CORE', 'NODE-GW-01', 'NODE-CORE-01', 'ethernet', 'unprobed', null, null, null, null],
+    ['EDGE-CORE-APP', 'NODE-CORE-01', 'NODE-APP-01', 'ethernet', 'unprobed', null, null, null, null],
+    ['EDGE-GW-LAN', 'NODE-GW-01', 'NODE-LAN-01', 'ethernet', gwIp ? 'up' : 'unprobed', null, null, null, null],
+    ['EDGE-LAN-HOST', 'NODE-LAN-01', 'NODE-HOST-01', 'ethernet', 'up', null, null, null, null]
   ];
 
   for (const [id, src, tgt, type, status, bw, util, lat, pr] of defaultEdges) {

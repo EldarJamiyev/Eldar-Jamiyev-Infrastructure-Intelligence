@@ -83,6 +83,95 @@ function extractDnsRecordType(rawText) {
   return null;
 }
 
+const REMOTE_OPERATIONAL_INTENTS = new Set([
+  'ping',
+  'port_check',
+  'dns',
+  'website_check',
+  'traceroute',
+  'snmp_probe',
+  'snmp_walk',
+  'office_device_resolve',
+  'tls_posture_audit'
+]);
+
+/**
+ * Validates and normalizes structured interpretation payloads returned by an LLM or tool mapper.
+ * Rejects invalid intents, sanitizes port bounds (1..65535), strips stringified 'null'/'undefined' targets,
+ * and enforces clarification_needed when a remote operational intent lacks both an explicit and session target.
+ */
+function validateStructuredInterpretation(candidate, context = {}) {
+  if (!candidate || typeof candidate !== 'object') {
+    return { valid: false, reason: 'NON_OBJECT_PAYLOAD', plan: null };
+  }
+  const rawIntent = typeof candidate.intent === 'string' ? candidate.intent.trim() : '';
+  if (!VALID_INTENTS.has(rawIntent)) {
+    return { valid: false, reason: `INVALID_INTENT:${rawIntent || 'EMPTY'}`, plan: null };
+  }
+
+  const validatedPorts = Array.isArray(candidate.ports)
+    ? candidate.ports.map(Number).filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535)
+    : [];
+
+  const cleanTarget = (val) => {
+    if (typeof val !== 'string') return null;
+    const t = val.trim();
+    if (!t || t === 'null' || t === 'undefined' || t === 'none') return null;
+    return t;
+  };
+
+  const rawTarget = cleanTarget(candidate.target);
+  const rawExplicit = cleanTarget(candidate.explicitTarget);
+  const sessionTarget = cleanTarget(context.lastTarget);
+
+  if (REMOTE_OPERATIONAL_INTENTS.has(rawIntent) && !rawTarget && !rawExplicit && !sessionTarget) {
+    return {
+      valid: true,
+      downgradedToClarification: true,
+      reason: 'MISSING_TARGET_CONTEXT',
+      plan: {
+        intent: 'clarification_needed',
+        mode: 'conversational',
+        clarificationReason: 'MISSING_TARGET_CONTEXT',
+        clarificationPrompt:
+          (typeof candidate.clarificationPrompt === 'string' && candidate.clarificationPrompt.trim()) ||
+          'Which hostname, IP address, or URL would you like me to check?',
+        target: null,
+        explicitTarget: null,
+        ports: validatedPorts,
+        preserveContextOnly: true
+      }
+    };
+  }
+
+  const isConversational =
+    rawIntent === 'greeting' ||
+    rawIntent === 'casual_conversation' ||
+    rawIntent === 'clarification_needed' ||
+    rawIntent === 'mail_troubleshooting_intake';
+  const isInformational =
+    rawIntent === 'informational_question' ||
+    rawIntent === 'general_knowledge' ||
+    rawIntent === 'epistemic_fabric_query';
+
+  return {
+    valid: true,
+    downgradedToClarification: false,
+    reason: 'VALIDATED',
+    plan: {
+      intent: rawIntent,
+      mode: isConversational ? 'conversational' : (isInformational ? 'informational' : 'operational'),
+      target: isInformational ? null : (rawTarget || rawExplicit || sessionTarget || null),
+      explicitTarget: isInformational ? null : (rawExplicit || rawTarget || null),
+      recordType: candidate.recordType || 'A',
+      ports: validatedPorts,
+      clarificationPrompt: candidate.clarificationPrompt || null,
+      naturalReply: candidate.naturalReply || null,
+      preserveContextOnly: isConversational || isInformational
+    }
+  };
+}
+
 /**
  * Semantic AI Interpreter function called by ChatOperatorService
  * @param {string} promptText
@@ -697,6 +786,7 @@ function resetSemanticInterpreterMetrics() {
 
 module.exports = {
   semanticAiInterpreter,
+  validateStructuredInterpretation,
   extractDnsRecordType,
   getSemanticInterpreterMetrics,
   resetSemanticInterpreterMetrics

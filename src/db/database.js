@@ -130,11 +130,11 @@ function initSchema(targetDb = db, options = {}) {
       source_id TEXT NOT NULL,
       target_id TEXT NOT NULL,
       link_type TEXT DEFAULT 'ethernet',
-      status TEXT DEFAULT 'up',
-      bandwidth_mbps REAL DEFAULT 1000,
-      utilization_pct REAL DEFAULT 15,
-      latency_ms REAL DEFAULT 1.0,
-      packet_rate REAL DEFAULT 120,
+      status TEXT DEFAULT 'unprobed',
+      bandwidth_mbps REAL DEFAULT NULL,
+      utilization_pct REAL DEFAULT NULL,
+      latency_ms REAL DEFAULT NULL,
+      packet_rate REAL DEFAULT NULL,
       metadata TEXT
     );
 
@@ -428,8 +428,10 @@ function initSchema(targetDb = db, options = {}) {
       lastMigrationStatus = 'SUCCESS';
       lastMigrationError = null;
     }
+    targetDb._ejiiSchemaInitialized = true;
   } catch (err) {
     const errMsg = err && err.message ? err.message : String(err);
+    targetDb._ejiiSchemaInitialized = false;
     targetDb._ejiiMigrationStatus = 'FAILED';
     targetDb._ejiiMigrationError = errMsg;
     if (targetDb === db) {
@@ -437,10 +439,15 @@ function initSchema(targetDb = db, options = {}) {
       lastMigrationError = errMsg;
     }
     console.error('[EJII Database Migration Error]:', errMsg);
+    targetDb.exec('PRAGMA foreign_keys = ON;');
+    if (options.throwOnMigrationError) {
+      throw err;
+    }
+    return false;
   }
 
   targetDb.exec('PRAGMA foreign_keys = ON;');
-  targetDb._ejiiSchemaInitialized = true;
+  return true;
 }
 
 function getDatabaseHealth(targetDb = db) {

@@ -312,15 +312,17 @@ async function diagnoseOfficeDevice({
   }
 
   const netInfo = getPhysicalNetworkInfo();
-  const localIp = netInfo.localIp || '192.168.31.89';
-  const gatewayIp = netInfo.defaultGateway || '192.168.31.1';
-  const subnetCidr = netInfo.subnetCidr || '192.168.31.0/24';
-  const subnetPrefix = gatewayIp.split('.').slice(0, 3).join('.');
+  const localIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
+  const gatewayIp = netInfo.gatewayVerified ? (netInfo.defaultGateway || netInfo.gatewayIp || null) : null;
+  const subnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
+  const subnetPrefix = (gatewayIp || localIp).split('.').slice(0, 3).join('.');
 
-  // 1. Check Gateway Reachability from Operator Workstation
-  const gwPing = await pingHost(gatewayIp, { timeoutMs: 1000 }).catch(() => ({ alive: false, timeMs: null }));
-  const gatewayReachable = Boolean(gwPing && (gwPing.alive || gwPing.success || gwPing.rttMs !== null));
-  const gatewayRttMs = gwPing?.rttMs ?? gwPing?.timeMs ?? 2;
+  // 1. Check Gateway Reachability from Operator Workstation (only when a default gateway route is observed)
+  const gwPing = gatewayIp
+    ? await pingHost(gatewayIp, { timeoutMs: 1000 }).catch(() => ({ alive: false, timeMs: null }))
+    : { alive: false, timeMs: null, unverifiedGateway: true };
+  const gatewayReachable = Boolean(gatewayIp && gwPing && (gwPing.alive || gwPing.success || gwPing.rttMs !== null));
+  const gatewayRttMs = gatewayReachable ? (gwPing?.rttMs ?? gwPing?.timeMs ?? null) : null;
 
   // 2. Check Target Device Reachability & Printer/Office Ports (unless it's an APIPA 169.254.x.x address)
   let targetPing = { alive: false, rttMs: null };

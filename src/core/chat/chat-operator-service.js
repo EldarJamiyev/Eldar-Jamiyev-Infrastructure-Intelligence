@@ -668,11 +668,26 @@ class ChatOperatorService {
 
     // 00-Sovereign-POMDP. POMDP Active Probing & Entropy Reduction
     if (/\b(pomdp|active\s+probe|entropy\s+reduc|optimal\s+probe|belief\s+state\s+update)\b/i.test(raw)) {
+      const explicitMatch = raw.match(/\b((?:\d{1,3}\.){3}\d{1,3}|localhost|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})\b/i);
+      const resolvedPomdpTarget = (explicitMatch ? explicitMatch[1] : null) || priorTarget || null;
+      if (!resolvedPomdpTarget) {
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'MISSING_TARGET_CONTEXT',
+          clarificationPrompt:
+            'Which hostname or IP address would you like me to run POMDP active diagnostic probing against?',
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true
+        };
+      }
       return {
         intent: 'pomdp_active_probe',
         mode: 'operational',
-        target: priorTarget || '127.0.0.1',
-        explicitTarget: priorTarget || null,
+        target: resolvedPomdpTarget,
+        explicitTarget: explicitMatch ? explicitMatch[1] : null,
         maxProbes: 3,
         ports: []
       };
@@ -680,23 +695,60 @@ class ChatOperatorService {
 
     // 00-Sovereign-Synthesizer. Compositional SMT Remediation Program Synthesizer
     if (/\b(synthesize\s+remediation|compositional\s+remediation|program\s+synthesizer|smt\s+remediation)\b/i.test(raw)) {
+      const explicitSysMatch =
+        raw.match(/\b(?:for|on|target(?:ing)?)\s+([a-zA-Z0-9._-]+)\b/i) ||
+        raw.match(/\b((?:\d{1,3}\.){3}\d{1,3}|localhost|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})\b/i);
+      const stopWords = new Set(['remediation', 'program', 'incident', 'smt', 'compositional', 'the', 'a', 'an']);
+      const explicitSys = explicitSysMatch && !stopWords.has(explicitSysMatch[1].toLowerCase()) ? explicitSysMatch[1] : null;
+      const resolvedSystem = explicitSys || priorTarget || null;
+      if (!resolvedSystem) {
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'MISSING_TARGET_CONTEXT',
+          clarificationPrompt:
+            'Which target host, router, or service would you like me to synthesize a verified remediation program for?',
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true
+        };
+      }
       return {
         intent: 'compositional_remediation_synthesizer',
         mode: 'operational',
         incidentId: 'INC-SYNTH-AUTO',
         rootCause: raw,
-        targetSystem: priorTarget || 'core-gw-01',
-        target: null,
+        targetSystem: resolvedSystem,
+        target: resolvedSystem,
         ports: []
       };
     }
 
     // 00-Sovereign-CRDT. Geo-Partition CRDT & Anti-Entropy Sync
     if (/\b(crdt|reconcile\s+partition|wan\s+partition|anti-entropy\s+sync|vector\s+clock\s+sync)\b/i.test(raw)) {
+      const partMatch =
+        raw.match(/\b(region-[a-z0-9-]+|us-[a-z0-9-]+|eu-[a-z0-9-]+|ap-[a-z0-9-]+|partition-[a-z0-9-]+)\b/i) ||
+        raw.match(/\bpartition\s+([a-zA-Z0-9_-]+)\b/i);
+      const badPartWords = new Set(['with', 'for', 'and', 'sync', 'crdt', 'reconcile', 'wan']);
+      const resolvedPartition = partMatch && !badPartWords.has(partMatch[1].toLowerCase()) ? partMatch[1] : null;
+      if (!resolvedPartition) {
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'MISSING_PARTITION_CONTEXT',
+          clarificationPrompt:
+            'Which WAN partition or region identifier (for example, `region-us-east` or `region-eu-west`) would you like me to reconcile?',
+          target: null,
+          explicitTarget: null,
+          ports: [],
+          preserveContextOnly: true
+        };
+      }
       return {
         intent: 'crdt_wan_reconcile',
         mode: 'operational',
-        targetPartition: 'region-us-east',
+        targetPartition: resolvedPartition,
         syncMode: 'delta',
         target: null,
         ports: []
@@ -1493,8 +1545,8 @@ class ChatOperatorService {
 
     const isExplanationOrComparisonFollowUp =
       isDnsHypothesisFollowUp ||
-      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (that's|thats|that is) the problem\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done)( so far)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found)( so far)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior)).*|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier|yesterday)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
-      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|why do you think that's the problem|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:the )?(?:current|latest) result with yesterday|compare it with the previous result|compare with the previous result|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
+      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (?:that's|thats|that is|the [a-z0-9 _-]+ is) (?:the problem|responsible|the cause|at fault|failing)\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|what did we (?:discover|find|test|observe)(?: earlier| so far| previously| before)?\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done|discovered)( so far| earlier)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found|discovered)( so far| earlier)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior)).*|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier|yesterday)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
+      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|what did we discover|what did we find earlier|why do you think .* is (?:responsible|the problem|the cause|at fault)|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:the )?(?:current|latest) result with yesterday|compare (?:it|that|this) with (?:the previous result|yesterday|earlier)|compare with (?:the previous result|yesterday|earlier)|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
         !/\b(ping |check port|test port|resolve |traceroute )\b/i.test(lower));
 
     if (isExplanationOrComparisonFollowUp) {
@@ -1650,10 +1702,42 @@ class ChatOperatorService {
     }
 
     const isForgetTargetRequest =
-      /\b(forget (?:that|this|the) (?:target|host|server|ip|domain)|never\s*mind (?:that|this) (?:target|host|server))\b/i.test(lower);
+      /\b(forget (?:that|this|the|previous|last|prior)(?:\s+(?:previous|last|prior))?\s+(?:target|host|server|ip|domain|endpoint)|never\s*mind (?:that|this|the|previous) (?:target|host|server|ip|domain))\b/i.test(lower);
+    const isRoleContrastCorrection =
+      /\b(?:i\s+meant|actually)\s+the\s+([a-z0-9_-]+)\s+(?:server|host|service|endpoint),?\s+not\s+the\s+([a-z0-9_-]+)\b/i.test(raw);
     const isMidTurnCorrection =
       isForgetTargetRequest ||
+      isRoleContrastCorrection ||
       /^(?:no,?\s*)?(?:i\s+meant|actually|sorry,?\s*i\s+meant|wait,?\s*i\s+meant|use)\b|\binstead\s*[.!?]?$/i.test(raw.trim());
+
+    if (isRoleContrastCorrection && !explicitTarget) {
+      const roleMatch = raw.match(/\b(?:i\s+meant|actually)\s+the\s+([a-z0-9_-]+)\s+(?:server|host|service|endpoint),?\s+not\s+the\s+([a-z0-9_-]+)\b/i);
+      const desiredRole = roleMatch ? roleMatch[1].toLowerCase() : 'requested';
+      const rejectedRole = roleMatch ? roleMatch[2].toLowerCase() : 'previous';
+      const history = Array.isArray(session?.targetHistory) ? session.targetHistory : [];
+      const current = (priorTarget || '').toLowerCase();
+      const alternateCandidates = history.filter((h) => h.toLowerCase() !== current);
+      if (alternateCandidates.length === 1) {
+        explicitTarget = alternateCandidates[0];
+      } else {
+        if (session) {
+          session.lastTarget = null;
+          session.lastValidTarget = null;
+        }
+        return {
+          intent: 'clarification_needed',
+          mode: 'conversational',
+          clarificationReason: 'ROLE_TARGET_CLARIFICATION',
+          clarificationPrompt:
+            `Understood — switching away from the ${rejectedRole} server. Which hostname or IP address should I use for the **${desiredRole} server**?`,
+          target: null,
+          explicitTarget: null,
+          ports: extractedPorts,
+          preserveContextOnly: true,
+          contextPivotDetected: true
+        };
+      }
+    }
 
     const refersToOtherPort = /\b(the other port|other port|alternate port)\b/i.test(lower);
     if (extractedPorts.length === 0 && refersToOtherPort) {
@@ -1768,12 +1852,18 @@ class ChatOperatorService {
       /\b(what(?:'s| is) (?:the )?ip(?: address)? (?:of|for)|ip (?:address )?(?:of|for)|what address does .+ resolve to|can you find (?:the )?(?:ip|address) (?:for|of)|find .+ ip address|show me the ips? for|resolve .+ for me|resolve )\b/i.test(lower) ||
       (isGenericDnsHealthPrompt || /\b(check dns|dns check|test dns|dns lookup|dns (?:for|of|on)|query dns|nslookup|dig|a records?|aaaa records?|mx records?|txt records?|ns records?|cname records?|soa records?|ptr records?|srv records?|spf(?:\s+records?)?|dmarc(?:\s+records?)?|dkim(?:\s+records?)?|reverse dns|rdns|mail exchange|nameservers? (?:for|of))\b/i.test(lower));
 
+    const isStillFailingFollowUp =
+      /\b(it still doesn'?t work|still doesn'?t work|still not working|it'?s still failing|still failing|still down|still unreachable|still timing out)\b/i.test(lower);
+
     // 8. Problem Descriptions & Symptom Reports without an explicit target ("I cannot access the server", "The site won't open", "I'm getting connection errors", "The internet is not working")
     const isProblemDescription =
+      isStillFailingFollowUp ||
       /\b(internet is not working|internet isn't working|no internet|can't open the (?:website|site)|cannot open the (?:website|site)|(?:site|website|page) won't open|(?:site|website) is down|cannot access (?:the |my |our )?(?:server|host|system|service)|can't access (?:the |my |our )?(?:server|host|system|service)|unable to access (?:the |my |our )?(?:server|host|system|service)|something is wrong with the connection|server is not responding|server isn't responding|getting connection errors|connection errors|works on my laptop but not|application has become (?:really )?slow|is really slow|check whether this endpoint responds|endpoint is not responding|having network issues|trouble connecting)\b/i.test(lower);
 
     if (!explicitTarget && isProblemDescription) {
-      const referencesCurrentTarget = /\b(this endpoint|that endpoint|the same site|the same server|that server|that host)\b/i.test(lower);
+      const referencesCurrentTarget =
+        isStillFailingFollowUp ||
+        /\b(this endpoint|that endpoint|the same site|the same server|that server|that host)\b/i.test(lower);
       if (referencesCurrentTarget && priorTarget) {
         explicitTarget = priorTarget;
       } else {
@@ -6399,11 +6489,24 @@ class ChatOperatorService {
       lower.includes('last result') ||
       lower.includes('last check') ||
       lower.includes('compare it with') ||
+      lower.includes('compare that with') ||
+      lower.includes('compare this with') ||
       lower.includes('compare it to') ||
       lower.includes('compare with') ||
+      lower.includes('yesterday') ||
       lower.includes('what changed')
     ) {
-      if (observations.length >= 2) {
+      const asksForYesterday = /\byesterday\b/i.test(lower);
+      const yesterdayCutoffMs = Date.now() - 18 * 3600 * 1000;
+      const hasYesterdayObs = observations.some((o) => {
+        const ts = Date.parse(o.observedAt || '');
+        return Number.isFinite(ts) && ts <= yesterdayCutoffMs;
+      });
+      if (asksForYesterday && !hasYesterdayObs) {
+        const latest = observations[observations.length - 1] || null;
+        reply =
+          `**Historical Comparison for \`${effectiveTargetLabel}\`:** No historical baseline or observation from **yesterday** is stored for \`${effectiveTargetLabel}\` in this session or database (${observations.length} observation(s) recorded in the current session${latest ? `, latest at ${latest.observedAt}: ${latest.summary || latest.intent}` : ''}). I will not fabricate prior-day metrics; run periodic checks or retain a baseline snapshot to compare across days.`;
+      } else if (observations.length >= 2) {
         const latest = observations[observations.length - 1];
         const previous = observations[observations.length - 2];
         reply =
@@ -6418,7 +6521,14 @@ class ChatOperatorService {
         reply =
           `**Historical Comparison:** Only ${observations.length || 1} observation has been recorded for **\`${effectiveTargetLabel}\`** so far${single ? ` at ${single.observedAt} (${single.summary})` : ''}. Run another check on \`${effectiveTargetLabel}\` if you want to compare changes over time.`;
       }
-    } else if (lower.includes('what have we tested') || lower.includes('what have we found') || lower.includes('show memory') || lower.includes('compare')) {
+    } else if (
+      lower.includes('what have we tested') ||
+      lower.includes('what have we found') ||
+      lower.includes('what did we discover') ||
+      lower.includes('what did we find') ||
+      lower.includes('show memory') ||
+      lower.includes('compare')
+    ) {
       const entityBullets = entities.length > 0
         ? entities.map((e) =>
             `- **\`${e.target}\`** (${e.resolvedIps.join(', ') || 'unresolved'}): checked ${e.checkCount}x (last at ${e.lastSeenAt}) · Open ports: [${e.openPorts.join(', ') || 'none'}] · Closed ports: [${e.closedPorts.join(', ') || 'none'}] · Latest: ${e.lastOutcomeSummary || 'N/A'}`
@@ -8361,7 +8471,20 @@ class ChatOperatorService {
    */
   async _executePomdpActiveProbeScenario(plan, session, signal) {
     this._checkAborted(signal);
-    const target = plan.target || session?.lastValidTarget || 'localhost';
+    const target = plan.target || session?.lastValidTarget || null;
+    if (!target) {
+      const clarificationPrompt = 'Which hostname or IP address would you like me to run POMDP active diagnostic probing against?';
+      return {
+        reply: clarificationPrompt,
+        structuredAnswer: {
+          result: 'Target specification required before POMDP active probing.',
+          meaning: 'Active diagnostic probing requires an explicit target host or prior session target.',
+          nextStep: clarificationPrompt
+        },
+        steps: [],
+        findings: []
+      };
+    }
     const maxProbes = plan.maxProbes || 3;
 
     const t0 = performance.now();
@@ -8426,7 +8549,20 @@ class ChatOperatorService {
     this._checkAborted(signal);
     const incidentId = plan.incidentId || 'INC-LIVE-SYNTH';
     const rootCause = plan.rootCause || 'BGP route flap';
-    const targetSystem = plan.targetSystem || 'core-gw-01';
+    const targetSystem = plan.targetSystem || plan.target || session?.lastValidTarget || null;
+    if (!targetSystem) {
+      const clarificationPrompt = 'Which target host, router, or service would you like me to synthesize a verified remediation program for?';
+      return {
+        reply: clarificationPrompt,
+        structuredAnswer: {
+          result: 'Target system specification required before remediation synthesis.',
+          meaning: 'Compositional SMT remediation synthesis requires an explicit target system or active session target.',
+          nextStep: clarificationPrompt
+        },
+        steps: [],
+        findings: []
+      };
+    }
 
     const t0 = performance.now();
     const toolExec = await toolSandbox.executeTool('compositional_remediation_synthesizer', {
@@ -8488,7 +8624,20 @@ class ChatOperatorService {
    */
   async _executeCrdtWanReconcileScenario(plan, session, signal) {
     this._checkAborted(signal);
-    const targetPartition = plan.targetPartition || 'region-us-east';
+    const targetPartition = plan.targetPartition || null;
+    if (!targetPartition) {
+      const clarificationPrompt = 'Which WAN partition or region identifier (for example, `region-us-east` or `region-eu-west`) would you like me to reconcile?';
+      return {
+        reply: clarificationPrompt,
+        structuredAnswer: {
+          result: 'WAN partition identifier required before CRDT reconciliation.',
+          meaning: 'CRDT anti-entropy reconciliation requires an explicit partition/region identifier.',
+          nextStep: clarificationPrompt
+        },
+        steps: [],
+        findings: []
+      };
+    }
     const syncMode = plan.syncMode || 'delta';
 
     const t0 = performance.now();

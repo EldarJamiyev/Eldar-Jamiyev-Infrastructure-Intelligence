@@ -82,19 +82,22 @@ for (const tsFile of allTsFiles) {
   const tsConstMatches = Array.from(tsContent.matchAll(/export\s+const\s+([A-Za-z0-9_]+)/g)).map((m) => m[1]);
   const allExpectedExports = [...tsClassMatches, ...tsFunctionMatches, ...tsConstMatches];
 
-  // Check 4: Require JS module or inspect its exports
+  // Check 4: Verify AST syntax AND runtime require() loading of JS module
+  try {
+    new vm.Script(jsContent, { filename: jsFile });
+  } catch (syntaxErr) {
+    failures++;
+    divergences.push(`SYNTAX_ERROR: ${relativeJs} failed AST parsing: ${syntaxErr.message}`);
+    continue;
+  }
+
   let jsModule = null;
   try {
     jsModule = require(jsFile);
   } catch (loadErr) {
-    // If runtime require fails due to missing dependencies in test env, test AST compilation
-    try {
-      new vm.Script(jsContent, { filename: jsFile });
-    } catch (syntaxErr) {
-      failures++;
-      divergences.push(`SYNTAX_ERROR: ${relativeJs} failed AST parsing: ${syntaxErr.message}`);
-      continue;
-    }
+    failures++;
+    divergences.push(`RUNTIME_LOAD_ERROR: ${relativeJs} failed runtime require(): ${loadErr.message}`);
+    continue;
   }
 
   if (jsModule && typeof jsModule === 'object') {

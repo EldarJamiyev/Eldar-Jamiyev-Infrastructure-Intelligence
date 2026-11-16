@@ -8,8 +8,9 @@
 
 const crypto = require('crypto');
 const os = require('os');
-const { db, initSchema } = require('./database');
+const { db: defaultDb, initSchema } = require('./database');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
+const { HMAC_SECRET, getPurposeSeparatedSecret } = require('../config');
 
 /**
  * Return verified OS route table default gateway if present, or null when no default route is observed.
@@ -28,8 +29,9 @@ function getSystemDefaultGateway() {
 /**
  * Seed initial NOC database records (Non-Destructive & Idempotent)
  */
-function seedDatabase() {
-  initSchema();
+function seedDatabase(targetDb = defaultDb) {
+  const db = targetDb || defaultDb;
+  initSchema(db);
 
   const existingNodesCount = db.prepare('SELECT COUNT(*) as c FROM topology_nodes').get().c;
   const existingUsersCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
@@ -61,7 +63,7 @@ function seedDatabase() {
   const gatewayNodeAddress = verifiedGatewayIp || '127.0.0.1';
   const localHostIp = netInfo.localIp || netInfo.hostIp || '127.0.0.1';
   const localSubnetCidr = netInfo.subnetCidr || '127.0.0.0/8';
-  const primaryDns = (netInfo.dnsServers && netInfo.dnsServers[0]) || '1.1.1.1';
+  const primaryDns = (netInfo.dnsServers && netInfo.dnsServers[0]) || null;
   const hostMac = netInfo.macAddress || null;
   const gwMac = (netInfo.gatewayMac && netInfo.gatewayMac !== 'Unknown') ? netInfo.gatewayMac : null;
   const gwVendor = verifiedGatewayIp ? (netInfo.gatewayVendor || 'Observed Default Gateway') : 'Unverified Default Route (Container / Sandbox)';
@@ -121,8 +123,10 @@ function seedDatabase() {
       },
       {
         id: 'NODE-CORE-01',
-        name: `Core Switch & DNS (${primaryDns})`,
-        hostname_or_ip: primaryDns,
+        name: primaryDns
+          ? `Core Switch & DNS (${primaryDns})`
+          : 'Core Switch & DNS (UNCONFIGURED_DNS_RESOLVER)',
+        hostname_or_ip: primaryDns || 'UNCONFIGURED_DNS_RESOLVER',
         mac_address: null,
         type: 'dns_resolver',
         layer: 'core',
@@ -130,14 +134,14 @@ function seedDatabase() {
         parent_id: 'NODE-GW-01',
         status: 'unprobed',
         latency: null,
-        vendor: 'Configured System DNS Resolver',
+        vendor: primaryDns ? 'Configured System DNS Resolver' : 'Unconfigured System DNS Resolver',
         if_name: null,
         x: 480,
         y: 80,
         metadata: JSON.stringify({
           role: 'Configured DNS Resolver',
           probeState: 'AWAITING_FIRST_PROBE',
-          evidenceClassification: 'Configured'
+          evidenceClassification: primaryDns ? 'Configured' : 'Unknown'
         })
       },
       {
@@ -329,7 +333,10 @@ function seedDatabase() {
   // 5. Seed Initial Cryptographic HMAC Audit Log Record (only if audit_logs is empty)
   const existingAuditCount = db.prepare('SELECT COUNT(*) as c FROM audit_logs').get().c;
   if (existingAuditCount === 0) {
-    const hmacSecret = process.env.EJII_HMAC_SECRET || 'ejii-noc-default-hmac-secret-2026';
+    const hmacSecret =
+      (typeof getPurposeSeparatedSecret === 'function' && getPurposeSeparatedSecret('audit-log-v1')) ||
+      process.env.EJII_HMAC_SECRET ||
+      HMAC_SECRET;
     const genesisPayload = `1|${now}|USR-NOC-01|admin|admin|SYSTEM_BOOT|NOC_ENGINE|{"status":"INITIALIZED"}|127.0.0.1|GENESIS`;
     const genesisHash = crypto.createHmac('sha256', hmacSecret).update(genesisPayload).digest('hex');
 

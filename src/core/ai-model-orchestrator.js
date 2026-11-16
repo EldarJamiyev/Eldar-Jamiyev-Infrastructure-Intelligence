@@ -364,8 +364,8 @@ class AIModelOrchestrator {
       OLLAMA: {
         providerId: 'OLLAMA',
         isLocal: true,
-        status: 'UNPROBED', // 'OPERATIONAL' | 'OFFLINE' | 'DEGRADED' | 'UNPROBED'
-        verificationState: 'UNPROBED',
+        status: 'CONFIGURED_UNPROBED', // 'OPERATIONAL' | 'OFFLINE' | 'DEGRADED' | 'CONFIGURED_UNPROBED'
+        verificationState: 'CONFIGURED_UNPROBED',
         callsCount: 0,
         successCount: 0,
         failureCount: 0,
@@ -1140,7 +1140,7 @@ class AIModelOrchestrator {
    */
   async executeToolCallingInvestigation({
     query = '',
-    targetHost = '192.168.31.1',
+    targetHost = null,
     targetPort = 443,
     userRole = 'ADMIN',
     maxToolCalls = 3,
@@ -1157,8 +1157,11 @@ class AIModelOrchestrator {
       throw new Error(`RBAC_PERMISSION_DENIED: Role '${normalizedRole}' does not possess 'network.diagnostics.execute' capability.`);
     }
 
-    // 2. Resolve & Validate Target Host
-    const resolvedHost = String(targetHost || '192.168.31.1').trim();
+    // 2. Resolve & Validate Target Host (Never fall back to alien 192.168.31.1)
+    const resolvedHost = String(targetHost || '').trim();
+    if (!resolvedHost) {
+      throw new Error('MISSING_TARGET_HOST: executeToolCallingInvestigation requires an explicit targetHost.');
+    }
     if (!isSafeNetworkTarget(resolvedHost)) {
       throw new Error(`SECURITY_VIOLATION: Target "${resolvedHost}" rejected by SSRF defense policy.`);
     }
@@ -1474,10 +1477,12 @@ class AIModelOrchestrator {
           entry.lastLatencyMs = latencyMs;
           if (res.statusCode === 200) {
             entry.status = 'OPERATIONAL';
+            entry.verificationState = 'VERIFIED_OPERATIONAL';
             entry.lastError = null;
             return resolve({ operational: true, latencyMs });
           } else {
             entry.status = 'DEGRADED';
+            entry.verificationState = 'DEGRADED';
             entry.lastError = `HTTP_${res.statusCode}`;
             return resolve({ operational: false, statusCode: res.statusCode });
           }
@@ -1485,12 +1490,14 @@ class AIModelOrchestrator {
         req.on('timeout', () => {
           req.destroy();
           entry.status = 'OFFLINE';
+          entry.verificationState = 'UNREACHABLE';
           entry.lastError = 'ETIMEDOUT';
           entry.lastCheckedAtIso = new Date().toISOString();
           resolve({ operational: false, error: 'ETIMEDOUT' });
         });
         req.on('error', (err) => {
           entry.status = 'OFFLINE';
+          entry.verificationState = 'UNREACHABLE';
           entry.lastError = err.code || err.message;
           entry.lastCheckedAtIso = new Date().toISOString();
           resolve({ operational: false, error: err.code || err.message });
@@ -1538,8 +1545,9 @@ class AIModelOrchestrator {
         type: 'LOCAL_INFERENCE',
         tier: 'TIER_1_LOCAL_PRIVATE',
         endpoint: ollamaHost,
-        status: ollamaTelemetry.status !== 'UNPROBED' ? ollamaTelemetry.status : 'STANDBY',
-        latencyMs: ollamaTelemetry.lastLatencyMs || 15,
+        status: ollamaTelemetry.status && ollamaTelemetry.status !== 'UNPROBED' ? ollamaTelemetry.status : 'CONFIGURED_UNPROBED',
+        verificationState: ollamaTelemetry.verificationState || 'CONFIGURED_UNPROBED',
+        latencyMs: ollamaTelemetry.lastLatencyMs ?? null,
         callsCount: ollamaTelemetry.callsCount,
         successCount: ollamaTelemetry.successCount,
         failureCount: ollamaTelemetry.failureCount,

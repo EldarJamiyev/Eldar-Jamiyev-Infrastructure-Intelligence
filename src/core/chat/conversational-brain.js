@@ -2055,7 +2055,7 @@ function mapFunctionCallToExecutionPlan(functionCall, sessionContext = {}) {
       return {
         intent: 'dependency_blast_radius',
         mode: 'operational',
-        target: args.target || sessionContext.lastTarget || 'localhost',
+        target: args.target || sessionContext.lastTarget || null,
         explicitTarget: args.target || null,
         ports: [],
         preserveLastRemoteTarget: true,
@@ -2076,7 +2076,7 @@ function mapFunctionCallToExecutionPlan(functionCall, sessionContext = {}) {
       return {
         intent: 'pomdp_active_probe',
         mode: 'operational',
-        target: args.target || sessionContext.lastTarget || 'localhost',
+        target: args.target || sessionContext.lastTarget || null,
         maxProbes: args.maxProbes || 3,
         modelInterpreted: true,
         invokedToolName: name
@@ -2087,7 +2087,7 @@ function mapFunctionCallToExecutionPlan(functionCall, sessionContext = {}) {
         mode: 'operational',
         incidentId: args.incidentId || 'INC-PROG-SYNTH',
         rootCause: args.rootCause || 'Upstream BGP routing flap / TCP RST injection',
-        targetSystem: args.targetSystem || args.target || 'core-gw-01',
+        targetSystem: args.targetSystem || args.target || sessionContext.lastTarget || null,
         modelInterpreted: true,
         invokedToolName: name
       };
@@ -2095,7 +2095,7 @@ function mapFunctionCallToExecutionPlan(functionCall, sessionContext = {}) {
       return {
         intent: 'crdt_wan_reconcile',
         mode: 'operational',
-        targetPartition: args.targetPartition || 'region-us-east',
+        targetPartition: args.targetPartition || null,
         syncMode: args.syncMode || 'delta',
         modelInterpreted: true,
         invokedToolName: name

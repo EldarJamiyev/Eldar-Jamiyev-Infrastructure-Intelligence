@@ -36,8 +36,108 @@ try {
 const PORT = parseInt(process.env.EJII_PORT || '8443', 10);
 // Secure default: Bind strictly to loopback 127.0.0.1 to avoid exposing NOC workstation on public networks
 const HOST = process.env.EJII_HOST || '127.0.0.1';
-const DATA_DIR = process.env.EJII_DATA_DIR ? path.resolve(process.env.EJII_DATA_DIR) : path.join(__dirname, '..', 'data');
-const DB_PATH = process.env.EJII_DB_PATH || path.join(DATA_DIR, 'ejii.sqlite');
+const DEFAULT_REPO_DATA_DIR = path.resolve(__dirname, '..', 'data');
+
+function isPathInsideDir(targetPath, parentDir) {
+  if (!targetPath || !parentDir) return false;
+  const rel = path.relative(path.resolve(parentDir), path.resolve(targetPath));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function detectTestRuntime(env = process.env, argv = process.argv) {
+  if (env.NODE_ENV === 'test' || env.EJII_TEST_MODE === 'true') return true;
+  if (!Array.isArray(argv)) return false;
+  return argv.some((arg) => {
+    const s = String(arg || '');
+    return s === '--test' || s.startsWith('--test-') || /\.test\.[cm]?[jt]s$/i.test(s);
+  });
+}
+
+function resolveRuntimeStoragePaths(env = process.env, argv = process.argv) {
+  const isTest = detectTestRuntime(env, argv);
+  const explicitDataDir = env.EJII_DATA_DIR ? String(env.EJII_DATA_DIR).trim() : '';
+  const explicitDbPath = (env.EJII_DB_PATH || env.DB_PATH || '').trim();
+  const requireExplicitIsolation = env.EJII_REQUIRE_EXPLICIT_TEST_ISOLATION === 'true';
+  const allowRepoDataInTest = env.EJII_ALLOW_REPO_DATA_IN_TEST === 'true';
+
+  if (isTest) {
+    if (requireExplicitIsolation && (!explicitDataDir || !explicitDbPath)) {
+      const err = new Error(
+        'ERR_UNISOLATED_TEST_ENVIRONMENT: Test execution requires explicit EJII_DATA_DIR and EJII_DB_PATH isolation variables.'
+      );
+      err.code = 'ERR_UNISOLATED_TEST_ENVIRONMENT';
+      throw err;
+    }
+
+    if (!allowRepoDataInTest) {
+      if (
+        (explicitDataDir && isPathInsideDir(explicitDataDir, DEFAULT_REPO_DATA_DIR)) ||
+        (explicitDbPath && isPathInsideDir(explicitDbPath, DEFAULT_REPO_DATA_DIR))
+      ) {
+        const err = new Error(
+          `ERR_UNISOLATED_TEST_ENVIRONMENT: Test process attempted to use repository data directory (${DEFAULT_REPO_DATA_DIR}).`
+        );
+        err.code = 'ERR_UNISOLATED_TEST_ENVIRONMENT';
+        throw err;
+      }
+    }
+
+    if (!explicitDataDir && !explicitDbPath) {
+      const autoTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `ejii-test-isolated-${process.pid}-`));
+      const autoDbPath = path.join(autoTmpDir, 'ejii-test.sqlite');
+      if (env === process.env) {
+        process.env.EJII_DATA_DIR = autoTmpDir;
+        process.env.EJII_DB_PATH = autoDbPath;
+        process.on('exit', () => {
+          try {
+            fs.rmSync(autoTmpDir, { recursive: true, force: true });
+          } catch (_) {}
+        });
+      }
+      return {
+        isTest: true,
+        dataDir: autoTmpDir,
+        dbPath: autoDbPath,
+        autoIsolated: true
+      };
+    }
+
+    const resolvedDataDir = explicitDataDir
+      ? path.resolve(explicitDataDir)
+      : path.dirname(path.resolve(explicitDbPath));
+    const resolvedDbPath = explicitDbPath
+      ? path.resolve(explicitDbPath)
+      : path.join(resolvedDataDir, 'ejii-test.sqlite');
+
+    if (!allowRepoDataInTest && (isPathInsideDir(resolvedDataDir, DEFAULT_REPO_DATA_DIR) || isPathInsideDir(resolvedDbPath, DEFAULT_REPO_DATA_DIR))) {
+      const err = new Error(
+        `ERR_UNISOLATED_TEST_ENVIRONMENT: Resolved test storage path points inside repository data directory (${DEFAULT_REPO_DATA_DIR}).`
+      );
+      err.code = 'ERR_UNISOLATED_TEST_ENVIRONMENT';
+      throw err;
+    }
+
+    return {
+      isTest: true,
+      dataDir: resolvedDataDir,
+      dbPath: resolvedDbPath,
+      autoIsolated: false
+    };
+  }
+
+  const dataDir = explicitDataDir ? path.resolve(explicitDataDir) : DEFAULT_REPO_DATA_DIR;
+  const dbPath = explicitDbPath ? path.resolve(explicitDbPath) : path.join(dataDir, 'ejii.sqlite');
+  return {
+    isTest: false,
+    dataDir,
+    dbPath,
+    autoIsolated: false
+  };
+}
+
+const RUNTIME_STORAGE = resolveRuntimeStoragePaths(process.env, process.argv);
+const DATA_DIR = RUNTIME_STORAGE.dataDir;
+const DB_PATH = RUNTIME_STORAGE.dbPath;
 
 // Ensure writable data directory exists immediately
 try {
@@ -629,6 +729,10 @@ module.exports = {
   HOST,
   DATA_DIR,
   DB_PATH,
+  DEFAULT_REPO_DATA_DIR,
+  IS_TEST_RUNTIME: RUNTIME_STORAGE.isTest,
+  detectTestRuntime,
+  resolveRuntimeStoragePaths,
   HMAC_SECRET,
   JWT_SECRET,
   KNOWN_INSECURE_SECRETS,

@@ -567,6 +567,9 @@ class EvidenceFabric {
 
     const savepointName = `sp_evd_${crypto.randomBytes(4).toString('hex')}`;
     const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
+    const hadPriorDagNode = this.dagNodes.has(id);
+    const priorDagNode = hadPriorDagNode ? this.dagNodes.get(id) : null;
+    const priorDagEdgesSnapshot = [...this.dagEdges];
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
@@ -617,19 +620,27 @@ class EvidenceFabric {
           this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
         } catch (_) {}
       }
+      if (hadPriorDagNode) {
+        this.dagNodes.set(id, priorDagNode);
+      } else {
+        this.dagNodes.delete(id);
+      }
+      this.dagEdges = priorDagEdgesSnapshot;
+      this.memoryRecords.delete(id);
       this.lastChainHash = prevHash;
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
       persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
       this.storageDiagnostics.writeFailuresCount += 1;
       this.storageDiagnostics.lastWriteError = persistenceError;
-      this._syncEvidenceToDag(record, { skipDb: true });
     }
 
     record.persistedToSqlite = persistedToSqlite;
     record.persistenceStatus = persistenceStatus;
     record.persistenceError = persistenceError;
-    this.memoryRecords.set(id, record);
+    if (persistedToSqlite) {
+      this.memoryRecords.set(id, record);
+    }
 
     return record;
   }
@@ -797,6 +808,9 @@ class EvidenceFabric {
 
     const savepointName = `sp_fnd_${crypto.randomBytes(4).toString('hex')}`;
     const canExecSavepoint = Boolean(this.dbHandle && typeof this.dbHandle.exec === 'function');
+    const hadPriorDagNode = this.dagNodes.has(findingId);
+    const priorDagNode = hadPriorDagNode ? this.dagNodes.get(findingId) : null;
+    const priorDagEdgesSnapshot = [...this.dagEdges];
     try {
       if (!this.dbHandle || typeof this.dbHandle.prepare !== 'function') {
         throw new Error('SQLite database handle is unavailable');
@@ -841,18 +855,26 @@ class EvidenceFabric {
           this.dbHandle.exec(`RELEASE SAVEPOINT ${savepointName}`);
         } catch (_) {}
       }
+      if (hadPriorDagNode) {
+        this.dagNodes.set(findingId, priorDagNode);
+      } else {
+        this.dagNodes.delete(findingId);
+      }
+      this.dagEdges = priorDagEdgesSnapshot;
+      this.memoryFindings.delete(findingId);
       persistedToSqlite = false;
       persistenceStatus = 'SQLITE_WRITE_FAILED';
       persistenceError = dbErr && dbErr.message ? dbErr.message : String(dbErr);
       this.storageDiagnostics.writeFailuresCount += 1;
       this.storageDiagnostics.lastWriteError = persistenceError;
-      this._syncFindingToDag(finding, { skipDb: true });
     }
 
     finding.persistedToSqlite = persistedToSqlite;
     finding.persistenceStatus = persistenceStatus;
     finding.persistenceError = persistenceError;
-    this.memoryFindings.set(findingId, finding);
+    if (persistedToSqlite) {
+      this.memoryFindings.set(findingId, finding);
+    }
 
     return finding;
   }
