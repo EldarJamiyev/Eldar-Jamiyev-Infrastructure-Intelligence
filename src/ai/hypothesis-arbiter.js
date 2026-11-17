@@ -428,6 +428,15 @@ class MultiDomainHypothesisArbiter {
     }
   }
 
+  async runClosedLoopInvestigation(target = '127.0.0.1', port = 443, symptoms = {}, options = {}) {
+    return this.arbitrateAndExecuteClosedLoop({
+      ...options,
+      target,
+      port,
+      symptoms
+    });
+  }
+
   /**
    * Executes Autonomous Closed-Loop Multi-Domain Hypothesis Arbitration.
    */
@@ -575,7 +584,7 @@ class MultiDomainHypothesisArbiter {
               sourceCapabilityId: `ejii.arbiter.${String(selected.probeType || 'probe').toLowerCase()}`,
               collectionMethod: probeOutcome.statusSource || unifiedProbe.statusSource || 'EMPIRICAL_LIVE_PROBE'
             });
-            stepEvidenceId = evRec?.evidenceId || null;
+            stepEvidenceId = evRec?.id || evRec?.evidenceId || null;
           } catch (_) {}
         }
 

@@ -278,6 +278,7 @@ class ChatOperatorService {
           lastToolResults: ctx.lastToolResults || null,
           lastProbeResult: ctx.lastProbeResult || ctx.lastToolResults || null,
           probeHistory: Array.isArray(ctx.probeHistory) ? ctx.probeHistory : [],
+          hypothesisLedger: Array.isArray(ctx.hypothesisLedger) ? ctx.hypothesisLedger : [],
           lastSteps: Array.isArray(ctx.lastSteps) ? ctx.lastSteps : [],
           lastStructuredAnswer: ctx.lastStructuredAnswer || null,
           turnCount: Number(ctx.turnCount) || 0,
@@ -316,6 +317,7 @@ class ChatOperatorService {
       lastToolResults: null,
       lastProbeResult: null,
       probeHistory: [],
+      hypothesisLedger: [],
       lastSteps: [],
       lastStructuredAnswer: null,
       turnCount: 0,
@@ -500,6 +502,7 @@ class ChatOperatorService {
         lastToolResults: session.lastToolResults,
         lastProbeResult: session.lastProbeResult || session.lastToolResults || null,
         probeHistory: (session.probeHistory || []).slice(-25),
+        hypothesisLedger: (session.hypothesisLedger || []).slice(-25),
         lastSteps: session.lastSteps,
         lastStructuredAnswer: session.lastStructuredAnswer,
         turnCount: session.turnCount
@@ -3433,6 +3436,26 @@ class ChatOperatorService {
         technicalEvidence
       }
     };
+
+    if (!Array.isArray(session.hypothesisLedger)) {
+      session.hypothesisLedger = [];
+    }
+    if ((steps && steps.length > 0) || effectiveHypEval) {
+      session.hypothesisLedger.push({
+        turnNumber: session.turnCount,
+        observedAt: nowIso,
+        intent: plan.intent,
+        target: plan.target || null,
+        ports: plan.ports || [],
+        primaryHypothesis: effectiveHypEval?.primaryHypothesis || null,
+        competingHypothesesCount: Array.isArray(effectiveHypEval?.competingHypotheses) ? effectiveHypEval.competingHypotheses.length : 0,
+        welfordBaseline: memoryInsights?.welfordBaseline || (plan.target ? operationalMemoryEngine.getWelfordBaseline(plan.target) : null),
+        stepStatuses: (steps || []).map((s) => ({ tool: s.tool, status: s.status, durationMs: s.durationMs }))
+      });
+      if (session.hypothesisLedger.length > 25) {
+        session.hypothesisLedger = session.hypothesisLedger.slice(-25);
+      }
+    }
 
     session.messages.push(userMsgRecord, assistantMsgRecord);
     session.totalPersistedMessages = (session.totalPersistedMessages || 0) + 2;
@@ -6524,17 +6547,26 @@ class ChatOperatorService {
       } else if (observations.length >= 2) {
         const latest = observations[observations.length - 1];
         const previous = observations[observations.length - 2];
+        const welford = operationalMemoryEngine.getWelfordBaseline(targetEntity.target);
+        const welfordLine = welford && welford.sampleCount >= 2
+          ? `\n- **Welford Baseline (\`brain_baselines\`, n=${welford.sampleCount}):** μ=${welford.avgRttMs} ms, σ=${welford.stdDevMs} ms (min=${welford.minRttMs} ms, max=${welford.maxRttMs} ms${welford.zScore !== null && welford.zScore !== undefined ? `, z=${welford.zScore >= 0 ? '+' : ''}${welford.zScore}σ` : ''})`
+          : '';
         reply =
           `**Historical Comparison** for **\`${targetEntity.target}\`**:\n` +
           `- **Previous (${previous.observedAt}):** ${previous.summary || previous.intent}\n` +
-          `- **Latest (${latest.observedAt}):** ${latest.summary || latest.intent}\n\n` +
+          `- **Latest (${latest.observedAt}):** ${latest.summary || latest.intent}` +
+          `${welfordLine}\n\n` +
           (latest.pingRttMs !== null && previous.pingRttMs !== null
             ? `Ping RTT changed from ${previous.pingRttMs} ms to ${latest.pingRttMs} ms.`
             : `Currently confirmed open ports: [${(targetEntity.openPorts || []).join(', ') || 'none'}]; closed ports: [${(targetEntity.closedPorts || []).join(', ') || 'none'}].`);
       } else {
         const single = observations[0];
+        const welford = operationalMemoryEngine.getWelfordBaseline(effectiveTargetLabel);
+        const welfordNote = welford && welford.sampleCount >= 2
+          ? ` Persistent Welford baseline (\`brain_baselines\`) has n=${welford.sampleCount} samples (μ=${welford.avgRttMs} ms, σ=${welford.stdDevMs} ms).`
+          : '';
         reply =
-          `**Historical Comparison:** Only ${observations.length || 1} observation has been recorded for **\`${effectiveTargetLabel}\`** so far${single ? ` at ${single.observedAt} (${single.summary})` : ''}. Run another check on \`${effectiveTargetLabel}\` if you want to compare changes over time.`;
+          `**Historical Comparison:** Only ${observations.length || 1} observation has been recorded for **\`${effectiveTargetLabel}\`** so far${single ? ` at ${single.observedAt} (${single.summary})` : ''}.${welfordNote} Run another check on \`${effectiveTargetLabel}\` if you want to compare changes over time.`;
       }
     } else if (
       lower.includes('what have we tested') ||

@@ -272,4 +272,86 @@ describe('Workstreams A-H Production Hardening Suite', () => {
     assert.strictEqual(executedSql[0], 'PRAGMA foreign_keys = OFF;');
     assert.strictEqual(executedSql[executedSql.length - 1], 'PRAGMA foreign_keys = ON;');
   });
+
+  it('WS-B & WS-C: OperationalMemoryEngine computes Welford online baselines & z-scores, and HypothesisArbiter registers EVD-* evidence records', async () => {
+    const { OperationalMemoryEngine } = require('../memory/operational-memory-engine');
+    const { hypothesisArbiter } = require('../../ai/hypothesis-arbiter');
+    const mem = new OperationalMemoryEngine({ useSqlite: false });
+
+    const b1 = mem.updateWelfordBaseline('edge-gw.internal', 10);
+    assert.strictEqual(b1.sampleCount, 1);
+    assert.strictEqual(b1.avgRttMs, 10);
+    assert.strictEqual(b1.zScore, null);
+
+    const b2 = mem.updateWelfordBaseline('edge-gw.internal', 12);
+    assert.strictEqual(b2.sampleCount, 2);
+    assert.strictEqual(b2.avgRttMs, 11);
+    assert.ok(b2.stdDevMs > 0);
+
+    const b3 = mem.updateWelfordBaseline('edge-gw.internal', 48);
+    assert.strictEqual(b3.sampleCount, 3);
+    assert.ok(b3.zScore > 2.5, `Expected spike zScore > 2.5, got ${b3.zScore}`);
+    assert.strictEqual(b3.isSpike, true);
+
+    const arb = await hypothesisArbiter.arbitrateAndExecuteClosedLoop({
+      target: '127.0.0.1',
+      port: 3000,
+      symptoms: ['latency_spike'],
+      maxClosedLoopSteps: 2
+    });
+    assert.ok(Array.isArray(arb.evidenceIds) && arb.evidenceIds.length >= 1, 'Closed-loop arbitration must register EVD-* IDs');
+    assert.ok(arb.evidenceIds.every((id) => String(id).startsWith('EVD-')));
+  });
+
+  it('WS-G & Login Glassmorphism: #loginScreen preserves 100% of authentication IDs/handlers while enforcing frosted-glass pill layout', () => {
+    const htmlPath = path.resolve(__dirname, '../../../public/index.html');
+    const cssPath = path.resolve(__dirname, '../../../public/css/ejii-meridian.css');
+    const appJsPath = path.resolve(__dirname, '../../../public/js/app.js');
+
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    const css = fs.readFileSync(cssPath, 'utf8');
+    const appJs = fs.readFileSync(appJsPath, 'utf8');
+
+    // Critical Preservation Rule checks
+    const requiredIds = [
+      'id="loginScreen"',
+      'id="loginForm"',
+      'id="loginUsername"',
+      'id="loginPassword"',
+      'id="btnSubmitLogin"',
+      'id="loginBtnText"',
+      'id="loginErrorAlert"',
+      'id="loginErrorMessage"',
+      'id="evaluationLoginPills"',
+      'id="loginRolePills"',
+      'id="pill-admin"',
+      'id="pill-sysadmin"',
+      'id="pill-netadmin"',
+      'id="pill-noc"',
+      'id="evaluationQuickCta"',
+      'id="evaluationLoginDivider"',
+      'id="loginTelemetryBar"',
+      'id="loginTelHost"',
+      'id="loginTelGateway"',
+      'id="loginTelSubnet"',
+      'id="loginTelDriver"',
+      'id="btnTogglePassword"',
+      'id="loginRememberMe"',
+      'id="btnForgotPassword"'
+    ];
+    for (const token of requiredIds) {
+      assert.ok(html.includes(token), `public/index.html must preserve ${token}`);
+    }
+    assert.ok(html.includes('window.handleLoginFormSubmit(event)'));
+    assert.ok(html.includes('window.quickNocLogin()'));
+    assert.ok(html.includes('window.toggleLoginPasswordVisibility()'));
+
+    // Visual & Layout Design checks in CSS & JS
+    assert.ok(css.includes('#050811'), 'Atmospheric base must use deep obsidian-midnight #050811');
+    assert.ok(css.includes('backdrop-filter: blur(22px) saturate(165%)'), 'Frosted glass card must use blur(22px) saturate(165%)');
+    assert.ok(css.includes('border-radius: 9999px'), 'Inputs and primary CTA button must use pill border-radius: 9999px');
+    assert.ok(appJs.includes('window.toggleLoginPasswordVisibility = function'));
+    assert.ok(appJs.includes('window.handleForgotPasswordClick = function'));
+  });
 });
+

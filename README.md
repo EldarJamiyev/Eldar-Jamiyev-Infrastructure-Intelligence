@@ -8,12 +8,12 @@
 
 **AI-Native Conversational Infrastructure Assistant · L1–L7 Protocol & Wire Dissector · Epistemic Evidence Fabric · Governed Self-Healing Workbench**
 
-[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-7%2F7_Suites_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
+[![Verification Suites](https://img.shields.io/badge/NOC_Verification_Suites-8%2F8_Suites_PASS-059669?style=for-the-badge)](tests/run-all-tests.js)
 [![GitHub Actions CI](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/EldarJamiyev/Eldar-Jamiyev-Infrastructure-Intelligence/actions/workflows/ci.yml)
-[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-81%2F81_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
+[![Core Unit Tests](https://img.shields.io/badge/Core_Brain_Unit_Tests-89%2F89_PASS-2563EB?style=for-the-badge)](src/core/__tests__)
 [![TS/JS Parity](https://img.shields.io/badge/TS%2FJS_Module_Parity-102%2F102_Synced-0D9488?style=for-the-badge)](scripts/verify-ts-js-parity.js)
 [![Design System](https://img.shields.io/badge/UI_Architecture-Project_Aurora_v7.0-0F172A?style=for-the-badge)](public/css/ejii-meridian.css)
-[![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini_3.8_Flash-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
+[![AI Engine](https://img.shields.io/badge/Conversational_Brain-Project_Falcon_%2B_Gemini_4_Hydrogen-1D4ED8?style=for-the-badge)](src/core/chat/conversational-brain.js)
 [![Storage](https://img.shields.io/badge/Persistence-SQLite_WAL_%2B_RBAC-334155?style=for-the-badge)](src/db/database.js)
 
 [**Executive Vision**](#1-executive-overview) · [**Visual Product Tour (12 Live Screens)**](#2-visual-product-tour--every-workstation-in-action) · [**System Architecture**](#3-system-architecture--dataflow) · [**Project Falcon AI Brain**](#4-project-falcon--ai-native-conversational-intelligence) · [**Epistemic Guarantees**](#5-epistemic-integrity--zero-fabrication-engineering) · [**Quick Start & Testing**](#7-quick-start-configuration--verification)

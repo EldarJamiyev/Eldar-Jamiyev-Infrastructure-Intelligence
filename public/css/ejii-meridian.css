@@ -927,12 +927,13 @@ body.theme-dark .login-btn-submit:hover {
 }
 .telemetry-label {
   color: rgba(255, 255, 255, 0.52) !important;
-  font-size: 8px !important; letter-spacing: 0.08em !important; font-weight: 700;
+  font-size: 7.5px !important; letter-spacing: 0.06em !important; font-weight: 700;
+  flex-shrink: 0;
 }
 .telemetry-value {
   color: rgba(255, 255, 255, 0.90) !important;
-  font-size: 9.5px !important; font-variant-numeric: tabular-nums;
-  margin-top: 0 !important; max-width: 115px;
+  font-size: 9px !important; font-variant-numeric: tabular-nums;
+  margin-top: 0 !important; max-width: 132px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .login-badges { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
