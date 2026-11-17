@@ -1184,6 +1184,7 @@ window.quickNocLogin = async function() {
   try {
     const res = await api('/api/auth/quick-noc', {
       method: 'POST',
+      silent: true,
       body: JSON.stringify({})
     });
     state.token = res.token;
@@ -1240,6 +1241,7 @@ window.handleLoginFormSubmit = async function(event) {
   try {
     const res = await api('/api/auth/login', {
       method: 'POST',
+      silent: true,
       body: JSON.stringify({ username, password })
     });
 

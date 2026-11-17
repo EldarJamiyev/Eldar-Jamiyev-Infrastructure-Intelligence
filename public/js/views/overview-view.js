@@ -147,6 +147,21 @@
     return { key: 'unknown', label: 'Unknown', badgeClass: 'ql-badge-neutral', isHealthy: false, isUnhealthy: false, isUnknown: true, isStale: false };
   }
 
+  function formatNodeLayerCategoryTag(n) {
+    if (!n || typeof n !== 'object') return 'TOPOLOGY NODE';
+    const lvl = Number(n.layer_level);
+    const layer = String(n.layer || '').trim().toLowerCase();
+    const type = String(n.type || '').trim().toLowerCase();
+    if (lvl === 1 || layer === 'wan' || type === 'wan') return 'L1 TRANSIT';
+    if (lvl === 2 || layer === 'edge' || type === 'router') return 'L2 GATEWAY';
+    if (lvl === 3 || layer === 'core' || type === 'dns_resolver') return 'L3 CORE DNS';
+    if (lvl === 4 || layer === 'service' || type === 'service') return 'L4 SERVICE';
+    if (lvl === 5 || layer === 'access' || type === 'subnet') return 'L5 ACCESS LAN';
+    if (lvl === 6 || layer === 'endpoint' || type === 'host') return 'L6 ENDPOINT';
+    if (Number.isFinite(lvl) && lvl > 0) return `L${lvl} ${(layer || type || 'NODE').toUpperCase()}`;
+    return (layer || type || 'TOPOLOGY NODE').toUpperCase();
+  }
+
   function summarizeTopologyNodes(nodes, topologyAvailable) {
     if (!topologyAvailable) {
       return {
@@ -344,7 +359,8 @@
       const isCrit = cls.key === 'critical' || cls.key === 'offline' || cls.key === 'unreachable';
       operationalEvents.push({
         severity: isCrit ? 'critical' : 'warning',
-        badge: cls.label,
+        badge: formatNodeLayerCategoryTag(n),
+        isLayerTag: true,
         title: `Node ${n.name || n.hostname_or_ip || n.id} reported ${cls.label}`,
         detail: `Address: ${n.hostname_or_ip || 'Unknown'} · Latency: ${typeof n.last_latency_ms === 'number' ? n.last_latency_ms.toFixed(1) + ' ms' : 'Not measured'}`,
         actionView: 'topology'
@@ -354,7 +370,8 @@
     topoSummary.unknownNodes.slice(0, 2).forEach(({ node: n, classification: cls }) => {
       operationalEvents.push({
         severity: 'neutral',
-        badge: cls.label,
+        badge: formatNodeLayerCategoryTag(n),
+        isLayerTag: true,
         title: `Node ${n.name || n.hostname_or_ip || n.id} has ${cls.label.toLowerCase()} status`,
         detail: `Address: ${n.hostname_or_ip || 'Unknown'} · Run a live reachability probe to verify health.`,
         actionView: 'core-diagnostics'
@@ -460,7 +477,7 @@
                 </div>
                 <div class="ql-metric-cell">
                   <span class="ql-metric-label">Default Gateway</span>
-                  <span class="ql-metric-value mono">${esc(gatewayValueLabel)}</span>
+                  <span class="ql-metric-value mono" title="${esc(gatewayValueLabel)}">${esc(gatewayValueLabel)}</span>
                   <span class="ql-metric-sub">${esc(gatewaySubLabel)}</span>
                 </div>
                 <div class="ql-metric-cell">
@@ -533,21 +550,21 @@
                         const roleLabel = n.role || n.layer || 'endpoint';
                         return `
                           <tr onclick="window.switchMainView('topology')" style="cursor:pointer;">
-                            <td class="ql-td-primary">${esc(cleanNodeLabel)}</td>
-                            <td class="mono">${esc(n.hostname_or_ip || 'Unknown')}</td>
-                            <td>${esc(roleLabel)}</td>
-                            <td class="mono">
+                            <td class="ql-td-primary" title="${esc(cleanNodeLabel)}">${esc(cleanNodeLabel)}</td>
+                            <td class="ql-td-addr mono" title="${esc(n.hostname_or_ip || 'Unknown')}">${esc(n.hostname_or_ip || 'Unknown')}</td>
+                            <td class="ql-td-role">${esc(roleLabel)}</td>
+                            <td class="ql-td-rtt mono">
                               ${hasRtt ? `
-                                <div class="ql-rtt-cell" style="min-width:86px;gap:6px;">
-                                  <div class="ql-rtt-bar-track" style="width:36px;" aria-hidden="true">
+                                <div class="ql-rtt-cell" style="min-width:82px;gap:6px;">
+                                  <div class="ql-rtt-bar-track" style="width:32px;" aria-hidden="true">
                                     <div class="ql-rtt-bar-fill ${rttToneClass}" style="width:${rttPct}%"></div>
                                   </div>
                                   <span>${esc(rttLabel)}</span>
                                 </div>
                               ` : `<span style="color:var(--text-muted)">${esc(rttLabel)}</span>`}
                             </td>
-                            <td><span class="ql-status-badge ${cls.badgeClass}"><span class="ql-badge-dot"></span>${esc(cls.label)}</span></td>
-                            <td style="text-align:right" onclick="event.stopPropagation();">
+                            <td class="ql-td-status"><span class="ql-status-badge ${cls.badgeClass}"><span class="ql-badge-dot"></span>${esc(cls.label)}</span></td>
+                            <td class="ql-td-ctx" style="text-align:right" onclick="event.stopPropagation();">
                               <div class="ql-row-actions">
                                 ${targetAddr ? `<button type="button" class="ql-row-action-btn" onclick="window.pinOverviewNodeTarget('${esc(targetAddr)}', '${esc(cleanNodeLabel)}', '${esc(roleLabel)}', event)" title="Pin this node as active investigation context">Pin</button>` : ''}
                               </div>
@@ -611,9 +628,10 @@
                   ${operationalEvents.map((ev) => `
                     <div class="ql-event-item">
                       <div class="ql-event-top">
-                        <span class="ql-status-badge ql-badge-${ev.severity === 'critical' ? 'danger' : (ev.severity === 'warning' ? 'warning' : (ev.severity === 'info' ? 'info' : 'neutral'))}">
-                          <span class="ql-badge-dot"></span>${esc(ev.badge)}
-                        </span>
+                        ${ev.isLayerTag
+                          ? `<span class="ql-layer-tag ql-layer-${ev.severity === 'critical' ? 'danger' : (ev.severity === 'warning' ? 'warning' : 'neutral')}">${esc(ev.badge)}</span>`
+                          : `<span class="ql-status-badge ql-badge-${ev.severity === 'critical' ? 'danger' : (ev.severity === 'warning' ? 'warning' : (ev.severity === 'info' ? 'info' : 'neutral'))}"><span class="ql-badge-dot"></span>${esc(ev.badge)}</span>`
+                        }
                         <span class="ql-event-title">${esc(ev.title)}</span>
                       </div>
                       <p class="ql-event-detail">${esc(ev.detail)}</p>

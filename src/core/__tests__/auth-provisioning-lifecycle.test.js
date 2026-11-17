@@ -407,4 +407,67 @@ describe('P0 Authentication Provisioning, Self-Healing Recovery & Session Lifecy
       if (origEnvPw !== undefined) process.env.EJII_ADMIN_PASSWORD = origEnvPw;
     }
   });
+
+  it('Test 5 (Admin Env Override + Independent Random Role Passwords): EJII_ADMIN_PASSWORD applies specifically to admin while sysadmin/netadmin/noc generate unique random passwords', async () => {
+    const origEnvPw = process.env.EJII_ADMIN_PASSWORD;
+    process.env.EJII_ADMIN_PASSWORD = 'ConfiguredAdminOnly!Pass99';
+
+    db.exec('DELETE FROM revoked_tokens; DELETE FROM users;');
+    clearFirstRunCredentialsFile();
+    seedDatabase(db);
+
+    const { credFile } = getFirstRunCredentialsPath();
+    assert.ok(fs.existsSync(credFile), 'FIRST_RUN_ADMIN_CREDENTIALS.txt must be written for generated role accounts');
+    const parsedCreds = parseCredentialsFile(credFile);
+    assert.strictEqual(parsedCreds.admin, undefined, 'env-configured admin password should not be written into FIRST_RUN_ADMIN_CREDENTIALS.txt');
+    assert.ok(parsedCreds.sysadmin?.password && parsedCreds.netadmin?.password && parsedCreds.noc?.password);
+    assert.notStrictEqual(parsedCreds.sysadmin.password, parsedCreds.netadmin.password);
+    assert.notStrictEqual(parsedCreds.netadmin.password, parsedCreds.noc.password);
+
+    const srv = await createAuthTestServer();
+    try {
+      const adminOk = await fetch(`${srv.baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: 'ConfiguredAdminOnly!Pass99' })
+      });
+      assert.strictEqual(adminOk.status, 200, 'admin must log in with EJII_ADMIN_PASSWORD');
+
+      for (const uname of ['sysadmin', 'netadmin', 'noc']) {
+        const sharedRejected = await fetch(`${srv.baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: uname, password: 'ConfiguredAdminOnly!Pass99' })
+        });
+        assert.strictEqual(sharedRejected.status, 401, `${uname} must not share EJII_ADMIN_PASSWORD`);
+
+        const ownOk = await fetch(`${srv.baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: uname, password: parsedCreds[uname].password })
+        });
+        assert.strictEqual(ownOk.status, 200, `${uname} must log in with its generated password from FIRST_RUN_ADMIN_CREDENTIALS.txt`);
+      }
+
+      // If admin claims/rotates password, subsequent seedDatabase() with EJII_ADMIN_PASSWORD must preserve rotated hash
+      const rotated = 'Claimed!UserRotated#2026';
+      const { hash, salt } = hashPassword(rotated, null, 32);
+      const nowIso = new Date().toISOString();
+      db.prepare("UPDATE users SET password_hash = ?, salt = ?, password_rotated_at = ?, bootstrap_state = 'CLAIMED' WHERE username = 'admin'")
+        .run(hash, salt, nowIso);
+
+      process.env.EJII_ADMIN_PASSWORD = 'DifferentEnvPassword!2026';
+      seedDatabase(db);
+
+      const adminAfter = db.prepare("SELECT password_hash FROM users WHERE username = 'admin'").get();
+      assert.strictEqual(adminAfter.password_hash, hash, 'Claimed admin password must not be overwritten by EJII_ADMIN_PASSWORD');
+    } finally {
+      await srv.close();
+      if (origEnvPw !== undefined) {
+        process.env.EJII_ADMIN_PASSWORD = origEnvPw;
+      } else {
+        delete process.env.EJII_ADMIN_PASSWORD;
+      }
+    }
+  });
 });

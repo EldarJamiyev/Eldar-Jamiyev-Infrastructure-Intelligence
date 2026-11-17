@@ -4,10 +4,10 @@
  * Providing Offline Asset Caching, Push Notifications & Resilience
  */
 
-const CACHE_NAME = 'ejii-cache-v6.4.1-obsidian-titan';
+const CACHE_NAME = 'ejii-cache-v6.4.3-obsidian-titan';
 const STATIC_ASSETS = [
-  '/css/ejii-titan-complete.css?v=2026.11.17.7',
-  '/js/app.js',
+  '/css/ejii-titan-complete.css?v=2026.11.17.9',
+  '/js/app.js?v=2026.11.17.8',
   '/manifest.json'
 ];
 

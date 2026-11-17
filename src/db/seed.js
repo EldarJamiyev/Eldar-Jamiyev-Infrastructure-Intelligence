@@ -13,7 +13,7 @@ const path = require('path');
 const config = require('../config');
 const { resolveCanonicalPath, isPathInsideDir } = config;
 const { db: defaultDb, initSchema } = require('./database');
-const { hashPassword } = require('../core/security');
+const { hashPassword, verifyPassword } = require('../core/security');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
 const { GENESIS_HASH, computeRecordHash } = require('../core/audit-logger');
 
@@ -155,7 +155,7 @@ function isUserClaimed(userRow) {
   return Boolean(
     userRow.password_rotated_at ||
     userRow.bootstrap_state === 'CLAIMED' ||
-    userRow.last_login
+    (userRow.last_login && userRow.bootstrap_state !== 'ENV_CONFIGURED')
   );
 }
 
@@ -197,20 +197,33 @@ function seedDatabase(targetDb = defaultDb, options = {}) {
   const adminRow = existingUserMap.get('admin') || null;
   const adminClaimed = isUserClaimed(adminRow);
   const hasMissingProfile = SEEDED_OPERATOR_PROFILES.some((p) => !existingUserMap.has(p.username));
-  const needsAdminLockoutRecovery = Boolean(
-    adminRow &&
-    !adminClaimed &&
+  const hasUnsyncedNonAdminEnvState = SEEDED_OPERATOR_PROFILES.some((p) => {
+    if (p.username === 'admin') return false;
+    const row = existingUserMap.get(p.username);
+    return Boolean(row && !isUserClaimed(row) && row.bootstrap_state === 'ENV_CONFIGURED');
+  });
+  const hasUnclaimedRolesMissingFile = Boolean(
     !credFileExists &&
-    (explicitAdminPassword !== null || adminRow.bootstrap_state !== 'ENV_CONFIGURED')
+    SEEDED_OPERATOR_PROFILES.some((p) => {
+      if (p.username === 'admin' && explicitAdminPassword !== null) return false;
+      const row = existingUserMap.get(p.username);
+      return Boolean(row && !isUserClaimed(row));
+    })
+  );
+  const needsAdminLockoutRecovery = Boolean(
+    (adminRow && !adminClaimed && !credFileExists && explicitAdminPassword === null && adminRow.bootstrap_state !== 'ENV_CONFIGURED') ||
+    hasUnclaimedRolesMissingFile
   );
   const needsExplicitAdminSync = Boolean(
     adminRow &&
     !adminClaimed &&
-    explicitAdminPassword !== null
+    explicitAdminPassword !== null &&
+    (adminRow.bootstrap_state !== 'ENV_CONFIGURED' || !verifyPassword(explicitAdminPassword, adminRow.password_hash, adminRow.salt))
   );
   const needsUserProvisioning =
     !adminRow ||
     hasMissingProfile ||
+    hasUnsyncedNonAdminEnvState ||
     needsAdminLockoutRecovery ||
     needsExplicitAdminSync;
 
@@ -249,10 +262,22 @@ function seedDatabase(targetDb = defaultDb, options = {}) {
         continue;
       }
 
+      const isAdminProfile = profile.username === 'admin';
+      const needsExplicitAdminUpdate = Boolean(
+        isAdminProfile &&
+        explicitAdminPassword !== null &&
+        (!existingRow || existingRow.bootstrap_state !== 'ENV_CONFIGURED' || !verifyPassword(explicitAdminPassword, existingRow.password_hash, existingRow.salt))
+      );
+      const needsNonAdminRoleRecovery = Boolean(
+        !isAdminProfile &&
+        (!existingRow || existingRow.bootstrap_state === 'ENV_CONFIGURED' || !credFileExists)
+      );
+
       const shouldRecoverOrSet =
         !existingRow ||
-        (profile.username === 'admin' && (needsAdminLockoutRecovery || needsExplicitAdminSync)) ||
-        (profile.username !== 'admin' && needsAdminLockoutRecovery);
+        needsExplicitAdminUpdate ||
+        needsNonAdminRoleRecovery ||
+        (isAdminProfile && needsAdminLockoutRecovery && explicitAdminPassword === null);
 
       if (!shouldRecoverOrSet) {
         continue;
@@ -260,7 +285,7 @@ function seedDatabase(targetDb = defaultDb, options = {}) {
 
       let rawPassword;
       let nextBootstrapState = 'UNCLAIMED';
-      if (profile.username === 'admin' && explicitAdminPassword) {
+      if (isAdminProfile && explicitAdminPassword) {
         rawPassword = explicitAdminPassword;
         nextBootstrapState = 'ENV_CONFIGURED';
       } else {
@@ -291,7 +316,7 @@ function seedDatabase(targetDb = defaultDb, options = {}) {
         );
       }
 
-      if (!(profile.username === 'admin' && explicitAdminPassword)) {
+      if (!(isAdminProfile && explicitAdminPassword)) {
         provisionedAccountsForFile.push({
           username: profile.username,
           password: rawPassword,
@@ -307,7 +332,7 @@ function seedDatabase(targetDb = defaultDb, options = {}) {
         needsAdminLockoutRecovery
       );
       if (needsAdminLockoutRecovery) {
-        console.warn(`[EJII Security Recovery] Unclaimed admin credentials were rotated for recovery. New bootstrap credentials written (0600) to: ${writtenPath}`);
+        console.warn(`[EJII Security Recovery] Unclaimed bootstrap credentials were rotated for recovery. New bootstrap credentials written (0600) to: ${writtenPath}`);
       } else {
         console.log(`[EJII Security Provisioning] First-run operator bootstrap credentials written (0600) to: ${writtenPath}`);
       }

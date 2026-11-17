@@ -10,10 +10,15 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// Load local .env if present (ignored by git for zero-leakage security)
+// Load local .env if present outside test runs (ignored by git for zero-leakage security)
 try {
+  const isTestArgv = Array.isArray(process.argv) && process.argv.some((arg) => {
+    const s = String(arg || '');
+    return s === '--test' || s.startsWith('--test-') || /\.test\.[cm]?[jt]s$/i.test(s);
+  });
+  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.EJII_TEST_MODE === 'true' || isTestArgv;
   const envPath = path.resolve(__dirname, '..', '.env');
-  if (fs.existsSync(envPath)) {
+  if (!isTestEnv && fs.existsSync(envPath)) {
     const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
     for (const line of lines) {
       const trimmed = line.trim();
