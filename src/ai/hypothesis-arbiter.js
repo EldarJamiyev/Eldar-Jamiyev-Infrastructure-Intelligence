@@ -41,6 +41,13 @@ try {
   // Optional fallback if memory engine is not yet initialized
 }
 
+let evidenceFabric = null;
+try {
+  ({ evidenceFabric } = require('../core/evidence/evidence-fabric'));
+} catch (_) {
+  // Optional fallback if evidence fabric is unavailable
+}
+
 const CAUSAL_DOMAINS = [
   {
     domainId: 'PHYSICAL_L2_L3',
@@ -549,9 +556,33 @@ class MultiDomainHypothesisArbiter {
           ? Number(Math.max(0, entropyBefore - entropyAfter).toFixed(4))
           : 0;
 
+        let stepEvidenceId = null;
+        if (evidenceFabric && typeof evidenceFabric.recordEvidence === 'function') {
+          try {
+            const evRec = evidenceFabric.recordEvidence({
+              type: unifiedProbe.anomalyDetected ? 'anomaly' : 'observation',
+              subject: `${target}:${port}`,
+              claim: `[${selected.domainId}/${selected.probeType}] ${probeOutcome.finding}`,
+              rawValue: {
+                domainId: selected.domainId,
+                probeType: selected.probeType,
+                status: unifiedProbe.status,
+                anomalyDetected: unifiedProbe.anomalyDetected,
+                durationMs: unifiedProbe.durationMs,
+                actualInfoGainBits
+              },
+              normalizedValue: unifiedProbe.status,
+              sourceCapabilityId: `ejii.arbiter.${String(selected.probeType || 'probe').toLowerCase()}`,
+              collectionMethod: probeOutcome.statusSource || unifiedProbe.statusSource || 'EMPIRICAL_LIVE_PROBE'
+            });
+            stepEvidenceId = evRec?.evidenceId || null;
+          } catch (_) {}
+        }
+
         closedLoopExecutionTrace.push({
           step,
           stepIndex: step,
+          evidenceId: stepEvidenceId,
           domainId: selected.domainId,
           domain: selected.domain,
           probeType: selected.probeType,
@@ -684,6 +715,10 @@ class MultiDomainHypothesisArbiter {
     };
 
     const tieredRemediationPlaybook = this._buildTieredRemediationPlaybook(winningHypothesis.domainId, target, port, matchedRunbookId);
+    const evidenceIds = closedLoopExecutionTrace.map((t) => t.evidenceId).filter(Boolean);
+    const welfordBaseline = (operationalMemoryEngine && typeof operationalMemoryEngine.getWelfordBaseline === 'function')
+      ? operationalMemoryEngine.getWelfordBaseline(target)
+      : null;
 
     return {
       arbitrationId: `arb_${crypto.randomBytes(6).toString('hex')}`,
@@ -698,6 +733,8 @@ class MultiDomainHypothesisArbiter {
       closedLoopStepsExecuted: closedLoopExecutionTrace.length,
       closedLoopExecutionTrace,
       autonomousProbeChain: closedLoopExecutionTrace,
+      evidenceIds,
+      welfordBaseline,
       diagnosticSemantics,
       crossLayerSemanticAnalysis: diagnosticSemantics,
       extractedTelemetrySignature: diagnosticSemantics.extractedTelemetrySignature,

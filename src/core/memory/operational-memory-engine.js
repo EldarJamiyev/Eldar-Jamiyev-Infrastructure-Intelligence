@@ -66,6 +66,7 @@ class OperationalMemoryEngine extends EventEmitter {
     super();
     this.useSqlite = options.useSqlite !== false;
     this.memoryCache = new Map();
+    this.welfordCache = new Map();
     this.resolutionsCache = [];
     this.decisionsCache = [];
     this.organizationalKnowledgeCache = [];
@@ -171,10 +172,155 @@ class OperationalMemoryEngine extends EventEmitter {
           metadata_json TEXT NOT NULL DEFAULT '{}'
         );
         CREATE INDEX IF NOT EXISTS idx_pbl_state ON ejii_playbook_lifecycle(lifecycle_state);
+
+        CREATE TABLE IF NOT EXISTS brain_baselines (
+          target TEXT PRIMARY KEY,
+          subnet_gateway TEXT,
+          min_rtt REAL,
+          max_rtt REAL,
+          avg_rtt REAL,
+          variance REAL DEFAULT 0,
+          stddev REAL DEFAULT 0,
+          m2 REAL DEFAULT 0,
+          sample_count INTEGER DEFAULT 1,
+          status TEXT DEFAULT 'ONLINE',
+          first_observed DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_observed DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     } catch (_) {
       // Safe fallback to in-memory cache if SQLite is read-only
     }
+  }
+
+  /**
+   * Retrieve Welford online statistical baseline from brain_baselines or in-memory cache.
+   */
+  getWelfordBaseline(target) {
+    if (!target || typeof target !== 'string') return null;
+    const cleanTarget = target.trim().toLowerCase();
+    if (this.welfordCache.has(cleanTarget)) {
+      return this.welfordCache.get(cleanTarget);
+    }
+    if (this.useSqlite && db) {
+      try {
+        const row = db.prepare('SELECT * FROM brain_baselines WHERE target = ?').get(cleanTarget);
+        if (row) {
+          const parsed = {
+            target: row.target,
+            subnetGateway: row.subnet_gateway || null,
+            minRttMs: row.min_rtt !== null ? Number(row.min_rtt) : null,
+            maxRttMs: row.max_rtt !== null ? Number(row.max_rtt) : null,
+            avgRttMs: row.avg_rtt !== null ? Number(row.avg_rtt) : null,
+            variance: Number(row.variance) || 0,
+            stdDevMs: Number(row.stddev) || 0,
+            m2: Number(row.m2) || 0,
+            sampleCount: Number(row.sample_count) || 0,
+            status: row.status || 'ONLINE',
+            firstObserved: row.first_observed || null,
+            lastObserved: row.last_observed || null
+          };
+          this.welfordCache.set(cleanTarget, parsed);
+          return parsed;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /**
+   * Update Welford's online running mean, M2, variance, and standard deviation for a target RTT sample.
+   */
+  updateWelfordBaseline(target, rttMs, subnetGateway = null, status = 'ONLINE') {
+    if (!target || typeof target !== 'string' || typeof rttMs !== 'number' || !Number.isFinite(rttMs) || rttMs < 0) {
+      return null;
+    }
+    const cleanTarget = target.trim().toLowerCase();
+    const nowIso = new Date().toISOString();
+    const prior = this.getWelfordBaseline(cleanTarget);
+
+    let sampleCount = 1;
+    let minRttMs = rttMs;
+    let maxRttMs = rttMs;
+    let avgRttMs = rttMs;
+    let m2 = 0;
+    let variance = 0;
+    let stdDevMs = 0;
+    let zScore = null;
+    const priorAvgRttMs = prior ? prior.avgRttMs : null;
+    const priorStdDevMs = prior ? prior.stdDevMs : null;
+
+    if (prior && prior.sampleCount >= 1 && typeof prior.avgRttMs === 'number') {
+      sampleCount = prior.sampleCount + 1;
+      minRttMs = prior.minRttMs !== null ? Math.min(prior.minRttMs, rttMs) : rttMs;
+      maxRttMs = prior.maxRttMs !== null ? Math.max(prior.maxRttMs, rttMs) : rttMs;
+      const delta = rttMs - prior.avgRttMs;
+      avgRttMs = prior.avgRttMs + delta / sampleCount;
+      const delta2 = rttMs - avgRttMs;
+      m2 = (Number(prior.m2) || 0) + delta * delta2;
+      variance = sampleCount > 1 ? m2 / (sampleCount - 1) : 0;
+      stdDevMs = Math.sqrt(Math.max(0, variance));
+      const effectivePriorStd = Math.max(Number(prior.stdDevMs) || 0, 0.25);
+      zScore = Number(((rttMs - prior.avgRttMs) / effectivePriorStd).toFixed(2));
+    }
+
+    const record = {
+      target: cleanTarget,
+      subnetGateway: subnetGateway || (prior ? prior.subnetGateway : null),
+      minRttMs: Number(minRttMs.toFixed(2)),
+      maxRttMs: Number(maxRttMs.toFixed(2)),
+      avgRttMs: Number(avgRttMs.toFixed(2)),
+      variance: Number(variance.toFixed(4)),
+      stdDevMs: Number(stdDevMs.toFixed(2)),
+      m2: Number(m2.toFixed(4)),
+      sampleCount,
+      zScore,
+      priorAvgRttMs: priorAvgRttMs !== null ? Number(priorAvgRttMs.toFixed(2)) : null,
+      priorStdDevMs: priorStdDevMs !== null ? Number(priorStdDevMs.toFixed(2)) : null,
+      isSpike: zScore !== null && zScore >= 2.5 && (rttMs - (priorAvgRttMs || 0)) > 15,
+      status: status || 'ONLINE',
+      firstObserved: prior?.firstObserved || nowIso,
+      lastObserved: nowIso
+    };
+
+    this.welfordCache.set(cleanTarget, record);
+
+    if (this.useSqlite && db) {
+      try {
+        db.prepare(`
+          INSERT INTO brain_baselines (
+            target, subnet_gateway, min_rtt, max_rtt, avg_rtt,
+            variance, stddev, m2, sample_count, status, first_observed, last_observed
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(target) DO UPDATE SET
+            subnet_gateway = COALESCE(excluded.subnet_gateway, brain_baselines.subnet_gateway),
+            min_rtt = excluded.min_rtt,
+            max_rtt = excluded.max_rtt,
+            avg_rtt = excluded.avg_rtt,
+            variance = excluded.variance,
+            stddev = excluded.stddev,
+            m2 = excluded.m2,
+            sample_count = excluded.sample_count,
+            status = excluded.status,
+            last_observed = excluded.last_observed
+        `).run(
+          record.target,
+          record.subnetGateway,
+          record.minRttMs,
+          record.maxRttMs,
+          record.avgRttMs,
+          record.variance,
+          record.stdDevMs,
+          record.m2,
+          record.sampleCount,
+          record.status,
+          record.firstObserved,
+          record.lastObserved
+        );
+      } catch (_) {}
+    }
+
+    return record;
   }
 
   _seedDefaultOrganizationalKnowledge() {
@@ -598,6 +744,10 @@ class OperationalMemoryEngine extends EventEmitter {
     this._saveEntity(entity);
     this._syncObservationToTemporalGraph(cleanTarget, entity, status, latencyMs);
 
+    const welfordBaseline = (typeof latencyMs === 'number' && Number.isFinite(latencyMs))
+      ? this.updateWelfordBaseline(cleanTarget, latencyMs, null, status === 'FAIL' ? 'DEGRADED' : 'ONLINE')
+      : this.getWelfordBaseline(cleanTarget);
+
     const updatedStats = computeSampleStats(entity.rttSamples || []);
     const stabilityScore = this._computeStabilityScore(entity);
 
@@ -645,6 +795,7 @@ class OperationalMemoryEngine extends EventEmitter {
       rttStdDevMs: updatedStats.stdDev,
       rttTrendSlopeMs: updatedStats.trendSlopeMsPerObs,
       lastRttMs: entity.lastRttMs,
+      welfordBaseline,
       baselineDelta,
       stateTransitions,
       matchedResolutions,
@@ -666,6 +817,7 @@ class OperationalMemoryEngine extends EventEmitter {
     if (!ent) return null;
     const stats = computeSampleStats(ent.rttSamples || []);
     const stabilityScore = this._computeStabilityScore(ent);
+    const welfordBaseline = this.getWelfordBaseline(cleanTarget);
     return {
       target: ent.targetKey,
       targetDisplay: ent.targetDisplay,
@@ -678,9 +830,11 @@ class OperationalMemoryEngine extends EventEmitter {
       avgRttMs: ent.avgRttMs,
       ewmaRttMs: stats.ewma,
       rttStdDevMs: stats.stdDev,
+      welfordBaseline,
       latencyBaseline: {
         avgTcpRttMs: ent.avgRttMs,
-        tcpStats: stats
+        tcpStats: stats,
+        welford: welfordBaseline
       },
       transitions: ent.transitions || []
     };

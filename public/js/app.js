@@ -997,6 +997,22 @@ window.onTopbarNodesClick = function() {
 /**
  * Dedicated Standalone Login Screen Controller
  */
+let loginCardSheenBound = false;
+
+function bindLoginCardGlassSheen() {
+  if (loginCardSheenBound) return;
+  const card = document.getElementById('loginGlassCard') || document.querySelector('#loginScreen .login-card');
+  if (!card) return;
+  loginCardSheenBound = true;
+  card.addEventListener('mousemove', (ev) => {
+    const rect = card.getBoundingClientRect();
+    const x = Math.round(ev.clientX - rect.left);
+    const y = Math.round(ev.clientY - rect.top);
+    card.style.setProperty('--mouse-x', `${x}px`);
+    card.style.setProperty('--mouse-y', `${y}px`);
+  }, { passive: true });
+}
+
 function showLoginScreen() {
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
@@ -1005,10 +1021,49 @@ function showLoginScreen() {
 
   const errAlert = document.getElementById('loginErrorAlert');
   if (errAlert) errAlert.style.display = 'none';
+  const recoveryNotice = document.getElementById('loginRecoveryNotice');
+  if (recoveryNotice) recoveryNotice.style.display = 'none';
 
+  try {
+    const remembered = localStorage.getItem('ejii_remembered_username');
+    const userInp = document.getElementById('loginUsername');
+    const remBox = document.getElementById('loginRememberMe');
+    if (remembered && userInp && !userInp.value) {
+      userInp.value = remembered;
+      if (remBox) remBox.checked = true;
+    }
+  } catch (_) {}
+
+  bindLoginCardGlassSheen();
   loadLoginTelemetry();
   checkAuthConfig();
 }
+
+window.toggleLoginPasswordVisibility = function() {
+  const passInp = document.getElementById('loginPassword');
+  const toggleBtn = document.getElementById('btnTogglePassword');
+  const eyeIcon = document.getElementById('iconPasswordEye');
+  if (!passInp) return;
+  const isNowVisible = passInp.type === 'password';
+  passInp.type = isNowVisible ? 'text' : 'password';
+  if (toggleBtn) {
+    toggleBtn.setAttribute('aria-pressed', isNowVisible ? 'true' : 'false');
+    toggleBtn.setAttribute('aria-label', isNowVisible ? 'Hide password' : 'Show password');
+  }
+  if (eyeIcon) {
+    eyeIcon.innerHTML = isNowVisible
+      ? '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-6.5 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>'
+      : '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+  }
+};
+
+window.handleForgotPasswordClick = function(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  const recoveryNotice = document.getElementById('loginRecoveryNotice');
+  if (!recoveryNotice) return;
+  const isHidden = recoveryNotice.style.display === 'none' || !recoveryNotice.style.display;
+  recoveryNotice.style.display = isHidden ? 'flex' : 'none';
+};
 
 async function loadLoginTelemetry() {
   const gwEl = document.getElementById('loginTelGateway');
@@ -1097,18 +1152,18 @@ window.selectLoginProfile = function(username, password) {
 
   document.querySelectorAll('.login-role-btn').forEach(btn => {
     btn.style.borderColor = 'transparent';
-    btn.style.background = 'transparent';
-    btn.style.color = 'var(--text-secondary)';
+    btn.style.background = 'rgba(255, 255, 255, 0.03)';
+    btn.style.color = 'rgba(255, 255, 255, 0.72)';
     btn.style.boxShadow = 'none';
     btn.classList.remove('active-profile');
   });
 
   const activeBtn = document.getElementById(`pill-${username}`);
   if (activeBtn) {
-    activeBtn.style.borderColor = 'var(--border-default)';
-    activeBtn.style.background = 'var(--bg-surface, #FFFFFF)';
-    activeBtn.style.color = 'var(--accent-primary)';
-    activeBtn.style.boxShadow = 'var(--shadow-xs)';
+    activeBtn.style.borderColor = 'rgba(255, 255, 255, 0.34)';
+    activeBtn.style.background = 'rgba(255, 255, 255, 0.16)';
+    activeBtn.style.color = '#FFFFFF';
+    activeBtn.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 12px rgba(0, 0, 0, 0.25)';
     activeBtn.classList.add('active-profile');
   }
 };
@@ -1158,6 +1213,7 @@ window.handleLoginFormSubmit = async function(event) {
   event.preventDefault();
   const userInp = document.getElementById('loginUsername');
   const passInp = document.getElementById('loginPassword');
+  const remBox = document.getElementById('loginRememberMe');
   const username = (userInp && userInp.value) ? userInp.value.trim() : '';
   const password = (passInp && passInp.value) ? passInp.value : '';
 
@@ -1176,6 +1232,7 @@ window.handleLoginFormSubmit = async function(event) {
   if (errAlert) errAlert.style.display = 'none';
   if (submitBtn) {
     submitBtn.disabled = true;
+    submitBtn.classList.add('is-loading');
     const btnText = document.getElementById('loginBtnText');
     if (btnText) btnText.textContent = 'Authenticating...';
   }
@@ -1185,6 +1242,14 @@ window.handleLoginFormSubmit = async function(event) {
       method: 'POST',
       body: JSON.stringify({ username, password })
     });
+
+    try {
+      if (!remBox || remBox.checked) {
+        localStorage.setItem('ejii_remembered_username', username);
+      } else {
+        localStorage.removeItem('ejii_remembered_username');
+      }
+    } catch (_) {}
 
     state.token = res.token;
     state.user = res.user;
@@ -1207,8 +1272,9 @@ window.handleLoginFormSubmit = async function(event) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
+      submitBtn.classList.remove('is-loading');
       const btnText = document.getElementById('loginBtnText');
-      if (btnText) btnText.textContent = 'Sign In';
+      if (btnText) btnText.textContent = 'Log in';
     }
   }
 };

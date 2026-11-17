@@ -1339,7 +1339,7 @@ svg path#dynamicFlowRoutePath {
 }
 
 .login-input {
-  padding-left: 40px !important;
+  padding: 0 48px 0 20px !important;
 }
 
 /* ============================================================================
