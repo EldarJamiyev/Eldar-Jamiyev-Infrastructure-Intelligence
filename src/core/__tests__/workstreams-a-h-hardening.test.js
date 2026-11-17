@@ -346,22 +346,22 @@ describe('Workstreams A-H Production Hardening Suite', () => {
     assert.ok(html.includes('window.quickNocLogin()'));
     assert.ok(html.includes('window.toggleLoginPasswordVisibility()'));
 
-    // Visual & Layout Design checks in DESIGN.md, CSS & JS
+    // Visual & Layout Design checks in DESIGN.md, CSS & JS (EJII TITAN)
     const designMdPath = path.resolve(__dirname, '../../../DESIGN.md');
     assert.ok(fs.existsSync(designMdPath), 'DESIGN.md must exist at repository root');
     const designMd = fs.readFileSync(designMdPath, 'utf8');
-    assert.ok(designMd.includes('Obsidian Horizon Glass & Precision Telemetry'), 'DESIGN.md must define Obsidian Horizon Glass & Precision Telemetry');
-    assert.ok(designMd.includes('Bricolage Grotesque') && designMd.includes('DM Sans') && designMd.includes('JetBrains Mono'), 'DESIGN.md must specify Bricolage Grotesque + DM Sans + JetBrains Mono');
+    assert.ok(designMd.includes('EJII TITAN') && designMd.includes('Gunmetal, Graphite & Brushed Brass'), 'DESIGN.md must define EJII TITAN design system');
+    assert.ok(designMd.includes('Archivo') && designMd.includes('Geist') && designMd.includes('Geist Mono'), 'DESIGN.md must specify Archivo + Geist + Geist Mono');
 
-    const premiumCssPath = path.resolve(__dirname, '../../../public/css/eji-premium.css');
-    const premiumCss = fs.readFileSync(premiumCssPath, 'utf8');
-    assert.ok(css.includes('#050811') && premiumCss.includes('#050811'), 'Atmospheric base must use deep obsidian-midnight #050811');
-    assert.ok(css.includes('backdrop-filter: blur(26px) saturate(185%)') && premiumCss.includes('backdrop-filter: blur(26px) saturate(185%)'), 'Frosted glass card must use blur(26px) saturate(185%)');
-    assert.ok(css.includes('rgba(12, 16, 28, 0.38)') && premiumCss.includes('rgba(12, 16, 28, 0.38)'), 'Frosted glass card must use rgba(12, 16, 28, 0.38)');
-    assert.ok(css.includes('filter: blur(80px)'), 'Aurora orbs must use filter: blur(80px)');
-    assert.ok(css.includes('padding: 30px 34px'), 'Card must use padding: 30px 34px');
-    assert.ok(css.includes('Bricolage Grotesque') && premiumCss.includes('Bricolage Grotesque'), 'CSS must define Bricolage Grotesque display font');
-    assert.ok(css.includes('border-radius: 9999px'), 'Inputs and primary CTA button must use pill border-radius: 9999px');
+    const titanCssPath = path.resolve(__dirname, '../../../public/css/ejii-titan.css');
+    const titanCompletePath = path.resolve(__dirname, '../../../public/css/ejii-titan-complete.css');
+    assert.ok(fs.existsSync(titanCssPath), 'public/css/ejii-titan.css must exist');
+    assert.ok(fs.existsSync(titanCompletePath), 'public/css/ejii-titan-complete.css must exist');
+    const titanCss = fs.readFileSync(titanCssPath, 'utf8');
+    const titanComplete = fs.readFileSync(titanCompletePath, 'utf8');
+    assert.ok(titanCss.includes('--brass-grad') && titanCss.includes('#d4b06a') && titanCss.includes('#090b0e'), 'ejii-titan.css must define Titan brass gradient and gunmetal tokens');
+    assert.ok(titanComplete.includes('/* ── titan foundation ── */') && titanComplete.includes('--brass-grad'), 'ejii-titan-complete.css must include the unified Titan foundation layer');
+    assert.ok(html.includes('/css/ejii-titan-complete.css'), 'public/index.html must link /css/ejii-titan-complete.css');
     assert.ok(appJs.includes('window.toggleLoginPasswordVisibility = function'));
     assert.ok(appJs.includes('window.handleForgotPasswordClick = function'));
   });

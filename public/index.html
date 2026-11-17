@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f5f5f1">
+  <meta name="theme-color" content="#090b0e">
   <meta name="description" content="EJII — Eldar Jamiyev's Infrastructure Intelligence. Enterprise infrastructure operations and network diagnostics.">
   <title>Eldar Jamiyev's Infrastructure Intelligence — NOC Network Topology &amp; Wire-Level Packet Dissection Workstation</title>
   <script>
     (function () {
       try {
-        var theme = localStorage.getItem('ejii_theme') || 'light';
-        if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        var theme = localStorage.getItem('ejii_theme') || 'dark';
+        if (theme !== 'light') document.documentElement.setAttribute('data-theme', 'dark');
         var density = localStorage.getItem('ejii_density') || 'comfortable';
         if (density === 'compact') document.documentElement.setAttribute('data-density', 'compact');
-        if (localStorage.getItem('ejii_reduced_motion') === 'true') {
+        if (localStorage.getItem('ejii_reduced-motion') === 'true' || localStorage.getItem('ejii_reduced_motion') === 'true') {
           document.documentElement.setAttribute('data-reduced-motion', 'true');
         }
         sessionStorage.removeItem('warmup_start_time');
@@ -22,7 +22,7 @@
         if ('caches' in window) {
           caches.keys().then(function (keys) {
             keys.forEach(function (k) {
-              if (k !== 'ejii-cache-v6.3.0-horizon-glass') caches.delete(k);
+              if (k !== 'ejii-cache-v6.4.0-titan') caches.delete(k);
             });
           }).catch(function () {});
         }
@@ -31,13 +31,8 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="/css/style.css?v=2026.11.17.4">
-  <link rel="stylesheet" href="/css/eji-premium.css?v=2026.11.17.4">
-  <link rel="stylesheet" href="/css/ejii-meridian.css?v=2026.11.17.4">
-  <link rel="stylesheet" href="/css/learning-center.css?v=2026.11.17.4">
-  <link rel="stylesheet" href="/css/ai-operator-peak.css?v=2026.11.17.4">
-  <link rel="stylesheet" href="/css/chat-minimal.css?v=2026.11.17.4">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,700;100..125,800;100..125,900&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/css/ejii-titan-complete.css?v=2026.11.17.6">
   <link rel="manifest" href="/manifest.json">
 </head>
 <body>
@@ -53,14 +48,14 @@
       <svg class="login-constellation-svg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
         <defs>
           <linearGradient id="horizonRidgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#0d1021" stop-opacity="0.72" />
-            <stop offset="100%" stop-color="#050811" stop-opacity="0.98" />
+            <stop offset="0%" stop-color="#11151a" stop-opacity="0.72" />
+            <stop offset="100%" stop-color="#090b0e" stop-opacity="0.98" />
           </linearGradient>
           <linearGradient id="horizonRimLight" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="10%" stop-color="#06b6d4" stop-opacity="0.12" />
-            <stop offset="45%" stop-color="#e11d48" stop-opacity="0.55" />
-            <stop offset="60%" stop-color="#f59e0b" stop-opacity="0.48" />
-            <stop offset="90%" stop-color="#6366f1" stop-opacity="0.16" />
+            <stop offset="10%" stop-color="#7d98b3" stop-opacity="0.16" />
+            <stop offset="45%" stop-color="#d4b06a" stop-opacity="0.48" />
+            <stop offset="60%" stop-color="#ecd49a" stop-opacity="0.38" />
+            <stop offset="90%" stop-color="#3d5266" stop-opacity="0.18" />
           </linearGradient>
         </defs>
         <g class="constellation-lines" stroke="rgba(148, 163, 184, 0.14)" stroke-width="1">

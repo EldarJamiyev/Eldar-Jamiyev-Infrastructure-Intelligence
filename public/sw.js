@@ -4,9 +4,10 @@
  * Providing Offline Asset Caching, Push Notifications & Resilience
  */
 
-const CACHE_NAME = 'ejii-cache-v6.3.0-horizon-glass';
+const CACHE_NAME = 'ejii-cache-v6.4.0-obsidian-aurora';
 const STATIC_ASSETS = [
   '/css/style.css',
+  '/css/ejii-aurora.css',
   '/js/app.js',
   '/manifest.json'
 ];

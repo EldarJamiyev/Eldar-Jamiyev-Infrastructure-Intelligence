@@ -105,7 +105,7 @@ for (const hf of htmlFiles) {
 
 // 4. CSS Token & Syntax Integrity Check
 console.log('[EJII Linter] 4. Auditing CSS token stylesheets...');
-const cssFiles = ['public/css/ejii-meridian.css', 'mobile/mobile-style.css'];
+const cssFiles = ['public/css/ejii-meridian.css', 'public/css/ejii-aurora.css', 'mobile/mobile-style.css'];
 let cssFailures = 0;
 for (const cf of cssFiles) {
   if (!fs.existsSync(cf)) {

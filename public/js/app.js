@@ -1814,11 +1814,11 @@ window.runAiWorkflowForTarget = function(ip, port = 80) {
 // Sovereign-Apex Theme & Display Settings Engine
 // -----------------------------------------------------------------------------
 window.getTheme = function() {
-  return localStorage.getItem('ejii_theme') || 'system';
+  return localStorage.getItem('ejii_theme') || 'dark';
 };
 
 window.setTheme = function(theme) {
-  if (!['light', 'dark', 'system'].includes(theme)) theme = 'system';
+  if (!['light', 'dark', 'system'].includes(theme)) theme = 'dark';
   localStorage.setItem('ejii_theme', theme);
 
   let effectiveTheme = theme;

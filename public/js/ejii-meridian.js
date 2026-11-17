@@ -83,6 +83,14 @@
       if (event.key === 'Escape') closeMobileNavigation();
     });
 
+    document.addEventListener('mousemove', (event) => {
+      const card = event.target && event.target.closest ? event.target.closest('.ql-quick-card') : null;
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty('--mouse-x', (event.clientX - rect.left) + 'px');
+      card.style.setProperty('--mouse-y', (event.clientY - rect.top) + 'px');
+    }, { passive: true });
+
     try {
       if (window.matchMedia('(max-width: 850px)').matches) {
         document.body.classList.remove('ejii-sidebar-collapsed');
