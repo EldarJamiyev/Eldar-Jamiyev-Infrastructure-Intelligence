@@ -4,7 +4,7 @@
  * Providing Offline Asset Caching, Push Notifications & Resilience
  */
 
-const CACHE_NAME = 'ejii-cache-v6.0.0';
+const CACHE_NAME = 'ejii-cache-v6.3.0-horizon-glass';
 const STATIC_ASSETS = [
   '/css/style.css',
   '/js/app.js',
@@ -70,29 +70,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static application assets
+  // Network-first for static application assets (CSS, JS) with offline cache fallback
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached and refresh in background
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
-        }
+    fetch(event.request).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseToCache);
-        });
-        return networkResponse;
-      });
+        }).catch(() => {});
+      }
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(event.request);
     })
   );
 });
