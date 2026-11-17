@@ -22,7 +22,7 @@
         if ('caches' in window) {
           caches.keys().then(function (keys) {
             keys.forEach(function (k) {
-              if (k !== 'ejii-cache-v6.4.0-titan') caches.delete(k);
+              if (k !== 'ejii-cache-v6.4.1-obsidian-titan') caches.delete(k);
             });
           }).catch(function () {});
         }
@@ -31,8 +31,8 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,700;100..125,800;100..125,900&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="/css/ejii-titan-complete.css?v=2026.11.17.6">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,700;100..125,800;100..125,900&family=Bricolage+Grotesque:wght@700;800&family=DM+Sans:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="/css/ejii-titan-complete.css?v=2026.11.17.7">
   <link rel="manifest" href="/manifest.json">
 </head>
 <body>
@@ -48,14 +48,14 @@
       <svg class="login-constellation-svg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
         <defs>
           <linearGradient id="horizonRidgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#11151a" stop-opacity="0.72" />
-            <stop offset="100%" stop-color="#090b0e" stop-opacity="0.98" />
+            <stop offset="0%" stop-color="#0d1021" stop-opacity="0.72" />
+            <stop offset="100%" stop-color="#050811" stop-opacity="0.98" />
           </linearGradient>
           <linearGradient id="horizonRimLight" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="10%" stop-color="#7d98b3" stop-opacity="0.16" />
-            <stop offset="45%" stop-color="#d4b06a" stop-opacity="0.48" />
-            <stop offset="60%" stop-color="#ecd49a" stop-opacity="0.38" />
-            <stop offset="90%" stop-color="#3d5266" stop-opacity="0.18" />
+            <stop offset="8%" stop-color="#06b6d4" stop-opacity="0.22" />
+            <stop offset="42%" stop-color="#e11d48" stop-opacity="0.62" />
+            <stop offset="58%" stop-color="#f59e0b" stop-opacity="0.48" />
+            <stop offset="92%" stop-color="#6366f1" stop-opacity="0.24" />
           </linearGradient>
         </defs>
         <g class="constellation-lines" stroke="rgba(148, 163, 184, 0.14)" stroke-width="1">
@@ -110,7 +110,7 @@
         <!-- Interactive Password Recovery Guidance Notice -->
         <div id="loginRecoveryNotice" class="login-recovery-notice" role="status" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
-          <span>Workstation credentials are managed via local PBKDF2 zero-trust store. Select an evaluation profile below or contact your Lead Architect to rotate keys.</span>
+          <span>First-run bootstrap credentials are written to <code>data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt</code> (mode 0600). Rotate keys via <code>POST /api/auth/change-password</code> or contact your Lead Architect.</span>
         </div>
 
         <!-- Primary Pill-Input Glassmorphic Form -->

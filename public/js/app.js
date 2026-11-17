@@ -1984,23 +1984,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!isAuthenticated) {
       try {
         const authConfig = await api('/api/auth/config', { silent: true }).catch(() => null);
-        if (authConfig && authConfig.evaluationMode === true && authConfig.productionStrict !== true) {
-          window.isEvaluationMode = true;
-          const res = await api('/api/auth/quick-noc', {
-            method: 'POST',
-            body: JSON.stringify({}),
-            silent: true
-          }).catch(() => null);
-
-          if (res && res.token && res.user) {
-            state.token = res.token;
-            state.user = res.user;
-            try { localStorage.setItem('ejii_token', res.token); } catch (_) {}
-            isAuthenticated = true;
-          }
-        } else {
-          window.isEvaluationMode = false;
-        }
+        window.isEvaluationMode = Boolean(
+          authConfig && authConfig.evaluationMode === true && authConfig.productionStrict !== true
+        );
       } catch (_) {
         window.isEvaluationMode = false;
       }

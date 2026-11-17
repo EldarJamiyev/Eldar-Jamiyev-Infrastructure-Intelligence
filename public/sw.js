@@ -4,10 +4,9 @@
  * Providing Offline Asset Caching, Push Notifications & Resilience
  */
 
-const CACHE_NAME = 'ejii-cache-v6.4.0-obsidian-aurora';
+const CACHE_NAME = 'ejii-cache-v6.4.1-obsidian-titan';
 const STATIC_ASSETS = [
-  '/css/style.css',
-  '/css/ejii-aurora.css',
+  '/css/ejii-titan-complete.css?v=2026.11.17.7',
   '/js/app.js',
   '/manifest.json'
 ];

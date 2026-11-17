@@ -78,6 +78,9 @@ function initSchema(targetDb = db, options = {}) {
       mfa_pending_secret TEXT,
       mfa_last_counter INTEGER DEFAULT 0,
       mfa_updated_at TEXT,
+      password_rotated_at TEXT,
+      bootstrap_state TEXT DEFAULT 'UNCLAIMED',
+      token_version INTEGER DEFAULT 1,
       created_at TEXT NOT NULL,
       last_login TEXT
     );
@@ -408,7 +411,10 @@ function initSchema(targetDb = db, options = {}) {
       ['mfa_secret', 'TEXT'],
       ['mfa_pending_secret', 'TEXT'],
       ['mfa_last_counter', 'INTEGER DEFAULT 0'],
-      ['mfa_updated_at', 'TEXT']
+      ['mfa_updated_at', 'TEXT'],
+      ['password_rotated_at', 'TEXT'],
+      ['bootstrap_state', "TEXT DEFAULT 'UNCLAIMED'"],
+      ['token_version', 'INTEGER DEFAULT 1']
     ];
     for (const [colName, colDef] of mfaCols) {
       if (!userCols.includes(colName)) {

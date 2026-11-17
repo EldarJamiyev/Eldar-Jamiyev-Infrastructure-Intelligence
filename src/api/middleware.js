@@ -54,15 +54,18 @@ function authenticate(req, res, next) {
   // Check user status in database
   let user = null;
   if (decoded.id) {
-    user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE id = ?').get(decoded.id);
+    user = db.prepare('SELECT id, username, full_name, role, is_active, token_version FROM users WHERE id = ?').get(decoded.id);
   }
   if (!user && decoded.username && !decoded.dbBacked && decoded.tokenType !== 'user_session') {
-    user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE username = ?').get(decoded.username);
+    user = db.prepare('SELECT id, username, full_name, role, is_active, token_version FROM users WHERE username = ?').get(decoded.username);
   }
 
   if (user) {
-    if (user.is_active !== 1) {
+    if (Number(user.is_active) !== 1) {
       return res.status(403).json({ error: 'User account is disabled.' });
+    }
+    if (decoded.tv !== undefined && Number(decoded.tv) < Number(user.token_version || 1)) {
+      return res.status(401).json({ error: 'Session invalidated: credentials or session state updated.' });
     }
     req.user = {
       id: user.id,

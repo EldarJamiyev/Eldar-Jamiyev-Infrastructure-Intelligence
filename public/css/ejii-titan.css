@@ -59,8 +59,8 @@ html body .ql-quick-card:hover{transform:translateY(-3px);border-color:var(--acc
 .ql-quick-card-arrow{transition:transform .25s var(--ease),color .2s}.ql-quick-card:hover .ql-quick-card-arrow{transform:translateX(4px);color:var(--brass)}
 /* Buttons */
 html body .btn,html body button.btn,html body .ql-btn{border-radius:var(--r-sm)!important;font-weight:600;letter-spacing:.01em;transition:transform .2s var(--ease),box-shadow .2s,border-color .2s,filter .2s}
-html body .btn-primary,html body .ql-btn-primary,html body .lc-btn-primary,html body .v6-ribbon-btn-primary,html body #loginScreen .login-btn-submit,html body .login-btn-submit{background:var(--brass-grad)!important;color:#14100a!important;border:1px solid var(--brass-lo)!important;border-radius:var(--r-sm)!important;font-weight:700!important;box-shadow:0 6px 18px -8px rgba(212,176,106,.6),inset 0 1px 0 rgba(255,255,255,.5)!important}
-html body .btn-primary:hover,html body .ql-btn-primary:hover,html body .lc-btn-primary:hover,html body #loginScreen .login-btn-submit:hover,html body .login-btn-submit:hover{transform:translateY(-1px);filter:brightness(1.07);color:#14100a!important;background:var(--brass-grad)!important;box-shadow:0 12px 26px -10px rgba(212,176,106,.7),inset 0 1px 0 rgba(255,255,255,.6)!important}
+html body .btn-primary,html body .ql-btn-primary,html body .lc-btn-primary,html body .v6-ribbon-btn-primary{background:var(--brass-grad)!important;color:#14100a!important;border:1px solid var(--brass-lo)!important;border-radius:var(--r-sm)!important;font-weight:700!important;box-shadow:0 6px 18px -8px rgba(212,176,106,.6),inset 0 1px 0 rgba(255,255,255,.5)!important}
+html body .btn-primary:hover,html body .ql-btn-primary:hover,html body .lc-btn-primary:hover{transform:translateY(-1px);filter:brightness(1.07);color:#14100a!important;background:var(--brass-grad)!important;box-shadow:0 12px 26px -10px rgba(212,176,106,.7),inset 0 1px 0 rgba(255,255,255,.6)!important}
 html body .btn-secondary,html body .ql-btn-secondary{background:var(--bg-surface-2)!important;border:1px solid var(--border-strong)!important;color:var(--text-primary)!important}
 html body .btn-secondary:hover,html body .ql-btn-secondary:hover{border-color:var(--accent-border)!important;color:var(--brass-hi)!important}
 button:active{transform:translateY(0) scale(.985)}
@@ -70,19 +70,24 @@ html body input:not(.login-input):not(#ejiiChatInput):focus,html body select:foc
 table{border-collapse:separate;border-spacing:0}
 th{font-family:var(--f-mono)!important;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted)!important;background:var(--bg-surface-2)!important;border-bottom:1px solid var(--border-strong)!important}
 tbody tr{transition:background .12s}tbody tr:hover{background:var(--accent-subtle)!important}
-/* Login: steel monolith, brass crown, sharp 6-12px corners instead of pills */
-html body #loginScreen,html body .login-screen-wrapper{background:radial-gradient(960px 520px at 50% 60%,rgba(125,152,179,.16) 0%,rgba(212,176,106,.08) 42%,rgba(9,11,14,0) 74%),radial-gradient(760px 480px at 50% 35%,rgba(61,82,102,.18) 0%,rgba(9,11,14,0) 70%),linear-gradient(180deg,#090b0e 0%,#0d1117 52%,#090b0e 100%)!important}
-html body .login-aurora-orb{opacity:.28!important;filter:saturate(.35) blur(48px)!important}
-html body .login-aurora-orb.orb-crimson-violet{background:radial-gradient(circle,#7d98b3,transparent 68%)!important}
-html body .login-aurora-orb.orb-twilight-amber{background:radial-gradient(circle,#d4b06a,transparent 68%)!important}
-html body .login-aurora-orb.orb-electric-cyan{background:radial-gradient(circle,#3d5266,transparent 68%)!important}
-html body .login-aurora-orb.orb-deep-indigo{background:radial-gradient(circle,#1c2733,transparent 68%)!important}
-html body #loginGlassCard,html body .login-card{border-radius:var(--r-lg)!important;background:linear-gradient(180deg,rgba(24,30,38,.88),rgba(11,14,18,.94))!important;backdrop-filter:blur(24px) saturate(130%)!important;-webkit-backdrop-filter:blur(24px) saturate(130%)!important;border:1px solid rgba(190,205,225,.2)!important;box-shadow:0 40px 90px -24px rgba(0,0,0,.9),inset 0 1px 0 rgba(236,212,154,.45)!important}
-html body .login-brand-title{text-transform:uppercase!important;color:var(--text-primary)!important;letter-spacing:.02em!important}
-html body .login-input-wrap{border-radius:var(--r-sm)!important;background:rgba(11,14,18,.75)!important;border:1px solid rgba(190,205,225,.18)!important}
-html body .login-input-wrap:focus-within{border-color:var(--border-focus)!important;box-shadow:0 0 0 3px var(--accent-subtle)!important}
-html body .login-input{border-radius:var(--r-sm)!important;background:transparent!important}
-html body .login-quick-cta-btn,html body .login-status-indicator,html body .hud-pill{border-radius:var(--r-sm)!important}
+/* Login: Obsidian Horizon Glass per DESIGN.md (dark frosted glass card, vivid horizon aurora, crisp #FFFFFF Bricolage heading, pill inputs & solid white CTA) */
+html body #loginScreen,html body .login-screen-wrapper{background:#050811!important;color:#FFFFFF!important}
+html body #loginScreen .login-atmo-bg{background:radial-gradient(circle at 50% 64%,rgba(225,29,72,.42) 0%,rgba(190,24,93,.28) 32%,rgba(5,8,17,0) 68%),radial-gradient(circle at 46% 54%,rgba(245,158,11,.22) 0%,rgba(5,8,17,0) 48%),radial-gradient(circle at 58% 36%,rgba(6,182,212,.30) 0%,rgba(49,46,129,.26) 44%,rgba(5,8,17,0) 68%),#050811!important}
+html body .login-aurora-orb{opacity:.78!important;filter:blur(80px)!important}
+html body .login-aurora-orb.orb-crimson-violet{background:radial-gradient(circle,#e11d48 0%,#be185d 44%,rgba(49,46,129,.72) 74%,rgba(5,8,17,0) 100%)!important}
+html body .login-aurora-orb.orb-twilight-amber{background:radial-gradient(circle,rgba(245,158,11,.76) 0%,rgba(225,29,72,.48) 52%,rgba(5,8,17,0) 100%)!important}
+html body .login-aurora-orb.orb-electric-cyan{background:radial-gradient(circle,#06b6d4 0%,rgba(14,165,233,.74) 45%,rgba(49,46,129,.35) 75%,rgba(5,8,17,0) 100%)!important}
+html body .login-aurora-orb.orb-deep-indigo{background:radial-gradient(circle,#312e81 0%,#1e1b4b 54%,rgba(5,8,17,0) 100%)!important}
+html body #loginGlassCard,html body .login-card{border-radius:24px!important;background:rgba(12,16,28,.42)!important;backdrop-filter:blur(26px) saturate(185%)!important;-webkit-backdrop-filter:blur(26px) saturate(185%)!important;border:1px solid rgba(255,255,255,.28)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 32px 64px -16px rgba(0,0,0,.75)!important;color:#FFFFFF!important}
+html body #loginScreen .login-brand-title{font-family:"Bricolage Grotesque",var(--f-display)!important;font-stretch:normal!important;font-weight:800!important;text-transform:none!important;color:#FFFFFF!important;letter-spacing:-.03em!important}
+html body #loginScreen .login-brand-subtitle{font-family:"DM Sans",var(--f-body)!important;color:rgba(255,255,255,.82)!important}
+html body #loginScreen .login-input-wrap{border-radius:9999px!important;background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.28)!important}
+html body #loginScreen .login-input-wrap:hover{border-color:rgba(255,255,255,.48)!important;background:rgba(255,255,255,.11)!important}
+html body #loginScreen .login-input-wrap:focus-within{border-color:rgba(255,255,255,.9)!important;background:rgba(255,255,255,.13)!important;box-shadow:0 0 0 3px rgba(255,255,255,.16),0 0 22px rgba(6,182,212,.24)!important}
+html body #loginScreen .login-input{border-radius:9999px!important;background:transparent!important;color:#FFFFFF!important;font-family:"DM Sans",var(--f-body)!important}
+html body #loginScreen .login-btn-submit{background:#FFFFFF!important;color:#060913!important;border:1px solid #FFFFFF!important;border-radius:9999px!important;font-family:"DM Sans",var(--f-body)!important;font-size:14px!important;font-weight:700!important;box-shadow:0 10px 25px -5px rgba(255,255,255,.30),0 4px 10px rgba(0,0,0,.35)!important}
+html body #loginScreen .login-btn-submit:hover{background:#F8FAFC!important;border-color:#FFFFFF!important;color:#060913!important;transform:translateY(-2px)!important;filter:none!important;box-shadow:0 16px 32px -4px rgba(255,255,255,.42),0 6px 14px rgba(0,0,0,.42)!important}
+html body #loginScreen .login-quick-cta-btn,html body #loginScreen .login-status-indicator,html body #loginScreen .hud-pill{border-radius:9999px!important}
 /* Topology SVG & inline JS view surface normalization for Dark Mode */
 [data-theme="dark"] #nocTopologySvg>rect[fill="#F8FAFC"]{fill:#0b0e12!important}
 [data-theme="dark"] #nocTopologySvg #nocGridPattern path{stroke:rgba(190,205,225,.05)!important}

@@ -3,13 +3,16 @@
  * Single-operator / unprivileged NOC access with zero enterprise governance bloat.
  */
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db/database');
-const { verifyPassword, createToken, verifyToken, revokeToken, ROLES } = require('../core/security');
+const { hashPassword, verifyPassword, createToken, verifyToken, revokeToken, revokeAllUserTokens, ROLES } = require('../core/security');
 const { authenticate, parseCookies } = require('./middleware');
 const { loginRateLimiter, recordLoginAttempt } = require('./rate-limiter');
 const { generateSecret, verifyTOTP, verifyTOTPWithReplayGuard, getOtpAuthUrl } = require('../core/totp');
+const { clearFirstRunCredentialsFile, resolveSeedDataDir, getFirstRunCredentialsPath } = require('../db/seed');
 
 /**
  * Set session cookie
@@ -28,17 +31,11 @@ function setSessionCookie(res, token) {
  */
 router.post('/login', loginRateLimiter, (req, res) => {
   const rawBody = req.body || {};
-  const isStrictMode = process.env.NODE_ENV === 'production' || req.headers['x-ejii-strict-auth'] === 'true';
-  const hasExplicitCredentials = rawBody.username !== undefined || rawBody.password !== undefined;
 
-  const username = typeof rawBody.username === 'string' && rawBody.username.trim()
-    ? rawBody.username.trim()
-    : (!isStrictMode && !hasExplicitCredentials ? 'admin' : '');
-  const password = typeof rawBody.password === 'string' && rawBody.password
-    ? rawBody.password
-    : (!isStrictMode && !hasExplicitCredentials ? 'admin2026!' : '');
+  const username = typeof rawBody.username === 'string' ? rawBody.username.trim() : '';
+  const password = typeof rawBody.password === 'string' ? rawBody.password : '';
 
-  if (!username || typeof password !== 'string' || !password) {
+  if (!username || !password) {
     recordLoginAttempt(req, false);
     return res.status(400).json({ error: 'Username and password are required.' });
   }
@@ -107,7 +104,9 @@ router.post('/login', loginRateLimiter, (req, res) => {
 
   recordLoginAttempt(req, true);
   try {
-    db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(new Date().toISOString(), user.id);
+    db.prepare(
+      "UPDATE users SET last_login = ?, bootstrap_state = CASE WHEN bootstrap_state = 'UNCLAIMED' THEN 'CLAIMED' ELSE bootstrap_state END WHERE id = ?"
+    ).run(new Date().toISOString(), user.id);
   } catch (_) {}
 
   const token = createToken({
@@ -116,7 +115,8 @@ router.post('/login', loginRateLimiter, (req, res) => {
     role: user.role,
     fullName: user.full_name,
     tokenType: 'user_session',
-    dbBacked: true
+    dbBacked: true,
+    tv: Number(user.token_version || 1)
   });
 
   setSessionCookie(res, token);
@@ -131,6 +131,88 @@ router.post('/login', loginRateLimiter, (req, res) => {
       role: user.role,
       mfaEnabled: Boolean(Number(user.mfa_enabled) === 1 && user.mfa_secret)
     }
+  });
+});
+
+/**
+ * POST /api/auth/change-password
+ * Rotate the authenticated user's password with PBKDF2-SHA512 + fresh 32-byte salt,
+ * invalidate all prior sessions, and mark/clear first-run credentials.
+ */
+router.post('/change-password', authenticate, (req, res) => {
+  const rawBody = req.body || {};
+  const currentPassword = typeof rawBody.currentPassword === 'string'
+    ? rawBody.currentPassword
+    : (typeof rawBody.oldPassword === 'string' ? rawBody.oldPassword : '');
+  const newPassword = typeof rawBody.newPassword === 'string' ? rawBody.newPassword : '';
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'currentPassword and newPassword are required.' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'New password must differ from current password.' });
+  }
+
+  const { KNOWN_DEFAULT_PASSWORDS } = require('../config');
+  if (KNOWN_DEFAULT_PASSWORDS.includes(newPassword)) {
+    return res.status(400).json({ error: 'New password cannot be a known legacy default password.' });
+  }
+
+  const user = db
+    .prepare('SELECT id, username, role, password_hash, salt, is_active, token_version FROM users WHERE id = ? OR username = ?')
+    .get(req.user.id, req.user.username);
+
+  if (!user || Number(user.is_active) !== 1) {
+    return res.status(403).json({ error: 'User account is unavailable or disabled.' });
+  }
+
+  if (!verifyPassword(currentPassword, user.password_hash, user.salt)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+
+  const { hash, salt } = hashPassword(newPassword, null, 32);
+  const nowIso = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE users
+    SET password_hash = ?,
+        salt = ?,
+        password_rotated_at = ?,
+        bootstrap_state = 'CLAIMED'
+    WHERE id = ?
+  `).run(hash, salt, nowIso, user.id);
+
+  // Invalidate current token and all prior sessions for this user
+  let activeToken = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    activeToken = authHeader.slice(7).trim();
+  } else if (req.cookies && req.cookies.eji_session) {
+    activeToken = req.cookies.eji_session;
+  } else if (req.headers.cookie) {
+    const cookies = parseCookies(req.headers.cookie);
+    if (cookies.eji_session) activeToken = cookies.eji_session;
+  }
+  if (activeToken) {
+    revokeToken(activeToken, user.id, 'Password rotated by operator');
+  }
+  revokeAllUserTokens(user.id, 'Password rotated via /api/auth/change-password');
+
+  let credentialsFileCleared = false;
+  if (String(user.username || '').toLowerCase() === 'admin') {
+    const activeDataDir = resolveSeedDataDir(db);
+    credentialsFileCleared = clearFirstRunCredentialsFile(activeDataDir);
+  }
+
+  res.clearCookie('eji_session');
+  res.json({
+    success: true,
+    message: 'Password updated cleanly and all prior sessions invalidated.',
+    passwordRotatedAt: nowIso,
+    credentialsFileCleared
   });
 });
 
@@ -179,7 +261,8 @@ router.post('/quick-noc', (req, res) => {
     role: user.role,
     fullName: user.full_name,
     tokenType: 'user_session',
-    dbBacked: true
+    dbBacked: true,
+    tv: Number(user.token_version || 1)
   });
 
   setSessionCookie(res, token);
@@ -201,11 +284,28 @@ router.post('/quick-noc', (req, res) => {
  * Public endpoint exposing evaluation mode state and permitted roles
  */
 router.get('/config', (req, res) => {
-  const { IS_EVALUATION_MODE } = require('../config');
+  const { IS_EVALUATION_MODE, isLocalLoopbackHost } = require('../config');
+  const explicitDisabled = process.env.EJII_EVALUATION_MODE === 'false';
+  const forwardedIp = typeof req.headers['x-forwarded-for'] === 'string'
+    ? req.headers['x-forwarded-for'].split(',')[0].trim()
+    : '';
+  const socketIp = req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip || '';
+  const effectiveClientIp = forwardedIp || socketIp;
+  const isLoopbackClient = isLocalLoopbackHost(effectiveClientIp) && (!forwardedIp || isLocalLoopbackHost(forwardedIp));
+
+  let hasUnclaimedBootstrapFile = false;
+  if (isLoopbackClient) {
+    try {
+      const { credFile } = getFirstRunCredentialsPath(resolveSeedDataDir(db));
+      hasUnclaimedBootstrapFile = fs.existsSync(credFile);
+    } catch (_) {}
+  }
+
   res.json({
-    evaluationMode: IS_EVALUATION_MODE || process.env.NODE_ENV !== 'production',
+    evaluationMode: process.env.NODE_ENV !== 'production' && !explicitDisabled,
     strictEvaluationMode: IS_EVALUATION_MODE,
     productionStrict: process.env.NODE_ENV === 'production',
+    hasUnclaimedBootstrapFile,
     roles: Object.keys(ROLES)
   });
 });

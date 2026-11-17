@@ -8,7 +8,7 @@
 const crypto = require('crypto');
 const net = require('net');
 const dns = require('dns');
-const { JWT_SECRET } = require('../config');
+const { JWT_SECRET, resolveCanonicalPath, isPathInsideDir } = require('../config');
 
 // Explicit Distinct NOC Roles
 const ROLES = {
@@ -104,8 +104,11 @@ const ROLE_CAPABILITIES = {
 /**
  * Hash a plain password using PBKDF2 SHA-512 with a salt
  */
-function hashPassword(password, salt = null) {
-  const generatedSalt = salt || crypto.randomBytes(16).toString('hex');
+function hashPassword(password, salt = null, saltBytes = 16) {
+  if (typeof password !== 'string') {
+    throw new TypeError('Password must be a string.');
+  }
+  const generatedSalt = salt || crypto.randomBytes(Number(saltBytes) || 16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, generatedSalt, 10000, 64, 'sha512').toString('hex');
   return {
     hash,
@@ -117,8 +120,23 @@ function hashPassword(password, salt = null) {
  * Verify a plain password against stored hash and salt
  */
 function verifyPassword(plainPassword, storedHash, salt) {
+  if (
+    typeof plainPassword !== 'string' ||
+    typeof storedHash !== 'string' ||
+    typeof salt !== 'string' ||
+    !plainPassword ||
+    !storedHash ||
+    !salt
+  ) {
+    return false;
+  }
   const { hash } = hashPassword(plainPassword, salt);
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+  const hashBuf = Buffer.from(hash, 'hex');
+  const storedBuf = Buffer.from(storedHash, 'hex');
+  if (hashBuf.length === 0 || hashBuf.length !== storedBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(hashBuf, storedBuf);
 }
 
 /**
@@ -129,15 +147,23 @@ function createToken(payload, expiresInSeconds = 86400) {
   const now = Math.floor(Date.now() / 1000);
   const jti = payload.jti || (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
   let dbBacked = Boolean(payload.dbBacked || payload.tokenType === 'user_session');
-  if (!dbBacked && payload && payload.id) {
+  let tokenVersion = payload.tv !== undefined ? Number(payload.tv) : undefined;
+  if (payload && payload.id) {
     try {
-      const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(payload.id);
-      if (existing) dbBacked = true;
+      const { db } = require('../db/database');
+      const existing = db.prepare('SELECT id, token_version FROM users WHERE id = ?').get(payload.id);
+      if (existing) {
+        dbBacked = true;
+        if (tokenVersion === undefined) {
+          tokenVersion = Number(existing.token_version || 1);
+        }
+      }
     } catch (_) {}
   }
   const tokenPayload = {
     ...payload,
     dbBacked,
+    ...(tokenVersion !== undefined ? { tv: tokenVersion } : {}),
     jti,
     iat: now,
     exp: now + expiresInSeconds
@@ -177,7 +203,7 @@ function verifyToken(token) {
 }
 
 const revokedTokens = new Set();
-const revokedUsers = new Set();
+const revokedUsers = new Map(); // userId -> revokedAtMs
 
 function generateToken(user, roleOrExpiresIn = 86400, maybeExpires = 86400) {
   if (typeof user === 'string') {
@@ -205,14 +231,20 @@ function revokeToken(token, userId = null, reason = 'User logout') {
 
 function revokeAllUserTokens(userId, reason = 'Bulk user revocation') {
   if (!userId) return false;
-  revokedUsers.add(userId);
-  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  revokedUsers.set(userId, nowMs);
+  const nowIso = new Date(nowMs).toISOString();
   try {
     const { db } = require('../db/database');
     db.prepare(`
+      UPDATE users
+      SET token_version = COALESCE(token_version, 1) + 1
+      WHERE id = ?
+    `).run(userId);
+    db.prepare(`
       INSERT OR REPLACE INTO revoked_tokens (token, user_id, reason, revoked_at)
       VALUES (?, ?, ?, ?)
-    `).run(`USER_BULK_${userId}_${Date.now()}`, userId, reason, nowIso);
+    `).run(`USER_BULK_${userId}_${nowMs}`, userId, reason, nowIso);
   } catch (e) {}
   return true;
 }
@@ -236,33 +268,57 @@ function isTokenRevoked(token) {
     const parts = token.split('.');
     if (parts.length === 3) {
       payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      if (payload.id && revokedUsers.has(payload.id)) return true;
     }
   } catch (e) {}
 
-  // Check persistent SQLite database for exact token revocation or bulk user revocation (F-52)
   try {
     const { db } = require('../db/database');
     const row = db.prepare('SELECT 1 FROM revoked_tokens WHERE token = ?').get(token);
     if (row) return true;
 
     if (payload && payload.id) {
-      // Check if user has an active bulk revocation record issued at or after token issuance
+      const userRow = db
+        .prepare('SELECT id, is_active, token_version FROM users WHERE id = ?')
+        .get(payload.id);
+
+      if (userRow) {
+        if (Number(userRow.is_active) !== 1) {
+          return true;
+        }
+        if (payload.tv !== undefined && Number(payload.tv) < Number(userRow.token_version || 1)) {
+          return true;
+        }
+      } else if (payload.dbBacked || payload.tokenType === 'user_session') {
+        return true;
+      }
+
+      const memRevokedAtMs = revokedUsers.get(payload.id);
+      const tokenIatMs = (payload.iat || 0) * 1000;
+      if (memRevokedAtMs && tokenIatMs <= memRevokedAtMs) {
+        if (payload.tv === undefined || !userRow || Number(payload.tv) < Number(userRow.token_version || 1)) {
+          return true;
+        }
+      }
+
+      // Check persistent SQLite database for bulk user revocation (F-52)
       const bulkRow = db.prepare(
-        "SELECT revoked_at FROM revoked_tokens WHERE user_id = ? AND token LIKE 'USER_BULK_%' ORDER BY id DESC LIMIT 1"
+        "SELECT revoked_at FROM revoked_tokens WHERE user_id = ? AND token LIKE 'USER_BULK_%' ORDER BY revoked_at DESC LIMIT 1"
       ).get(payload.id);
 
       if (bulkRow && bulkRow.revoked_at) {
         const revokedTimeMs = new Date(bulkRow.revoked_at).getTime();
-        const tokenIatMs = (payload.iat || 0) * 1000;
-        // If token was issued at or before bulk revocation timestamp, it is revoked across restarts
         if (tokenIatMs <= revokedTimeMs + 1000) {
-          revokedUsers.add(payload.id);
-          return true;
+          if (payload.tv === undefined || !userRow || Number(payload.tv) < Number(userRow.token_version || 1)) {
+            return true;
+          }
         }
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    if (payload && payload.id && revokedUsers.has(payload.id)) {
+      return true;
+    }
+  }
 
   return false;
 }
@@ -775,5 +831,7 @@ module.exports = {
   uint32ToCanonicalIPv4,
   classifyIPv4Uint32,
   classifyIPv6Address,
-  createPinnedLookup
+  createPinnedLookup,
+  resolveCanonicalPath,
+  isPathInsideDir
 };

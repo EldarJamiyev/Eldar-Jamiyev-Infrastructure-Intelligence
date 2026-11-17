@@ -71,7 +71,7 @@ A comprehensive `.env.example` file has been added to the repository root, docum
 * `EJII_DATA_DIR`: Explicit absolute path for runtime state (e.g., `C:\EJII\data` or `/var/lib/ejii/data`)
 * `EJII_HMAC_SECRET`: Minimum 32-character high-entropy key for action tokens and audit log chaining
 * `EJII_JWT_SECRET`: Minimum 32-character high-entropy key for session tokens
-* `EJII_ADMIN_PASSWORD`: Optional initial password for bootstrap; defaults to `admin2026!` if omitted on first run
+* `EJII_ADMIN_PASSWORD`: Optional explicit initial password for `admin` bootstrap; when omitted on first run, `seed.js` generates a 24-character `crypto.randomBytes(18).toString('base64url')` password and writes bootstrap credentials atomically to `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` (directory mode `0o700`, file mode `0o600`) with zero hardcoded fallback defaults.
 
 ---
 
@@ -101,12 +101,12 @@ function validateSecurityConfiguration() {
   - Booting with < 32 characters -> `must be explicitly configured with at least 32 characters` (Process Exit 1).
   - Booting with >= 32 characters high-entropy string -> Boot proceeds cleanly (Process Exit 0).
 
-### 3.2 Seeder Idempotency & Credential Preservation (`src/db/seed.js`)
-Previously, `seedDatabase()` re-hashed and updated user passwords on every boot, silently reverting user-modified passwords back to `admin2026!`.
-* **Fix Applied:** Seeder now queries `SELECT id, password_hash, salt FROM users WHERE username = ?`.
-  - If user **does not exist**: Inserts initial account using `EJII_ADMIN_PASSWORD` (or default if unconfigured).
-  - If user **already exists**: Updates only `role` and `full_name` via `updateUserMetadata.run(acc.role, acc.fullName, acc.username)`. Stored `password_hash` and `salt` remain strictly untouched.
-* **Verified:** Verified in Suite 30 that updating an admin password and re-running `seedDatabase()` preserves the updated hash and salt 100%.
+### 3.2 Seeder Idempotency, Lockout Recovery & Credential Preservation (`src/db/seed.js`)
+Previously, `seedDatabase()` re-hashed or skipped missing credential files without recovering unclaimed bootstrap state, and legacy routes contained fallback strings.
+* **Fix Applied:** `seedDatabase()` provisions all four workstation role accounts (`admin`, `sysadmin`, `netadmin`, `noc`) and distinguishes **claimed** accounts (`password_rotated_at`, `bootstrap_state === 'CLAIMED'`, or `last_login` recorded) from **unclaimed** bootstrap accounts:
+  - **Claimed / Existing Users:** `password_hash`, `salt`, and `token_version` remain strictly untouched across all restarts and re-seeds.
+  - **First-Run & Unclaimed Lockout Recovery:** If `admin` is unclaimed and `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` is missing (or `EJII_ADMIN_PASSWORD` is configured), `seedDatabase()` provisions fresh PBKDF2-SHA512 hashes (32-byte salt), bumps `token_version`, creates `data/security/` (`0o700`) with `resolveCanonicalPath` symlink containment, atomically writes `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` (`0o600`), and logs a one-time notice pointing to the file without logging raw plaintext passwords or wiping operational tables.
+  - **Password Rotation (`POST /api/auth/change-password`):** Verifies the current password, hashes the new password with PBKDF2-SHA512 and a fresh 32-byte salt, sets `password_rotated_at` and `bootstrap_state = 'CLAIMED'`, increments `token_version` and invokes `revokeAllUserTokens()` to invalidate all prior sessions, and removes `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` cleanly.
 
 ### 3.3 Dynamic Path Standardization
 All persistent storage paths derive strictly from `DATA_DIR` in `src/config.js`:
@@ -116,7 +116,7 @@ All persistent storage paths derive strictly from `DATA_DIR` in `src/config.js`:
 * Consumed Tokens Ledger: Dynamically resolved via `autonomousRemediationEngine._getConsumedTokensFile()` -> `path.join(DATA_DIR, 'security', 'consumed_tokens.json')`
 * AI Brain Memory: `path.join(DATA_DIR, 'brain_memory.json')`
 * Local Script Mount: `path.join(DATA_DIR, 'scripts_mount')`
-* First-Run Admin Credentials: `path.join(DATA_DIR, 'security', 'FIRST_RUN_ADMIN_CREDENTIALS.txt')` (mode `0o600`)
+* First-Run Admin Credentials: `path.join(DATA_DIR, 'security', 'FIRST_RUN_ADMIN_CREDENTIALS.txt')` (directory mode `0o700`, file mode `0o600`)
 
 ### 3.4 Cryptographic Genesis Audit Log & Token Lifecycle Hardening
 On first boot against an empty data directory, `seedDatabase()` records sequence #1 in the HMAC audit chain:
@@ -133,7 +133,7 @@ On first boot against an empty data directory, `seedDatabase()` records sequence
 * **Configuration:** `IS_EVALUATION_MODE: process.env.EJII_EVALUATION_MODE === 'true' || (process.env.NODE_ENV !== 'production' && process.env.EJII_EVALUATION_MODE !== 'false')`.
 * **API Exposure:** `GET /api/auth/config` and `/api/health` return `{ evaluationMode: boolean }`.
 * **UI Hardening:** In production mode (`evaluationMode === false`), `#evaluationLoginPills`, `#evaluationQuickCta`, and `#evaluationLoginDivider` are hidden, and pre-filled sample credentials are automatically purged from login forms.
-* **First-Run Production Passwords:** In production mode when `EJII_ADMIN_PASSWORD` is omitted, the seeder generates four distinct cryptographically random 24-character passwords for `admin`, `sysadmin`, `netadmin`, and `noc`, hashes them into SQLite, and writes `FIRST_RUN_ADMIN_CREDENTIALS.txt` with `0o600` permissions.
+* **First-Run Credentials & Zero-Default Auth Contract:** `POST /api/auth/login` strictly validates explicit `username` and `password` credentials against SQLite PBKDF2-SHA512 hashes with zero static fallback passwords (`admin2026!` removed). When `EJII_ADMIN_PASSWORD` is omitted on first run, `seed.js` generates distinct cryptographically random 24-character passwords for `admin`, `sysadmin`, `netadmin`, and `noc`, hashes them into SQLite with 32-byte salts, and writes `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` atomically with `0o600` permissions inside `data/security/` (`0o700`). Deactivated (`is_active = 0`), deleted, and password-rotated sessions are invalidated immediately via `token_version`, `revoked_tokens`, and `authenticate` middleware.
 
 ### 3.6 Non-Destructive Wire Dissection & Multi-Condition AI AST Compiler
 * **Non-Destructive Packet Table:** `public/js/views/noc-view.js` tracks `selectedFrameNumber`, pins the inspected frame in rendered table slices, preserves `#packetDetailsPane` and row selection highlight across batch flushes, automatically pauses auto-scroll on selection with UI status toggle (`📜 Auto-Scroll: ON` / `⏸ Auto-Scroll: PAUSED (#X)`), and displays active filter counts (`Displayed: X / Captured: Y | Hidden: Z`). If active filters hide all captured packets, an actionable amber advisory and one-click `Clear Filters` link replaces the misleading "Awaiting live wire frames" label.
@@ -301,7 +301,7 @@ When deploying on Windows:
    - Set `EJII_HMAC_SECRET=<generated_hmac_secret>`
    - Set `EJII_JWT_SECRET=<generated_jwt_secret>`
 4. Set `NODE_ENV=production` and `EJII_EVALUATION_MODE=false`.
-5. Optionally configure `EJII_ADMIN_PASSWORD=<strong_password>` for initial bootstrap (if omitted, random credentials will be generated and saved to `FIRST_RUN_ADMIN_CREDENTIALS.txt`).
+5. Optionally configure `EJII_ADMIN_PASSWORD=<strong_password>` for initial `admin` bootstrap (if omitted, cryptographically random 24-character credentials are generated and written atomically to `data/security/FIRST_RUN_ADMIN_CREDENTIALS.txt` with mode `0o600`). Rotate bootstrap credentials immediately via `POST /api/auth/change-password`.
 6. Run database seeding:
    ```cmd
    node src/db/seed.js
