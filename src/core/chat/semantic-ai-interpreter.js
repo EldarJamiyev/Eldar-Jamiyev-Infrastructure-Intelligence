@@ -613,7 +613,7 @@ async function semanticAiInterpreter(promptText, context = {}) {
 
     try {
       const modelRes = await aiModelOrchestrator.invokeWithBoundedRetry(provider, promptForModel, {
-        model: process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
+        model: process.env.EJII_GEMINI_MODEL || 'gemini-4-hydrogen',
         timeoutMs: 10000,
         maxRetries: 0,
         allowRedactedCloudFallback: Boolean(context.allowCloudFallback || !aiModelOrchestrator.localOnlyPolicy),
@@ -648,7 +648,7 @@ async function semanticAiInterpreter(promptText, context = {}) {
               secondaryToolPlans: mappedPlans.slice(1),
               modelInterpreted: true,
               modelProvider: modelRes.provider || provider,
-              executedModel: modelRes.executedModel || modelRes.model || (process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash'),
+              executedModel: modelRes.executedModel || modelRes.model || (process.env.EJII_GEMINI_MODEL || 'gemini-4-hydrogen'),
               isMockModel: Boolean(modelRes.isMock || isCustomProviderHook)
             };
           }

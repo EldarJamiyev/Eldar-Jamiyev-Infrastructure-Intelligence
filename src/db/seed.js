@@ -10,7 +10,7 @@ const crypto = require('crypto');
 const os = require('os');
 const { db: defaultDb, initSchema } = require('./database');
 const { getPhysicalNetworkInfo } = require('../network/routing/physical-network-detector');
-const { HMAC_SECRET, getPurposeSeparatedSecret } = require('../config');
+const { GENESIS_HASH, computeRecordHash } = require('../core/audit-logger');
 
 /**
  * Return verified OS route table default gateway if present, or null when no default route is observed.
@@ -175,7 +175,7 @@ function seedDatabase(targetDb = defaultDb) {
         layer: 'access',
         layer_level: 5,
         parent_id: 'NODE-GW-01',
-        status: 'healthy',
+        status: 'unprobed',
         latency: null,
         vendor: 'Local Subnet Segment',
         if_name: netInfo.interfaceAlias || 'eth0',
@@ -184,7 +184,7 @@ function seedDatabase(targetDb = defaultDb) {
         metadata: JSON.stringify({
           role: 'Access LAN Subnet',
           hostsCount: netInfo.arpNeighborsCount || 1,
-          probeState: 'LOCAL_SUBNET_OBSERVED',
+          probeState: 'AWAITING_FIRST_PROBE',
           evidenceClassification: 'Observed'
         })
       },
@@ -197,7 +197,7 @@ function seedDatabase(targetDb = defaultDb) {
         layer: 'endpoint',
         layer_level: 6,
         parent_id: 'NODE-LAN-01',
-        status: 'healthy',
+        status: 'unprobed',
         latency: null,
         vendor: `${adapterDesc} / ${os.platform()}`,
         if_name: netInfo.interfaceAlias || 'eth0',
@@ -333,17 +333,20 @@ function seedDatabase(targetDb = defaultDb) {
   // 5. Seed Initial Cryptographic HMAC Audit Log Record (only if audit_logs is empty)
   const existingAuditCount = db.prepare('SELECT COUNT(*) as c FROM audit_logs').get().c;
   if (existingAuditCount === 0) {
-    const hmacSecret =
-      (typeof getPurposeSeparatedSecret === 'function' && getPurposeSeparatedSecret('audit-log-v1')) ||
-      process.env.EJII_HMAC_SECRET ||
-      HMAC_SECRET;
-    const genesisPayload = `1|${now}|USR-NOC-01|admin|admin|SYSTEM_BOOT|NOC_ENGINE|{"status":"INITIALIZED"}|127.0.0.1|GENESIS`;
-    const genesisHash = crypto.createHmac('sha256', hmacSecret).update(genesisPayload).digest('hex');
+    const genesisDetails = { status: 'INITIALIZED' };
+    const genesisHash = computeRecordHash(
+      GENESIS_HASH,
+      now,
+      'USR-NOC-01',
+      'SYSTEM_BOOT',
+      'NOC_ENGINE',
+      genesisDetails
+    );
 
     db.prepare(`
       INSERT INTO audit_logs (timestamp, user_id, username, role, action, resource, details, ip_address, prev_hash, hash)
-      VALUES (?, 'USR-NOC-01', 'admin', 'admin', 'SYSTEM_BOOT', 'NOC_ENGINE', '{"status":"INITIALIZED"}', '127.0.0.1', 'GENESIS', ?)
-    `).run(now, genesisHash);
+      VALUES (?, 'USR-NOC-01', 'admin', 'admin', 'SYSTEM_BOOT', 'NOC_ENGINE', ?, 'local_process', ?, ?)
+    `).run(now, JSON.stringify(genesisDetails), GENESIS_HASH, genesisHash);
   }
 
   console.log('[EJII NOC Seeder] NOC database seeded cleanly (zero synthetic link_telemetry rows).');

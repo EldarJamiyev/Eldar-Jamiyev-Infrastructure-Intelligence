@@ -2282,7 +2282,7 @@ async function reflectOnToolObservation({
         ].join('\n');
 
         const modelRes = await aiModelOrchestrator.invokeWithBoundedRetry('GOOGLE_GEMINI', reflectionPrompt, {
-          model: process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
+          model: process.env.EJII_GEMINI_MODEL || 'gemini-4-hydrogen',
           timeoutMs: 5000,
           maxRetries: 0,
           allowRedactedCloudFallback: true,

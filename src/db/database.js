@@ -45,9 +45,9 @@ function initSchema(targetDb = db, options = {}) {
     return;
   }
   targetDb.exec('PRAGMA foreign_keys = OFF;');
-
-  // Non-destructive schema initialization: existing tables and records are strictly preserved.
-  targetDb.exec(`
+  try {
+    // Non-destructive schema initialization: existing tables and records are strictly preserved.
+    targetDb.exec(`
     -- Cryptographic HMAC Audit Trail
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -439,15 +439,17 @@ function initSchema(targetDb = db, options = {}) {
       lastMigrationError = errMsg;
     }
     console.error('[EJII Database Migration Error]:', errMsg);
-    targetDb.exec('PRAGMA foreign_keys = ON;');
     if (options.throwOnMigrationError) {
       throw err;
     }
     return false;
   }
-
-  targetDb.exec('PRAGMA foreign_keys = ON;');
   return true;
+  } finally {
+    try {
+      targetDb.exec('PRAGMA foreign_keys = ON;');
+    } catch (_) {}
+  }
 }
 
 function getDatabaseHealth(targetDb = db) {

@@ -470,11 +470,11 @@ class AIModelOrchestrator {
       },
       google_gemini: {
         id: 'google_gemini',
-        name: 'Google Gemini 3.8 Flash',
-        model: 'gemini-3.8-flash',
+        name: 'Google Gemini 4 Hydrogen',
+        model: 'gemini-4-hydrogen',
         isLocal: false,
         implemented: true,
-        adapterStatus: process.env.GEMINI_API_KEY ? 'OPERATIONAL' : 'MISSING_API_KEY',
+        adapterStatus: process.env.GEMINI_API_KEY ? 'CONFIGURED_UNPROBED' : 'MISSING_API_KEY',
         configured: Boolean(process.env.GEMINI_API_KEY)
       }
     };
@@ -655,7 +655,7 @@ class AIModelOrchestrator {
         (allowRedactedCloudFallback && (normProvider === 'OLLAMA' || normProvider === 'LOCAL_OLLAMA')))
     ) {
       const startTime = Date.now();
-      const requestedModel = options.model || process.env.EJII_GEMINI_MODEL || process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-3.8-flash';
+      const requestedModel = options.model || process.env.EJII_GEMINI_MODEL || process.env.EJII_GEMINI_WIRE_MODEL || 'gemini-4-hydrogen';
       const fallbackModel = process.env.EJII_GEMINI_FALLBACK_MODEL || 'gemini-flash-latest';
       let executedModel = requestedModel;
       try {
@@ -738,6 +738,10 @@ class AIModelOrchestrator {
             this.providerTelemetry.GOOGLE_GEMINI.requestedModel = requestedModel;
             this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
           }
+          if (this.providers.google_gemini) {
+            this.providers.google_gemini.adapterStatus = 'OPERATIONAL';
+            this.providers.google_gemini.model = executedModel;
+          }
           return {
             liveResponse: true,
             isMock: false,
@@ -769,6 +773,9 @@ class AIModelOrchestrator {
           this.providerTelemetry.GOOGLE_GEMINI.lastModel = executedModel;
           this.providerTelemetry.GOOGLE_GEMINI.requestedModel = requestedModel;
           this.providerTelemetry.GOOGLE_GEMINI.lastCheckedAtIso = new Date().toISOString();
+        }
+        if (this.providers.google_gemini) {
+          this.providers.google_gemini.adapterStatus = failureState;
         }
         return {
           liveResponse: false,
@@ -1563,7 +1570,7 @@ class AIModelOrchestrator {
         status: hasGeminiKey
           ? (this.providerTelemetry.GOOGLE_GEMINI?.status !== 'UNPROBED' ? this.providerTelemetry.GOOGLE_GEMINI.status : 'CONFIGURED')
           : 'KEY_ABSENT',
-        model: this.providerTelemetry.GOOGLE_GEMINI?.lastModel || process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash',
+        model: this.providerTelemetry.GOOGLE_GEMINI?.lastModel || process.env.EJII_GEMINI_MODEL || 'gemini-4-hydrogen',
         latencyMs: this.providerTelemetry.GOOGLE_GEMINI?.lastLatencyMs || null,
         callsCount: this.providerTelemetry.GOOGLE_GEMINI?.callsCount || 0,
         successCount: this.providerTelemetry.GOOGLE_GEMINI?.successCount || 0,

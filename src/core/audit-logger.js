@@ -227,7 +227,7 @@ function logAction({ userId, username, role, action, resource, details }, target
       action,
       resource || 'host',
       detailStr,
-      '127.0.0.1',
+      params.ipAddress || 'local_process',
       dbPrevHash,
       dbHash
     );
@@ -419,18 +419,22 @@ function verifyChainIntegrity() {
   try {
     const records = db.prepare('SELECT * FROM audit_logs ORDER BY id ASC').all();
     if (!records || records.length === 0) {
-      return { valid: true, totalRecords: 0, brokenAtId: null, message: 'Audit log is empty.' };
+      const msg = 'Audit log is empty.';
+      return { valid: true, totalRecords: 0, recordsChecked: 0, brokenAtId: null, message: msg, details: msg };
     }
 
     let expectedPrevHash = GENESIS_HASH;
     for (let i = 0; i < records.length; i++) {
       const rec = records[i];
       if (rec.prev_hash !== expectedPrevHash) {
+        const msg = `Broken chain link at Record ID ${rec.id}. Expected prev_hash '${expectedPrevHash}', but found '${rec.prev_hash}'. Possible record deletion or reordering.`;
         return {
           valid: false,
           totalRecords: records.length,
+          recordsChecked: records.length,
           brokenAtId: rec.id,
-          message: `Broken chain link at Record ID ${rec.id}. Expected prev_hash '${expectedPrevHash}', but found '${rec.prev_hash}'. Possible record deletion or reordering.`
+          message: msg,
+          details: msg
         };
       }
 
@@ -448,24 +452,30 @@ function verifyChainIntegrity() {
         .digest('hex');
 
       if (rec.hash !== recomputed && rec.hash !== altRecomputed) {
+        const msg = `Tampered record detected at Record ID ${rec.id}. Hash mismatch: stored '${rec.hash}', calculated '${recomputed}'. Record content was altered.`;
         return {
           valid: false,
           totalRecords: records.length,
+          recordsChecked: records.length,
           brokenAtId: rec.id,
-          message: `Tampered record detected at Record ID ${rec.id}. Hash mismatch: stored '${rec.hash}', calculated '${recomputed}'. Record content was altered.`
+          message: msg,
+          details: msg
         };
       }
       expectedPrevHash = rec.hash;
     }
 
+    const okMsg = `All ${records.length} audit records verified cryptographically. Chain integrity intact.`;
     return {
       valid: true,
       totalRecords: records.length,
+      recordsChecked: records.length,
       brokenAtId: null,
-      message: `All ${records.length} audit records verified cryptographically. Chain integrity intact.`
+      message: okMsg,
+      details: okMsg
     };
   } catch (e) {
-    return { valid: false, totalRecords: 0, brokenAtId: -1, message: e.message };
+    return { valid: false, totalRecords: 0, recordsChecked: 0, brokenAtId: -1, message: e.message, details: e.message };
   }
 }
 

@@ -503,7 +503,7 @@ router.post('/investigation/multi-domain', async (req, res) => {
 });
 
 // 9. Pre-Incident Chronological Timeline & Patient Zero Reconstructor
-router.get('/memory/timeline', (req, res) => {
+router.get('/memory/timeline', authenticate, (req, res) => {
   try {
     const target = String(req.query.target || '127.0.0.1').trim();
     if (!isSafeNetworkTarget(target)) {
@@ -520,7 +520,7 @@ router.get('/memory/timeline', (req, res) => {
   }
 });
 
-router.get('/memory/timeline/:target', (req, res) => {
+router.get('/memory/timeline/:target', authenticate, (req, res) => {
   try {
     const target = String(req.params.target || '127.0.0.1').trim();
     if (!isSafeNetworkTarget(target)) {

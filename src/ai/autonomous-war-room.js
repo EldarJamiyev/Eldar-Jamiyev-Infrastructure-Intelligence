@@ -3058,9 +3058,9 @@ class AutonomousWarRoomOrchestrator {
 
         let crdtData = {
             partitionId,
-            convergenceStatus: 'CONVERGED',
+            convergenceStatus: 'UNVERIFIED_ENGINE_UNAVAILABLE',
             resolvedConflictsCount: 0,
-            vectorClock: { 'cluster-core': 1 }
+            vectorClock: {}
         };
         try {
             const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
@@ -3068,12 +3068,15 @@ class AutonomousWarRoomOrchestrator {
                 const cRes = geoPartitionCrdtEngine.reconcileWithRemotePartition(partitionId);
                 crdtData = {
                     partitionId,
-                    convergenceStatus: cRes.convergenceStatus || 'CONVERGED',
-                    resolvedConflictsCount: cRes.resolvedConflictsCount || 0,
-                    vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || { 'cluster-core': 1 }
+                    convergenceStatus: cRes.convergenceStatus || 'NO_REMOTE_DELTAS_AVAILABLE',
+                    resolvedConflictsCount: cRes.conflictsResolvedCount ?? cRes.resolvedConflictsCount ?? 0,
+                    vectorClock: cRes.convergedVectorClock || geoPartitionCrdtEngine.getVectorClock?.() || {}
                 };
             }
-        } catch (_) {}
+        } catch (crdtErr) {
+            crdtData.convergenceStatus = 'ERROR';
+            crdtData.error = crdtErr && crdtErr.message ? crdtErr.message : String(crdtErr);
+        }
 
         return {
             success: true,

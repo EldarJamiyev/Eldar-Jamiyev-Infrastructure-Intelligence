@@ -1125,12 +1125,12 @@ class ToolSandbox {
 
   async _execCrdtWanReconcile(params) {
     const { geoPartitionCrdtEngine } = require('./multisite/geo-partition-crdt-engine');
-    const remoteSiteId = params.remoteSiteId || 'site-remote-backup';
-    const remoteClock = params.remoteClock || { [remoteSiteId]: 1 };
+    const remoteSiteId = String(params.remoteSiteId || params.targetPartition || '').trim();
+    const remoteClock = params.remoteClock && typeof params.remoteClock === 'object' ? params.remoteClock : {};
     const remoteDeltas = Array.isArray(params.remoteDeltas) ? params.remoteDeltas : [];
     const report = geoPartitionCrdtEngine.reconcileWithRemote(remoteSiteId, remoteClock, remoteDeltas);
     return {
-      success: true,
+      success: report.convergenceStatus === 'CONVERGED',
       tool: 'crdt_wan_reconcile',
       reconciliationReport: report,
       currentState: geoPartitionCrdtEngine.getFullStateSnapshot(),

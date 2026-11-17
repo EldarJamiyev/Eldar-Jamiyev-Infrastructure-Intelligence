@@ -1229,7 +1229,7 @@ class ChatOperatorService {
 
     // 00C. Composite Local-Path / Layer-by-Layer Gateway & ISP Diagnostic (Never asks for a hostname)
     const isLocalPathPrompt =
-      /\b(check (?:layer by layer|layer-by-layer|hop by hop|hop-by-hop|step by step)|check (?:my )?connection layer by layer|is (?:my )?(?:router|gateway) reachable and can i reach the internet|connection to gateway and isp|gateway to isp|local connection and internet path|network adapter through the gateway to the internet|where my connection fails,? from (?:the )?local interface to (?:the )?isp)\b/i.test(lower);
+      /\b(check (?:layer by layer|layer-by-layer|hop by hop|hop-by-hop|step by step)|check (?:my )?connection layer by layer|is (?:my )?(?:router|gateway) reachable and can i reach the internet|connection to gateway and isp|gateway to isp|local connection and internet path|network adapter through the gateway to the internet|where my connection fails,? from (?:the )?local interface to (?:the )?isp|(?:why is |why'?s )?(?:the )?internet (?:is )?(?:so )?(?:slow|sluggish|laggy|crawling))\b/i.test(lower);
     if (isLocalPathPrompt) {
       return {
         intent: 'local_path_diagnostic',
@@ -1546,8 +1546,8 @@ class ChatOperatorService {
 
     const isExplanationOrComparisonFollowUp =
       isDnsHypothesisFollowUp ||
-      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (?:that's|thats|that is|the [a-z0-9 _-]+ is) (?:the problem|responsible|the cause|at fault|failing)\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|what did we (?:discover|find|test|observe)(?: earlier| so far| previously| before)?\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done|discovered)( so far| earlier)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found|discovered)( so far| earlier)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior)).*|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier|yesterday)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
-      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it not responding|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|what did we discover|what did we find earlier|why do you think .* is (?:responsible|the problem|the cause|at fault)|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:the )?(?:current|latest) result with yesterday|compare (?:it|that|this) with (?:the previous result|yesterday|earlier)|compare with (?:the previous result|yesterday|earlier)|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
+      /^(why\??|why is that\??|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|responding like that|acting like that|behaving like that|returning that|doing that|responding|failing|timing out|down|slow|refusing connections)\??|why did (that|it|that service|the service) (fail|happen|time out).*|why do you think (?:that's|thats|that is|the [a-z0-9 _-]+ is) (?:the problem|responsible|the cause|at fault|failing)\??|why did you say (that|the connection was healthy|it was healthy|it failed)\??|are you sure\??|how do you know\??|what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure|result|status|latency|packet loss) mean\??|what does that mean\??|what did the (last|previous) check tell us\??|what did we (?:discover|find|test|observe)(?: earlier| so far| previously| before)?\??|can you explain the (previous|last) result\??|explain the (previous|last) result|which layer failed\??|explain the results?\??|summarize what (you|we) (have )?(found|tested|done|discovered)( so far| earlier)?\??|can you summarize what we have found( so far)?\??|give me a concise incident report|prepare a technical incident report|incident report|what should i do (now|next)\??|tell me the next step|what have we (tested|found|discovered)( so far| earlier)?\??|show memory|compare (all )?hosts|compare the latest|compare (?:the )?(?:current|latest) (?:result|check|scan|state)(?:s)? (?:with|to) (?:yesterday|earlier|before|the (?:previous|last|earlier|prior)).*|compare (?:it|that|this)(?: with| to) (?:the )?(?:previous|last|earlier|prior|yesterday)(?: result| check| scan| test| run| state| observation)?\.?|compare with (?:the )?(?:previous|last|earlier|yesterday)(?: result| check| scan| test)?\.?|compare (?:this|that) host'?s? current state to (?:the )?previous(?: scan| test| check)?|what changed\??|what changed since|show me what changed|what happened\??)$/i.test(raw) ||
+      ((/\b(summarize what|incident report|which layer failed|why did that fail|why did it fail|why did that service fail|why is it (?:not responding|responding like that|acting like that|behaving like that|returning that|doing that)|why isn't it responding|what does that timeout mean|what does this timeout mean|right after (?:the )?gateway latency|explain the previous result|explain the last result|what did the last check tell us|what did we discover|what did we find earlier|why do you think .* is (?:responsible|the problem|the cause|at fault)|why did you say the connection was healthy|what have we found so far|what have we tested|compare hosts|compare the latest|compare (?:the )?(?:current|latest) result with yesterday|compare (?:it|that|this) with (?:the previous result|yesterday|earlier)|compare with (?:the previous result|yesterday|earlier)|compare it to the previous result|compare (?:this|that) host'?s? current state|to the previous scan|what changed since|show me what changed)\b/i.test(lower)) &&
         !/\b(ping |check port|test port|resolve |traceroute )\b/i.test(lower));
 
     if (isExplanationOrComparisonFollowUp) {
@@ -1816,7 +1816,7 @@ class ChatOperatorService {
 
     // 6. Check contextual target references ("same host", "first host", "the other host / the other server / the other one")
     const refersToFirstTarget = /\b(first host|first domain|first server|initial host|original host)\b/i.test(lower);
-    const refersToOtherTarget = /\b(other host|other server|other domain|other endpoint|the other one)\b/i.test(lower);
+    const refersToOtherTarget = /\b(other host|other server|other domain|other endpoint|other machine|other box|other node|the other one)\b/i.test(lower);
 
     if (isForgetTargetRequest && !refersToOtherTarget && !explicitTarget) {
       if (session) {
@@ -2462,7 +2462,7 @@ class ChatOperatorService {
           semanticDiagnostics.durationMs = semDuration;
           if (override && typeof override === 'object') {
             semanticDiagnostics.provider = override.modelProvider || 'EXTERNAL_LLM';
-            semanticDiagnostics.model = override.executedModel || process.env.EJII_GEMINI_MODEL || 'gemini-3.8-flash';
+            semanticDiagnostics.model = override.executedModel || process.env.EJII_GEMINI_MODEL || 'gemini-4-hydrogen';
             semanticDiagnostics.success = true;
             semanticDiagnostics.parsingOutcome = override.modelInterpreted ? 'MODEL_INTERPRETED_PLAN' : 'DETERMINISTIC_OVERRIDE';
             if (override.intent) {
@@ -6471,7 +6471,7 @@ class ChatOperatorService {
           `**DNS Hypothesis Evaluation for \`${effectiveTargetLabel}\`:**\n` +
           `DNS resolution is a plausible cause whenever a hostname fails before a TCP socket can be established. Run **\`Check DNS for ${effectiveTargetLabel}\`** to test its A/AAAA records and resolver latency directly.`;
       }
-    } else if (/\b(what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure) mean|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|timing out))\b/i.test(lower)) {
+    } else if (/\b(what does (?:that|this|the|a) (?:timeout|time out|error|refusal|connection refused|reset|failure) mean|why (?:is|isn't|isnt) (?:it|that|this|the server|that server|the host|that host|the site|the service|the endpoint) (?:not responding|timing out|responding like that|acting like that|behaving like that|returning that|doing that))\b/i.test(lower)) {
       const stepSummary = prevSteps.length > 0
         ? prevSteps.map((s) => `${s.label || s.tool}: ${s.status} (${s.summary})`).join('; ')
         : (prevAns.result || 'No response observed within timeout window');
@@ -8666,18 +8666,40 @@ class ChatOperatorService {
 
     const t0 = performance.now();
     const toolExec = await toolSandbox.executeTool('crdt_wan_reconcile', {
+      remoteSiteId: targetPartition,
       targetPartition,
-      syncMode
+      syncMode,
+      remoteClock: plan.remoteClock || {},
+      remoteDeltas: Array.isArray(plan.remoteDeltas) ? plan.remoteDeltas : []
     }, { role: 'SYSADMIN', username: session.username || 'operator' });
     const durationMs = Number((performance.now() - t0).toFixed(2));
 
     const report = toolExec?.result?.reconciliationReport || toolExec?.result || {};
-    const status = report.convergenceStatus || 'CONVERGED';
-    const resolvedConflicts = report.resolvedConflictsCount || 0;
+    const status = report.convergenceStatus || 'UNVERIFIED';
+    const resolvedConflicts = Number(report.resolvedConflictsCount) || 0;
+    const deltasApplied = Number(report.deltasAppliedCount) || 0;
+    const isConverged = status === 'CONVERGED';
+    const isNoRemoteDeltas = status === 'NO_REMOTE_DELTAS_AVAILABLE';
 
-    const result = `CRDT anti-entropy reconciliation with \`${targetPartition}\` complete (status: **${status}**, resolved: ${resolvedConflicts}).`;
-    const meaning = `State-based CvRDT merge and vector clock reconciliation achieved deterministic monotonic convergence across WAN partitions without data loss.`;
-    const nextStep = `Monitor real-time replication gossip and inspect remote vector clocks.`;
+    let result;
+    let meaning;
+    let nextStep;
+    if (isConverged) {
+      result = `CRDT anti-entropy reconciliation with \`${targetPartition}\` converged (deltas merged: ${deltasApplied}, resolved: ${resolvedConflicts}).`;
+      meaning = `State-based CvRDT merge and vector clock reconciliation integrated remote deltas cleanly across WAN partitions.`;
+      nextStep = `Inspect updated vector clock versions and continue monitoring peer replication deltas.`;
+    } else if (isNoRemoteDeltas) {
+      result = `CRDT reconciliation with \`${targetPartition}\` did not advance state (status: **${status}** — zero remote deltas or clock increments supplied).`;
+      meaning = `Reconciliation was rejected fail-closed rather than fabricating convergence when no remote delta payload or newer vector clock arrived.`;
+      nextStep = `Supply remote vector clock state or delta records from \`${targetPartition}\` before retrying reconciliation.`;
+    } else {
+      result = `CRDT reconciliation with \`${targetPartition}\` failed or remains incomplete (status: **${status}**${report.errorMessage ? `: ${report.errorMessage}` : ''}).`;
+      meaning = report.errorMessage || `CRDT state reconciliation did not converge cleanly.`;
+      nextStep = `Verify peer partition identity, remote delta transport, and SQLite durability diagnostics.`;
+    }
+
+    const stepStatus = isConverged ? 'PASS' : (isNoRemoteDeltas ? 'WARN' : 'FAIL');
+    const findingTone = isConverged ? 'ok' : (isNoRemoteDeltas ? 'warn' : 'bad');
 
     return {
       reply: `**Result:** ${result}\n\n**Meaning:** ${meaning}\n\n**Next Step:** ${nextStep}`,
@@ -8686,6 +8708,7 @@ class ChatOperatorService {
         meaning,
         nextStep,
         convergenceStatus: status,
+        deltasAppliedCount: deltasApplied,
         resolvedConflictsCount: resolvedConflicts,
         targetPartition,
         syncMode,
@@ -8697,15 +8720,16 @@ class ChatOperatorService {
           layer: 'L5_CRDT_REPLICATION',
           label: `Reconciling CvRDT state across WAN with ${targetPartition}…`,
           tool: 'crdt_wan_reconcile',
-          status: 'PASS',
-          summary: `Anti-entropy sync finished (${syncMode} mode): convergence ${status}, ${resolvedConflicts} conflicts merged`,
+          status: stepStatus,
+          summary: `Anti-entropy sync (${syncMode} mode): ${status}, ${deltasApplied} deltas applied, ${resolvedConflicts} conflicts merged`,
           durationMs
         }
       ],
       findings: [
         { label: 'Target Partition', value: targetPartition, tone: 'neutral' },
-        { label: 'Convergence Status', value: status, tone: 'ok' },
-        { label: 'Merged Conflicts', value: String(resolvedConflicts), tone: 'ok' },
+        { label: 'Convergence Status', value: status, tone: findingTone },
+        { label: 'Deltas Applied', value: String(deltasApplied), tone: isConverged ? 'ok' : 'neutral' },
+        { label: 'Merged Conflicts', value: String(resolvedConflicts), tone: 'neutral' },
         { label: 'Sync Mode', value: syncMode, tone: 'neutral' }
       ],
       technicalEvidence: {

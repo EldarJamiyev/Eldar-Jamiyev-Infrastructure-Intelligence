@@ -824,7 +824,14 @@
             return localCard + peers.map((p) => {
               const siteName = typeof p === 'string' ? p : (p.siteId || 'unknown-peer');
               const peerStatus = typeof p === 'object' && p.status ? p.status : 'DISCOVERED';
-              const latLabel = typeof p === 'object' && Number.isFinite(Number(p.observedLatencyMs)) ? `${p.observedLatencyMs}ms` : 'Unmeasured';
+              const latLabel =
+                typeof p === 'object' &&
+                p.observedLatencyMs !== null &&
+                p.observedLatencyMs !== undefined &&
+                p.observedLatencyMs !== '' &&
+                Number.isFinite(Number(p.observedLatencyMs))
+                  ? `${p.observedLatencyMs}ms`
+                  : 'Unmeasured';
               const deltaCount = typeof p === 'object' ? Number(p.deltaCount || 0) : 0;
               return `
                 <div style="background:rgba(30, 41, 59, 0.7); border:1px solid rgba(148, 163, 184, 0.2); border-radius:6px; padding:12px 14px;">
@@ -1789,12 +1796,22 @@
 
   window.triggerGeoPartitionCrdtSync = async function(partitionId) {
     const grid = document.getElementById('crdtPartitionsGrid');
+    const localSiteId = enterpriseData.crdtState?.localSiteId || '';
+    const firstPeer = Array.isArray(enterpriseData.crdtState?.knownPartitions) && enterpriseData.crdtState.knownPartitions[0];
+    const resolvedPeer = typeof firstPeer === 'object' ? firstPeer?.siteId : firstPeer;
+    const targetPartition = String(partitionId || resolvedPeer || '').trim();
+
+    if (!targetPartition || (localSiteId && targetPartition.toLowerCase() === localSiteId.toLowerCase())) {
+      if (grid) {
+        grid.innerHTML = `<div style="padding: 10px 12px; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; background: rgba(245, 158, 11, 0.08); color: #f59e0b; font-size: 11px;">No remote CRDT peer partition is registered yet. Reconcile requires a distinct peer partition with unreconciled deltas.</div>`;
+      }
+      return;
+    }
+
     if (grid) {
       grid.style.opacity = '0.6';
     }
     try {
-      const firstPeer = Array.isArray(enterpriseData.crdtState?.knownPartitions) && enterpriseData.crdtState.knownPartitions[0];
-      const targetPartition = partitionId || (typeof firstPeer === 'object' ? firstPeer?.siteId : firstPeer) || enterpriseData.crdtState?.localSiteId || 'site-primary';
       await window.api('/api/v6/sovereign/crdt/reconcile', {
         method: 'POST',
         body: JSON.stringify({ targetPartition, syncMode: 'delta' })
@@ -1802,7 +1819,17 @@
       await loadEnterpriseData();
       renderEnterpriseNocView();
     } catch (err) {
-      if (grid) grid.style.opacity = '1.0';
+      if (grid) {
+        grid.style.opacity = '1.0';
+        const existingBanner = grid.querySelector('[data-crdt-sync-banner="true"]');
+        if (existingBanner) existingBanner.remove();
+        const msg = (err && err.message && err.message !== '[object Object]') ? err.message : 'CRDT reconciliation failed';
+        const errDiv = document.createElement('div');
+        errDiv.setAttribute('data-crdt-sync-banner', 'true');
+        errDiv.style.cssText = 'grid-column:1 / -1;padding:8px 10px;border:1px solid rgba(245,158,11,0.4);border-radius:6px;background:rgba(245,158,11,0.08);color:#fbbf24;font-size:11px;';
+        errDiv.textContent = msg;
+        grid.appendChild(errDiv);
+      }
     }
   };
 

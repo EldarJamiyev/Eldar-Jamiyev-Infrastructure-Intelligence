@@ -747,7 +747,16 @@ async function api(endpoint, options = {}) {
         state.user = null;
         try { localStorage.removeItem('ejii_token'); } catch (_) {}
       }
-      throw new Error(data.error || `HTTP ${res.status}: ${res.statusText}`);
+      const rawErrMsg = typeof data.error === 'string'
+        ? data.error
+        : (data.error && typeof data.error === 'object'
+          ? (data.error.message || data.error.code || JSON.stringify(data.error))
+          : null);
+      const err = new Error(rawErrMsg || data.message || `HTTP ${res.status}: ${res.statusText}`);
+      if (data.error && typeof data.error === 'object' && data.error.code) {
+        err.code = data.error.code;
+      }
+      throw err;
     }
     return data;
   } catch (err) {

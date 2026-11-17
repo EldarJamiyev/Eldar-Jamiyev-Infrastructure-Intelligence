@@ -70,7 +70,12 @@ class CrossLayerIncidentCorrelator {
   correlateSignals(input = {}) {
     const nowIso = new Date().toISOString();
     const incidentId = input.incidentId || `INC-V6-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const target = String(input.target || input.hostname || '10.22.12.204');
+    const target = String(input.target || input.hostname || '').trim();
+    if (!target) {
+      const err = new Error('INVALID_CORRELATION_TARGET: Explicit target hostname or IP is required for cross-layer correlation.');
+      err.code = 'INVALID_CORRELATION_TARGET';
+      throw err;
+    }
     const signals = Array.isArray(input.signals) ? input.signals : [];
 
     const recordedEvidence = [];

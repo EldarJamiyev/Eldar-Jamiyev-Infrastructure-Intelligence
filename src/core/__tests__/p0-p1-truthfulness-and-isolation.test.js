@@ -385,18 +385,35 @@ describe('EJII P0/P1 Truthfulness, Isolation & Integrity Regressions', () => {
     assert.notStrictEqual(scenarioPlan.target, '127.0.0.1');
   });
 
-  it('T11: GeoPartitionCrdtEngine exposes getStateSummary and reconciles remote partitions without runtime errors', () => {
+  it('T11: GeoPartitionCrdtEngine enforces fail-closed checks and converges cleanly with real remote deltas', () => {
     const crdt = new GeoPartitionCrdtEngine('site-test-primary');
     crdt.incrementCounter('packets_verified', 3);
     const summaryBefore = crdt.getStateSummary();
     assert.strictEqual(summaryBefore.localSiteId, 'site-test-primary');
     assert.strictEqual(summaryBefore.pnCounterCount, 1);
 
-    const report = crdt.reconcileWithRemotePartition('region-eu-west', { 'region-eu-west': 2 }, []);
+    // 1. Self-target is rejected fail-closed
+    const selfReport = crdt.reconcileWithRemotePartition('site-test-primary', {}, []);
+    assert.strictEqual(selfReport.convergenceStatus, 'INVALID_SELF_TARGET');
+
+    // 2. Vacuous remote sync without clock advancement or deltas is rejected
+    const emptyReport = crdt.reconcileWithRemotePartition('region-eu-west', {}, []);
+    assert.strictEqual(emptyReport.convergenceStatus, 'NO_REMOTE_DELTAS_AVAILABLE');
+
+    // 3. Real remote delta converges and tracks peer
+    const report = crdt.reconcileWithRemotePartition('region-eu-west', { 'region-eu-west': 2 }, [
+      {
+        crdtType: 'PN_COUNTER',
+        key: 'packets_verified',
+        operation: 'MERGE',
+        deltaPayload: { positive: { 'region-eu-west': 4 }, negative: {} }
+      }
+    ]);
     assert.strictEqual(report.remoteSiteId, 'region-eu-west');
     assert.strictEqual(report.convergenceStatus, 'CONVERGED');
     assert.ok(report.convergedVectorClock['site-test-primary'] >= 2);
     assert.strictEqual(report.convergedVectorClock['region-eu-west'], 2);
+    assert.strictEqual(crdt.getCounterValue('packets_verified'), 7);
 
     const summaryAfter = crdt.getStateSummary();
     assert.strictEqual(summaryAfter.status, 'RECONCILED');

@@ -10,10 +10,10 @@ const path = require('path');
 const fs = require('fs');
 
 process.on('uncaughtException', (err) => {
-  console.error('[EJII Server] Uncaught Exception:', err);
+  console.error('[EJII Server] Uncaught Exception:', err && (err.stack || err.message || err));
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[EJII Server] Unhandled Promise Rejection:', reason);
+  console.error('[EJII Server] Unhandled Promise Rejection:', reason && (reason.stack || reason.message || reason));
 });
 
 if (process.stdout && typeof process.stdout.on === 'function') {
@@ -389,7 +389,7 @@ app.use((err, req, res, next) => {
 
 // WebSocket real-time connections
 const activeClients = new Set();
-const { verifyToken, hasPermission } = require('./core/security');
+const { verifyToken, hasPermission, isSafeNetworkTarget } = require('./core/security');
 
 wss.on('connection', (ws, req) => {
   activeClients.add(ws);
@@ -501,24 +501,70 @@ wss.on('connection', (ws, req) => {
           frames: packetStreamer.frameRingBuffer.slice(-50)
         }));
       } else if (data.type === 'STOP_PACKET_STREAM') {
+        if (!hasPermission(ws.user.role, 'network.capture.execute')) {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'INSUFFICIENT_PERMISSIONS',
+            error: `Access denied: Role '${ws.user.role}' lacks 'network.capture.execute' capability.`
+          }));
+        }
         packetStreamer.stopStreaming();
         ws.send(JSON.stringify({ type: 'PACKET_STREAM_STATUS', active: false }));
       } else if (data.type === 'SUBSCRIBE_SOVEREIGN_FEEDS') {
+        if (!ws.user || ws.user.id === 'ANON') {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'AUTH_REQUIRED',
+            error: 'Authentication required to subscribe to sovereign telemetry feeds.'
+          }));
+        }
         const { geoPartitionCrdtEngine } = require('./core/multisite/geo-partition-crdt-engine');
         const { getSharedCachelineRingBuffer } = require('./sniffer/lockfree-cacheline-ring-buffer');
         const ringBuffer = getSharedCachelineRingBuffer();
+        const crdtSummary = typeof geoPartitionCrdtEngine.getStateSummary === 'function'
+          ? geoPartitionCrdtEngine.getStateSummary()
+          : { localSiteId: geoPartitionCrdtEngine.getLocalSiteId?.() || null, trackedPeers: [] };
         ws.send(JSON.stringify({
           type: 'SOVEREIGN_FEEDS_SNAPSHOT',
           timestamp: new Date().toISOString(),
           crdtState: {
-            vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || { 'cluster-core': 1 },
-            partitions: ['region-us-east', 'region-eu-west', 'region-ap-south']
+            localSiteId: crdtSummary.localSiteId || null,
+            vectorClock: geoPartitionCrdtEngine.getVectorClock?.() || {},
+            partitions: Array.isArray(crdtSummary.trackedPeers) ? crdtSummary.trackedPeers : []
           },
           ringBufferPerf: ringBuffer.getHardwarePerfStats()
         }));
       } else if (data.type === 'TRIGGER_SOVEREIGN_PROBE') {
+        if (!ws.user || ws.user.id === 'ANON') {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'AUTH_REQUIRED',
+            error: 'Authentication required to trigger sovereign active probing.'
+          }));
+        }
+        if (!['OPERATOR', 'ANALYST', 'NOC_OPERATOR', 'SYSADMIN', 'NETWORK_ADMIN', 'ADMIN'].includes(ws.user.role)) {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'INSUFFICIENT_PERMISSIONS',
+            error: `Access denied: Role '${ws.user.role}' cannot execute active probes.`
+          }));
+        }
+        const target = typeof data.target === 'string' ? data.target.trim() : '';
+        if (!target) {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'INVALID_TARGET',
+            error: 'Explicit probe target is required.'
+          }));
+        }
+        if (!isSafeNetworkTarget(target)) {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'SECURITY_VIOLATION_SSRF',
+            error: `Target '${target}' rejected by SSRF security guard.`
+          }));
+        }
         const { adaptivePomdpProbeOrchestrator, DEFAULT_DIAGNOSTIC_PROBES } = require('./diagnostics/adaptive-pomdp-probe-orchestrator');
-        const target = data.target || '127.0.0.1';
         const incidentId = data.incidentId || `inc_ws_${Date.now()}`;
         const prior = data.prior || {
           H_MTU_BLACKHOLE: 0.25,
@@ -534,6 +580,13 @@ wss.on('connection', (ws, req) => {
           timestamp: new Date().toISOString()
         }));
       } else if (data.type === 'GET_CACHELINE_STATS') {
+        if (!ws.user || ws.user.id === 'ANON') {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'AUTH_REQUIRED',
+            error: 'Authentication required to read cacheline telemetry.'
+          }));
+        }
         const { getSharedCachelineRingBuffer } = require('./sniffer/lockfree-cacheline-ring-buffer');
         const ringBuffer = getSharedCachelineRingBuffer();
         ws.send(JSON.stringify({
@@ -543,14 +596,47 @@ wss.on('connection', (ws, req) => {
           timestamp: new Date().toISOString()
         }));
       } else if (data.type === 'TRIGGER_CRDT_SYNC') {
+        if (!ws.user || ws.user.id === 'ANON') {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'AUTH_REQUIRED',
+            error: 'Authentication required to trigger CRDT partition reconciliation.'
+          }));
+        }
+        if (!['OPERATOR', 'NOC_OPERATOR', 'SYSADMIN', 'NETWORK_ADMIN', 'ADMIN'].includes(ws.user.role)) {
+          return ws.send(JSON.stringify({
+            type: 'STREAM_ERROR',
+            code: 'INSUFFICIENT_PERMISSIONS',
+            error: `Access denied: Role '${ws.user.role}' lacks permission for CRDT partition reconciliation.`
+          }));
+        }
+        const targetPartition = typeof data.targetPartition === 'string' ? data.targetPartition.trim() : '';
+        if (!targetPartition) {
+          return ws.send(JSON.stringify({
+            type: 'CRDT_SYNC_REJECTED',
+            code: 'INVALID_TARGET_PARTITION',
+            error: 'Explicit non-empty targetPartition is required for CRDT reconciliation.',
+            timestamp: new Date().toISOString()
+          }));
+        }
         const { geoPartitionCrdtEngine } = require('./core/multisite/geo-partition-crdt-engine');
-        const targetPartition = data.targetPartition || 'region-us-east';
-        const report = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition);
-        broadcast('CRDT_PARTITION_RECONCILED', {
-          targetPartition,
-          report,
-          timestamp: new Date().toISOString()
-        });
+        const remoteClock = data.remoteClock && typeof data.remoteClock === 'object' ? data.remoteClock : {};
+        const remoteDeltas = Array.isArray(data.remoteDeltas) ? data.remoteDeltas : [];
+        const report = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition, remoteClock, remoteDeltas);
+        if (report.convergenceStatus === 'CONVERGED') {
+          broadcast('CRDT_PARTITION_RECONCILED', {
+            targetPartition,
+            report,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          ws.send(JSON.stringify({
+            type: 'CRDT_SYNC_REJECTED',
+            targetPartition,
+            report,
+            timestamp: new Date().toISOString()
+          }));
+        }
       }
     } catch (e) {}
   });
@@ -807,6 +893,7 @@ function probeActiveEjiiServer(host, port, timeoutMs = 1200) {
 }
 
 // Start server
+let previewServer = null;
 if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
   server.on('error', async (err) => {
     if (err && err.code === 'EADDRINUSE') {
@@ -868,7 +955,7 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
     // Ensure AI Studio preview port 3000 is always served even if started with default PORT=8443
     if (Number(PORT) !== 3000 && process.env.NODE_ENV !== 'test') {
       try {
-        const previewServer = http.createServer(app);
+        previewServer = http.createServer(app);
         previewServer.keepAliveTimeout = 65000;
         previewServer.headersTimeout = 66000;
         previewServer.on('connection', (socket) => {
@@ -880,11 +967,15 @@ if (require.main === module || process.env.EJII_AUTO_LISTEN === 'true') {
             wss.emit('connection', ws, request);
           });
         });
-        previewServer.on('error', () => {});
+        previewServer.on('error', (pErr) => {
+          console.error('[EJII Preview Bridge Error]:', pErr && pErr.message ? pErr.message : pErr);
+        });
         previewServer.listen(3000, HOST, () => {
           console.log(`  [EJII Preview Bridge] Listening on http://${HOST}:3000`);
         });
-      } catch (_) {}
+      } catch (pStartErr) {
+        console.error('[EJII Preview Bridge Init Failed]:', pStartErr && pStartErr.message ? pStartErr.message : pStartErr);
+      }
     }
 
     // Fast non-blocking deferred initialization: background sweeps run AFTER port is bound
@@ -927,6 +1018,9 @@ async function gracefulShutdown(signal = 'SIGTERM') {
     if (typeof server.closeIdleConnections === 'function') {
       server.closeIdleConnections();
     }
+    if (previewServer && typeof previewServer.closeIdleConnections === 'function') {
+      previewServer.closeIdleConnections();
+    }
   } catch (_) {}
 
   await new Promise((resolve) => {
@@ -939,13 +1033,20 @@ async function gracefulShutdown(signal = 'SIGTERM') {
     }, 5000);
 
     wss.close(() => {
-      server.close(() => {
+      const finalizeClose = () => {
         clearTimeout(forceTimer);
         try {
           db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
         } catch (_) {}
         console.log('[EJII] HTTP & WebSocket servers closed, SQLite WAL checkpointed.');
         resolve();
+      };
+      server.close(() => {
+        if (previewServer && previewServer.listening) {
+          previewServer.close(() => finalizeClose());
+        } else {
+          finalizeClose();
+        }
       });
     });
   });

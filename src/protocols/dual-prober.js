@@ -71,13 +71,26 @@ async function probeNodeDual(node) {
   const host = (node.hostname_or_ip || '').trim();
   const nodeType = (node.type || '').toLowerCase();
 
-  // Special-case loopback
+  // Special-case loopback: measure actual ICMP/loopback RTT instead of returning a hardcoded latency
   if (host === '127.0.0.1' || host === 'localhost' || host === '::1') {
+    const pingLoop = await realPing(host, 1, 600);
+    if (pingLoop.success && pingLoop.packetLossPct < 100 && typeof pingLoop.avgRttMs === 'number') {
+      return {
+        success: true,
+        status: 'healthy',
+        latencyMs: Math.max(0.05, Number(pingLoop.avgRttMs.toFixed(2))),
+        probeType: 'loopback_icmp',
+        details: 'Local Host Loopback ICMP Verified'
+      };
+    }
+    const startLoop = performance.now();
+    await dns.lookup(host).catch(() => {});
+    const measuredLoopMs = Math.max(0.05, Number((performance.now() - startLoop).toFixed(2)));
     return {
       success: true,
       status: 'healthy',
-      latencyMs: 0.1,
-      probeType: 'loopback',
+      latencyMs: measuredLoopMs,
+      probeType: 'loopback_resolver',
       details: 'Local Host System Verified'
     };
   }
@@ -122,7 +135,7 @@ async function probeNodeDual(node) {
   }
 
   // B. DNS Endpoint Fallback: Probe port 53 via TCP or test lookup
-  if (nodeType === 'service_dns' || host === '1.1.1.1' || host === '8.8.8.8' || host.startsWith('10.22.')) {
+  if (nodeType === 'service_dns' || host === '1.1.1.1' || host === '8.8.8.8') {
     const dnsTcp = await probeTcp(host, 53, 1500);
     if (dnsTcp.success) {
       return {
@@ -150,12 +163,14 @@ async function probeNodeDual(node) {
 
   // C. Gateway Fallback: Check ARP cache reachability and port 80/443
   if (nodeType === 'gateway' || node.id === 'NODE-GW-01') {
+    const arpStart = performance.now();
     const isArpReachable = await checkArpReachability(host);
+    const arpElapsedMs = Math.max(0.1, Number((performance.now() - arpStart).toFixed(2)));
     if (isArpReachable) {
       return {
         success: true,
         status: 'healthy',
-        latencyMs: 0.8,
+        latencyMs: arpElapsedMs,
         probeType: 'arp_reachability',
         details: 'Operational via Physical ARP Neighbor (ICMP filtered by router)'
       };

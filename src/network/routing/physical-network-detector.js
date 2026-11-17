@@ -207,8 +207,25 @@ function isIpInSubnet(ip, subnetCidr) {
  * Subnet calculator for IPv4 CIDR ranges (/0 to /32)
  */
 function calculateSubnet(ip, prefixLength = 24) {
-  const prefix = Math.min(Math.max(0, parseInt(prefixLength, 10) || 24), 32);
-  const ipParts = (ip || '127.0.0.1').split('.').map(Number);
+  if (typeof ip !== 'string' || !ip.trim()) return null;
+  const rawParts = ip.trim().split('.');
+  if (rawParts.length !== 4) return null;
+  const ipParts = rawParts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) return NaN;
+    return Number(part);
+  });
+  if (ipParts.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return null;
+  }
+
+  let rawPrefix = 24;
+  if (prefixLength !== undefined && prefixLength !== null && prefixLength !== '') {
+    const parsedPrefix = parseInt(String(prefixLength), 10);
+    if (!Number.isNaN(parsedPrefix)) {
+      rawPrefix = parsedPrefix;
+    }
+  }
+  const prefix = Math.min(Math.max(0, rawPrefix), 32);
   const ipNum = ((ipParts[0] << 24) >>> 0) + ((ipParts[1] << 16) >>> 0) + ((ipParts[2] << 8) >>> 0) + (ipParts[3] >>> 0);
   
   const maskNum = prefix === 0 ? 0 : ((0xFFFFFFFF << (32 - prefix)) >>> 0);
@@ -447,34 +464,37 @@ function getPhysicalNetworkInfo(options = {}) {
       if (out && out.startsWith('{')) {
         const parsed = JSON.parse(out);
         if (parsed.Gateway && parsed.HostIp && !isVirtualHypervisorIp(parsed.HostIp)) {
-          const prefix = parsed.Prefix || 24;
+          const parsedPrefix = parsed.Prefix !== undefined && parsed.Prefix !== null ? parseInt(parsed.Prefix, 10) : 24;
+          const prefix = Number.isNaN(parsedPrefix) ? 24 : parsedPrefix;
           const sub = calculateSubnet(parsed.HostIp, prefix);
-          const resolvedAlias = resolveNativeUtf8AdapterName(parsed.HostIp, parsed.IfAlias);
-          const resolvedDns = Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : info.dnsServers);
-          const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : null;
-          const hasValidGateway = Boolean(parsed.Gateway && parsed.Gateway !== '0.0.0.0');
+          if (sub) {
+            const resolvedAlias = resolveNativeUtf8AdapterName(parsed.HostIp, parsed.IfAlias);
+            const resolvedDns = Array.isArray(parsed.Dns) ? parsed.Dns : (parsed.Dns ? [parsed.Dns] : info.dnsServers);
+            const hostMac = parsed.Mac ? parsed.Mac.replace(/-/g, ':').toUpperCase() : null;
+            const hasValidGateway = Boolean(parsed.Gateway && parsed.Gateway !== '0.0.0.0');
 
-          info.hostIp = parsed.HostIp;
-          info.localIp = parsed.HostIp;
-          info.gatewayIp = hasValidGateway ? parsed.Gateway : null;
-          info.defaultGateway = info.gatewayIp;
-          info.gatewayVerified = hasValidGateway;
-          info.gatewayDiscoveryStatus = hasValidGateway ? 'VERIFIED_OS_ROUTE_TABLE' : 'NO_DEFAULT_ROUTE_OBSERVED';
-          info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
-          info.subnetMask = sub.subnetMask;
-          info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
-          info.interfaceAlias = resolvedAlias;
-          info.adapterName = resolvedAlias;
-          info.adapter = resolvedAlias;
-          info.hardwareDescription = parsed.Description || resolvedAlias;
+            info.hostIp = parsed.HostIp;
+            info.localIp = parsed.HostIp;
+            info.gatewayIp = hasValidGateway ? parsed.Gateway : null;
+            info.defaultGateway = info.gatewayIp;
+            info.gatewayVerified = hasValidGateway;
+            info.gatewayDiscoveryStatus = hasValidGateway ? 'VERIFIED_OS_ROUTE_TABLE' : 'NO_DEFAULT_ROUTE_OBSERVED';
+            info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
+            info.subnetMask = sub.subnetMask;
+            info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+            info.interfaceAlias = resolvedAlias;
+            info.adapterName = resolvedAlias;
+            info.adapter = resolvedAlias;
+            info.hardwareDescription = parsed.Description || resolvedAlias;
           info.mac = hostMac;
           info.macAddress = hostMac;
           info.interfaceIndex = parsed.IfIndex || null;
           info.dnsServers = resolvedDns;
           info.primaryDnsIp = resolvedDns[0] || info.primaryDnsIp;
           info.secondaryDnsIp = resolvedDns[1] || resolvedDns[0] || info.secondaryDnsIp;
-          info.dhcpServer = parsed.Dhcp || null;
-          info.isDetected = true;
+            info.dhcpServer = parsed.Dhcp || null;
+            info.isDetected = true;
+          }
         }
       }
     } catch (_) {}
@@ -487,8 +507,10 @@ function getPhysicalNetworkInfo(options = {}) {
           if (/vEthernet|WSL|VirtualBox|VMware/i.test(name)) continue;
           for (const addr of ifaces[name]) {
             if (!addr.internal && addr.family === 'IPv4' && !isVirtualHypervisorIp(addr.address)) {
-              const prefix = addr.cidr && addr.cidr.includes('/') ? (parseInt(addr.cidr.split('/')[1], 10) || 24) : 24;
+              const rawPrefix = addr.cidr && addr.cidr.includes('/') ? parseInt(addr.cidr.split('/')[1], 10) : 24;
+              const prefix = Number.isNaN(rawPrefix) ? 24 : rawPrefix;
               const sub = calculateSubnet(addr.address, prefix);
+              if (!sub) continue;
               const resolvedAlias = resolveNativeUtf8AdapterName(addr.address, name);
               info.hostIp = addr.address;
               info.localIp = addr.address;
@@ -536,29 +558,32 @@ function getPhysicalNetworkInfo(options = {}) {
         const inetMatch = ipOut.match(/inet\s+(\d+\.\d+\.\d+\.\d+)\/(\d+)/);
         if (inetMatch) {
           const ip = inetMatch[1];
-          const prefix = parseInt(inetMatch[2], 10) || 24;
+          const parsedPrefix = parseInt(inetMatch[2], 10);
+          const prefix = Number.isNaN(parsedPrefix) ? 24 : parsedPrefix;
           const sub = calculateSubnet(ip, prefix);
-          info.hostIp = ip;
-          info.localIp = ip;
-          const isApipa = ip.startsWith('169.254.');
-          info.isLinkLocalApipa = isApipa;
-          info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
+          if (sub) {
+            info.hostIp = ip;
+            info.localIp = ip;
+            const isApipa = ip.startsWith('169.254.');
+            info.isLinkLocalApipa = isApipa;
+            info.isSandboxRuntime = isApipa || /gvisor/i.test(os.release());
 
-          if (!gw || gw === ip || gw === '0.0.0.0') {
-            info.gatewayIp = null;
-            info.defaultGateway = null;
-            info.gatewayVerified = false;
-            info.gatewayDiscoveryStatus = 'NO_DEFAULT_ROUTE_OBSERVED';
+            if (!gw || gw === ip || gw === '0.0.0.0') {
+              info.gatewayIp = null;
+              info.defaultGateway = null;
+              info.gatewayVerified = false;
+              info.gatewayDiscoveryStatus = 'NO_DEFAULT_ROUTE_OBSERVED';
+            }
+            if (isApipa) {
+              info.gatewayVendor = info.gatewayVerified
+                ? 'Container Runtime Virtual Interface (Cloud Sandbox)'
+                : 'Container Runtime Scope-Link Interface (No Default Gateway Route)';
+            }
+            info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
+            info.subnetMask = sub.subnetMask;
+            info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
+            info.isDetected = true;
           }
-          if (isApipa) {
-            info.gatewayVendor = info.gatewayVerified
-              ? 'Container Runtime Virtual Interface (Cloud Sandbox)'
-              : 'Container Runtime Scope-Link Interface (No Default Gateway Route)';
-          }
-          info.subnetCidr = `${sub.networkAddress}/${sub.prefixLength}`;
-          info.subnetMask = sub.subnetMask;
-          info.subnetPrefix = sub.networkAddress.split('.').slice(0, 3).join('.');
-          info.isDetected = true;
         }
       }
     } catch (_) {}
@@ -570,8 +595,10 @@ function getPhysicalNetworkInfo(options = {}) {
           if (!Array.isArray(addrs)) continue;
           for (const addr of addrs) {
             if (!addr.internal && addr.family === 'IPv4') {
-              const prefix = addr.cidr && addr.cidr.includes('/') ? (parseInt(addr.cidr.split('/')[1], 10) || 24) : 24;
+              const rawPrefix = addr.cidr && addr.cidr.includes('/') ? parseInt(addr.cidr.split('/')[1], 10) : 24;
+              const prefix = Number.isNaN(rawPrefix) ? 24 : rawPrefix;
               const sub = calculateSubnet(addr.address, prefix);
+              if (!sub) continue;
               const isApipa = addr.address.startsWith('169.254.');
               info.hostIp = addr.address;
               info.localIp = addr.address;
@@ -1009,15 +1036,16 @@ function syncTopologyWithCurrentLocation(dbInstance) {
   // L5: Distribution & Access LAN Subnet (Strict Single Card: NODE-LAN-01)
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-LAN-01', ?, ?, NULL, 'subnet', 'access', 5, 'NODE-GW-01', 'healthy', ?, NULL, 'Access LAN Switched Fabric', 'gig0/1-24', 880, 200, ?)
+    VALUES ('NODE-LAN-01', ?, ?, NULL, 'subnet', 'access', 5, 'NODE-GW-01', 'unprobed', NULL, NULL, 'Local Subnet Segment', ?, 880, 200, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
-      last_checked = excluded.last_checked
+      vendor = excluded.vendor,
+      if_name = excluded.if_name
   `).run(
     `Distribution & Access LAN (${localSubnet})`,
     localSubnet,
-    now,
+    netInfo.interfaceAlias || 'eth0',
     JSON.stringify({ role: 'Access LAN Subnet', hostsCount: netInfo.arpNeighborsCount || 1, evidenceClassification: 'Observed_Local_Interface' })
   );
 
@@ -1027,19 +1055,17 @@ function syncTopologyWithCurrentLocation(dbInstance) {
 
   db.prepare(`
     INSERT INTO topology_nodes (id, name, hostname_or_ip, mac_address, type, layer, layer_level, parent_id, status, last_checked, last_latency_ms, vendor, if_name, x, y, metadata)
-    VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'healthy', ?, NULL, ?, ?, 1080, 140, ?)
+    VALUES ('NODE-HOST-01', ?, ?, ?, 'host', 'endpoint', 6, 'NODE-LAN-01', 'unprobed', NULL, NULL, ?, ?, 1080, 140, ?)
     ON CONFLICT(id) DO UPDATE SET 
       name = excluded.name,
       hostname_or_ip = excluded.hostname_or_ip,
       vendor = excluded.vendor,
       if_name = excluded.if_name,
-      mac_address = excluded.mac_address,
-      last_checked = excluded.last_checked
+      mac_address = excluded.mac_address
   `).run(
     `Local Workstation Host (${hostIp})`,
     hostIp,
     netInfo.macAddress,
-    now,
     hostVendor,
     hostIfType,
     JSON.stringify({ role: 'NOC Analyst Workstation', os: os.platform(), evidenceClassification: 'Observed_Local_Interface' })
@@ -1071,7 +1097,6 @@ function syncTopologyWithCurrentLocation(dbInstance) {
           `Discovered Host (${peer.ip})`,
           peer.ip,
           peer.mac,
-          now,
           peer.vendor || 'Discovered LAN Host',
           JSON.stringify({ discovery: 'arp_inspection', role: 'Access LAN Peer', index: idx, evidenceClassification: 'Observed' })
         );

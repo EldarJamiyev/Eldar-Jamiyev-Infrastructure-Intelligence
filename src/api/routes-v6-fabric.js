@@ -345,16 +345,22 @@ router.post('/correlate', authenticate, (req, res) => {
     }));
   }
   const body = req.body || {};
-  if (body.target && typeof body.target === 'string') {
-    const rawTarget = body.target.trim();
-    if (/^169\.254\.169\.254$/i.test(rawTarget) || /metadata\.google/i.test(rawTarget)) {
-      return res.status(400).json(createEjiiResult({
-        success: false,
-        capabilityId: 'ejii.correlation.cross_layer_rca',
-        status: 'blocked',
-        error: { code: 'SECURITY_VIOLATION_SSRF', message: 'Target hostname rejected by SSRF guard.' }
-      }));
-    }
+  const explicitCorrTarget = String(body.target || body.hostname || '').trim();
+  if (!explicitCorrTarget) {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.correlation.cross_layer_rca',
+      status: 'invalid_input',
+      error: { code: 'VALIDATION_FAILED', message: 'Field target (hostname or IP address) is required.' }
+    }));
+  }
+  if (/^169\.254\.169\.254$/i.test(explicitCorrTarget) || /metadata\.google/i.test(explicitCorrTarget)) {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.correlation.cross_layer_rca',
+      status: 'blocked',
+      error: { code: 'SECURITY_VIOLATION_SSRF', message: 'Target hostname rejected by SSRF guard.' }
+    }));
   }
   const report = crossLayerIncidentCorrelator.correlateSignals(body);
   res.json(createEjiiResult({
@@ -2447,8 +2453,48 @@ router.post('/sovereign/crdt/reconcile', authenticate, (req, res) => {
     }));
   }
   const { geoPartitionCrdtEngine } = require('../core/multisite/geo-partition-crdt-engine');
-  const targetPartition = String(req.body?.targetPartition || '').trim() || geoPartitionCrdtEngine.getLocalSiteId();
-  const result = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition);
+  const targetPartition = String(req.body?.targetPartition || '').trim();
+  if (!targetPartition || targetPartition.toLowerCase() === geoPartitionCrdtEngine.getLocalSiteId().toLowerCase()) {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+      status: 'invalid_input',
+      error: {
+        code: 'INVALID_TARGET_PARTITION',
+        message: `A non-local remote targetPartition distinct from '${geoPartitionCrdtEngine.getLocalSiteId()}' is required.`
+      }
+    }));
+  }
+  const remoteClock = req.body?.remoteClock && typeof req.body.remoteClock === 'object' ? req.body.remoteClock : {};
+  const remoteDeltas = Array.isArray(req.body?.remoteDeltas) ? req.body.remoteDeltas : [];
+  const result = geoPartitionCrdtEngine.reconcileWithRemotePartition(targetPartition, remoteClock, remoteDeltas);
+  if (result.convergenceStatus === 'INVALID_SELF_TARGET') {
+    return res.status(400).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+      status: 'invalid_input',
+      error: { code: 'INVALID_TARGET_PARTITION', message: result.error || 'Invalid target partition.' },
+      data: result
+    }));
+  }
+  if (result.convergenceStatus === 'NO_REMOTE_DELTAS_AVAILABLE') {
+    return res.status(409).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+      status: 'no_remote_deltas',
+      error: { code: 'NO_REMOTE_DELTAS_AVAILABLE', message: result.error || 'No unreconciled remote deltas available.' },
+      data: result
+    }));
+  }
+  if (result.convergenceStatus === 'SQLITE_PERSISTENCE_FAILED') {
+    return res.status(500).json(createEjiiResult({
+      success: false,
+      capabilityId: 'ejii.v6.sovereign.crdt_reconcile',
+      status: 'failed',
+      error: { code: 'SQLITE_PERSISTENCE_FAILED', message: result.error || 'Failed to persist reconciliation state.' },
+      data: result
+    }));
+  }
   res.json(createEjiiResult({
     success: true,
     capabilityId: 'ejii.v6.sovereign.crdt_reconcile',

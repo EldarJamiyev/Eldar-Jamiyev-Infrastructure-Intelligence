@@ -162,8 +162,29 @@ try {
     failures++;
     divergences.push('BEHAVIOR_ERROR: RoutingRadixIntelligenceEngine pre-seeded synthetic 192.168.31.1 route');
   }
+
+  const { GeoPartitionCrdtEngine } = require(path.join(ROOT_DIR, 'src', 'core', 'multisite', 'geo-partition-crdt-engine.js'));
+  const crdtParity = new GeoPartitionCrdtEngine('site-parity-primary', { dbHandle: null });
+  const selfReport = crdtParity.reconcileWithRemotePartition('site-parity-primary', {}, []);
+  if (!selfReport || selfReport.convergenceStatus !== 'INVALID_SELF_TARGET') {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: GeoPartitionCrdtEngine did not reject self-partition sync with INVALID_SELF_TARGET');
+  }
+  const emptyReport = crdtParity.reconcileWithRemotePartition('site-parity-eu', {}, []);
+  if (!emptyReport || emptyReport.convergenceStatus !== 'NO_REMOTE_DELTAS_AVAILABLE') {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: GeoPartitionCrdtEngine allowed vacuous remote sync without deltas or clock');
+  }
+  const realReport = crdtParity.reconcileWithRemotePartition('site-parity-eu', { 'site-parity-eu': 2 }, [
+    { crdtType: 'PN_COUNTER', key: 'parity_counter', operation: 'MERGE', deltaPayload: { positive: { 'site-parity-eu': 4 }, negative: {} } }
+  ]);
+  if (!realReport || realReport.convergenceStatus !== 'CONVERGED' || crdtParity.getCounterValue('parity_counter') !== 4) {
+    failures++;
+    divergences.push('BEHAVIOR_ERROR: GeoPartitionCrdtEngine failed real PN_COUNTER delta convergence check');
+  }
+
   if (failures === 0) {
-    console.log('  ✓ Behavioral smoke checks passed (RlofPreferenceAligner finite guards, RoutingRadixIntelligenceEngine clean state)');
+    console.log('  ✓ Behavioral smoke checks passed (RlofPreferenceAligner finite guards, RoutingRadixIntelligenceEngine clean state, GeoPartitionCrdtEngine fail-closed & convergence)');
   }
 } catch (behErr) {
   failures++;
