@@ -1,3 +1,470 @@
+@layer tokens, reset, base, layout, glass, components, workstations, utilities;
+
+/* ==========================================================================
+ * EJII v7.0 — OBSIDIAN HORIZON GLASS AUTHENTICATION & MERIDIAN SURFACE
+ * (public/css/ejii-meridian.css)
+ * Matches Reference Frosted-Glass Login Architecture with Tech Aurora
+ * Refraction, Pill Inputs, Right-Aligned SVG Icons, White Pill CTA,
+ * 2x2 Evaluation Workstation Chips & Zero Inner Scrollbars
+ * ========================================================================== */
+
+@layer glass {
+  /* 1. Full-Viewport Tech Horizon Atmospheric Canvas */
+  #loginScreen,
+  .login-screen,
+  .login-viewport {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    overflow: hidden !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background-color: #050811 !important;
+    background-image:
+      radial-gradient(circle at 50% 36%, rgba(225, 29, 72, 0.38) 0%, rgba(190, 24, 93, 0.20) 28%, transparent 62%),
+      radial-gradient(circle at 52% 58%, rgba(245, 158, 11, 0.28) 0%, rgba(217, 119, 6, 0.10) 32%, transparent 58%),
+      radial-gradient(circle at 20% 24%, rgba(6, 182, 212, 0.22) 0%, transparent 48%),
+      radial-gradient(circle at 82% 78%, rgba(49, 46, 129, 0.48) 0%, transparent 56%),
+      linear-gradient(180deg, #04060e 0%, #090d1c 52%, #140d26 84%, #050811 100%) !important;
+    z-index: 9999;
+    isolation: isolate;
+  }
+
+  /* Subtle Architectural Coordinate Grid & Horizon Vignette */
+  #loginScreen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.88) 18%, transparent 82%);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.88) 18%, transparent 82%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Slow-Drifting Horizon Aurora Orbs Behind the Frosted Card */
+  #loginScreen::after,
+  .login-aurora-orb,
+  .aurora-orb-primary,
+  .aurora-orb-secondary {
+    content: '';
+    position: absolute;
+    width: 560px;
+    height: 560px;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(225, 29, 72, 0.44) 0%,
+      rgba(245, 158, 11, 0.28) 40%,
+      rgba(6, 182, 212, 0.18) 72%,
+      transparent 100%
+    );
+    filter: blur(76px);
+    opacity: 0.84;
+    pointer-events: none;
+    will-change: transform;
+    transform: translateZ(0);
+    animation: ejiiAuroraFloat 22s var(--ease-in-out-sine) infinite;
+    z-index: 0;
+  }
+
+  /* Neutralize Legacy Opaque Wrapper Containers */
+  #loginScreen .login-container,
+  #loginScreen .login-wrapper,
+  #loginScreen .login-grid,
+  #loginScreen .login-right-pane {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 432px;
+    margin: 0 auto;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Hide Legacy Left Split-Column if Present so Card Remains Pure Centered Glass */
+  #loginScreen .login-left-pane,
+  #loginScreen .login-brand-column {
+    display: none !important;
+  }
+
+  /* 2. Centered Frosted Glass Login Card (#loginGlassCard) */
+  #loginGlassCard,
+  .login-glass-card,
+  #loginScreen .login-card,
+  #loginScreen .auth-card {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 432px;
+    max-height: calc(100dvh - 32px);
+    overflow: hidden;
+    padding: 28px 32px !important;
+    border-radius: 24px !important;
+    background: rgba(12, 16, 28, 0.42) !important;
+    backdrop-filter: blur(26px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(26px) saturate(185%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.28) !important;
+    box-shadow:
+      0 32px 64px -16px rgba(0, 0, 0, 0.78),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      inset 0 0 28px rgba(255, 255, 255, 0.03) !important;
+    color: #ffffff !important;
+    transform: translateZ(0);
+    transition:
+      border-color var(--duration-normal) ease,
+      box-shadow var(--duration-normal) ease;
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    #loginGlassCard,
+    .login-glass-card,
+    #loginScreen .login-card {
+      background: rgba(14, 19, 34, 0.88) !important;
+    }
+  }
+
+  /* Cursor-Tracking Radial Specular Sheen */
+  #loginGlassCard::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      360px circle at var(--mouse-x, 50%) var(--mouse-y, 0%),
+      rgba(255, 255, 255, 0.54),
+      transparent 65%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* 3. Card Header: Status Pill + 800-Weight Bricolage Grotesque Title */
+  .login-status-pill,
+  .workstation-access-pill,
+  #loginGlassCard .status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+    margin: 0 auto 12px auto;
+  }
+
+  .login-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: #10b981;
+    box-shadow: 0 0 10px #10b981;
+    animation: ejiiPulseDot 2.4s ease-in-out infinite;
+  }
+
+  #loginGlassCard h1,
+  #loginScreen h1,
+  .login-title {
+    font-family: var(--font-display) !important;
+    font-size: 30px !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em !important;
+    line-height: 1.15 !important;
+    color: #ffffff !important;
+    text-align: center !important;
+    margin: 0 0 6px 0 !important;
+  }
+
+  .login-subtitle,
+  #loginGlassCard p.subtitle {
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.74) !important;
+    text-align: center;
+    margin: 0 0 18px 0;
+  }
+
+  /* 4. Pill-Shaped Translucent Inputs with Right-Aligned White Line Icons */
+  .login-input-group,
+  .login-field-wrap,
+  #loginForm .form-group {
+    position: relative;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  #loginGlassCard label:not(.login-remember-label) {
+    display: none;
+  }
+
+  #loginGlassCard input[type="text"],
+  #loginGlassCard input[type="password"],
+  #loginUsername,
+  #loginPassword,
+  .login-pill-input {
+    width: 100% !important;
+    height: 45px !important;
+    padding: 0 44px 0 18px !important;
+    border-radius: var(--radius-pill) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.28) !important;
+    color: #ffffff !important;
+    font-family: var(--font-sans) !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18) !important;
+    transition:
+      border-color var(--duration-fast) ease,
+      background-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease !important;
+  }
+
+  #loginGlassCard input::placeholder,
+  #loginUsername::placeholder,
+  #loginPassword::placeholder {
+    color: rgba(255, 255, 255, 0.68) !important;
+    opacity: 1 !important;
+  }
+
+  #loginGlassCard input:focus,
+  #loginUsername:focus,
+  #loginPassword:focus {
+    outline: none !important;
+    background: rgba(255, 255, 255, 0.14) !important;
+    border-color: rgba(255, 255, 255, 0.92) !important;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15) !important;
+  }
+
+  /* Keep Browser Autofill Translucent on Glass */
+  #loginGlassCard input:-webkit-autofill,
+  #loginGlassCard input:-webkit-autofill:hover,
+  #loginGlassCard input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #ffffff !important;
+    -webkit-box-shadow: 0 0 0 1000px rgba(18, 24, 42, 0.85) inset !important;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+
+  .login-input-icon,
+  .login-password-toggle,
+  #passwordToggleBtn {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.82) !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    z-index: 3;
+    transition: color var(--duration-fast) ease;
+  }
+
+  .login-password-toggle:hover,
+  #passwordToggleBtn:hover {
+    color: #ffffff !important;
+  }
+
+  /* 5. Single-Line Utility Row: Remember Me & Forgot Password */
+  .login-utility-row,
+  .login-options-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 2px 4px 14px 4px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .login-remember-label {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.88) !important;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .login-remember-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: #ffffff;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .login-forgot-link {
+    color: rgba(255, 255, 255, 0.86) !important;
+    font-size: 12px;
+    font-weight: 500;
+    transition: color var(--duration-fast) ease;
+  }
+
+  .login-forgot-link:hover {
+    color: #ffffff !important;
+    text-decoration: underline;
+  }
+
+  /* 6. Solid White Pill Primary CTA Button (Log in) */
+  #loginSubmitBtn,
+  .login-submit-btn,
+  #loginForm button[type="submit"] {
+    width: 100% !important;
+    height: 45px !important;
+    border-radius: var(--radius-pill) !important;
+    background: #ffffff !important;
+    color: #060913 !important;
+    border: 1px solid #ffffff !important;
+    font-family: var(--font-sans) !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.01em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 10px 25px -6px rgba(255, 255, 255, 0.38) !important;
+    transition:
+      transform var(--duration-fast) var(--ease-out-expo),
+      box-shadow var(--duration-fast) ease,
+      background-color var(--duration-fast) ease !important;
+  }
+
+  #loginSubmitBtn:hover,
+  .login-submit-btn:hover,
+  #loginForm button[type="submit"]:hover {
+    transform: translateY(-2px);
+    background: #f8fafc !important;
+    box-shadow: 0 14px 32px -6px rgba(255, 255, 255, 0.50) !important;
+  }
+
+  #loginSubmitBtn:active,
+  .login-submit-btn:active {
+    transform: translateY(0);
+  }
+
+  /* 7. Compact 2x2 Frosted Workstation Profile Selector Chips */
+  .login-divider {
+    height: 1px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.12);
+    margin: 14px 0 10px 0;
+  }
+
+  .login-profiles-header {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.65);
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  .login-profiles-grid,
+  .eval-profiles-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    width: 100%;
+  }
+
+  .login-profile-chip,
+  .eval-profile-btn,
+  .role-preset-btn {
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.065) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      transform var(--duration-fast) ease;
+  }
+
+  .login-profile-chip:hover,
+  .eval-profile-btn:hover,
+  .role-preset-btn:hover {
+    background: rgba(255, 255, 255, 0.14) !important;
+    border-color: rgba(255, 255, 255, 0.36) !important;
+    transform: translateY(-1px);
+  }
+
+  /* Quick Evaluation Link & Inline Telemetry Footer */
+  .login-quick-eval-btn,
+  #quickNocBtn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 7px 12px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: center;
+    transition: background-color var(--duration-fast) ease;
+  }
+
+  .login-quick-eval-btn:hover,
+  #quickNocBtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+  }
+
+  .login-telemetry-strip {
+    margin-top: 12px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.10);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.66);
+  }
+}
+
+@layer glass {
 /*
  * EJII Aurora & Meridian — Quiet Luxury Enterprise Infrastructure Intelligence Design System.
  * Art direction: calm, architectural, warm stone & sage light mode + warm graphite dark mode.
@@ -2638,5 +3105,4 @@ body.ejii-human-calm-mode .ejii-plain-english-summary {
   line-height: 1.5;
   color: var(--text-primary);
 }
-
-
+}

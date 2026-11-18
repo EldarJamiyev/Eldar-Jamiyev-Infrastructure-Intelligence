@@ -1,3 +1,140 @@
+@layer tokens, reset, base, layout, glass, components, workstations, utilities;
+
+/* ==========================================================================
+ * EJII v7.0 — SOVEREIGN INFRASTRUCTURE ACADEMY (public/css/learning-center.css)
+ * Network Engineering (CCNA 200-301) & System Administration Academies,
+ * 8 Interactive Labs, 3-Tier Socratic AI Mentor & SM-2 Spaced Repetition
+ * ========================================================================== */
+
+@layer workstations {
+  .learning-center-shell,
+  .academy-shell {
+    padding: 20px 24px 40px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+  }
+
+  /* 1. Deep Lab-Embedded Adaptive AI Socratic Mentor Bar */
+  #ejiiSocraticMentorBar,
+  .socratic-mentor-bar {
+    padding: 14px 18px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.12) 0%,
+      rgba(245, 158, 11, 0.10) 100%
+    );
+    border: 1px solid var(--accent-cyan-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* 3-Tier Pedagogical Explanation Switcher (Beginner / NOC / Architect) */
+  .pedagogy-tier-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-surface-2);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .pedagogy-tier-btn {
+    padding: 5px 10px;
+    border-radius: var(--radius-xs);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: all var(--duration-fast) ease;
+  }
+
+  .pedagogy-tier-btn.active {
+    background-color: var(--accent-cyan);
+    color: #060913;
+  }
+
+  /* 2. Course & Module Grid (8 Courses, 24 Modules, 72 Lessons) */
+  .academy-course-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 16px;
+  }
+
+  .academy-course-card {
+    padding: 18px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 12px;
+    transition:
+      transform var(--duration-fast) var(--ease-out-expo),
+      border-color var(--duration-fast) ease;
+  }
+
+  .academy-course-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-cyan-border);
+  }
+
+  /* 3. Interactive Lab Sandbox & Binary Subnetting Matrix */
+  .lab-workbench-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+    gap: 16px;
+  }
+
+  @media (max-width: 1100px) {
+    .lab-workbench-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .lab-terminal {
+    padding: 16px;
+    border-radius: var(--radius-md);
+    background-color: #030712;
+    border: 1px solid var(--border-default);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #e2e8f0;
+    overflow-x: auto;
+  }
+
+  /* 4. SuperMemo-2 (SM-2) Spaced-Repetition Flashcard Deck */
+  .sm2-flashcard-stage {
+    perspective: 1000px;
+    width: 100%;
+    max-width: 580px;
+    margin: 0 auto;
+  }
+
+  .sm2-flashcard {
+    min-height: 220px;
+    padding: 24px;
+    border-radius: var(--radius-lg);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-md);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+  }
+}
+
+@layer workstations {
 /**
  * EJII Learning Center — Sovereign Enterprise Learning Design System
  * Architectural Cashmere & Velvet Graphite aesthetic matching EJII design tokens.
@@ -631,4 +768,5 @@
 
 .ejii-learning-textarea:focus {
   border-color: var(--border-focus, #2b44b8);
+}
 }

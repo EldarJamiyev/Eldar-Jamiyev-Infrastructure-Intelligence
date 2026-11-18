@@ -1,0 +1,196 @@
+/* ==========================================================================
+ * EJII v7.0 — AUTONOMOUS AI INFRASTRUCTURE OPERATOR (public/css/ai-operator-peak.css)
+ * High-Craft Meridian Executive Surface (Light & Dark Adaptive)
+ * Covers:
+ *   - 6-Card Live Telemetry Pulse Ribbon (.ai-op-telemetry-ribbon)
+ *   - Persona Mode Switcher (NOC / Helpdesk / Systems Admin)
+ *   - 4-Agent AI Operations Council & Lyapunov Stability Gate
+ *   - Closed-Loop Runbook Execution Deck (RB-01 through RB-08)
+ *   - Bayesian Field Observation Steering & L1-to-L3 Escalation Dossier
+ * ========================================================================== */
+
+@layer workstations {
+  .ai-op-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 24px 36px 24px;
+    color: var(--text-primary);
+    min-width: 0;
+  }
+
+  .ai-op-num,
+  .ai-op-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 1. Live Telemetry Pulse Ribbon */
+  .ai-op-telemetry-ribbon {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 1px;
+    background: var(--border-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .ai-op-telemetry-cell {
+    background: var(--bg-surface-1);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .ai-op-telemetry-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ai-op-telemetry-value {
+    font-family: var(--font-mono);
+    font-size: 17px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ai-op-telemetry-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 2. Cockpit Header & Persona Switcher (NOC / Helpdesk / SysAdmin) */
+  .ai-op-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .ai-op-persona-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-surface-2);
+    border: 1px solid var(--border-hairline);
+  }
+
+  .ai-op-persona-btn {
+    padding: 6px 12px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition:
+      background-color var(--duration-fast) ease,
+      color var(--duration-fast) ease;
+  }
+
+  .ai-op-persona-btn.active {
+    background-color: var(--accent-primary);
+    color: #060913;
+  }
+
+  /* 3. 4-Agent AI Operations Council Grid */
+  .ai-op-council-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  @media (max-width: 1200px) {
+    .ai-op-council-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .ai-op-council-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .ai-op-agent-card {
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* 4. Closed-Loop Executable Runbooks (RB-01 to RB-08) */
+  .ai-op-runbook-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(225px, 1fr));
+    gap: 10px;
+  }
+
+  .ai-op-runbook-card {
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    transition:
+      border-color var(--duration-fast) ease,
+      transform var(--duration-fast) var(--ease-out-expo);
+  }
+
+  .ai-op-runbook-card:hover {
+    border-color: var(--accent-primary-border);
+    transform: translateY(-1px);
+  }
+
+  /* 5. Solo Secondment L1-to-L3 Escalation Copilot & Shift Handover */
+  .ai-op-escalation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  @media (max-width: 1024px) {
+    .ai-op-escalation-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .ai-op-dossier-card {
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+}

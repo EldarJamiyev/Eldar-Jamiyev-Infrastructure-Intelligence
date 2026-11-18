@@ -1,0 +1,172 @@
+/* ==========================================================================
+ * EJII v7.0 — PACKET DISSECTOR, CORE DIAGNOSTICS & TACTICAL GRID
+ * (public/css/eji-premium.css)
+ * Zero opaque overrides on #loginScreen / #loginGlassCard.
+ * Covers:
+ *   - 3-Pane Wireshark RFC Binary Dissector (Stream + Header Tree + Hex/ASCII)
+ *   - Ultra IP & Fleet Discovery Scanner
+ *   - Sysinternals 3-Column Core Diagnostics & 5-Agent War Room
+ *   - Unified 4-Quadrant Tactical Command Grid (TCPView + TrafficView + Scanner)
+ * ========================================================================== */
+
+@layer workstations {
+  /* 1. Wireshark-Grade 3-Pane Live Packet Analysis (sniffer-view.js) */
+  .sniffer-shell,
+  .sniffer-workbench {
+    display: grid;
+    grid-template-rows: auto minmax(220px, 1.15fr) minmax(210px, 1fr);
+    gap: 12px;
+    padding: 16px 20px;
+    height: calc(100dvh - var(--topbar-height));
+    min-width: 0;
+  }
+
+  .sniffer-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .sniffer-filter-input {
+    flex: 1;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: var(--radius-xs);
+    background-color: var(--bg-surface-2);
+    border: 1px solid var(--border-default);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .sniffer-filter-input.valid {
+    border-color: var(--status-healthy-border);
+  }
+
+  .sniffer-filter-input.invalid {
+    border-color: var(--status-critical-border);
+  }
+
+  .sniffer-bottom-panes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    min-height: 0;
+  }
+
+  @media (max-width: 1024px) {
+    .sniffer-bottom-panes {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .sniffer-pane {
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hex-ascii-grid {
+    display: grid;
+    grid-template-columns: 68px 1fr 148px;
+    gap: 12px;
+    padding: 12px;
+    line-height: 1.6;
+  }
+
+  /* 2. Ultra IP & Infrastructure Fleet Discovery Scanner */
+  .scanner-shell {
+    padding: 20px 24px 36px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .scanner-summary-strip {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  @media (max-width: 1180px) {
+    .scanner-summary-strip {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* 3. Sysinternals-Grade Core Diagnostics 3-Column Workbench */
+  .core-diag-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding: 20px 24px 36px 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 1200px) {
+    .core-diag-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* 4. Unified 4-Quadrant Tactical Command Grid */
+  .quad-command-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(310px, 1fr));
+    gap: 14px;
+    padding: 18px 22px;
+  }
+
+  @media (max-width: 1180px) {
+    .quad-command-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+  }
+
+  .quad-cell {
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .quad-cell-header {
+    padding: 10px 14px;
+    background-color: var(--bg-surface-2);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .quad-status-footer {
+    margin-top: auto;
+    padding: 6px 12px;
+    background-color: var(--bg-surface-2);
+    border-top: 1px solid var(--border-hairline);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

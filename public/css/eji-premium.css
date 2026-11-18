@@ -1,3 +1,179 @@
+@layer tokens, reset, base, layout, glass, components, workstations, utilities;
+
+/* ==========================================================================
+ * EJII v7.0 — PACKET DISSECTOR, CORE DIAGNOSTICS & TACTICAL GRID
+ * (public/css/eji-premium.css)
+ * Zero opaque overrides on #loginScreen / #loginGlassCard.
+ * Covers:
+ *   - 3-Pane Wireshark RFC Binary Dissector (Stream + Header Tree + Hex/ASCII)
+ *   - Ultra IP & Fleet Discovery Scanner
+ *   - Sysinternals 3-Column Core Diagnostics & 5-Agent War Room
+ *   - Unified 4-Quadrant Tactical Command Grid (TCPView + TrafficView + Scanner)
+ * ========================================================================== */
+
+@layer workstations {
+  /* 1. Wireshark-Grade 3-Pane Live Packet Analysis (sniffer-view.js) */
+  .sniffer-shell,
+  .sniffer-workbench {
+    display: grid;
+    grid-template-rows: auto minmax(220px, 1.15fr) minmax(210px, 1fr);
+    gap: 12px;
+    padding: 16px 20px;
+    height: calc(100dvh - var(--topbar-height));
+    min-width: 0;
+  }
+
+  .sniffer-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .sniffer-filter-input {
+    flex: 1;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: var(--radius-xs);
+    background-color: var(--bg-surface-2);
+    border: 1px solid var(--border-default);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .sniffer-filter-input.valid {
+    border-color: var(--status-healthy-border);
+  }
+
+  .sniffer-filter-input.invalid {
+    border-color: var(--status-critical-border);
+  }
+
+  .sniffer-bottom-panes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    min-height: 0;
+  }
+
+  @media (max-width: 1024px) {
+    .sniffer-bottom-panes {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .sniffer-pane {
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hex-ascii-grid {
+    display: grid;
+    grid-template-columns: 68px 1fr 148px;
+    gap: 12px;
+    padding: 12px;
+    line-height: 1.6;
+  }
+
+  /* 2. Ultra IP & Infrastructure Fleet Discovery Scanner */
+  .scanner-shell {
+    padding: 20px 24px 36px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .scanner-summary-strip {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  @media (max-width: 1180px) {
+    .scanner-summary-strip {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* 3. Sysinternals-Grade Core Diagnostics 3-Column Workbench */
+  .core-diag-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding: 20px 24px 36px 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 1200px) {
+    .core-diag-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* 4. Unified 4-Quadrant Tactical Command Grid */
+  .quad-command-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(310px, 1fr));
+    gap: 14px;
+    padding: 18px 22px;
+  }
+
+  @media (max-width: 1180px) {
+    .quad-command-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+  }
+
+  .quad-cell {
+    background-color: var(--bg-surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .quad-cell-header {
+    padding: 10px 14px;
+    background-color: var(--bg-surface-2);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .quad-status-footer {
+    margin-top: auto;
+    padding: 6px 12px;
+    background-color: var(--bg-surface-2);
+    border-top: 1px solid var(--border-hairline);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@layer workstations {
 /**
  * EJII Enterprise Platform Premium Stylesheet — Light-First Design System
  * Clean, restrained, professional enterprise IT operations workstation interface.
@@ -320,370 +496,6 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
-}
-
-/* =========================================================================
-   Login Screen & Modals (Dark-Tech Frosted Glassmorphism Architecture)
-   ========================================================================= */
-#loginScreen,
-.login-screen-wrapper {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #050811;
-  z-index: 9999;
-  padding: 16px;
-  overflow: hidden;
-}
-
-.login-container,
-.login-shell {
-  position: relative;
-  z-index: 2;
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-}
-
-#loginGlassCard,
-.login-card {
-  width: 92%;
-  max-width: 430px;
-  height: auto;
-  overflow: visible;
-  background: rgba(12, 16, 28, 0.42) !important;
-  backdrop-filter: blur(26px) saturate(185%) !important;
-  -webkit-backdrop-filter: blur(26px) saturate(185%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.28) !important;
-  border-radius: 24px !important;
-  padding: 30px 34px !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 32px 64px -16px rgba(0, 0, 0, 0.75) !important;
-  color: #FFFFFF;
-}
-
-.login-status-capsule {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding-bottom: 0;
-  border-bottom: 0;
-  margin-bottom: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.status-radar-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: #34D399;
-  border-radius: 50%;
-  margin-right: 6px;
-}
-
-.login-card-header {
-  text-align: center;
-  margin-bottom: 12px;
-}
-
-.login-brand-emblem-wrap {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-
-.login-brand-emblem-wrap .monogram-box {
-  width: 40px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #FFFFFF;
-  font-weight: 800;
-  font-size: 15px;
-}
-
-.login-brand-title {
-  font-family: var(--font-display);
-  font-size: 28px;
-  font-weight: 800;
-  color: #FFFFFF;
-  letter-spacing: -0.03em;
-  line-height: 1.12;
-  margin: 0;
-}
-
-.login-brand-subtitle {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.78);
-  margin: 4px 0 0 0;
-}
-
-/* Environment Introspection Bar: Sleek Inline Strip */
-.login-telemetry-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
-  margin-bottom: 8px;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.telemetry-chip {
-  display: flex;
-  flex-direction: column;
-  text-align: center;
-  background: rgba(5, 8, 17, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  padding: 4px 6px;
-}
-
-.telemetry-label {
-  font-size: 7.5px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.54);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.telemetry-value {
-  font-size: 9px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  color: rgba(255, 255, 255, 0.92);
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.val-cyan { color: #38BDF8; }
-.val-emerald { color: #34D399; }
-.val-purple { color: #A78BFA; }
-.val-amber { color: #FBBF24; }
-
-/* Role Selection: Compact Segmented Control */
-.role-segmented-control {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  background: rgba(5, 8, 17, 0.36);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  padding: 4px;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.role-segment-btn {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 5px 8px;
-  font-size: 10.5px;
-  font-weight: 550;
-  color: rgba(255, 255, 255, 0.74);
-  cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.role-segment-btn:hover {
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, 0.10);
-}
-
-.role-segment-btn.active-profile {
-  background: rgba(255, 255, 255, 0.18) !important;
-  color: #FFFFFF !important;
-  font-weight: 650 !important;
-  border: 1px solid rgba(255, 255, 255, 0.36) !important;
-}
-
-.login-quick-cta-btn {
-  width: 100%;
-  background: rgba(14, 165, 233, 0.16);
-  color: #E0F2FE;
-  border: 1px solid rgba(56, 189, 248, 0.38);
-  border-radius: 9999px;
-  padding: 7px 14px;
-  font-weight: 600;
-  font-size: 11px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
-  margin-bottom: 0;
-}
-
-.login-quick-cta-btn:hover {
-  background: rgba(14, 165, 233, 0.26);
-  border-color: rgba(56, 189, 248, 0.62);
-  color: #FFFFFF;
-}
-
-.login-quick-cta-btn:active {
-  transform: scale(0.98);
-}
-
-.login-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  font-size: 8.5px;
-  color: rgba(255, 255, 255, 0.56);
-  font-family: var(--font-mono);
-  margin: 10px 0 8px;
-}
-
-.login-divider::before, .login-divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.login-divider span {
-  padding: 0 8px;
-}
-
-.login-form-group {
-  margin-bottom: 10px;
-}
-
-.login-form-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
-  font-family: var(--font-mono);
-  margin-bottom: 4px;
-  letter-spacing: 0.04em;
-}
-
-.login-input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.login-input-icon {
-  position: absolute;
-  left: 10px;
-  color: rgba(255, 255, 255, 0.7);
-  pointer-events: none;
-}
-
-.login-input {
-  width: 100%;
-  height: 46px;
-  background: transparent;
-  border: 0;
-  border-radius: 9999px;
-  padding: 0 48px 0 20px;
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  color: #FFFFFF;
-  outline: none;
-}
-
-.login-btn-submit {
-  width: 100%;
-  height: 46px;
-  background: #FFFFFF;
-  color: #060913;
-  border: 1px solid #FFFFFF;
-  border-radius: 9999px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  margin-top: 2px;
-}
-
-.login-btn-submit:hover {
-  background: #F8FAFC;
-  transform: translateY(-2px);
-}
-
-.login-btn-submit:active {
-  transform: scale(0.98);
-}
-
-.login-error-alert {
-  background: rgba(220, 38, 38, 0.22);
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  border-radius: 12px;
-  padding: 8px 12px;
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: #FECACA;
-}
-
-.login-card-footer {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  text-align: center;
-}
-
-.login-badges {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  margin-bottom: 4px;
-  flex-wrap: wrap;
-}
-
-.hud-pill {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.78);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  padding: 2px 7px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.hud-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-.dot-green { background: var(--status-nominal); }
-.dot-cyan { background: var(--accent-primary); }
-.dot-purple { background: #7C3AED; }
-
-.login-footer-meta {
-  font-size: 9.5px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
 }
 
 /* =========================================================================
@@ -1566,4 +1378,5 @@ svg path#dynamicFlowRoutePath {
 .ejii-meta-clean strong {
   color: var(--text-primary);
   font-weight: 600;
+}
 }
